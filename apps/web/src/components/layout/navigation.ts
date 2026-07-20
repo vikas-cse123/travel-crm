@@ -43,7 +43,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Vendors', to: '/vendors', icon: Building2, available: false },
   // Users, Reports and Settings have permissions already, but their screens
   // are Phase 4+ work, so they stay disabled here.
-  { label: 'Users', to: '/users', icon: Users, available: false },
+  {
+    label: 'Users',
+    to: '/users',
+    icon: Users,
+    available: true,
+    permission: PERMISSIONS.USERS_VIEW,
+  },
   { label: 'Reports', to: '/reports', icon: BarChart3, available: false },
   { label: 'Settings', to: '/settings', icon: Settings, available: false },
 ] as const;

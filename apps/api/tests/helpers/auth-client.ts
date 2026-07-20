@@ -99,6 +99,22 @@ export function createAuthClient(app: Express, initial: CookieJar = { raw: [] })
       jar = readCookies(response.headers['set-cookie'] as string[] | undefined, jar);
       return response;
     },
+
+    async patch(path: string, body?: unknown) {
+      let req = request(app).patch(path).set('Origin', TEST_ORIGIN);
+      const cookies = cookieHeader(jar);
+      if (cookies) req = req.set('Cookie', cookies);
+      if (jar.csrf) req = req.set('X-CSRF-Token', jar.csrf);
+      return body === undefined ? req.send() : req.send(body as string | object);
+    },
+
+    async delete(path: string) {
+      let req = request(app).delete(path).set('Origin', TEST_ORIGIN);
+      const cookies = cookieHeader(jar);
+      if (cookies) req = req.set('Cookie', cookies);
+      if (jar.csrf) req = req.set('X-CSRF-Token', jar.csrf);
+      return req.send();
+    },
   };
 }
 

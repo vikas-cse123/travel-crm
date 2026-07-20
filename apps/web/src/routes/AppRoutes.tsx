@@ -9,6 +9,10 @@ import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { SystemStatusPage } from '@/pages/SystemStatusPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
+import { UsersPage } from '@/pages/users/UsersPage';
+import { NewUserPage } from '@/pages/users/NewUserPage';
+import { UserDetailsPage } from '@/pages/users/UserDetailsPage';
+import { EditUserPage } from '@/pages/users/EditUserPage';
 
 /**
  * Route table.
@@ -43,6 +47,10 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           {/* Retained from Phase 1 for infrastructure checks. */}
           <Route path="/system-status" element={<SystemStatusPage />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/users/new" element={<NewUserPage />} />
+          <Route path="/users/:userId" element={<UserDetailsPage />} />
+          <Route path="/users/:userId/edit" element={<EditUserPage />} />
         </Route>
       </Route>
 

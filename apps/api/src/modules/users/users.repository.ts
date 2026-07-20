@@ -52,6 +52,9 @@ export interface UserListFilters {
   includeDeleted?: boolean | undefined;
 }
 
+export type UserSortField =
+  'fullName' | 'username' | 'email' | 'status' | 'lastLoginAt' | 'createdAt';
+
 function buildListWhere(tenant: TenantContext, filters: UserListFilters): Prisma.UserWhereInput {
   const where: Prisma.UserWhereInput = filters.includeDeleted
     ? tenantWhere(tenant)
@@ -82,7 +85,15 @@ function buildListWhere(tenant: TenantContext, filters: UserListFilters): Prisma
 
 export const usersRepository = {
   /** Page through a company's users. Soft-deleted rows are excluded by default. */
-  async list(tenant: TenantContext, filters: UserListFilters, pagination: PaginationParams) {
+  async list(
+    tenant: TenantContext,
+    filters: UserListFilters,
+    pagination: PaginationParams,
+    sort: { sortBy: UserSortField; sortOrder: Prisma.SortOrder } = {
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    },
+  ) {
     const where = buildListWhere(tenant, filters);
     const { skip, take } = toPrismaPagination(pagination);
 
@@ -90,7 +101,7 @@ export const usersRepository = {
       prisma.user.findMany({
         where,
         select: USER_SAFE_SELECT,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [sort.sortBy]: sort.sortOrder },
         skip,
         take,
       }),
