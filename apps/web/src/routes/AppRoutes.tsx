@@ -29,6 +29,7 @@ import { ActivityLogsPage } from '@/pages/administration/ActivityLogsPage';
 import { LeadsPage } from '@/pages/queries/LeadsPage';
 import { LeadFormPage } from '@/pages/queries/LeadFormPage';
 import { LeadDetailsPage } from '@/pages/queries/LeadDetailsPage';
+import { FollowUpsPage } from '@/pages/follow-ups/FollowUpsPage';
 
 /**
  * Route table.
@@ -84,6 +85,14 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.QUERIES_VIEW}>
                 <LeadDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/follow-ups"
+            element={
+              <PermissionRoute permission={PERMISSIONS.FOLLOWUPS_VIEW}>
+                <FollowUpsPage />
               </PermissionRoute>
             }
           />

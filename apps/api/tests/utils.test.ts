@@ -19,6 +19,7 @@ import {
   resolvePagination,
   toPrismaPagination,
 } from '../src/utils/pagination.js';
+import { localDayBounds } from '../src/utils/timezone.js';
 
 /** Pure-function tests. No database involved. */
 
@@ -177,5 +178,19 @@ describe('pagination', () => {
 
   it('reports zero pages for an empty result', () => {
     expect(buildPaginationMeta({ page: 1, pageSize: 20 }, 0).totalPages).toBe(0);
+  });
+});
+
+describe('company timezone boundaries', () => {
+  it('maps an Asia/Kolkata local day to UTC boundaries', () => {
+    const bounds = localDayBounds('Asia/Kolkata', new Date('2026-07-21T12:00:00.000Z'));
+    expect(bounds.start.toISOString()).toBe('2026-07-20T18:30:00.000Z');
+    expect(bounds.end.toISOString()).toBe('2026-07-21T18:30:00.000Z');
+  });
+
+  it('honours daylight-saving transitions for other valid company timezones', () => {
+    const bounds = localDayBounds('America/New_York', new Date('2026-03-08T12:00:00.000Z'));
+    expect(bounds.start.toISOString()).toBe('2026-03-08T05:00:00.000Z');
+    expect(bounds.end.toISOString()).toBe('2026-03-09T04:00:00.000Z');
   });
 });

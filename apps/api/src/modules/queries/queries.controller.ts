@@ -27,6 +27,9 @@ export const queriesController = {
   async details(req: Request, res: Response) {
     sendSuccess(res, await queriesService.details(auth(req), req.params.queryId!));
   },
+  async workspace(req: Request, res: Response) {
+    sendSuccess(res, await queriesService.workspace(auth(req), req.params.queryId!));
+  },
   async create(req: Request, res: Response) {
     sendSuccess(
       res,
@@ -69,7 +72,7 @@ export const queriesController = {
   async addNote(req: Request, res: Response) {
     sendSuccess(
       res,
-      await queriesService.addNote(auth(req), req.params.queryId!, req.body.content, context(req)),
+      await queriesService.addNote(auth(req), req.params.queryId!, req.body, context(req)),
       'Note added.',
       201,
     );
@@ -81,7 +84,7 @@ export const queriesController = {
         auth(req),
         req.params.queryId!,
         req.params.noteId!,
-        req.body.content,
+        req.body,
         context(req),
       ),
       'Note updated.',

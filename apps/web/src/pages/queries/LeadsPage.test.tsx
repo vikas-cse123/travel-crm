@@ -269,6 +269,9 @@ describe('Phase 6 lead pages', () => {
               content: 'Customer prefers morning flights',
               createdAt: lead.createdAt,
               updatedAt: lead.updatedAt,
+              isCustomerContact: false,
+              contactMethod: null,
+              contactedAt: null,
               authorUser: lead.createdBy,
             },
           ]);
@@ -278,8 +281,14 @@ describe('Phase 6 lead pages', () => {
               id: 'follow-up-1',
               scheduledAt: lead.nextFollowUpAt,
               status: 'PENDING',
+              effectiveStatus: 'PENDING',
+              outcomeType: null,
               outcome: null,
               notes: 'Confirm hotel category',
+              completionNotes: null,
+              completedAt: null,
+              cancelledAt: null,
+              cancellationReason: null,
               assignedTo: lead.assignedTo,
               createdBy: lead.createdBy,
             },
@@ -294,11 +303,37 @@ describe('Phase 6 lead pages', () => {
                 title: 'Lead created',
                 description: lead.queryNumber,
                 timestamp: lead.createdAt,
+                iconKey: 'lead',
               },
             ],
             pagination: { page: 1, pageSize: 50, total: 1, totalPages: 1 },
           });
         if (url.endsWith('/lookups')) return response(lookups);
+        if (url.endsWith('/workspace'))
+          return response({
+            lead,
+            operationalSummary: {
+              pendingFollowUpCount: 1,
+              overdueFollowUpCount: 0,
+              completedFollowUpCount: 0,
+              notesCount: 1,
+              daysSinceLastContact: null,
+              noFutureFollowUp: false,
+              requiresAttention: false,
+            },
+            recent: { notes: [], followUps: [], timeline: [] },
+            indicators: [],
+            timezone: 'Asia/Kolkata',
+            permissions: {
+              canEdit: false,
+              canAssign: false,
+              canChangeStage: false,
+              canAddNote: false,
+              canScheduleFollowUp: false,
+              canCompleteFollowUp: false,
+              canArchive: false,
+            },
+          });
         return response(lead);
       }),
     );

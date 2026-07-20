@@ -114,10 +114,10 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.QUERIES, 'delete', 'Delete travel queries'),
   available(M.QUERIES, 'assign', 'Assign travel queries to agents'),
 
-  planned(M.FOLLOWUPS, 'view', 'View follow-ups'),
-  planned(M.FOLLOWUPS, 'create', 'Create follow-ups'),
-  planned(M.FOLLOWUPS, 'update', 'Edit follow-ups'),
-  planned(M.FOLLOWUPS, 'delete', 'Delete follow-ups'),
+  available(M.FOLLOWUPS, 'view', 'View follow-ups'),
+  available(M.FOLLOWUPS, 'create', 'Create follow-ups'),
+  available(M.FOLLOWUPS, 'update', 'Edit follow-ups'),
+  available(M.FOLLOWUPS, 'delete', 'Delete follow-ups'),
 
   planned(M.QUOTATIONS, 'view', 'View quotations'),
   planned(M.QUOTATIONS, 'create', 'Create quotations'),
@@ -176,6 +176,11 @@ export const PERMISSIONS = {
   QUERIES_UPDATE: 'queries.update',
   QUERIES_DELETE: 'queries.delete',
   QUERIES_ASSIGN: 'queries.assign',
+
+  FOLLOWUPS_VIEW: 'followups.view',
+  FOLLOWUPS_CREATE: 'followups.create',
+  FOLLOWUPS_UPDATE: 'followups.update',
+  FOLLOWUPS_DELETE: 'followups.delete',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

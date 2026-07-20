@@ -8,14 +8,19 @@ import {
   MessageSquarePlus,
   UserRoundCog,
 } from 'lucide-react';
-import { labelForLookup } from '@interscale/shared';
+import {
+  CONTACT_METHODS,
+  FOLLOW_UP_OUTCOMES,
+  labelForLookup,
+  type ContactMethodValue,
+} from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useFollowUpAction,
   useFollowUps,
   useArchiveLead,
-  useLead,
+  useLeadWorkspace,
   useLeadAction,
   useLeadLookups,
   useNoteAction,
@@ -38,7 +43,7 @@ export function LeadDetailsPage() {
   const { queryId = '' } = useParams();
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
-  const lead = useLead(queryId);
+  const workspace = useLeadWorkspace(queryId);
   const notes = useNotes(queryId);
   const followUps = useFollowUps(queryId);
   const timeline = useTimeline(queryId);
@@ -48,6 +53,8 @@ export function LeadDetailsPage() {
   const noteAction = useNoteAction(queryId);
   const followUpAction = useFollowUpAction(queryId);
   const [note, setNote] = useState('');
+  const [noteIsContact, setNoteIsContact] = useState(false);
+  const [contactMethod, setContactMethod] = useState<ContactMethodValue>('PHONE');
   const [followUpAt, setFollowUpAt] = useState('');
   const [outcome, setOutcome] = useState('');
   const [stage, setStage] = useState('');
@@ -57,11 +64,14 @@ export function LeadDetailsPage() {
   const [editingNoteText, setEditingNoteText] = useState('');
   const [completingFollowUpId, setCompletingFollowUpId] = useState<string | null>(null);
   const [completionOutcome, setCompletionOutcome] = useState('');
+  const [completionNotes, setCompletionNotes] = useState('');
+  const [completionNextDate, setCompletionNextDate] = useState('');
+  const [completionNextStage, setCompletionNextStage] = useState('');
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
   const [editingFollowUpAt, setEditingFollowUpAt] = useState('');
   const [editingFollowUpNotes, setEditingFollowUpNotes] = useState('');
-  if (lead.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
-  if (lead.isError || !lead.data)
+  if (workspace.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (workspace.isError || !workspace.data)
     return (
       <div className="rounded-xl bg-white p-12 text-center">
         <h1 className="text-xl font-semibold">Lead unavailable</h1>
@@ -71,7 +81,14 @@ export function LeadDetailsPage() {
         </Link>
       </div>
     );
-  const q = lead.data;
+  const q = workspace.data.lead;
+  const allowed = workspace.data.permissions;
+  const dateTime = (value: string) =>
+    new Intl.DateTimeFormat('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: workspace.data.timezone,
+    }).format(new Date(value));
   const money = (v: string | null) =>
     v
       ? new Intl.NumberFormat(undefined, { style: 'currency', currency: q.currency }).format(
@@ -91,7 +108,7 @@ export function LeadDetailsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {hasPermission('queries.update') && (
+          {allowed.canEdit && (
             <Link to={`/queries/${q.id}/edit`}>
               <Button variant="secondary">
                 <Edit3 className="h-4 w-4" />
@@ -99,7 +116,7 @@ export function LeadDetailsPage() {
               </Button>
             </Link>
           )}
-          {hasPermission('queries.delete') && (
+          {allowed.canArchive && (
             <Button
               variant="danger"
               isLoading={archive.isPending}
@@ -115,6 +132,34 @@ export function LeadDetailsPage() {
           )}
         </div>
       </div>
+      {workspace.data.operationalSummary.requiresAttention && (
+        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" role="status">
+          <h2 className="font-semibold text-amber-900">This lead needs attention</h2>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {workspace.data.indicators.map((indicator) => (
+              <span
+                key={indicator}
+                className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-800"
+              >
+                {labelForLookup(indicator)}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+      <section className="grid gap-3 sm:grid-cols-4" aria-label="Lead operational summary">
+        {[
+          ['Pending follow-ups', workspace.data.operationalSummary.pendingFollowUpCount],
+          ['Overdue', workspace.data.operationalSummary.overdueFollowUpCount],
+          ['Completed', workspace.data.operationalSummary.completedFollowUpCount],
+          ['Notes', workspace.data.operationalSummary.notesCount],
+        ].map(([label, value]) => (
+          <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+            <p className="text-2xl font-semibold">{value}</p>
+            <p className="text-xs text-slate-500">{label}</p>
+          </article>
+        ))}
+      </section>
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
           <section className="rounded-xl border bg-white p-5 shadow-sm">
@@ -127,9 +172,7 @@ export function LeadDetailsPage() {
                   {labelForLookup(q.leadType)} · {labelForLookup(q.priority)}
                 </span>
               </div>
-              <span className="text-sm text-slate-500">
-                Created {new Date(q.createdAt).toLocaleString()}
-              </span>
+              <span className="text-sm text-slate-500">Created {dateTime(q.createdAt)}</span>
             </div>
             <dl className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <Info label="Lead ID">{q.queryNumber}</Info>
@@ -139,10 +182,10 @@ export function LeadDetailsPage() {
               <Info label="Assignee">{q.assignedTo?.fullName ?? 'Unassigned'}</Info>
               <Info label="Creator">{q.createdBy.fullName}</Info>
               <Info label="Last contacted">
-                {q.lastContactedAt ? new Date(q.lastContactedAt).toLocaleString() : 'Never'}
+                {q.lastContactedAt ? dateTime(q.lastContactedAt) : 'Never'}
               </Info>
               <Info label="Next follow-up">
-                {q.nextFollowUpAt ? new Date(q.nextFollowUpAt).toLocaleString() : 'None'}
+                {q.nextFollowUpAt ? dateTime(q.nextFollowUpAt) : 'None'}
               </Info>
             </dl>
           </section>
@@ -195,7 +238,7 @@ export function LeadDetailsPage() {
               <Info label="Quotation">{q.quotationRequired ? 'Required' : 'Not required'}</Info>
               <Info label="Trip type">{q.tripType}</Info>
               <Info label="Booking placeholder">{q.bookingStatusPlaceholder}</Info>
-              <Info label="Updated">{new Date(q.updatedAt).toLocaleString()}</Info>
+              <Info label="Updated">{dateTime(q.updatedAt)}</Info>
             </dl>
           </section>
           <section className="rounded-xl border bg-white p-5 shadow-sm">
@@ -213,8 +256,7 @@ export function LeadDetailsPage() {
                     <p className="text-sm font-medium">{entry.title}</p>
                     <p className="text-sm text-slate-600">{entry.description}</p>
                     <p className="text-xs text-slate-400">
-                      {entry.actor?.fullName ?? 'System'} ·{' '}
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {entry.actor?.fullName ?? 'System'} · {dateTime(entry.timestamp)}
                     </p>
                   </div>
                 ))}
@@ -225,7 +267,7 @@ export function LeadDetailsPage() {
         <aside className="space-y-5">
           <section className="rounded-xl border bg-white p-5 shadow-sm">
             <h2 className="font-semibold">Lead actions</h2>
-            {hasPermission('queries.update') && (
+            {allowed.canChangeStage && (
               <div className="mt-4 space-y-3">
                 <select
                   aria-label="New stage"
@@ -278,7 +320,7 @@ export function LeadDetailsPage() {
                 </Button>
               </div>
             )}
-            {hasPermission('queries.assign') && (
+            {allowed.canAssign && (
               <div className="mt-5 border-t pt-4">
                 <label className="text-sm font-medium">Reassign lead</label>
                 <select
@@ -315,7 +357,7 @@ export function LeadDetailsPage() {
               <MessageSquarePlus className="h-4 w-4" />
               Notes
             </h2>
-            {hasPermission('queries.update') && (
+            {allowed.canAddNote && (
               <div className="mt-3">
                 <textarea
                   aria-label="New note"
@@ -325,13 +367,47 @@ export function LeadDetailsPage() {
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                 />
+                <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={noteIsContact}
+                    onChange={(event) => setNoteIsContact(event.target.checked)}
+                  />
+                  This note records customer contact
+                </label>
+                {noteIsContact && (
+                  <select
+                    aria-label="Contact method"
+                    className={`${inputClass} mt-2`}
+                    value={contactMethod}
+                    onChange={(event) => setContactMethod(event.target.value as ContactMethodValue)}
+                  >
+                    {CONTACT_METHODS.map((value) => (
+                      <option key={value} value={value}>
+                        {labelForLookup(value)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <Button
                   className="mt-2"
                   size="sm"
                   disabled={!note.trim()}
                   isLoading={noteAction.isPending}
                   onClick={() =>
-                    noteAction.mutate({ content: note }, { onSuccess: () => setNote('') })
+                    noteAction.mutate(
+                      {
+                        content: note,
+                        isCustomerContact: noteIsContact,
+                        contactMethod: noteIsContact ? contactMethod : null,
+                      },
+                      {
+                        onSuccess: () => {
+                          setNote('');
+                          setNoteIsContact(false);
+                        },
+                      },
+                    )
                   }
                 >
                   Add note
@@ -357,7 +433,12 @@ export function LeadDetailsPage() {
                           isLoading={noteAction.isPending}
                           onClick={() =>
                             noteAction.mutate(
-                              { noteId: item.id, content: editingNoteText },
+                              {
+                                noteId: item.id,
+                                content: editingNoteText,
+                                isCustomerContact: item.isCustomerContact,
+                                contactMethod: item.contactMethod as ContactMethodValue | null,
+                              },
                               {
                                 onSuccess: () => {
                                   setEditingNoteId(null);
@@ -378,7 +459,9 @@ export function LeadDetailsPage() {
                     <p className="text-sm whitespace-pre-wrap">{item.content}</p>
                   )}
                   <p className="mt-2 text-xs text-slate-400">
-                    {item.authorUser.fullName} · {new Date(item.createdAt).toLocaleString()}
+                    {item.authorUser.fullName} · {dateTime(item.createdAt)}
+                    {item.isCustomerContact &&
+                      ` · ${labelForLookup(item.contactMethod ?? 'OTHER')} contact`}
                   </p>
                   {hasPermission('queries.update') && (
                     <div className="mt-2 flex gap-3 text-xs">
@@ -411,7 +494,7 @@ export function LeadDetailsPage() {
               <CalendarPlus className="h-4 w-4" />
               Follow-Ups
             </h2>
-            {hasPermission('queries.update') && (
+            {allowed.canScheduleFollowUp && (
               <div className="mt-3">
                 <input
                   aria-label="Schedule follow-up"
@@ -420,6 +503,30 @@ export function LeadDetailsPage() {
                   value={followUpAt}
                   onChange={(e) => setFollowUpAt(e.target.value)}
                 />
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {[
+                    ['Later today', 4],
+                    ['Tomorrow', 24],
+                    ['In 2 days', 48],
+                    ['In 3 days', 72],
+                    ['Next week', 168],
+                  ].map(([label, hours]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                      onClick={() =>
+                        setFollowUpAt(
+                          localDateTimeValue(
+                            new Date(Date.now() + Number(hours) * 3_600_000).toISOString(),
+                          ),
+                        )
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   aria-label="Follow-up note"
                   className={`${inputClass} mt-2`}
@@ -452,17 +559,22 @@ export function LeadDetailsPage() {
               {followUps.data?.map((item) => (
                 <article key={item.id} className="rounded-lg border p-3">
                   <div className="flex justify-between">
-                    <strong className="text-sm">
-                      {new Date(item.scheduledAt).toLocaleString()}
-                    </strong>
-                    <span className="text-xs font-medium">{item.status}</span>
+                    <strong className="text-sm">{dateTime(item.scheduledAt)}</strong>
+                    <span className="text-xs font-medium">
+                      {labelForLookup(item.effectiveStatus)}
+                    </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    {item.outcome ?? item.notes ?? 'No details'}
+                    {item.outcomeType
+                      ? labelForLookup(item.outcomeType)
+                      : (item.notes ??
+                        item.completionNotes ??
+                        item.cancellationReason ??
+                        'No details')}
                   </p>
                   <p className="text-xs text-slate-400">Assigned to {item.assignedTo.fullName}</p>
                   {item.status === 'PENDING' &&
-                    hasPermission('queries.update') &&
+                    allowed.canCompleteFollowUp &&
                     (editingFollowUpId === item.id ? (
                       <div className="mt-3 space-y-2">
                         <input
@@ -516,30 +628,76 @@ export function LeadDetailsPage() {
                       </div>
                     ) : completingFollowUpId === item.id ? (
                       <div className="mt-3 space-y-2">
-                        <textarea
+                        <select
                           aria-label={`Completion outcome ${item.id}`}
                           className={inputClass}
-                          rows={2}
-                          placeholder="Completion outcome *"
                           value={completionOutcome}
                           onChange={(event) => setCompletionOutcome(event.target.value)}
+                        >
+                          <option value="">Select outcome…</option>
+                          {FOLLOW_UP_OUTCOMES.map((value) => (
+                            <option key={value} value={value}>
+                              {labelForLookup(value)}
+                            </option>
+                          ))}
+                        </select>
+                        <textarea
+                          aria-label={`Completion notes ${item.id}`}
+                          className={inputClass}
+                          rows={2}
+                          placeholder="Completion notes"
+                          value={completionNotes}
+                          onChange={(event) => setCompletionNotes(event.target.value)}
                         />
+                        <input
+                          aria-label={`Next follow-up ${item.id}`}
+                          className={inputClass}
+                          type="datetime-local"
+                          value={completionNextDate}
+                          onChange={(event) => setCompletionNextDate(event.target.value)}
+                        />
+                        <select
+                          aria-label={`Next lead stage ${item.id}`}
+                          className={inputClass}
+                          value={completionNextStage}
+                          onChange={(event) => setCompletionNextStage(event.target.value)}
+                        >
+                          <option value="">Keep lead stage</option>
+                          {lookups.data?.leadStages.map((value) => (
+                            <option key={value.value} value={value.value}>
+                              {value.label}
+                            </option>
+                          ))}
+                        </select>
                         <div className="flex gap-2">
                           <Button
                             size="sm"
-                            disabled={!completionOutcome.trim()}
+                            disabled={
+                              !completionOutcome ||
+                              (completionOutcome === 'OTHER' && !completionNotes.trim())
+                            }
                             isLoading={followUpAction.isPending}
                             onClick={() =>
                               followUpAction.mutate(
                                 {
                                   followUpId: item.id,
                                   action: 'complete',
-                                  body: { outcome: completionOutcome },
+                                  body: {
+                                    outcome: completionOutcome,
+                                    notes: completionNotes || undefined,
+                                    nextFollowUp: completionNextDate
+                                      ? { scheduledAt: new Date(completionNextDate) }
+                                      : undefined,
+                                    nextLeadStage: completionNextStage || undefined,
+                                  },
                                 },
                                 {
                                   onSuccess: () => {
                                     setCompletingFollowUpId(null);
                                     setCompletionOutcome('');
+                                    setCompletionNotes('');
+                                    setCompletionNextDate('');
+                                    setCompletionNextStage('');
                                   },
                                 },
                               )
@@ -576,28 +734,32 @@ export function LeadDetailsPage() {
                         </button>
                         <button
                           className="text-red-700"
-                          onClick={() =>
-                            followUpAction.mutate({
-                              followUpId: item.id,
-                              action: 'cancel',
-                              body: { reason: 'Cancelled by user' },
-                            })
-                          }
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className="text-red-700"
                           onClick={() => {
-                            if (window.confirm('Delete this follow-up?'))
+                            const reason = window.prompt('Why is this follow-up being cancelled?');
+                            if (reason?.trim())
                               followUpAction.mutate({
                                 followUpId: item.id,
-                                action: 'delete',
+                                action: 'cancel',
+                                body: { reason },
                               });
                           }}
                         >
-                          Delete
+                          Cancel
                         </button>
+                        {hasPermission('followups.delete') && (
+                          <button
+                            className="text-red-700"
+                            onClick={() => {
+                              if (window.confirm('Delete this follow-up?'))
+                                followUpAction.mutate({
+                                  followUpId: item.id,
+                                  action: 'delete',
+                                });
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     ))}
                 </article>

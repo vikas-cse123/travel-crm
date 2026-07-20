@@ -33,6 +33,22 @@ export const LEAD_STAGES = [
 ] as const;
 export const QUERY_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 export const FOLLOW_UP_STATUSES = ['PENDING', 'COMPLETED', 'CANCELLED', 'MISSED'] as const;
+export const FOLLOW_UP_OUTCOMES = [
+  'CONNECTED',
+  'NO_ANSWER',
+  'BUSY',
+  'SWITCHED_OFF',
+  'CALL_BACK_LATER',
+  'INTERESTED',
+  'NOT_INTERESTED',
+  'QUOTATION_REQUESTED',
+  'NEGOTIATING',
+  'READY_TO_BOOK',
+  'BOOKING_CONFIRMED',
+  'WRONG_NUMBER',
+  'OTHER',
+] as const;
+export const CONTACT_METHODS = ['PHONE', 'WHATSAPP', 'EMAIL', 'MEETING', 'OTHER'] as const;
 export const SERVICE_TYPES = [
   'FLIGHT',
   'HOTEL',
@@ -52,6 +68,8 @@ export type LeadTypeValue = (typeof LEAD_TYPES)[number];
 export type LeadStageValue = (typeof LEAD_STAGES)[number];
 export type QueryPriorityValue = (typeof QUERY_PRIORITIES)[number];
 export type ServiceTypeValue = (typeof SERVICE_TYPES)[number];
+export type FollowUpOutcomeValue = (typeof FOLLOW_UP_OUTCOMES)[number];
+export type ContactMethodValue = (typeof CONTACT_METHODS)[number];
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 const optionalDate = z.coerce.date().nullable().optional();
@@ -76,7 +94,6 @@ export const followUpInputSchema = z.object({
   scheduledAt: z.coerce.date(),
   assignedToId: z.string().uuid().optional(),
   notes: optionalText(2000),
-  outcome: optionalText(1000),
 });
 
 export const queryInputSchema = z
@@ -167,21 +184,34 @@ export const assignmentInputSchema = z.object({
   assignedToId: z.string().uuid().nullable(),
   movePendingFollowUps: z.boolean().default(false),
 });
-export const noteInputSchema = z.object({ content: z.string().trim().min(1).max(4000) });
+export const noteInputSchema = z.object({
+  content: z.string().trim().min(1).max(4000),
+  isCustomerContact: z.boolean().default(false),
+  contactMethod: z.enum(CONTACT_METHODS).nullable().optional(),
+});
 export const noteUpdateSchema = noteInputSchema;
 export const followUpUpdateSchema = followUpInputSchema
   .partial()
   .refine((v) => Object.keys(v).length > 0);
 export const followUpCompleteSchema = z
-  .object({ outcome: optionalText(1000), notes: optionalText(2000) })
-  .refine((v) => Boolean(v.outcome || v.notes), { message: 'An outcome or note is required.' });
+  .object({
+    outcome: z.enum(FOLLOW_UP_OUTCOMES),
+    notes: optionalText(2000),
+    nextFollowUp: followUpInputSchema.optional(),
+    nextLeadStage: z.enum(LEAD_STAGES).optional(),
+  })
+  .refine((v) => v.outcome !== 'OTHER' || Boolean(v.notes), {
+    message: 'A note is required for the Other outcome.',
+    path: ['notes'],
+  });
 export const followUpCancelSchema = z.object({
-  reason: z.string().trim().min(1).max(1000).optional(),
+  reason: z.string().trim().min(1).max(1000),
 });
 
 export type QueryInput = z.infer<typeof queryInputSchema>;
 export type QueryUpdateInput = z.infer<typeof queryUpdateSchema>;
 export type FollowUpInput = z.infer<typeof followUpInputSchema>;
+export type FollowUpCompleteInput = z.infer<typeof followUpCompleteSchema>;
 
 export const labelForLookup = (value: string) =>
   value

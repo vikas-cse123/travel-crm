@@ -230,7 +230,8 @@ describe('Phase 6 travel lead management', () => {
     expect(followUp.status).toBe(201);
     expect((await db.query.findUniqueOrThrow({ where: { id } })).nextFollowUpAt).not.toBeNull();
     await client.patch(`/api/queries/${id}/follow-ups/${followUp.body.data.id}/complete`, {
-      outcome: 'Requirements captured',
+      outcome: 'CONNECTED',
+      notes: 'Requirements captured',
     });
     const updated = await db.query.findUniqueOrThrow({ where: { id } });
     expect(updated.nextFollowUpAt).toBeNull();
@@ -409,23 +410,32 @@ describe('Phase 6 travel lead management', () => {
     expect(
       (
         await client.patch(`/api/queries/${id}/follow-ups/${later.body.data.id}/complete`, {
-          outcome: 'Should fail',
+          outcome: 'CONNECTED',
         })
       ).status,
     ).toBe(400);
     expect(
       (
         await client.patch(`/api/queries/${id}/follow-ups/${sooner.body.data.id}/complete`, {
-          outcome: 'Customer contacted',
+          outcome: 'CONNECTED',
+          notes: 'Customer contacted',
         })
       ).status,
     ).toBe(200);
     expect((await db.query.findUniqueOrThrow({ where: { id } })).lastContactedAt).not.toBeNull();
     expect(
       (await client.delete(`/api/queries/${id}/follow-ups/${sooner.body.data.id}`)).status,
+    ).toBe(400);
+    const pendingToDelete = await client.post(`/api/queries/${id}/follow-ups`, {
+      scheduledAt: new Date(Date.now() + 259_200_000).toISOString(),
+      notes: 'Temporary follow-up',
+    });
+    expect(
+      (await client.delete(`/api/queries/${id}/follow-ups/${pendingToDelete.body.data.id}`)).status,
     ).toBe(200);
     expect(
-      (await db.queryFollowUp.findUniqueOrThrow({ where: { id: sooner.body.data.id } })).deletedAt,
+      (await db.queryFollowUp.findUniqueOrThrow({ where: { id: pendingToDelete.body.data.id } }))
+        .deletedAt,
     ).not.toBeNull();
     const timeline = await client.get(`/api/queries/${id}/timeline?page=1&pageSize=2`);
     expect(timeline.body.data.data).toHaveLength(2);
@@ -438,9 +448,10 @@ describe('Phase 6 travel lead management', () => {
           entityId: id,
           action: {
             in: [
-              'QUERY_FOLLOW_UP_UPDATED',
+              'QUERY_FOLLOW_UP_RESCHEDULED',
               'QUERY_FOLLOW_UP_COMPLETED',
               'QUERY_FOLLOW_UP_CANCELLED',
+              'QUERY_FOLLOW_UP_DELETED',
             ],
           },
         },

@@ -1,4 +1,4 @@
-import type { LeadStage, Prisma } from '@prisma/client';
+import type { ContactMethod, LeadStage, Prisma } from '@prisma/client';
 import {
   LEAD_SOURCES,
   LEAD_STAGES,
@@ -11,16 +11,18 @@ import {
   type QueryInput,
   type QueryUpdateInput,
   type FollowUpInput,
+  type FollowUpCompleteInput,
 } from '@interscale/shared';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { prisma } from '../../config/prisma.js';
 import { normalizeEmail, normalizePhone } from '../../utils/normalize.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { resolvePagination } from '../../utils/pagination.js';
+import { localDayBounds } from '../../utils/timezone.js';
 import { permissionsService } from '../auth/permissions.service.js';
 
-type RequestContext = { ipAddress: string | null; userAgent: string | null };
-const userSelect = { id: true, fullName: true, username: true } as const;
+export type RequestContext = { ipAddress: string | null; userAgent: string | null };
+export const userSelect = { id: true, fullName: true, username: true } as const;
 const include = {
   assignedTo: { select: userSelect },
   createdBy: { select: userSelect },
@@ -28,7 +30,7 @@ const include = {
   itinerary: { orderBy: { sequence: 'asc' as const } },
 } as const;
 type IncludedQuery = Prisma.QueryGetPayload<{ include: typeof include }>;
-function presentQuery(value: IncludedQuery) {
+export function presentQuery(value: IncludedQuery) {
   const { companyId, normalizedPhone, deletedAt, itinerary, ...query } = value;
   void companyId;
   void normalizedPhone;
@@ -46,6 +48,9 @@ function presentQuery(value: IncludedQuery) {
 const noteSelect = {
   id: true,
   content: true,
+  isCustomerContact: true,
+  contactMethod: true,
+  contactedAt: true,
   createdAt: true,
   updatedAt: true,
   authorUser: { select: userSelect },
@@ -54,14 +59,24 @@ const followUpSelect = {
   id: true,
   scheduledAt: true,
   status: true,
+  outcomeType: true,
   outcome: true,
   notes: true,
+  completionNotes: true,
   completedAt: true,
+  cancelledAt: true,
+  cancellationReason: true,
   createdAt: true,
   updatedAt: true,
   assignedTo: { select: userSelect },
   createdBy: { select: userSelect },
 } as const;
+
+export function effectiveFollowUpStatus<T extends { status: string; scheduledAt: Date }>(value: T) {
+  return value.status === 'PENDING' && value.scheduledAt < new Date()
+    ? { ...value, effectiveStatus: 'MISSED' as const }
+    : { ...value, effectiveStatus: value.status };
+}
 
 const transitionMap: Record<LeadStage, readonly LeadStage[]> = {
   NEW_LEAD: ['CONTACTED', 'QUALIFIED', 'ON_HOLD', 'LOST', 'INVALID'],
@@ -90,7 +105,7 @@ const transitionMap: Record<LeadStage, readonly LeadStage[]> = {
 };
 const terminalStages: readonly LeadStage[] = ['BOOKING_CONFIRMED', 'LOST', 'CANCELLED', 'INVALID'];
 
-async function caller(auth: AuthContext) {
+export async function caller(auth: AuthContext) {
   const value = await prisma.user.findFirst({
     where: { id: auth.userId, companyId: auth.companyId, deletedAt: null },
     select: { role: { select: { name: true } } },
@@ -98,13 +113,13 @@ async function caller(auth: AuthContext) {
   if (!value) throw new ForbiddenError();
   return value;
 }
-async function visibility(auth: AuthContext): Promise<Prisma.QueryWhereInput> {
+export async function visibility(auth: AuthContext): Promise<Prisma.QueryWhereInput> {
   const { role } = await caller(auth);
   return role.name === ROLE_NAME.OWNER || role.name === ROLE_NAME.MANAGER
     ? {}
     : { OR: [{ createdById: auth.userId }, { assignedToId: auth.userId }] };
 }
-async function visibleWhere(auth: AuthContext, extra: Prisma.QueryWhereInput = {}) {
+export async function visibleWhere(auth: AuthContext, extra: Prisma.QueryWhereInput = {}) {
   return {
     companyId: auth.companyId,
     deletedAt: null,
@@ -112,12 +127,12 @@ async function visibleWhere(auth: AuthContext, extra: Prisma.QueryWhereInput = {
     ...extra,
   } satisfies Prisma.QueryWhereInput;
 }
-async function getVisible(auth: AuthContext, id: string) {
+export async function getVisible(auth: AuthContext, id: string) {
   const query = await prisma.query.findFirst({ where: await visibleWhere(auth, { id }), include });
   if (!query) throw new NotFoundError('Lead not found.');
   return query;
 }
-async function assertAssignable(auth: AuthContext, assignedToId: string | null | undefined) {
+export async function assertAssignable(auth: AuthContext, assignedToId: string | null | undefined) {
   if (!assignedToId) return;
   const user = await prisma.user.findFirst({
     where: { id: assignedToId, companyId: auth.companyId, status: 'ACTIVE', deletedAt: null },
@@ -125,7 +140,10 @@ async function assertAssignable(auth: AuthContext, assignedToId: string | null |
   });
   if (!user) throw new ValidationError('The assignee must be an active user in this company.');
 }
-async function assertCanAssignOther(auth: AuthContext, assignedToId: string | null | undefined) {
+export async function assertCanAssignOther(
+  auth: AuthContext,
+  assignedToId: string | null | undefined,
+) {
   if (
     assignedToId &&
     assignedToId !== auth.userId &&
@@ -152,7 +170,7 @@ function travellerSummary(
     .map(([n, label]) => `${n} ${label}${n === 1 ? '' : 's'}`)
     .join(', ');
 }
-function audit(
+export function audit(
   auth: AuthContext,
   action: Prisma.ActivityLogCreateInput['action'],
   queryId: string,
@@ -231,7 +249,7 @@ function scalarData(input: QueryInput | QueryUpdateInput) {
     });
   return data;
 }
-async function recalculateNextFollowUp(
+export async function recalculateNextFollowUp(
   tx: Prisma.TransactionClient,
   companyId: string,
   queryId: string,
@@ -245,6 +263,26 @@ async function recalculateNextFollowUp(
     where: { id: queryId },
     data: { nextFollowUpAt: next?.scheduledAt ?? null },
   });
+}
+
+export function validateScheduledAt(scheduledAt: Date) {
+  if (Number.isNaN(scheduledAt.getTime()))
+    throw new ValidationError('A valid follow-up time is required.');
+  const now = Date.now();
+  if (scheduledAt.getTime() < now - 5 * 60_000)
+    throw new ValidationError('A new follow-up cannot be scheduled in the past.');
+  if (scheduledAt.getTime() > now + 5 * 365 * 86_400_000)
+    throw new ValidationError('A follow-up cannot be scheduled more than five years ahead.');
+}
+
+export async function assertCanManageFollowUp(auth: AuthContext, assignedToId: string) {
+  const { role } = await caller(auth);
+  if (
+    assignedToId !== auth.userId &&
+    role.name !== ROLE_NAME.OWNER &&
+    role.name !== ROLE_NAME.MANAGER
+  )
+    throw new ForbiddenError('You may only update follow-ups assigned to you.');
 }
 
 export const queriesService = {
@@ -332,6 +370,82 @@ export const queriesService = {
   },
   async details(auth: AuthContext, id: string) {
     return presentQuery(await getVisible(auth, id));
+  },
+  async workspace(auth: AuthContext, id: string) {
+    const query = await getVisible(auth, id);
+    const now = new Date();
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { timezone: true },
+    });
+    const { start, end } = localDayBounds(company.timezone, now);
+    const followUpWhere = { companyId: auth.companyId, queryId: id, deletedAt: null } as const;
+    const [pending, overdue, completed, notesCount, recentNotes, upcomingFollowUps, permissions] =
+      await Promise.all([
+        prisma.queryFollowUp.count({ where: { ...followUpWhere, status: 'PENDING' } }),
+        prisma.queryFollowUp.count({
+          where: { ...followUpWhere, status: 'PENDING', scheduledAt: { lt: now } },
+        }),
+        prisma.queryFollowUp.count({ where: { ...followUpWhere, status: 'COMPLETED' } }),
+        prisma.queryNote.count({ where: followUpWhere }),
+        prisma.queryNote.findMany({
+          where: followUpWhere,
+          select: noteSelect,
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        }),
+        prisma.queryFollowUp.findMany({
+          where: { ...followUpWhere, status: 'PENDING' },
+          select: followUpSelect,
+          orderBy: { scheduledAt: 'asc' },
+          take: 5,
+        }),
+        permissionsService.resolveForUser(auth.userId),
+      ]);
+    const nextFuture = upcomingFollowUps.some((item) => item.scheduledAt >= now);
+    const terminal = terminalStages.includes(query.leadStage);
+    const daysSinceLastContact = query.lastContactedAt
+      ? Math.floor((now.getTime() - query.lastContactedAt.getTime()) / 86_400_000)
+      : null;
+    const indicators: string[] = [];
+    if (overdue) indicators.push('OVERDUE_FOLLOW_UP');
+    if (upcomingFollowUps.some((item) => item.scheduledAt >= start && item.scheduledAt < end))
+      indicators.push('FOLLOW_UP_DUE_TODAY');
+    if (!terminal && pending === 0) indicators.push('NO_FUTURE_FOLLOW_UP');
+    if (!terminal && (daysSinceLastContact === null || daysSinceLastContact >= 7))
+      indicators.push('NOT_CONTACTED_RECENTLY');
+    if (query.leadType === 'HOT' && overdue) indicators.push('HOT_LEAD_OVERDUE');
+    if (query.leadStage === 'READY_TO_BOOK' && pending === 0)
+      indicators.push('READY_TO_BOOK_NO_FOLLOW_UP');
+    const timeline = await queriesService.timeline(auth, id, { page: 1, pageSize: 8 });
+    return {
+      lead: presentQuery(query),
+      operationalSummary: {
+        pendingFollowUpCount: pending,
+        overdueFollowUpCount: overdue,
+        completedFollowUpCount: completed,
+        notesCount,
+        daysSinceLastContact,
+        noFutureFollowUp: !terminal && !nextFuture,
+        requiresAttention: indicators.length > 0,
+      },
+      recent: {
+        notes: recentNotes,
+        followUps: upcomingFollowUps.map(effectiveFollowUpStatus),
+        timeline: timeline.data,
+      },
+      indicators,
+      timezone: company.timezone,
+      permissions: {
+        canEdit: permissions.includes(PERMISSIONS.QUERIES_UPDATE),
+        canAssign: permissions.includes(PERMISSIONS.QUERIES_ASSIGN),
+        canChangeStage: permissions.includes(PERMISSIONS.QUERIES_UPDATE),
+        canAddNote: permissions.includes(PERMISSIONS.QUERIES_UPDATE),
+        canScheduleFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_CREATE),
+        canCompleteFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_UPDATE),
+        canArchive: permissions.includes(PERMISSIONS.QUERIES_DELETE),
+      },
+    };
   },
   async searchByPhone(auth: AuthContext, phone: string) {
     const normalized = normalizePhone(phone);
@@ -677,16 +791,39 @@ export const queriesService = {
       orderBy: { createdAt: 'desc' },
     });
   },
-  async addNote(auth: AuthContext, id: string, content: string, context: RequestContext) {
+  async addNote(
+    auth: AuthContext,
+    id: string,
+    input: { content: string; isCustomerContact?: boolean; contactMethod?: ContactMethod | null },
+    context: RequestContext,
+  ) {
     await getVisible(auth, id);
     return prisma.$transaction(async (tx) => {
+      const contactedAt = input.isCustomerContact ? new Date() : null;
       const note = await tx.queryNote.create({
-        data: { companyId: auth.companyId, queryId: id, authorUserId: auth.userId, content },
+        data: {
+          companyId: auth.companyId,
+          queryId: id,
+          authorUserId: auth.userId,
+          content: input.content,
+          isCustomerContact: input.isCustomerContact ?? false,
+          contactMethod: input.isCustomerContact ? (input.contactMethod ?? 'OTHER') : null,
+          contactedAt,
+        },
         select: noteSelect,
       });
+      if (contactedAt)
+        await tx.query.update({ where: { id }, data: { lastContactedAt: contactedAt } });
       await tx.activityLog.create({
         data: audit(auth, 'QUERY_NOTE_ADDED', id, context, { noteId: note.id }),
       });
+      if (contactedAt)
+        await tx.activityLog.create({
+          data: audit(auth, 'QUERY_CONTACT_RECORDED', id, context, {
+            noteId: note.id,
+            contactMethod: note.contactMethod,
+          }),
+        });
       return note;
     });
   },
@@ -694,7 +831,7 @@ export const queriesService = {
     auth: AuthContext,
     id: string,
     noteId: string,
-    content: string,
+    input: { content: string; isCustomerContact?: boolean; contactMethod?: ContactMethod | null },
     context: RequestContext,
   ) {
     await getVisible(auth, id);
@@ -712,9 +849,17 @@ export const queriesService = {
     return prisma.$transaction(async (tx) => {
       const updated = await tx.queryNote.update({
         where: { id: noteId },
-        data: { content },
+        data: {
+          content: input.content,
+          isCustomerContact: input.isCustomerContact ?? false,
+          contactMethod: input.isCustomerContact ? (input.contactMethod ?? 'OTHER') : null,
+          contactedAt:
+            input.isCustomerContact && !note.isCustomerContact ? new Date() : note.contactedAt,
+        },
         select: noteSelect,
       });
+      if (updated.isCustomerContact && updated.contactedAt)
+        await tx.query.update({ where: { id }, data: { lastContactedAt: updated.contactedAt } });
       await tx.activityLog.create({
         data: audit(auth, 'QUERY_NOTE_UPDATED', id, context, { noteId }),
       });
@@ -744,16 +889,19 @@ export const queriesService = {
   },
   async followUps(auth: AuthContext, id: string) {
     await getVisible(auth, id);
-    return prisma.queryFollowUp.findMany({
+    const rows = await prisma.queryFollowUp.findMany({
       where: { companyId: auth.companyId, queryId: id, deletedAt: null },
       select: followUpSelect,
       orderBy: { scheduledAt: 'asc' },
     });
+    return rows.map(effectiveFollowUpStatus);
   },
   async addFollowUp(auth: AuthContext, id: string, input: FollowUpInput, context: RequestContext) {
     const query = await getVisible(auth, id);
     const assignedToId = input.assignedToId ?? query.assignedToId ?? auth.userId;
+    validateScheduledAt(input.scheduledAt);
     await assertAssignable(auth, assignedToId);
+    await assertCanAssignOther(auth, assignedToId);
     return prisma.$transaction(async (tx) => {
       const data = {
         companyId: auth.companyId,
@@ -773,7 +921,7 @@ export const queriesService = {
           scheduledAt: row.scheduledAt.toISOString(),
         }),
       });
-      return row;
+      return effectiveFollowUpStatus(row);
     });
   },
   async updateFollowUp(
@@ -790,7 +938,10 @@ export const queriesService = {
     if (!row) throw new NotFoundError('Follow-up not found.');
     if (row.status !== 'PENDING')
       throw new ValidationError('Only pending follow-ups can be edited.');
+    await assertCanManageFollowUp(auth, row.assignedToId);
+    if (input.scheduledAt) validateScheduledAt(input.scheduledAt);
     if (input.assignedToId) await assertAssignable(auth, input.assignedToId);
+    if (input.assignedToId) await assertCanAssignOther(auth, input.assignedToId);
     return prisma.$transaction(async (tx) => {
       const updated = await tx.queryFollowUp.update({
         where: { id: followUpId },
@@ -799,9 +950,17 @@ export const queriesService = {
       });
       await recalculateNextFollowUp(tx, auth.companyId, id);
       await tx.activityLog.create({
-        data: audit(auth, 'QUERY_FOLLOW_UP_UPDATED', id, context, { followUpId }),
+        data: audit(
+          auth,
+          input.scheduledAt && input.scheduledAt.getTime() !== row.scheduledAt.getTime()
+            ? 'QUERY_FOLLOW_UP_RESCHEDULED'
+            : 'QUERY_FOLLOW_UP_UPDATED',
+          id,
+          context,
+          { followUpId },
+        ),
       });
-      return updated;
+      return effectiveFollowUpStatus(updated);
     });
   },
   async closeFollowUp(
@@ -809,7 +968,7 @@ export const queriesService = {
     id: string,
     followUpId: string,
     status: 'COMPLETED' | 'CANCELLED',
-    body: { outcome?: string | null; notes?: string | null; reason?: string },
+    body: FollowUpCompleteInput | { reason: string },
     context: RequestContext,
   ) {
     await getVisible(auth, id);
@@ -819,20 +978,95 @@ export const queriesService = {
     if (!row) throw new NotFoundError('Follow-up not found.');
     if (row.status !== 'PENDING')
       throw new ValidationError('Only pending follow-ups can be completed or cancelled.');
+    await assertCanManageFollowUp(auth, row.assignedToId);
+    if (status === 'COMPLETED') {
+      const completion = body as FollowUpCompleteInput;
+      if (completion.nextFollowUp) {
+        validateScheduledAt(completion.nextFollowUp.scheduledAt);
+        await assertAssignable(auth, completion.nextFollowUp.assignedToId ?? row.assignedToId);
+        await assertCanAssignOther(auth, completion.nextFollowUp.assignedToId ?? row.assignedToId);
+      }
+      if (
+        completion.nextLeadStage &&
+        !(await permissionsService.userHasPermission(auth.userId, PERMISSIONS.QUERIES_UPDATE))
+      )
+        throw new ForbiddenError('You cannot change the lead stage.');
+    }
     return prisma.$transaction(async (tx) => {
+      const completedAt = new Date();
+      const completion = status === 'COMPLETED' ? (body as FollowUpCompleteInput) : null;
+      const cancellation = status === 'CANCELLED' ? (body as { reason: string }) : null;
       const data = {
         status,
-        outcome: body.outcome ?? (status === 'CANCELLED' ? body.reason : null),
-        notes: body.notes ?? null,
-        completedAt: status === 'COMPLETED' ? new Date() : null,
+        outcomeType: completion?.outcome ?? null,
+        completionNotes: completion?.notes ?? null,
+        completedAt: completion ? completedAt : null,
+        cancelledAt: cancellation ? completedAt : null,
+        cancellationReason: cancellation?.reason ?? null,
       } as Prisma.QueryFollowUpUncheckedUpdateInput;
       const updated = await tx.queryFollowUp.update({
         where: { id: followUpId },
         data,
         select: followUpSelect,
       });
-      if (status === 'COMPLETED')
-        await tx.query.update({ where: { id }, data: { lastContactedAt: new Date() } });
+      if (completion) {
+        await tx.query.update({ where: { id }, data: { lastContactedAt: completedAt } });
+        if (completion.nextFollowUp) {
+          const nextAssignee = completion.nextFollowUp.assignedToId ?? row.assignedToId;
+          await tx.queryFollowUp.create({
+            data: {
+              companyId: auth.companyId,
+              queryId: id,
+              createdById: auth.userId,
+              assignedToId: nextAssignee,
+              scheduledAt: completion.nextFollowUp.scheduledAt,
+              ...(completion.nextFollowUp.notes !== undefined
+                ? { notes: completion.nextFollowUp.notes }
+                : {}),
+            },
+          });
+          await tx.activityLog.create({
+            data: audit(auth, 'QUERY_FOLLOW_UP_CREATED', id, context, {
+              sourceFollowUpId: followUpId,
+              scheduledAt: completion.nextFollowUp.scheduledAt.toISOString(),
+            }),
+          });
+        }
+        if (completion.nextLeadStage) {
+          const query = await tx.query.findUniqueOrThrow({
+            where: { id },
+            select: { leadStage: true },
+          });
+          if (!transitionMap[query.leadStage].includes(completion.nextLeadStage))
+            throw new ValidationError(
+              `Stage cannot move from ${query.leadStage} to ${completion.nextLeadStage}.`,
+            );
+          await tx.query.update({
+            where: { id },
+            data: {
+              leadStage: completion.nextLeadStage,
+              convertedAt: completion.nextLeadStage === 'BOOKING_CONFIRMED' ? completedAt : null,
+            },
+          });
+          await tx.queryStageHistory.create({
+            data: {
+              companyId: auth.companyId,
+              queryId: id,
+              previousStage: query.leadStage,
+              newStage: completion.nextLeadStage,
+              changedById: auth.userId,
+              reason: 'Changed while completing a follow-up',
+            },
+          });
+          await tx.activityLog.create({
+            data: audit(auth, 'QUERY_STAGE_CHANGED', id, context, {
+              previousStage: query.leadStage,
+              newStage: completion.nextLeadStage,
+              sourceFollowUpId: followUpId,
+            }),
+          });
+        }
+      }
       await recalculateNextFollowUp(tx, auth.companyId, id);
       await tx.activityLog.create({
         data: audit(
@@ -843,7 +1077,11 @@ export const queriesService = {
           { followUpId },
         ),
       });
-      return updated;
+      const lead = await tx.query.findUniqueOrThrow({
+        where: { id },
+        select: { id: true, leadStage: true, lastContactedAt: true, nextFollowUpAt: true },
+      });
+      return { followUp: effectiveFollowUpStatus(updated), lead };
     });
   },
   async deleteFollowUp(auth: AuthContext, id: string, followUpId: string, context: RequestContext) {
@@ -852,11 +1090,14 @@ export const queriesService = {
       where: { id: followUpId, companyId: auth.companyId, queryId: id, deletedAt: null },
     });
     if (!row) throw new NotFoundError('Follow-up not found.');
+    if (row.status !== 'PENDING')
+      throw new ValidationError('Only pending follow-ups can be deleted; cancel instead.');
+    await assertCanManageFollowUp(auth, row.assignedToId);
     await prisma.$transaction(async (tx) => {
       await tx.queryFollowUp.update({ where: { id: followUpId }, data: { deletedAt: new Date() } });
       await recalculateNextFollowUp(tx, auth.companyId, id);
       await tx.activityLog.create({
-        data: audit(auth, 'QUERY_FOLLOW_UP_CANCELLED', id, context, { followUpId, deleted: true }),
+        data: audit(auth, 'QUERY_FOLLOW_UP_DELETED', id, context, { followUpId }),
       });
     });
     return { deleted: true, id: followUpId };
@@ -864,7 +1105,7 @@ export const queriesService = {
   async timeline(auth: AuthContext, id: string, q: { page?: number; pageSize?: number }) {
     const query = await getVisible(auth, id);
     const p = resolvePagination(q);
-    const [stages, assignments, notes, followUps, activities] = await prisma.$transaction([
+    const [stages, assignments, notes, activities] = await prisma.$transaction([
       prisma.queryStageHistory.findMany({
         where: { companyId: auth.companyId, queryId: id },
         include: { changedBy: { select: userSelect } },
@@ -881,10 +1122,6 @@ export const queriesService = {
         where: { companyId: auth.companyId, queryId: id, deletedAt: null },
         include: { authorUser: { select: userSelect } },
       }),
-      prisma.queryFollowUp.findMany({
-        where: { companyId: auth.companyId, queryId: id, deletedAt: null },
-        include: { createdBy: { select: userSelect } },
-      }),
       prisma.activityLog.findMany({
         where: {
           companyId: auth.companyId,
@@ -893,11 +1130,15 @@ export const queriesService = {
           action: {
             in: [
               'QUERY_UPDATED',
+              'QUERY_ARCHIVED',
               'QUERY_NOTE_UPDATED',
               'QUERY_NOTE_DELETED',
+              'QUERY_FOLLOW_UP_CREATED',
               'QUERY_FOLLOW_UP_UPDATED',
+              'QUERY_FOLLOW_UP_RESCHEDULED',
               'QUERY_FOLLOW_UP_COMPLETED',
               'QUERY_FOLLOW_UP_CANCELLED',
+              'QUERY_FOLLOW_UP_DELETED',
             ],
           },
         },
@@ -912,6 +1153,7 @@ export const queriesService = {
         title: 'Lead created',
         description: query.queryNumber,
         timestamp: query.createdAt,
+        iconKey: 'lead',
         metadata: {},
       },
       ...stages.map((x) => ({
@@ -921,6 +1163,7 @@ export const queriesService = {
         title: `Stage changed to ${labelForLookup(x.newStage)}`,
         description: x.reason,
         timestamp: x.createdAt,
+        iconKey: 'stage',
         metadata: { previousStage: x.previousStage, newStage: x.newStage },
       })),
       ...assignments.map((x) => ({
@@ -930,6 +1173,7 @@ export const queriesService = {
         title: 'Assignment changed',
         description: x.newAssignee?.fullName ?? 'Unassigned',
         timestamp: x.createdAt,
+        iconKey: 'assignment',
         metadata: {
           previousAssignee: x.previousAssignee?.fullName ?? null,
           newAssignee: x.newAssignee?.fullName ?? null,
@@ -939,19 +1183,14 @@ export const queriesService = {
         id: x.id,
         type: 'NOTE',
         actor: x.authorUser,
-        title: 'Note added',
+        title: x.isCustomerContact ? 'Customer contact recorded' : 'Note added',
         description: x.content,
         timestamp: x.createdAt,
-        metadata: {},
-      })),
-      ...followUps.map((x) => ({
-        id: x.id,
-        type: 'FOLLOW_UP',
-        actor: x.createdBy,
-        title: `Follow-up ${labelForLookup(x.status)}`,
-        description: x.outcome ?? x.notes,
-        timestamp: x.createdAt,
-        metadata: { scheduledAt: x.scheduledAt, status: x.status },
+        iconKey: x.isCustomerContact ? 'contact' : 'note',
+        metadata: {
+          isCustomerContact: x.isCustomerContact,
+          contactMethod: x.contactMethod,
+        },
       })),
       ...activities.map((x) => ({
         id: x.id,
@@ -960,6 +1199,7 @@ export const queriesService = {
         title: labelForLookup(x.action.replace(/^QUERY_/, '')),
         description: null,
         timestamp: x.createdAt,
+        iconKey: x.action.includes('FOLLOW_UP') ? 'follow-up' : 'activity',
         metadata: { action: x.action },
       })),
     ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());

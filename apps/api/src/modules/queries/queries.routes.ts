@@ -99,6 +99,12 @@ router.post(
   asyncHandler(queriesController.create),
 );
 router.get(
+  '/:queryId/workspace',
+  requirePermission(PERMISSIONS.QUERIES_VIEW),
+  validateRequest({ params: queryId }),
+  asyncHandler(queriesController.workspace),
+);
+router.get(
   '/:queryId',
   requirePermission(PERMISSIONS.QUERIES_VIEW),
   validateRequest({ params: queryId }),
@@ -154,37 +160,37 @@ router.delete(
 );
 router.get(
   '/:queryId/follow-ups',
-  requirePermission(PERMISSIONS.QUERIES_VIEW),
+  requirePermission(PERMISSIONS.FOLLOWUPS_VIEW),
   validateRequest({ params: queryId }),
   asyncHandler(queriesController.followUps),
 );
 router.post(
   '/:queryId/follow-ups',
-  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  requirePermission(PERMISSIONS.FOLLOWUPS_CREATE),
   validateRequest({ params: queryId, body: followUpInputSchema }),
   asyncHandler(queriesController.addFollowUp),
 );
 router.patch(
   '/:queryId/follow-ups/:followUpId',
-  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  requirePermission(PERMISSIONS.FOLLOWUPS_UPDATE),
   validateRequest({ params: followUpId, body: followUpUpdateSchema }),
   asyncHandler(queriesController.updateFollowUp),
 );
 router.patch(
   '/:queryId/follow-ups/:followUpId/complete',
-  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  requirePermission(PERMISSIONS.FOLLOWUPS_UPDATE),
   validateRequest({ params: followUpId, body: followUpCompleteSchema }),
   asyncHandler(queriesController.completeFollowUp),
 );
 router.patch(
   '/:queryId/follow-ups/:followUpId/cancel',
-  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  requirePermission(PERMISSIONS.FOLLOWUPS_UPDATE),
   validateRequest({ params: followUpId, body: followUpCancelSchema }),
   asyncHandler(queriesController.cancelFollowUp),
 );
 router.delete(
   '/:queryId/follow-ups/:followUpId',
-  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  requirePermission(PERMISSIONS.FOLLOWUPS_DELETE),
   validateRequest({ params: followUpId }),
   asyncHandler(queriesController.deleteFollowUp),
 );

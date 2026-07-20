@@ -7,6 +7,7 @@ import { permissionTemplatesRoutes } from './modules/permission-templates/permis
 import { permissionsRoutes } from './modules/permissions/permissions.routes.js';
 import { activityLogsRoutes } from './modules/activity-logs/activity-logs.routes.js';
 import { queriesRoutes } from './modules/queries/queries.routes.js';
+import { followUpsRoutes } from './modules/follow-ups/follow-ups.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -23,5 +24,6 @@ router.use('/permissions', permissionsRoutes);
 router.use('/permission-templates', permissionTemplatesRoutes);
 router.use('/activity-logs', activityLogsRoutes);
 router.use('/queries', queriesRoutes);
+router.use('/follow-ups', followUpsRoutes);
 
 export { router as apiRoutes };

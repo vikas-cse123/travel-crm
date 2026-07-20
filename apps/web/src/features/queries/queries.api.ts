@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { QueryInput, QueryUpdateInput } from '@interscale/shared';
+import type { ContactMethodValue, QueryInput, QueryUpdateInput } from '@interscale/shared';
 
 export interface Lead {
   id: string;
@@ -103,14 +103,23 @@ export interface Note {
   content: string;
   createdAt: string;
   updatedAt: string;
+  isCustomerContact: boolean;
+  contactMethod: string | null;
+  contactedAt: string | null;
   authorUser: UserOption;
 }
 export interface FollowUp {
   id: string;
   scheduledAt: string;
   status: string;
+  effectiveStatus: string;
+  outcomeType: string | null;
   outcome: string | null;
   notes: string | null;
+  completionNotes: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
   assignedTo: UserOption;
   createdBy: UserOption;
 }
@@ -121,6 +130,31 @@ export interface TimelineEntry {
   title: string;
   description: string | null;
   timestamp: string;
+  iconKey: string;
+}
+export interface LeadWorkspace {
+  lead: Lead;
+  operationalSummary: {
+    pendingFollowUpCount: number;
+    overdueFollowUpCount: number;
+    completedFollowUpCount: number;
+    notesCount: number;
+    daysSinceLastContact: number | null;
+    noFutureFollowUp: boolean;
+    requiresAttention: boolean;
+  };
+  recent: { notes: Note[]; followUps: FollowUp[]; timeline: TimelineEntry[] };
+  indicators: string[];
+  timezone: string;
+  permissions: {
+    canEdit: boolean;
+    canAssign: boolean;
+    canChangeStage: boolean;
+    canAddNote: boolean;
+    canScheduleFollowUp: boolean;
+    canCompleteFollowUp: boolean;
+    canArchive: boolean;
+  };
 }
 
 export const queryKeys = {
@@ -129,6 +163,7 @@ export const queryKeys = {
   analytics: ['queries', 'analytics'] as const,
   lookups: ['queries', 'lookups'] as const,
   detail: (id: string) => ['queries', id] as const,
+  workspace: (id: string) => ['queries', id, 'workspace'] as const,
   notes: (id: string) => ['queries', id, 'notes'] as const,
   followUps: (id: string) => ['queries', id, 'follow-ups'] as const,
   timeline: (id: string) => ['queries', id, 'timeline'] as const,
@@ -156,6 +191,13 @@ export function useLead(id?: string) {
   return useQuery({
     queryKey: queryKeys.detail(id ?? ''),
     queryFn: ({ signal }) => apiClient.get<Lead>(`/queries/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+export function useLeadWorkspace(id?: string) {
+  return useQuery({
+    queryKey: queryKeys.workspace(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<LeadWorkspace>(`/queries/${id}/workspace`, signal),
     enabled: Boolean(id),
   });
 }
@@ -200,6 +242,7 @@ export function useLeadAction(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.all });
       void qc.invalidateQueries({ queryKey: queryKeys.detail(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.workspace(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(id) });
     },
   });
@@ -225,20 +268,33 @@ export function useNoteAction(id: string) {
     mutationFn: ({
       noteId,
       content,
+      isCustomerContact,
+      contactMethod,
       remove,
     }: {
       noteId?: string;
       content?: string;
+      isCustomerContact?: boolean;
+      contactMethod?: ContactMethodValue | null;
       remove?: boolean;
     }) =>
       remove
         ? apiClient.delete(`/queries/${id}/notes/${noteId}`)
         : noteId
-          ? apiClient.patch(`/queries/${id}/notes/${noteId}`, { content })
-          : apiClient.post(`/queries/${id}/notes`, { content }),
+          ? apiClient.patch(`/queries/${id}/notes/${noteId}`, {
+              content,
+              isCustomerContact: isCustomerContact ?? false,
+              contactMethod,
+            })
+          : apiClient.post(`/queries/${id}/notes`, {
+              content,
+              isCustomerContact: isCustomerContact ?? false,
+              contactMethod,
+            }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.notes(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.workspace(id) });
     },
   });
 }
@@ -271,6 +327,7 @@ export function useFollowUpAction(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.followUps(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.detail(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.workspace(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(id) });
     },
   });
