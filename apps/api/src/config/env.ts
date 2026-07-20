@@ -65,7 +65,20 @@ const envSchema = z.object({
 
   PASSWORD_RESET_EXPIRY_MINUTES: intWithDefault(30),
 
-  EMAIL_PROVIDER: z.enum(['console', 'smtp']).default('console'),
+  /** Consecutive failures before an account is temporarily locked. */
+  LOGIN_MAX_FAILED_ATTEMPTS: intWithDefault(5),
+  LOGIN_LOCKOUT_MINUTES: intWithDefault(15),
+
+  /** Name of the JS-readable cookie carrying the double-submit CSRF token. */
+  CSRF_COOKIE_NAME: z.string().min(1).default('interscale_csrf'),
+  /** Header the frontend echoes the CSRF token back in. */
+  CSRF_HEADER_NAME: z.string().min(1).default('x-csrf-token'),
+
+  /**
+   * `memory` collects mail in-process for tests and is rejected outside them.
+   * `console` prints to the log (development only).
+   */
+  EMAIL_PROVIDER: z.enum(['console', 'smtp', 'memory']).default('console'),
   EMAIL_FROM: z.string().min(1).default('Interscale Travel CRM <no-reply@interscale.local>'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
@@ -115,10 +128,24 @@ function loadEnv(): Env {
       );
       process.exit(1);
     }
-    if (value.EMAIL_PROVIDER === 'console') {
-      console.error('✖ EMAIL_PROVIDER=console is not permitted in production.');
+    if (value.EMAIL_PROVIDER !== 'smtp') {
+      // `console` prints OTPs to the log; `memory` silently discards mail.
+      // Either one in production is a security or delivery incident.
+      console.error(
+        `✖ EMAIL_PROVIDER="${value.EMAIL_PROVIDER}" is not permitted in production. Use "smtp".`,
+      );
       process.exit(1);
     }
+    if (value.SMTP_HOST === undefined || value.SMTP_HOST === '') {
+      console.error('✖ SMTP_HOST is required when EMAIL_PROVIDER=smtp in production.');
+      process.exit(1);
+    }
+  }
+
+  // The in-memory provider must never be reachable outside the test runner.
+  if (value.EMAIL_PROVIDER === 'memory' && value.NODE_ENV !== 'test') {
+    console.error('✖ EMAIL_PROVIDER=memory is only valid when NODE_ENV=test.');
+    process.exit(1);
   }
 
   return value;

@@ -11,16 +11,13 @@
  * interesting statuses, and a handful of activity-log entries.
  */
 import { PrismaClient, type Prisma } from '@prisma/client';
-import {
-  ACTIVITY_ACTION,
-  DEFAULT_PERMISSION_TEMPLATES,
-  DEFAULT_ROLES,
-  ENTITY_TYPE,
-  PERMISSION_CATALOG,
-  ROLE_NAME,
-} from '@interscale/shared';
+import { ACTIVITY_ACTION, ENTITY_TYPE, PERMISSION_CATALOG, ROLE_NAME } from '@interscale/shared';
 import { hashPassword } from '../src/utils/crypto.js';
 import { normalizeEmail } from '../src/utils/normalize.js';
+import {
+  ensurePermissionCatalog,
+  provisionCompanyDefaults,
+} from '../src/modules/companies/company-provisioning.service.js';
 import { DEMO_COMPANY, DEV_PASSWORD, SEED_ACTIVITY_LOG_IDS, SEED_USERS } from './seed-data.js';
 
 const prisma = new PrismaClient();
@@ -32,35 +29,6 @@ function assertNotProduction(): void {
       'Refusing to seed: NODE_ENV=production. The seed creates accounts with a public development password.',
     );
   }
-}
-
-async function seedPermissions(): Promise<Map<string, string>> {
-  const keyToId = new Map<string, string>();
-
-  for (const definition of PERMISSION_CATALOG) {
-    const permission = await prisma.permission.upsert({
-      where: { key: definition.key },
-      // Descriptions and availability are re-applied so the catalogue in code
-      // stays authoritative as modules ship.
-      update: {
-        module: definition.module,
-        action: definition.action,
-        description: definition.description,
-        isAvailable: definition.isAvailable,
-      },
-      create: {
-        key: definition.key,
-        module: definition.module,
-        action: definition.action,
-        description: definition.description,
-        isAvailable: definition.isAvailable,
-      },
-      select: { id: true, key: true },
-    });
-    keyToId.set(permission.key, permission.id);
-  }
-
-  return keyToId;
 }
 
 async function seedCompany() {
@@ -75,88 +43,6 @@ async function seedCompany() {
       status: 'ACTIVE',
     },
   });
-}
-
-async function seedRoles(
-  companyId: string,
-  permissionIds: Map<string, string>,
-  availableKeys: string[],
-): Promise<Map<string, string>> {
-  const roleNameToId = new Map<string, string>();
-
-  for (const definition of DEFAULT_ROLES) {
-    const role = await prisma.role.upsert({
-      where: { companyId_name: { companyId, name: definition.name } },
-      update: {
-        description: definition.description,
-        hierarchyLevel: definition.hierarchyLevel,
-        isSystem: definition.isSystem,
-      },
-      create: {
-        companyId,
-        name: definition.name,
-        description: definition.description,
-        hierarchyLevel: definition.hierarchyLevel,
-        isSystem: definition.isSystem,
-      },
-    });
-    roleNameToId.set(definition.name, role.id);
-
-    // `null` means "everything currently available" — so Owner picks up new
-    // permissions automatically as modules ship.
-    const keys = definition.permissionKeys === null ? availableKeys : definition.permissionKeys;
-
-    for (const key of keys) {
-      const permissionId = permissionIds.get(key);
-      if (!permissionId) {
-        throw new Error(`Role "${definition.name}" references unknown permission "${key}".`);
-      }
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId: role.id, permissionId } },
-        update: {},
-        create: { roleId: role.id, permissionId },
-      });
-    }
-  }
-
-  return roleNameToId;
-}
-
-async function seedTemplates(
-  companyId: string,
-  permissionIds: Map<string, string>,
-  createdById: string | null,
-): Promise<Map<string, string>> {
-  const templateNameToId = new Map<string, string>();
-
-  for (const definition of DEFAULT_PERMISSION_TEMPLATES) {
-    const template = await prisma.permissionTemplate.upsert({
-      where: { companyId_name: { companyId, name: definition.name } },
-      update: { description: definition.description, status: 'ACTIVE' },
-      create: {
-        companyId,
-        name: definition.name,
-        description: definition.description,
-        status: 'ACTIVE',
-        createdById,
-      },
-    });
-    templateNameToId.set(definition.name, template.id);
-
-    for (const key of definition.permissionKeys) {
-      const permissionId = permissionIds.get(key);
-      if (!permissionId) {
-        throw new Error(`Template "${definition.name}" references unknown permission "${key}".`);
-      }
-      await prisma.permissionTemplatePermission.upsert({
-        where: { templateId_permissionId: { templateId: template.id, permissionId } },
-        update: {},
-        create: { templateId: template.id, permissionId },
-      });
-    }
-  }
-
-  return templateNameToId;
 }
 
 async function seedUsers(
@@ -183,6 +69,12 @@ async function seedUsers(
         roleId,
         status: definition.status,
         emailVerifiedAt: verifiedAt,
+        // Restore the documented dev password on every run, so a seeded account
+        // whose password was changed during testing returns to a known state.
+        passwordHash,
+        // Clear any lockout a test may have left behind.
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
       create: {
         companyId,
@@ -335,25 +227,39 @@ async function seedActivityLogs(companyId: string, userIds: Map<string, string>)
 export async function runSeed(): Promise<void> {
   assertNotProduction();
 
-  const permissionIds = await seedPermissions();
+  // Roles, grants and templates come from the SAME provisioning service the
+  // registration flow uses, so the demo tenant and a freshly registered tenant
+  // are structurally identical.
+  await ensurePermissionCatalog(prisma);
   const availableKeys = PERMISSION_CATALOG.filter((p) => p.isAvailable).map((p) => p.key);
   console.log(
-    `  permissions: ${permissionIds.size} (${availableKeys.length} available, ${permissionIds.size - availableKeys.length} planned)`,
+    `  permissions: ${PERMISSION_CATALOG.length} (${availableKeys.length} available, ${PERMISSION_CATALOG.length - availableKeys.length} planned)`,
   );
 
   const company = await seedCompany();
   console.log(`  company:     ${company.name} (${company.slug})`);
 
-  const roleIds = await seedRoles(company.id, permissionIds, availableKeys);
+  const { roleIds } = await provisionCompanyDefaults(prisma, company.id);
   console.log(`  roles:       ${roleIds.size}`);
 
   const passwordHash = await hashPassword(DEV_PASSWORD);
   const userIds = await seedUsers(company.id, roleIds, passwordHash);
   console.log(`  users:       ${userIds.size}`);
 
-  // Templates record their author, so they are created after the owner exists.
   const ownerId = userIds.get('owner@interscale.local') ?? null;
-  const templateIds = await seedTemplates(company.id, permissionIds, ownerId);
+  const { templateIds } = await provisionCompanyDefaults(prisma, company.id, {
+    createdById: ownerId,
+  });
+
+  // Templates are created before the owner exists on the first pass, so their
+  // author starts null. Fill it in only where unset, which keeps this
+  // idempotent without clobbering a real author on later runs.
+  if (ownerId) {
+    await prisma.permissionTemplate.updateMany({
+      where: { companyId: company.id, createdById: null },
+      data: { createdById: ownerId },
+    });
+  }
   console.log(`  templates:   ${templateIds.size}`);
 
   await assignTemplatesToUsers(userIds, templateIds);

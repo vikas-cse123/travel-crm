@@ -25,3 +25,8 @@ process.env.DATABASE_URL = testDatabaseUrl;
 // Env validation requires these; provide test values if the root .env is thin.
 process.env.SESSION_SECRET ??= 'test_session_secret_value_at_least_32_chars';
 process.env.TOKEN_PEPPER ??= 'test_token_pepper_value_at_least_32_chars_x';
+
+// Tests read OTPs and reset links from the in-memory provider, so nothing is
+// ever exposed through the API. env.ts only accepts this provider under
+// NODE_ENV=test, which is set above.
+process.env.EMAIL_PROVIDER = 'memory';

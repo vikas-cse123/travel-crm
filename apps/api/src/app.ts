@@ -9,6 +9,7 @@ import { logger } from './config/logger.js';
 import { requestId } from './middleware/request-id.js';
 import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
 import { apiRoutes } from './routes.js';
 
 export function createApp(): Express {
@@ -60,6 +61,13 @@ export function createApp(): Express {
   }
 
   app.use(globalLimiter);
+
+  // CSRF runs before the routes and before authentication, so a forged
+  // state-changing request is rejected before it can touch any handler.
+  // Layer 1 covers requests with no session (register, login); layer 2 covers
+  // everything that carries one. See middleware/csrf.ts.
+  app.use(verifyOrigin);
+  app.use(verifyCsrfToken);
 
   app.use(API_PREFIX, apiRoutes);
 

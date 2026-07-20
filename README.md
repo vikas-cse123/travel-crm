@@ -2,11 +2,13 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 2 (Database Architecture) complete.**
-> The monorepo and toolchain (Phase 1) plus the full multi-tenant schema,
-> tenant-scoped repositories and idempotent seed (Phase 2) are in place and
-> verified. **Authentication, API endpoints and all CRM UI are not built yet**
-> — see [Roadmap](#roadmap).
+> **Status: Phase 3 (Authentication & Email Verification) complete.**
+> On top of the Phase 1 foundation and Phase 2 multi-tenant schema, the full
+> authentication system is now live end to end: company registration, email
+> OTP verification, login/logout, password reset, opaque server-backed
+> sessions, CSRF protection, route guards and the authenticated CRM shell.
+> **User management, roles UI and the CRM modules are not built yet** — see
+> [Roadmap](#roadmap).
 
 ---
 
@@ -176,7 +178,11 @@ anything is missing or malformed, printing all problems at once.
 | `OTP_RESEND_COOLDOWN_SECONDS`   | Minimum gap between OTP sends (default 60)     |
 | `OTP_MAX_ATTEMPTS`              | Failed verifications before invalidation       |
 | `PASSWORD_RESET_EXPIRY_MINUTES` | Reset-token validity (default 30)              |
-| `EMAIL_PROVIDER`                | `console` (dev) \| `smtp`                      |
+| `LOGIN_MAX_FAILED_ATTEMPTS`     | Failed sign-ins before lockout (default 5)     |
+| `LOGIN_LOCKOUT_MINUTES`         | Lockout duration (default 15)                  |
+| `CSRF_COOKIE_NAME`              | JS-readable double-submit CSRF cookie          |
+| `CSRF_HEADER_NAME`              | Header the CSRF token is echoed in             |
+| `EMAIL_PROVIDER`                | `console` (dev) \| `smtp` (prod) \| `memory` (test) |
 | `EMAIL_FROM`, `SMTP_*`          | Outbound email settings                        |
 | `RATE_LIMIT_*`                  | Global rate-limit window and ceiling           |
 | `VITE_API_URL`                  | Proxy target for the Vite dev server           |
@@ -265,6 +271,97 @@ that both definitions match, so drift fails `npm run typecheck`.
 | `npm run format`      | Prettier write                                  |
 | `npm run format:check`| Prettier check (CI-friendly)                    |
 | `npm run clean`       | Remove all `node_modules` and `dist`            |
+
+---
+
+## Authentication
+
+Opaque, server-backed sessions — **not** JWT. Logout and "revoke every session
+after a password reset" are hard requirements, and a JWT cannot be revoked
+before expiry without a server-side blocklist (which is just this session table
+with worse ergonomics). A random token, looked up by hash, gives instant
+revocation.
+
+**Session flow.** A cryptographically random token is generated; only its
+SHA-256 hash is stored in `sessions`. The raw token is sent in an httpOnly,
+SameSite=Lax cookie (Secure in production) — never in a response body and never
+in JS-readable storage. Each request hashes the incoming cookie and looks up a
+non-revoked, non-expired session. `lastUsedAt` is refreshed at most once every
+5 minutes to avoid a write per request. Sessions are revoked on logout, rotated
+on email verification (session-fixation defence), and all revoked after a
+password reset.
+
+**Endpoints** (all under `/api/auth`):
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/register` | public | Create a company + Owner, send OTP |
+| POST | `/verify-email` | session | Verify the OTP (user from session) |
+| POST | `/resend-verification-otp` | session | Re-send OTP (60s cooldown) |
+| POST | `/login` | public | Sign in |
+| POST | `/logout` | optional | Revoke session, clear cookies |
+| GET | `/me` | session | Current user + effective permissions |
+| POST | `/forgot-password` | public | Send reset link (generic response) |
+| GET | `/reset-password/:token/validate` | public | Check a reset link |
+| POST | `/reset-password` | public | Set a new password |
+| GET | `/protected-ping` | session + verified | Middleware proof (not a feature) |
+
+**Middleware.** `requireAuth` resolves the session and attaches an `AuthContext`
+whose `companyId` is read from the user row — never from request input.
+`requireVerifiedEmail` gates everything except the four endpoints a
+pending-verification user may reach (`/me`, `/verify-email`,
+`/resend-verification-otp`, `/logout`). `optionalAuth` backs logout.
+
+**Permissions.** One rule, no deny/override semantics:
+`effective = (role ∪ active-template) ∩ available`. A template can only add,
+never remove, and a permission for an unbuilt module (`isAvailable = false`)
+can never become effective.
+
+### CSRF protection
+
+Two layers, because the flows differ:
+
+1. **Origin/Referer allow-list** on every state-changing request. Works before
+   any session exists (register, login, forgot-password), which a session-bound
+   token cannot.
+2. **Signed double-submit token** whenever a session exists:
+   `HMAC-SHA256(SESSION_SECRET, sessionTokenHash)`, delivered in a JS-readable
+   cookie and echoed in `X-CSRF-Token`. Nothing extra is stored, and a token
+   from another session is useless.
+
+Backed by `SameSite=Lax`. **Known trade-off:** requiring `Origin` rejects
+non-browser clients that omit it (a future native app would need a token path).
+
+### Email service
+
+Provider abstraction in `apps/api/src/services/email/`:
+
+- `console` (dev) — prints the message, including the OTP and reset link, to the
+  API log. **Development only.**
+- `smtp` (production) — nodemailer; required when `NODE_ENV=production`.
+- `memory` (tests) — collects mail in-process so tests read the OTP/reset link
+  without the API ever exposing one. Rejected unless `NODE_ENV=test`.
+
+Delivery happens *after* the registration transaction commits, so an
+unreachable mail host never orphans a half-created company — the user resends.
+
+### Retrieving the dev OTP and reset link
+
+With `EMAIL_PROVIDER=console`, both are printed to the API log, clearly bannered
+as `[DEV EMAIL]`:
+
+```
+────────────────────────────────────────────────────────────────
+[DEV EMAIL] to: you@agency.com
+[DEV EMAIL] subject: Your Interscale Travel CRM verification code
+────────────────────────────────────────────────────────────────
+Your Interscale Travel CRM verification code for … is:
+
+123456
+```
+
+The password-reset email contains the full `http://localhost:5173/reset-password/<token>`
+link. Neither the OTP nor the token ever appears in an API response.
 
 ---
 
@@ -508,8 +605,8 @@ These are expected at this stage, not defects:
 | ----- | ------------------------------------------------------------------------ | ------- |
 | **1** | Monorepo, toolchain, Tailwind, env validation, Docker, Prisma, health API | ✅ Done |
 | **2** | Multi-tenant schema, constraints, tenant repositories, migration, seed    | ✅ Done |
-| 3     | Registration, email OTP, login, logout, sessions, password reset          | Next    |
-| 4     | User management: list, CRUD, status transitions, admin password reset     | Planned |
+| **3** | Registration, email OTP, login, logout, sessions, CSRF, password reset, shell | ✅ Done |
+| 4     | User management: list, CRUD, status transitions, admin password reset     | Next    |
 | 5     | Roles, permission keys, templates, guards and permission-aware sidebar    | Planned |
 | 6     | Integration + component tests, tenant-isolation tests, hardening          | Planned |
 

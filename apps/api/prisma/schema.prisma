@@ -152,6 +152,10 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
+  /// When the password was last changed. Audit data, and a reference point for
+  /// invalidating anything issued before a reset. Null for never-changed.
+  passwordChangedAt DateTime?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   /// Soft deletion. Non-null rows are excluded from normal reads.
