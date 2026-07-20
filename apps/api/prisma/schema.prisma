@@ -1,0 +1,31 @@
+// Interscale Travel CRM — Prisma schema
+//
+// PHASE 1 SCOPE.
+// This file currently contains only the infrastructure model needed to prove
+// that migrations, the generated client and the database connection all work
+// end to end.
+//
+// The full multi-tenant domain schema (Company, User, Role, Permission,
+// RolePermission, PermissionTemplate, PermissionTemplatePermission, Session,
+// EmailVerificationOtp, PasswordResetToken, ActivityLog and their enums) is
+// Phase 2 and is deliberately NOT defined yet.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Records each successful boot/health probe. Exists so Phase 1 has a real
+/// table to migrate and query; Phase 2 may drop it.
+model HealthCheck {
+  id        String   @id @default(uuid()) @db.Uuid
+  label     String   @db.VarChar(64)
+  checkedAt DateTime @default(now())
+
+  @@index([checkedAt])
+  @@map("health_checks")
+}

@@ -1,0 +1,36 @@
+# Explicit, deliberately unique project name.
+#
+# Compose otherwise derives the name from the folder ("travel-crm"), which on
+# this machine collides with unrelated existing stacks ("travel-crm",
+# "interscale-travel-crm", "crm", "new-trave-crm"). A collision means
+# `docker compose down` here would stop another project's containers.
+name: interscale-crm-monorepo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: interscale-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-interscale}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-interscale_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-interscale_crm}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - interscale_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-interscale} -d ${POSTGRES_DB:-interscale_crm}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  interscale_pgdata:
+    name: interscale_crm_pgdata

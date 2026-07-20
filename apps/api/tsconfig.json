@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // tsup performs the build; tsc is used only for type checking, so no
+    // rootDir/outDir here — that lets config and test files be checked too.
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "prisma/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts",
+    "tsup.config.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

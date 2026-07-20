@@ -1,0 +1,56 @@
+{
+  "name": "interscale-travel-crm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Interscale Travel CRM - multi-tenant SaaS CRM for travel agencies",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @interscale/shared && concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @interscale/api",
+    "dev:web": "npm run dev --workspace @interscale/web",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "build:shared": "npm run build --workspace @interscale/shared",
+    "build:api": "npm run build --workspace @interscale/api",
+    "build:web": "npm run build --workspace @interscale/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run test:api && npm run test:web",
+    "test:api": "npm run test --workspace @interscale/api",
+    "test:web": "npm run test --workspace @interscale/web",
+    "db:generate": "npm run db:generate --workspace @interscale/api",
+    "db:migrate": "npm run db:migrate --workspace @interscale/api",
+    "db:deploy": "npm run db:deploy --workspace @interscale/api",
+    "db:seed": "npm run db:seed --workspace @interscale/api",
+    "db:studio": "npm run db:studio --workspace @interscale/api",
+    "db:reset": "npm run db:reset --workspace @interscale/api",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist"
+  },
+  "overridesReason": "esbuild <=0.28.0 carries dev-server advisories GHSA-67mh-4wv8-2f99 and GHSA-g7r4-m6w7-qqqr; forced up across tsup and the Vite toolchain.",
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^20.17.10",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
+  }
+}
