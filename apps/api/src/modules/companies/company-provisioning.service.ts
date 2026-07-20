@@ -30,11 +30,8 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
  * creation.
  */
 export async function ensurePermissionCatalog(client: DbClient = prisma): Promise<void> {
-  // Fast path: the catalogue rarely changes, so skip ~47 upserts when the row
-  // count already matches. Registration hits this on every request.
-  const existing = await client.permission.count();
-  if (existing === PERMISSION_CATALOG.length) return;
-
+  // Upsert every definition: a module becoming available changes existing
+  // rows without changing the catalogue count.
   for (const definition of PERMISSION_CATALOG) {
     await client.permission.upsert({
       where: { key: definition.key },

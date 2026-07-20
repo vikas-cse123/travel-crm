@@ -26,6 +26,9 @@ import { TemplatesPage } from '@/pages/administration/TemplatesPage';
 import { TemplateFormPage } from '@/pages/administration/TemplateFormPage';
 import { TemplateDetailsPage } from '@/pages/administration/TemplateDetailsPage';
 import { ActivityLogsPage } from '@/pages/administration/ActivityLogsPage';
+import { LeadsPage } from '@/pages/queries/LeadsPage';
+import { LeadFormPage } from '@/pages/queries/LeadFormPage';
+import { LeadDetailsPage } from '@/pages/queries/LeadDetailsPage';
 
 /**
  * Route table.
@@ -60,6 +63,38 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           {/* Retained from Phase 1 for infrastructure checks. */}
           <Route path="/system-status" element={<SystemStatusPage />} />
+          <Route
+            path="/queries"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_VIEW}>
+                <LeadsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_CREATE}>
+                <LeadFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/:queryId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_VIEW}>
+                <LeadDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/:queryId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_UPDATE}>
+                <LeadFormPage />
+              </PermissionRoute>
+            }
+          />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/users/new" element={<NewUserPage />} />
           <Route path="/users/:userId" element={<UserDetailsPage />} />

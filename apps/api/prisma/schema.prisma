@@ -56,6 +56,74 @@ enum TemplateStatus {
   INACTIVE
 }
 
+enum LeadSource {
+  WEBSITE
+  SOCIAL_MEDIA
+  FACEBOOK_ADS
+  INSTAGRAM_ADS
+  GOOGLE_ADS
+  WHATSAPP
+  PHONE_CALL
+  REFERRAL
+  WALK_IN
+  REPEAT_CUSTOMER
+  PARTNER
+  OTHER
+}
+
+enum LeadType {
+  FRESH
+  HOT
+  WARM
+  COLD
+  PROSPECT
+}
+
+enum LeadStage {
+  NEW_LEAD
+  CONTACTED
+  QUALIFIED
+  QUOTATION_REQUIRED
+  QUOTATION_SENT
+  IN_NEGOTIATION
+  READY_TO_BOOK
+  BOOKING_CONFIRMED
+  FOLLOW_UP
+  AMENDMENT
+  LOST
+  CANCELLED
+  INVALID
+  ON_HOLD
+}
+
+enum QueryPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum FollowUpStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  MISSED
+}
+
+enum ServiceType {
+  FLIGHT
+  HOTEL
+  CRUISE
+  VEHICLE_TRANSFER
+  SIGHTSEEING
+  VISA
+  TRAVEL_INSURANCE
+  RAIL
+  PASSPORT_ASSISTANCE
+  OTHER_ADD_ON
+  GENERAL_ENQUIRY
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -83,6 +151,18 @@ enum ActivityAction {
   PERMISSION_TEMPLATE_ACTIVATED
   PERMISSION_TEMPLATE_DEACTIVATED
   PERMISSION_TEMPLATE_DELETED
+  QUERY_CREATED
+  QUERY_UPDATED
+  QUERY_STAGE_CHANGED
+  QUERY_ASSIGNED
+  QUERY_ARCHIVED
+  QUERY_NOTE_ADDED
+  QUERY_NOTE_UPDATED
+  QUERY_NOTE_DELETED
+  QUERY_FOLLOW_UP_CREATED
+  QUERY_FOLLOW_UP_UPDATED
+  QUERY_FOLLOW_UP_COMPLETED
+  QUERY_FOLLOW_UP_CANCELLED
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +186,14 @@ model Company {
   roles               Role[]
   permissionTemplates PermissionTemplate[]
   activityLogs        ActivityLog[]
+  queries             Query[]
+  queryCounters       QueryCounter[]
+  queryNotes          QueryNote[]
+  queryStageHistory   QueryStageHistory[]
+  queryAssignments    QueryAssignmentHistory[]
+  queryFollowUps      QueryFollowUp[]
+  queryServices       QueryService[]
+  queryItineraries    QueryItinerary[]
 
   @@index([status])
   @@index([createdAt])
@@ -173,6 +261,15 @@ model User {
   createdTemplates      PermissionTemplate[]   @relation("PermissionTemplateCreatedBy")
   activityLogsAsActor   ActivityLog[]          @relation("ActivityLogActor")
   activityLogsAsTarget  ActivityLog[]          @relation("ActivityLogTarget")
+  queriesCreated        Query[]                 @relation("QueryCreatedBy")
+  queriesAssigned       Query[]                 @relation("QueryAssignedTo")
+  queryNotes             QueryNote[]             @relation("QueryNoteAuthor")
+  queryStagesChanged     QueryStageHistory[]     @relation("QueryStageChangedBy")
+  queryAssignmentsMade  QueryAssignmentHistory[] @relation("QueryAssignedBy")
+  queryAssignmentsFrom  QueryAssignmentHistory[] @relation("QueryPreviousAssignee")
+  queryAssignmentsTo    QueryAssignmentHistory[] @relation("QueryNewAssignee")
+  queryFollowUpsAssigned QueryFollowUp[]          @relation("QueryFollowUpAssigned")
+  queryFollowUpsCreated  QueryFollowUp[]          @relation("QueryFollowUpCreated")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -401,4 +498,184 @@ model ActivityLog {
   @@index([companyId, actorUserId])
   @@index([companyId, entityType])
   @@map("activity_logs")
+}
+
+model QueryCounter {
+  companyId String @db.Uuid
+  year      Int
+  value     Int @default(0)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  @@id([companyId, year])
+  @@map("query_counters")
+}
+
+model Query {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryNumber String @db.VarChar(24)
+  customerName String @db.VarChar(120)
+  phone String @db.VarChar(32)
+  normalizedPhone String @db.VarChar(24)
+  alternatePhone String? @db.VarChar(32)
+  email String? @db.VarChar(255)
+  dateOfBirth DateTime? @db.Date
+  leadSource LeadSource
+  leadType LeadType @default(FRESH)
+  leadStage LeadStage @default(NEW_LEAD)
+  priority QueryPriority @default(MEDIUM)
+  departureCountry String? @db.VarChar(80)
+  departureCity String? @db.VarChar(100)
+  travelStartDate DateTime? @db.Date
+  travelEndDate DateTime? @db.Date
+  flexibleDates Boolean @default(false)
+  rooms Int @default(1)
+  adults Int @default(1)
+  childrenWithBed Int @default(0)
+  childrenWithoutBed Int @default(0)
+  infants Int @default(0)
+  extraBeds Int @default(0)
+  travellerSummary String @db.VarChar(255)
+  expectedAmount Decimal? @db.Decimal(14, 2)
+  budgetMin Decimal? @db.Decimal(14, 2)
+  budgetMax Decimal? @db.Decimal(14, 2)
+  expectedMargin Decimal? @db.Decimal(14, 2)
+  currency String @default("INR") @db.VarChar(3)
+  tripType String? @db.VarChar(40)
+  quotationRequired Boolean @default(false)
+  bookingStatusPlaceholder String? @db.VarChar(80)
+  webLinkPlaceholder String? @db.VarChar(500)
+  supplierCostingNotes String? @db.VarChar(2000)
+  assignedToId String? @db.Uuid
+  createdById String @db.Uuid
+  lastContactedAt DateTime?
+  nextFollowUpAt DateTime?
+  lostReason String? @db.VarChar(500)
+  convertedAt DateTime?
+  internalRemarks String? @db.VarChar(2000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo User? @relation("QueryAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy User @relation("QueryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  notes QueryNote[]
+  stageHistory QueryStageHistory[]
+  assignmentHistory QueryAssignmentHistory[]
+  followUps QueryFollowUp[]
+  services QueryService[]
+  itinerary QueryItinerary[]
+  @@unique([companyId, queryNumber])
+  @@index([companyId, normalizedPhone])
+  @@index([companyId, leadStage, deletedAt])
+  @@index([companyId, leadType, deletedAt])
+  @@index([companyId, priority, deletedAt])
+  @@index([companyId, assignedToId, deletedAt])
+  @@index([companyId, nextFollowUpAt])
+  @@index([companyId, travelStartDate])
+  @@index([companyId, createdAt])
+  @@map("queries")
+}
+
+model QueryNote {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  authorUserId String @db.Uuid
+  content String @db.VarChar(4000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  authorUser User @relation("QueryNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  @@index([companyId, queryId, createdAt])
+  @@map("query_notes")
+}
+
+model QueryStageHistory {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  previousStage LeadStage?
+  newStage LeadStage
+  changedById String @db.Uuid
+  reason String? @db.VarChar(500)
+  createdAt DateTime @default(now())
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  changedBy User @relation("QueryStageChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  @@index([companyId, queryId, createdAt])
+  @@map("query_stage_history")
+}
+
+model QueryAssignmentHistory {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  previousAssigneeId String? @db.Uuid
+  newAssigneeId String? @db.Uuid
+  assignedById String @db.Uuid
+  createdAt DateTime @default(now())
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  previousAssignee User? @relation("QueryPreviousAssignee", fields: [previousAssigneeId], references: [id], onDelete: SetNull)
+  newAssignee User? @relation("QueryNewAssignee", fields: [newAssigneeId], references: [id], onDelete: SetNull)
+  assignedBy User @relation("QueryAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  @@index([companyId, queryId, createdAt])
+  @@map("query_assignment_history")
+}
+
+model QueryFollowUp {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  assignedToId String @db.Uuid
+  createdById String @db.Uuid
+  scheduledAt DateTime
+  status FollowUpStatus @default(PENDING)
+  outcome String? @db.VarChar(1000)
+  notes String? @db.VarChar(2000)
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  assignedTo User @relation("QueryFollowUpAssigned", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy User @relation("QueryFollowUpCreated", fields: [createdById], references: [id], onDelete: Restrict)
+  @@index([companyId, queryId, scheduledAt])
+  @@index([companyId, assignedToId, status, scheduledAt])
+  @@map("query_follow_ups")
+}
+
+model QueryService {
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  serviceType ServiceType
+  createdAt DateTime @default(now())
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  @@id([queryId, serviceType])
+  @@index([companyId, serviceType])
+  @@map("query_services")
+}
+
+model QueryItinerary {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  queryId String @db.Uuid
+  country String @db.VarChar(80)
+  destination String @db.VarChar(120)
+  nights Int
+  sequence Int
+  arrivalDate DateTime? @db.Date
+  departureDate DateTime? @db.Date
+  notes String? @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query Query @relation(fields: [queryId], references: [id], onDelete: Cascade)
+  @@unique([queryId, sequence])
+  @@index([companyId, destination])
+  @@map("query_itineraries")
 }

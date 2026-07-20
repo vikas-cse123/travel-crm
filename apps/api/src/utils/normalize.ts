@@ -16,6 +16,12 @@ export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
 }
 
+/** Digits-only phone key used for tenant-scoped duplicate matching. */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 /**
  * Turn a company name into a URL-safe slug.
  *

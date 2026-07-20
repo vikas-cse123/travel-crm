@@ -108,11 +108,11 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.SETTINGS, 'update', 'Update company settings'),
 
   // ---- Planned: not grantable until the module ships -------------------
-  planned(M.QUERIES, 'view', 'View travel queries'),
-  planned(M.QUERIES, 'create', 'Create travel queries'),
-  planned(M.QUERIES, 'update', 'Edit travel queries'),
-  planned(M.QUERIES, 'delete', 'Delete travel queries'),
-  planned(M.QUERIES, 'assign', 'Assign travel queries to agents'),
+  available(M.QUERIES, 'view', 'View travel queries'),
+  available(M.QUERIES, 'create', 'Create travel queries'),
+  available(M.QUERIES, 'update', 'Edit travel queries'),
+  available(M.QUERIES, 'delete', 'Delete travel queries'),
+  available(M.QUERIES, 'assign', 'Assign travel queries to agents'),
 
   planned(M.FOLLOWUPS, 'view', 'View follow-ups'),
   planned(M.FOLLOWUPS, 'create', 'Create follow-ups'),
@@ -170,6 +170,12 @@ export const PERMISSIONS = {
 
   SETTINGS_VIEW: 'settings.view',
   SETTINGS_UPDATE: 'settings.update',
+
+  QUERIES_VIEW: 'queries.view',
+  QUERIES_CREATE: 'queries.create',
+  QUERIES_UPDATE: 'queries.update',
+  QUERIES_DELETE: 'queries.delete',
+  QUERIES_ASSIGN: 'queries.assign',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
