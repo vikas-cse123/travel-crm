@@ -2,11 +2,11 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 1 (Foundation) complete.**
-> The monorepo, toolchain, database infrastructure and a working health-check
-> vertical slice are in place and verified. Authentication, users, roles,
-> permissions and the CRM modules are **not** built yet — see
-> [Roadmap](#roadmap).
+> **Status: Phase 2 (Database Architecture) complete.**
+> The monorepo and toolchain (Phase 1) plus the full multi-tenant schema,
+> tenant-scoped repositories and idempotent seed (Phase 2) are in place and
+> verified. **Authentication, API endpoints and all CRM UI are not built yet**
+> — see [Roadmap](#roadmap).
 
 ---
 
@@ -215,14 +215,40 @@ npm run db:reset       # drop, re-migrate and re-seed
 Prisma CLI commands are wrapped in `dotenv -e ../../.env --` so they read the
 root `.env` rather than looking for one inside `apps/api`.
 
-### Schema scope
+### Schema
 
-`apps/api/prisma/schema.prisma` currently contains **only** a `HealthCheck`
-model. Its purpose is to prove that migrations, the generated client and the
-live connection all work. The full multi-tenant domain schema — `Company`,
-`User`, `Role`, `Permission`, `RolePermission`, `PermissionTemplate`,
-`PermissionTemplatePermission`, `Session`, `EmailVerificationOtp`,
-`PasswordResetToken`, `ActivityLog` and their enums — is **Phase 2**.
+`apps/api/prisma/schema.prisma` holds 11 models and 4 enums. UUID primary keys,
+snake_case table names.
+
+| Model | Tenancy | Notes |
+| --- | --- | --- |
+| `Company` | tenant root | unique `slug` |
+| `User` | `companyId` | soft delete, globally unique `normalizedEmail` |
+| `Role` | `companyId` | unique per company, `hierarchyLevel` |
+| `Permission` | **global** | unique `key`, `isAvailable` flag |
+| `RolePermission` | via role | composite PK |
+| `PermissionTemplate` | `companyId` | soft delete, unique name per company |
+| `PermissionTemplatePermission` | via template | composite PK |
+| `Session` | via user | unique `tokenHash` (SHA-256) |
+| `EmailVerificationOtp` | via user | `otpHash`, attempt limits |
+| `PasswordResetToken` | via user | unique `tokenHash`, single use |
+| `ActivityLog` | `companyId` | append-only, actor/target `SetNull` |
+
+Enums: `CompanyStatus`, `UserStatus`, `TemplateStatus`, `ActivityAction`.
+
+**Why email is globally unique.** Login accepts email + password with no tenant
+selector, so an address must resolve to exactly one account. The trade-off is
+that one person cannot hold accounts at two agencies under the same address;
+changing that would require a company selector at sign-in.
+
+**Soft deletion.** `User` and `PermissionTemplate` use `deletedAt`. Unique
+constraints deliberately still count soft-deleted rows — releasing an archived
+user's email would let a new account claim it and make restoring the original
+impossible.
+
+**Enum parity.** `@interscale/shared` re-declares the enums so the frontend
+never imports Prisma. `apps/api/src/db/enum-parity.ts` asserts at compile time
+that both definitions match, so drift fails `npm run typecheck`.
 
 ---
 
@@ -242,17 +268,61 @@ live connection all work. The full multi-tenant domain schema — `Company`,
 
 ---
 
+## Demo data
+
+`npm run db:seed` creates the demo tenant. It is **idempotent** — every write is
+an `upsert`, so running it repeatedly converges rather than duplicating.
+
+**Company:** Interscale Demo Travels (`interscale-demo-travels`)
+
+| Email | Role | Status |
+| --- | --- | --- |
+| `owner@interscale.local` | Owner | ACTIVE |
+| `manager@interscale.local` | Manager | ACTIVE |
+| `sales@interscale.local` | Sales Executive | ACTIVE |
+| `dataentry@interscale.local` | Data Entry | INACTIVE |
+| `viewer@interscale.local` | View Only | SUSPENDED |
+
+**Development password (all accounts):** `Interscale@2026`
+
+> ⚠️ Development only. It is committed on purpose so the demo tenant works out
+> of the box, which is exactly why it must never exist in a deployed
+> environment. `seed.ts` throws if `NODE_ENV=production`.
+
+The inactive and suspended accounts are intentional: they exercise the
+"cannot sign in" paths in later phases. Sessions, OTPs and reset tokens are
+**not** seeded — credentials are minted by the auth flow, never pre-created.
+
+Also seeded: the 47-key permission catalogue (21 available, 26 reserved for
+future modules), 5 default roles with grants, 4 quick-setup templates, and 7
+sample activity-log entries.
+
+---
+
 ## Testing
 
 ```bash
 npm test           # api + web
-npm run test:api   # Vitest + Supertest
+npm run test:api   # Vitest + Supertest + database integration
 npm run test:web   # Vitest + React Testing Library (jsdom)
 ```
 
-Backend tests exercise the real Express app through Supertest (envelope shape,
-correlation ids, 404 handling, security headers). Frontend tests cover the
-loading, success and error states of the status page against a stubbed fetch.
+### Test database
+
+Integration tests run against a **separate** database (`interscale_crm_test`),
+created and migrated automatically on first run. Development data is never
+touched.
+
+Two guards make that structural rather than a convention: the suite refuses to
+start unless the database name ends with `_test`, and `tests/setup.ts`
+redirects `DATABASE_URL` *before* the Prisma singleton is constructed, so the
+repositories under test cannot reach the dev database.
+
+Override with `TEST_DATABASE_URL` in `.env` if you want a different target.
+
+Coverage: schema constraints (uniqueness, cascade, restrict, set-null), soft
+deletion, cross-tenant isolation, seed idempotency, permission availability
+rules, crypto and normalisation utilities, and the health endpoints.
 
 Rate limiting is skipped when `NODE_ENV=test` so suites are not order-dependent.
 
@@ -346,20 +416,59 @@ lockout, and hashed single-use OTP / reset tokens.
 
 ## Multi-tenancy design
 
-Every travel agency is a separate **company tenant**. The rules that Phase 2+
-code must follow:
+Every travel agency is a separate **company tenant**.
 
 1. `companyId` is **always** derived from the authenticated session — never
    read from the request body, query string or URL.
 2. Every company-owned query is scoped by `companyId`.
-3. Reads and writes validate **both** the record id and the `companyId`, so a
+3. Reads and writes match on **both** the record id and `companyId`, so a
    modified URL cannot reach another tenant's row.
-4. Tenant-scoped repository helpers centralise this, rather than each service
-   remembering to add a filter.
-5. Multi-step critical actions run inside a database transaction.
-6. Automated cross-tenant isolation tests gate the work.
+4. Multi-step critical actions run inside a database transaction.
+5. Cross-tenant isolation tests gate the work.
 
 The first person to register a company becomes its **Owner**.
+
+### How it is enforced
+
+`src/db/tenant.ts` defines a branded `TenantContext`. The brand matters: a bare
+`{ companyId: req.body.companyId }` will not type-check as a `TenantContext`,
+so client-supplied values cannot reach a repository by accident. It is built
+only by `createTenantContext(companyId)`, called with a value read from a
+verified session.
+
+Every tenant-scoped repository takes that context as its **first parameter**:
+
+```ts
+usersRepository.findById(tenant, userId);       // WHERE id = ? AND "companyId" = ?
+usersRepository.update(tenant, userId, data);   // returns null across tenants
+```
+
+There is deliberately **no** generic `findById(model, id)` helper. A convenience
+wrapper that *can* run unscoped is one that eventually *will*.
+
+Repositories: `users`, `roles`, `permission-templates`, `activity-logs`,
+`companies`. `permissions` is intentionally unscoped — the catalogue is global
+and identical for every company; only the grants differ.
+
+### Why not Row-Level Security
+
+PostgreSQL RLS was evaluated and **not** adopted in this phase. Enforcing it
+requires a transaction-scoped `SET LOCAL app.company_id` on every query, which
+is unreliable across Prisma's connection pool and interactive transactions —
+and when it is missed it fails **open**, silently. An isolation control that
+degrades silently is worse than one enforced where it can be tested.
+
+The application-level protections in its place:
+
+- `companyId` is a required argument on every tenant-scoped repository function.
+- Single-row reads and writes match on id **and** `companyId`.
+- Writes use `updateMany` with the composite filter, so a cross-tenant id
+  affects zero rows rather than throwing something a caller might swallow.
+- `tests/tenant-isolation.test.ts` proves Company A cannot read, list, update,
+  change the status of, or soft delete a Company B record.
+
+This is worth revisiting if the app ever gains raw SQL paths or a second
+consumer of the database, where RLS would be defence in depth.
 
 ---
 
@@ -367,11 +476,18 @@ The first person to register a company becomes its **Owner**.
 
 These are expected at this stage, not defects:
 
-- **No authentication.** All Phase 1 routes are public. There is no login,
-  signup, session or user record yet.
-- **Domain schema not modelled.** Only `HealthCheck` exists in Prisma.
+- **No authentication and no domain API endpoints.** The schema, repositories
+  and seed exist, but nothing is exposed over HTTP yet — the only routes are
+  the two health checks. Login, signup and OTP arrive in Phase 3.
+- **Repositories are read/update only.** Creation of users, roles and templates
+  is deliberately left to the Phase 3–5 services, which own the surrounding
+  business rules (role hierarchy, last-active-Owner protection).
 - **The `/` status page is temporary.** It exists to verify the stack and is
   replaced by `/login` and `/dashboard` in Phase 3.
+- **No Row-Level Security** — see [Why not Row-Level
+  Security](#why-not-row-level-security).
+- **Soft-deleted rows keep their unique email and username.** Freeing an
+  identifier requires an explicit anonymisation step, which is not built yet.
 - **No CRM layout yet** — no sidebar, topbar or breadcrumbs.
 - **Email service is not implemented.** `EMAIL_PROVIDER` is validated and
   reserved; the abstraction lands in Phase 3.
@@ -391,8 +507,8 @@ These are expected at this stage, not defects:
 | Phase | Scope                                                                    | Status  |
 | ----- | ------------------------------------------------------------------------ | ------- |
 | **1** | Monorepo, toolchain, Tailwind, env validation, Docker, Prisma, health API | ✅ Done |
-| 2     | Multi-tenant Prisma schema, indexes, constraints, migrations, seed data   | Next    |
-| 3     | Registration, email OTP, login, logout, sessions, password reset          | Planned |
+| **2** | Multi-tenant schema, constraints, tenant repositories, migration, seed    | ✅ Done |
+| 3     | Registration, email OTP, login, logout, sessions, password reset          | Next    |
 | 4     | User management: list, CRUD, status transitions, admin password reset     | Planned |
 | 5     | Roles, permission keys, templates, guards and permission-aware sidebar    | Planned |
 | 6     | Integration + component tests, tenant-isolation tests, hardening          | Planned |

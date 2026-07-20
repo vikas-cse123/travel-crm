@@ -1,14 +1,27 @@
-// Interscale Travel CRM — Prisma schema
+// Interscale Travel CRM — multi-tenant domain schema (Phase 2)
 //
-// PHASE 1 SCOPE.
-// This file currently contains only the infrastructure model needed to prove
-// that migrations, the generated client and the database connection all work
-// end to end.
+// TENANCY MODEL
+// Every travel agency is one `Company` row. Company-owned tables carry an
+// explicit `companyId`; credential tables (Session, EmailVerificationOtp,
+// PasswordResetToken) inherit tenancy through their `User`, which is why they
+// do not repeat the column — a denormalised copy could drift out of sync with
+// the user's real owner and become a silent isolation hole.
 //
-// The full multi-tenant domain schema (Company, User, Role, Permission,
-// RolePermission, PermissionTemplate, PermissionTemplatePermission, Session,
-// EmailVerificationOtp, PasswordResetToken, ActivityLog and their enums) is
-// Phase 2 and is deliberately NOT defined yet.
+// ROW-LEVEL SECURITY
+// PostgreSQL RLS is deliberately NOT used. Enforcing it requires a
+// transaction-scoped `SET LOCAL app.company_id` on every query, which is
+// unreliable across Prisma's connection pool and interactive transactions, and
+// fails *open* when it is missed. Isolation is instead enforced by the typed
+// tenant-scoped repositories in `src/modules/**/*.repository.ts`, where
+// `companyId` is a required parameter, and is covered by cross-tenant tests in
+// `tests/tenant-isolation.test.ts`.
+//
+// SOFT DELETION
+// `User` and `PermissionTemplate` use `deletedAt`. Unique constraints
+// intentionally still count soft-deleted rows: releasing an archived user's
+// email would let a new account claim it and make restoring the original
+// impossible. Freeing an identifier is therefore an explicit anonymisation
+// step, not an implicit side effect of archiving.
 
 generator client {
   provider = "prisma-client-js"
@@ -19,13 +32,369 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Records each successful boot/health probe. Exists so Phase 1 has a real
-/// table to migrate and query; Phase 2 may drop it.
-model HealthCheck {
-  id        String   @id @default(uuid()) @db.Uuid
-  label     String   @db.VarChar(64)
-  checkedAt DateTime @default(now())
+// ---------------------------------------------------------------------------
+// Enums — mirrored in packages/shared/src/enums.ts, parity asserted at compile
+// time by apps/api/src/db/enum-parity.ts
+// ---------------------------------------------------------------------------
 
-  @@index([checkedAt])
-  @@map("health_checks")
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum TemplateStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ActivityAction {
+  COMPANY_REGISTERED
+  EMAIL_OTP_SENT
+  EMAIL_VERIFIED
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  USER_CREATED
+  USER_UPDATED
+  USER_ACTIVATED
+  USER_DEACTIVATED
+  USER_SUSPENDED
+  USER_RESTORED
+  USER_ARCHIVED
+  USER_ROLE_CHANGED
+  USER_PASSWORD_RESET
+  ROLE_CREATED
+  ROLE_UPDATED
+  ROLE_DELETED
+  PERMISSION_TEMPLATE_CREATED
+  PERMISSION_TEMPLATE_UPDATED
+  PERMISSION_TEMPLATE_DUPLICATED
+  PERMISSION_TEMPLATE_ACTIVATED
+  PERMISSION_TEMPLATE_DEACTIVATED
+  PERMISSION_TEMPLATE_DELETED
+}
+
+// ---------------------------------------------------------------------------
+// Tenant root
+// ---------------------------------------------------------------------------
+
+/// A travel agency. The tenant boundary for every other table.
+model Company {
+  id     String        @id @default(uuid()) @db.Uuid
+  name   String        @db.VarChar(120)
+  /// URL-safe identifier derived from the name. Globally unique.
+  slug   String        @unique @db.VarChar(140)
+  email  String        @db.VarChar(255)
+  phone  String?       @db.VarChar(32)
+  status CompanyStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users               User[]
+  roles               Role[]
+  permissionTemplates PermissionTemplate[]
+  activityLogs        ActivityLog[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("companies")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+/// A person who can sign in. Belongs to exactly one company.
+model User {
+  id                   String  @id @default(uuid()) @db.Uuid
+  companyId            String  @db.Uuid
+  roleId               String  @db.Uuid
+  permissionTemplateId String? @db.Uuid
+
+  /// Login handle, unique per company (not globally).
+  username String @db.VarChar(40)
+  fullName String @db.VarChar(120)
+
+  /// Address as the user typed it, preserved for display.
+  email           String  @db.VarChar(255)
+  /// Lowercased, trimmed form used for lookup and uniqueness.
+  ///
+  /// GLOBALLY UNIQUE BY DESIGN: login accepts only email + password, with no
+  /// tenant selector, so an address must resolve to exactly one account.
+  /// Trade-off: one person cannot hold accounts at two agencies with the same
+  /// address. Revisiting that would require a company selector at login.
+  normalizedEmail String  @unique @db.VarChar(255)
+  phone           String? @db.VarChar(32)
+
+  /// Argon2id digest. No plaintext password is ever stored.
+  passwordHash String @db.VarChar(255)
+
+  status          UserStatus @default(PENDING_VERIFICATION)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+
+  /// Forces a password change on next sign-in (admin-created accounts).
+  mustChangePassword Boolean @default(false)
+
+  /// Brute-force controls, reset on every successful login.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft deletion. Non-null rows are excluded from normal reads.
+  deletedAt DateTime?
+
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Restrict: a role still assigned to a user cannot be deleted.
+  role               Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  // SetNull: deleting a template must never delete the users using it.
+  permissionTemplate PermissionTemplate? @relation(fields: [permissionTemplateId], references: [id], onDelete: SetNull)
+
+  sessions              Session[]
+  emailVerificationOtps EmailVerificationOtp[]
+  passwordResetTokens   PasswordResetToken[]
+  createdTemplates      PermissionTemplate[]   @relation("PermissionTemplateCreatedBy")
+  activityLogsAsActor   ActivityLog[]          @relation("ActivityLogActor")
+  activityLogsAsTarget  ActivityLog[]          @relation("ActivityLogTarget")
+
+  @@unique([companyId, username])
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@index([companyId, deletedAt])
+  @@index([roleId])
+  @@index([permissionTemplateId])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Authorisation
+// ---------------------------------------------------------------------------
+
+/// A named set of permissions within one company.
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  companyId   String  @db.Uuid
+  name        String  @db.VarChar(60)
+  description String? @db.VarChar(500)
+
+  /// Higher wins. Used to stop a user assigning a role above their own.
+  hierarchyLevel Int @default(0)
+
+  /// System roles are seeded per company and protected from deletion.
+  isSystem Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users       User[]
+  permissions RolePermission[]
+
+  @@unique([companyId, name])
+  @@index([companyId, hierarchyLevel])
+  @@map("roles")
+}
+
+/// The global permission catalogue. Not tenant scoped — the same keys exist
+/// for every company; only the grants differ.
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  /// `<module>.<action>`, e.g. `users.create`.
+  key         String @unique @db.VarChar(80)
+  module      String @db.VarChar(40)
+  action      String @db.VarChar(40)
+  description String @db.VarChar(500)
+
+  /// False for modules that are planned but not built. Must never be granted.
+  isAvailable Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  roles     RolePermission[]
+  templates PermissionTemplatePermission[]
+
+  @@index([module])
+  @@index([isAvailable])
+  @@map("permissions")
+}
+
+/// Join table: which permissions a role grants.
+model RolePermission {
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// A reusable, company-scoped permission preset applied on top of a role.
+model PermissionTemplate {
+  id          String         @id @default(uuid()) @db.Uuid
+  companyId   String         @db.Uuid
+  name        String         @db.VarChar(60)
+  description String?        @db.VarChar(500)
+  status      TemplateStatus @default(ACTIVE)
+
+  /// Nullable so removing the author does not remove the template.
+  createdById String? @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  company     Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy   User?                          @relation("PermissionTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  users       User[]
+  permissions PermissionTemplatePermission[]
+
+  @@unique([companyId, name])
+  @@index([companyId, status])
+  @@index([companyId, deletedAt])
+  @@index([createdById])
+  @@map("permission_templates")
+}
+
+/// Join table: which permissions a template grants.
+model PermissionTemplatePermission {
+  templateId   String   @db.Uuid
+  permissionId String   @db.Uuid
+  createdAt    DateTime @default(now())
+
+  template   PermissionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  permission Permission         @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, permissionId])
+  @@index([permissionId])
+  @@map("permission_template_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// Credentials — tenancy inherited through User
+// ---------------------------------------------------------------------------
+
+/// An authenticated browser session. Opaque server-backed token.
+model Session {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  /// SHA-256 of the raw token, which is only ever held by the client cookie.
+  /// A database leak therefore cannot be replayed as a session.
+  tokenHash String @unique @db.VarChar(64)
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  ipAddress String? @db.VarChar(45)
+  userAgent String? @db.VarChar(512)
+
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// A one-time email-verification code. Hashed, single use, attempt limited.
+model EmailVerificationOtp {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  /// Hash of the six-digit code. The plaintext OTP is never persisted.
+  otpHash String @db.VarChar(64)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  attempts    Int @default(0)
+  maxAttempts Int @default(5)
+
+  lastSentAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("email_verification_otps")
+}
+
+/// A single-use password-reset token. Hashed at rest.
+model PasswordResetToken {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  /// SHA-256 of the token embedded in the reset link.
+  tokenHash String @unique @db.VarChar(64)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+/// Append-only audit trail, scoped to a company.
+///
+/// Actor and target are SetNull rather than Cascade: the record of what
+/// happened must outlive the accounts involved.
+model ActivityLog {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+
+  /// Null for system-originated events with no signed-in actor.
+  actorUserId  String? @db.Uuid
+  /// Null when the action does not target a specific user.
+  targetUserId String? @db.Uuid
+
+  action     ActivityAction
+  entityType String         @db.VarChar(40)
+  entityId   String?        @db.Uuid
+
+  /// Safe contextual detail only. Never credentials, tokens, OTPs or full
+  /// request bodies.
+  metadata Json?
+
+  ipAddress String? @db.VarChar(45)
+  userAgent String? @db.VarChar(512)
+
+  createdAt DateTime @default(now())
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorUser  User?   @relation("ActivityLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  targetUser User?   @relation("ActivityLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, action])
+  @@index([companyId, actorUserId])
+  @@index([companyId, entityType])
+  @@map("activity_logs")
 }

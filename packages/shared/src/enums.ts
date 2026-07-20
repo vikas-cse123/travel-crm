@@ -1,0 +1,80 @@
+/**
+ * Domain enums, mirrored from the Prisma schema.
+ *
+ * Declared here as plain const objects rather than re-exported from
+ * `@prisma/client` so the frontend never takes a dependency on Prisma or on
+ * the database layer. `apps/api/src/db/enum-parity.ts` asserts at compile time
+ * that these stay identical to the generated Prisma enums, so drift is a build
+ * error rather than a runtime surprise.
+ */
+
+export const COMPANY_STATUS = {
+  ACTIVE: 'ACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  INACTIVE: 'INACTIVE',
+} as const;
+
+export type CompanyStatus = (typeof COMPANY_STATUS)[keyof typeof COMPANY_STATUS];
+
+export const USER_STATUS = {
+  /** Registered but the email OTP has not been verified yet. */
+  PENDING_VERIFICATION: 'PENDING_VERIFICATION',
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+
+export type UserStatus = (typeof USER_STATUS)[keyof typeof USER_STATUS];
+
+/** Statuses that are permitted to authenticate. Everything else is refused. */
+export const LOGIN_ALLOWED_USER_STATUSES: readonly UserStatus[] = [USER_STATUS.ACTIVE];
+
+export const TEMPLATE_STATUS = {
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+} as const;
+
+export type TemplateStatus = (typeof TEMPLATE_STATUS)[keyof typeof TEMPLATE_STATUS];
+
+export const ACTIVITY_ACTION = {
+  COMPANY_REGISTERED: 'COMPANY_REGISTERED',
+  EMAIL_OTP_SENT: 'EMAIL_OTP_SENT',
+  EMAIL_VERIFIED: 'EMAIL_VERIFIED',
+  LOGIN_SUCCESS: 'LOGIN_SUCCESS',
+  LOGIN_FAILED: 'LOGIN_FAILED',
+  LOGOUT: 'LOGOUT',
+  PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
+  PASSWORD_RESET_COMPLETED: 'PASSWORD_RESET_COMPLETED',
+  USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_ACTIVATED: 'USER_ACTIVATED',
+  USER_DEACTIVATED: 'USER_DEACTIVATED',
+  USER_SUSPENDED: 'USER_SUSPENDED',
+  USER_RESTORED: 'USER_RESTORED',
+  USER_ARCHIVED: 'USER_ARCHIVED',
+  USER_ROLE_CHANGED: 'USER_ROLE_CHANGED',
+  USER_PASSWORD_RESET: 'USER_PASSWORD_RESET',
+  ROLE_CREATED: 'ROLE_CREATED',
+  ROLE_UPDATED: 'ROLE_UPDATED',
+  ROLE_DELETED: 'ROLE_DELETED',
+  PERMISSION_TEMPLATE_CREATED: 'PERMISSION_TEMPLATE_CREATED',
+  PERMISSION_TEMPLATE_UPDATED: 'PERMISSION_TEMPLATE_UPDATED',
+  PERMISSION_TEMPLATE_DUPLICATED: 'PERMISSION_TEMPLATE_DUPLICATED',
+  PERMISSION_TEMPLATE_ACTIVATED: 'PERMISSION_TEMPLATE_ACTIVATED',
+  PERMISSION_TEMPLATE_DEACTIVATED: 'PERMISSION_TEMPLATE_DEACTIVATED',
+  PERMISSION_TEMPLATE_DELETED: 'PERMISSION_TEMPLATE_DELETED',
+} as const;
+
+export type ActivityAction = (typeof ACTIVITY_ACTION)[keyof typeof ACTIVITY_ACTION];
+
+/** Entity names recorded on activity-log rows. */
+export const ENTITY_TYPE = {
+  COMPANY: 'Company',
+  USER: 'User',
+  ROLE: 'Role',
+  PERMISSION_TEMPLATE: 'PermissionTemplate',
+  SESSION: 'Session',
+} as const;
+
+export type EntityType = (typeof ENTITY_TYPE)[keyof typeof ENTITY_TYPE];
