@@ -78,3 +78,17 @@ export function VerificationRoute() {
 
   return <Outlet />;
 }
+
+export function PermissionRoute({
+  permission,
+  children,
+}: {
+  permission: string;
+  children: React.ReactNode;
+}) {
+  const { isLoading, isFullyAuthenticated, hasPermission } = useAuth();
+  if (isLoading) return <SessionLoading />;
+  if (!isFullyAuthenticated) return <Navigate to="/login" replace />;
+  if (!hasPermission(permission)) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}

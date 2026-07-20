@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
 import { AuthProvider } from '@/features/auth/AuthProvider';
-import { ProtectedRoute, PublicOnlyRoute, VerificationRoute } from './guards';
+import { PermissionRoute, ProtectedRoute, PublicOnlyRoute, VerificationRoute } from './guards';
 
 /**
  * The guards are a UX layer over the server's real checks, so these tests
@@ -123,5 +123,27 @@ describe('Route guards', () => {
     await waitFor(() => {
       expect(screen.getByText('Dashboard content')).toBeInTheDocument();
     });
+  });
+
+  it('denies direct navigation when the view permission is missing', async () => {
+    stubMe('verified');
+    renderWithProviders(
+      <AuthProvider>
+        <Routes>
+          <Route path="/dashboard" element={<div>Dashboard content</div>} />
+          <Route
+            path="/roles"
+            element={
+              <PermissionRoute permission="roles.view">
+                <div>Roles content</div>
+              </PermissionRoute>
+            }
+          />
+        </Routes>
+      </AuthProvider>,
+      { route: '/roles' },
+    );
+    await waitFor(() => expect(screen.getByText('Dashboard content')).toBeInTheDocument());
+    expect(screen.queryByText('Roles content')).not.toBeInTheDocument();
   });
 });

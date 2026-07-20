@@ -67,7 +67,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
         </div>
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const Icon = item.icon;
 
             if (!item.available) {
@@ -92,20 +92,26 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
             }
 
             return (
-              <NavLink
-                key={item.label}
-                to={item.to}
-                onClick={onCloseMobile}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
-                    isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-700 hover:bg-slate-100',
-                  )
-                }
-              >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
+              <div key={item.label}>
+                {item.group && items[index - 1]?.group !== item.group && !collapsed && (
+                  <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    {item.group}
+                  </p>
+                )}
+                <NavLink
+                  to={item.to}
+                  onClick={onCloseMobile}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
+                      isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-700 hover:bg-slate-100',
+                    )
+                  }
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {!collapsed && <span className="truncate">{item.label}</span>}
+                </NavLink>
+              </div>
             );
           })}
         </nav>

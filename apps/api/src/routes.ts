@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
+import { rolesRoutes } from './modules/roles/roles.routes.js';
+import { permissionTemplatesRoutes } from './modules/permission-templates/permission-templates.routes.js';
+import { permissionsRoutes } from './modules/permissions/permissions.routes.js';
+import { activityLogsRoutes } from './modules/activity-logs/activity-logs.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -13,5 +17,9 @@ const router = Router();
 router.use('/health', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
+router.use('/roles', rolesRoutes);
+router.use('/permissions', permissionsRoutes);
+router.use('/permission-templates', permissionTemplatesRoutes);
+router.use('/activity-logs', activityLogsRoutes);
 
 export { router as apiRoutes };

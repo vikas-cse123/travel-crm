@@ -12,3 +12,12 @@ export function requirePermission(permission: string) {
     next();
   });
 }
+
+export function requireAnyPermission(...permissions: string[]) {
+  return asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.auth) throw new UnauthorizedError();
+    const keys = await permissionsService.resolveForUser(req.auth.userId);
+    if (!permissions.some((permission) => keys.includes(permission))) throw new ForbiddenError();
+    next();
+  });
+}

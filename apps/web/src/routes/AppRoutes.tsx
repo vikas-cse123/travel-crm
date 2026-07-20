@@ -1,6 +1,12 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/layouts/AppShell';
-import { ProtectedRoute, PublicOnlyRoute, VerificationRoute } from '@/routes/guards';
+import {
+  PermissionRoute,
+  ProtectedRoute,
+  PublicOnlyRoute,
+  VerificationRoute,
+} from '@/routes/guards';
+import { PERMISSIONS } from '@interscale/shared';
 import { SignupPage } from '@/pages/auth/SignupPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
@@ -13,6 +19,13 @@ import { UsersPage } from '@/pages/users/UsersPage';
 import { NewUserPage } from '@/pages/users/NewUserPage';
 import { UserDetailsPage } from '@/pages/users/UserDetailsPage';
 import { EditUserPage } from '@/pages/users/EditUserPage';
+import { RolesPage } from '@/pages/administration/RolesPage';
+import { RoleFormPage } from '@/pages/administration/RoleFormPage';
+import { RoleDetailsPage } from '@/pages/administration/RoleDetailsPage';
+import { TemplatesPage } from '@/pages/administration/TemplatesPage';
+import { TemplateFormPage } from '@/pages/administration/TemplateFormPage';
+import { TemplateDetailsPage } from '@/pages/administration/TemplateDetailsPage';
+import { ActivityLogsPage } from '@/pages/administration/ActivityLogsPage';
 
 /**
  * Route table.
@@ -51,6 +64,78 @@ export function AppRoutes() {
           <Route path="/users/new" element={<NewUserPage />} />
           <Route path="/users/:userId" element={<UserDetailsPage />} />
           <Route path="/users/:userId/edit" element={<EditUserPage />} />
+          <Route
+            path="/roles"
+            element={
+              <PermissionRoute permission={PERMISSIONS.ROLES_VIEW}>
+                <RolesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/roles/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.ROLES_CREATE}>
+                <RoleFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/roles/:id"
+            element={
+              <PermissionRoute permission={PERMISSIONS.ROLES_VIEW}>
+                <RoleDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/roles/:id/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.ROLES_UPDATE}>
+                <RoleFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/permission-templates"
+            element={
+              <PermissionRoute permission={PERMISSIONS.PERMISSION_TEMPLATES_VIEW}>
+                <TemplatesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/permission-templates/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.PERMISSION_TEMPLATES_CREATE}>
+                <TemplateFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/permission-templates/:id"
+            element={
+              <PermissionRoute permission={PERMISSIONS.PERMISSION_TEMPLATES_VIEW}>
+                <TemplateDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/permission-templates/:id/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.PERMISSION_TEMPLATES_UPDATE}>
+                <TemplateFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/activity-logs"
+            element={
+              <PermissionRoute permission={PERMISSIONS.ACTIVITY_LOGS_VIEW}>
+                <ActivityLogsPage />
+              </PermissionRoute>
+            }
+          />
         </Route>
       </Route>
 

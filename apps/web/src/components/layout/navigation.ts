@@ -6,6 +6,8 @@ import {
   LayoutDashboard,
   MessageSquare,
   Settings,
+  Shield,
+  ScrollText,
   Ticket,
   Users,
   type LucideIcon,
@@ -25,6 +27,7 @@ export interface NavItem {
   icon: LucideIcon;
   available: boolean;
   permission?: string;
+  group?: string;
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -44,11 +47,36 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // Users, Reports and Settings have permissions already, but their screens
   // are Phase 4+ work, so they stay disabled here.
   {
-    label: 'Users',
+    label: 'User List',
     to: '/users',
     icon: Users,
     available: true,
     permission: PERMISSIONS.USERS_VIEW,
+    group: 'Users',
+  },
+  {
+    label: 'Roles',
+    to: '/roles',
+    icon: Shield,
+    available: true,
+    permission: PERMISSIONS.ROLES_VIEW,
+    group: 'Users',
+  },
+  {
+    label: 'Permission Templates',
+    to: '/permission-templates',
+    icon: Settings,
+    available: true,
+    permission: PERMISSIONS.PERMISSION_TEMPLATES_VIEW,
+    group: 'Users',
+  },
+  {
+    label: 'Activity Logs',
+    to: '/activity-logs',
+    icon: ScrollText,
+    available: true,
+    permission: PERMISSIONS.ACTIVITY_LOGS_VIEW,
+    group: 'Users',
   },
   { label: 'Reports', to: '/reports', icon: BarChart3, available: false },
   { label: 'Settings', to: '/settings', icon: Settings, available: false },

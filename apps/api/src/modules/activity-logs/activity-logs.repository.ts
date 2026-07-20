@@ -22,6 +22,7 @@ export const ACTIVITY_LOG_SELECT = {
   entityId: true,
   metadata: true,
   ipAddress: true,
+  userAgent: true,
   createdAt: true,
   actorUser: { select: { id: true, fullName: true, username: true } },
   targetUser: { select: { id: true, fullName: true, username: true } },
