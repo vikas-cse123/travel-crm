@@ -24,6 +24,9 @@ export const PERMISSION_MODULE = {
   BOOKINGS: 'bookings',
   CUSTOMERS: 'customers',
   VENDORS: 'vendors',
+  MASTERS: 'masters',
+  MASTER_CITIES: 'masters.cities',
+  MASTER_DESTINATIONS: 'masters.destinations',
   REPORTS: 'reports',
 } as const;
 
@@ -47,6 +50,9 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   bookings: 'Bookings',
   customers: 'Customers',
   vendors: 'Vendors',
+  masters: 'Masters',
+  'masters.cities': 'Masters — Cities',
+  'masters.destinations': 'Masters — Destinations',
   reports: 'Reports',
 };
 
@@ -201,6 +207,17 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.VENDORS, 'export', 'Export vendor records'),
   available(M.VENDORS, 'change_status', 'Activate, deactivate or archive vendors'),
 
+  available(M.MASTERS, 'view', 'Open master-data modules'),
+  available(M.MASTER_CITIES, 'view', 'View active cities'),
+  available(M.MASTER_CITIES, 'create', 'Create cities'),
+  available(M.MASTER_CITIES, 'update', 'Edit cities and change status'),
+  available(M.MASTER_CITIES, 'delete', 'Archive cities'),
+  available(M.MASTER_DESTINATIONS, 'view', 'View active destinations'),
+  available(M.MASTER_DESTINATIONS, 'create', 'Create destinations'),
+  available(M.MASTER_DESTINATIONS, 'update', 'Edit destinations and change status'),
+  available(M.MASTER_DESTINATIONS, 'delete', 'Archive destinations'),
+  available(M.MASTER_DESTINATIONS, 'manage_images', 'Manage destination images'),
+
   planned(M.REPORTS, 'view', 'View reports'),
 ] as const;
 
@@ -317,6 +334,17 @@ export const PERMISSIONS = {
   VENDORS_VIEW_BANK_DETAILS: 'vendors.view_bank_details',
   VENDORS_EXPORT: 'vendors.export',
   VENDORS_CHANGE_STATUS: 'vendors.change_status',
+
+  MASTERS_VIEW: 'masters.view',
+  MASTER_CITIES_VIEW: 'masters.cities.view',
+  MASTER_CITIES_CREATE: 'masters.cities.create',
+  MASTER_CITIES_UPDATE: 'masters.cities.update',
+  MASTER_CITIES_DELETE: 'masters.cities.delete',
+  MASTER_DESTINATIONS_VIEW: 'masters.destinations.view',
+  MASTER_DESTINATIONS_CREATE: 'masters.destinations.create',
+  MASTER_DESTINATIONS_UPDATE: 'masters.destinations.update',
+  MASTER_DESTINATIONS_DELETE: 'masters.destinations.delete',
+  MASTER_DESTINATIONS_MANAGE_IMAGES: 'masters.destinations.manage_images',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

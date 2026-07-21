@@ -225,6 +225,98 @@ async function seedActivityLogs(companyId: string, userIds: Map<string, string>)
   }
 }
 
+async function seedMasters(companyId: string, ownerId: string): Promise<void> {
+  const cityDefinitions = [
+    {
+      countryCode: 'IN',
+      countryName: 'India',
+      name: 'New Delhi',
+      normalizedName: 'new delhi',
+      airportCode: 'DEL',
+    },
+    {
+      countryCode: 'IN',
+      countryName: 'India',
+      name: 'Jaipur',
+      normalizedName: 'jaipur',
+      airportCode: 'JAI',
+    },
+    {
+      countryCode: 'IN',
+      countryName: 'India',
+      name: 'Jodhpur',
+      normalizedName: 'jodhpur',
+      airportCode: 'JDH',
+    },
+    {
+      countryCode: 'AE',
+      countryName: 'United Arab Emirates',
+      name: 'Dubai',
+      normalizedName: 'dubai',
+      airportCode: 'DXB',
+    },
+  ] as const;
+  const cityIds = new Map<string, string>();
+  for (const definition of cityDefinitions) {
+    const existing = await prisma.city.findFirst({
+      where: {
+        companyId,
+        countryCode: definition.countryCode,
+        normalizedName: definition.normalizedName,
+      },
+    });
+    const city = existing
+      ? await prisma.city.update({
+          where: { id: existing.id },
+          data: { ...definition, status: 'ACTIVE', deletedAt: null },
+        })
+      : await prisma.city.create({
+          data: { ...definition, companyId, createdById: ownerId, status: 'ACTIVE' },
+        });
+    cityIds.set(definition.normalizedName, city.id);
+  }
+  const selected = ['new delhi', 'jaipur', 'jodhpur'].map((name) => cityIds.get(name)!);
+  const existing = await prisma.destination.findFirst({
+    where: { companyId, countryCode: 'IN', normalizedName: 'rajasthan highlights' },
+  });
+  const destination = existing
+    ? await prisma.destination.update({
+        where: { id: existing.id },
+        data: {
+          name: 'Rajasthan Highlights',
+          countryName: 'India',
+          destinationType: 'DOMESTIC',
+          status: 'ACTIVE',
+          deletedAt: null,
+          inclusions: '<p>Curated stays and private ground transfers.</p>',
+          exclusions: '<p>Flights and personal expenses.</p>',
+        },
+      })
+    : await prisma.destination.create({
+        data: {
+          companyId,
+          countryCode: 'IN',
+          countryName: 'India',
+          name: 'Rajasthan Highlights',
+          normalizedName: 'rajasthan highlights',
+          destinationType: 'DOMESTIC',
+          createdById: ownerId,
+          inclusions: '<p>Curated stays and private ground transfers.</p>',
+          exclusions: '<p>Flights and personal expenses.</p>',
+        },
+      });
+  await prisma.destinationCity.deleteMany({ where: { destinationId: destination.id } });
+  await prisma.destinationCity.createMany({
+    data: selected.map((cityId, sequence) => ({
+      companyId,
+      destinationId: destination.id,
+      cityId,
+      sequence,
+    })),
+  });
+  console.log(`  masters:     ${cityDefinitions.length} cities, 1 destination`);
+}
+
 export async function runSeed(): Promise<void> {
   assertNotProduction();
 
@@ -262,6 +354,7 @@ export async function runSeed(): Promise<void> {
     });
     const reminderRules = await reminderRulesService.ensureDefaults(company.id, ownerId);
     console.log(`  reminder rules: ${reminderRules.length}`);
+    await seedMasters(company.id, ownerId);
   }
   console.log(`  templates:   ${templateIds.size}`);
 

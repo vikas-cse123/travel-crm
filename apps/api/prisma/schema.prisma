@@ -625,6 +625,17 @@ enum VendorDocumentType {
   OTHER
 }
 
+enum MasterStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum DestinationType {
+  DOMESTIC
+  INTERNATIONAL
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -767,6 +778,20 @@ enum ActivityAction {
   NOTIFICATION_ARCHIVED
   NOTIFICATIONS_READ_ALL
   NOTIFICATION_PREFERENCES_UPDATED
+  CITY_CREATED
+  CITY_UPDATED
+  CITY_STATUS_CHANGED
+  CITY_ARCHIVED
+  DESTINATION_CREATED
+  DESTINATION_UPDATED
+  DESTINATION_STATUS_CHANGED
+  DESTINATION_ARCHIVED
+  DESTINATION_CITY_ADDED
+  DESTINATION_CITY_REMOVED
+  DESTINATION_CITY_REORDERED
+  DESTINATION_IMAGE_UPLOADED
+  DESTINATION_IMAGE_REPLACED
+  DESTINATION_IMAGE_DELETED
 }
 
 // ---------------------------------------------------------------------------
@@ -860,6 +885,9 @@ model Company {
   notificationDeliveries       NotificationDelivery[]
   reminderExecutions           ReminderExecution[]
   reminderEscalations          ReminderEscalation[]
+  cities                       City[]
+  destinations                 Destination[]
+  destinationCities            DestinationCity[]
 
   @@index([status])
   @@index([createdAt])
@@ -976,6 +1004,8 @@ model User {
   vendorPayablesCreated       VendorPayable[]            @relation("VendorPayableCreatedBy")
   vendorPaymentsRecorded      VendorPayment[]            @relation("VendorPaymentRecordedBy")
   vendorPaymentsReversed      VendorPayment[]            @relation("VendorPaymentReversedBy")
+  citiesCreated               City[]                     @relation("CityCreatedBy")
+  destinationsCreated         Destination[]              @relation("DestinationCreatedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -984,6 +1014,94 @@ model User {
   @@index([roleId])
   @@index([permissionTemplateId])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 13A — Cities and destinations masters
+// ---------------------------------------------------------------------------
+
+model City {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @db.Uuid
+  countryCode    String       @db.Char(2)
+  countryName    String       @db.VarChar(120)
+  name           String       @db.VarChar(160)
+  normalizedName String       @db.VarChar(160)
+  airportCode    String?      @db.VarChar(3)
+  status         MasterStatus @default(ACTIVE)
+  createdById    String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy        User              @relation("CityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  destinationLinks DestinationCity[]
+
+  @@index([companyId, countryCode, normalizedName])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, airportCode])
+  @@index([createdById])
+  @@map("cities")
+}
+
+model Destination {
+  id                    String           @id @default(uuid()) @db.Uuid
+  companyId             String           @db.Uuid
+  countryCode           String           @db.Char(2)
+  countryName           String           @db.VarChar(120)
+  name                  String           @db.VarChar(200)
+  normalizedName        String           @db.VarChar(200)
+  destinationType       DestinationType
+  imageStorageProvider  StorageProvider?
+  imageBucket           String?          @db.VarChar(255)
+  imageObjectKey        String?          @db.VarChar(1000)
+  imageFileName         String?          @db.VarChar(255)
+  imageMimeType         String?          @db.VarChar(120)
+  imageFileSize         Int?
+  imageConfirmedAt      DateTime?
+  pendingImageObjectKey String?          @db.VarChar(1000)
+  pendingImageFileName  String?          @db.VarChar(255)
+  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageFileSize  Int?
+  inclusions            String?          @db.Text
+  exclusions            String?          @db.Text
+  paymentPolicies       String?          @db.Text
+  cancellationPolicies  String?          @db.Text
+  bookingTerms          String?          @db.Text
+  status                MasterStatus     @default(ACTIVE)
+  createdById           String           @db.Uuid
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime?
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("DestinationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  cities    DestinationCity[]
+
+  @@index([companyId, countryCode, normalizedName])
+  @@index([companyId, destinationType, status, deletedAt])
+  @@index([companyId, createdAt])
+  @@index([createdById])
+  @@map("destinations")
+}
+
+model DestinationCity {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  destinationId String   @db.Uuid
+  cityId        String   @db.Uuid
+  sequence      Int
+  createdAt     DateTime @default(now())
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  city        City        @relation(fields: [cityId], references: [id], onDelete: Restrict)
+
+  @@unique([destinationId, cityId])
+  @@unique([destinationId, sequence])
+  @@index([companyId, cityId])
+  @@map("destination_cities")
 }
 
 // ---------------------------------------------------------------------------

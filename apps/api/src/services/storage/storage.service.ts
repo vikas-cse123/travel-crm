@@ -72,6 +72,15 @@ export function vendorObjectKey(input: {
   return `${base}/documents/${input.documentId}/${name}`;
 }
 
+export function destinationImageObjectKey(input: {
+  companyId: string;
+  destinationId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/masters/destinations/${input.destinationId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

@@ -2,7 +2,7 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 12 (Reminders and Notifications) complete.**
+> **Status: Phase 13A (Cities and Destinations Masters) complete.**
 > The CRM includes multi-tenancy, authentication, administration, leads,
 > follow-ups, reusable quotation templates, immutable customer quotation
 > versions, secure public accept/reject links, and end-to-end booking operations
@@ -846,6 +846,54 @@ creates eligible reminders, sends due/escalation notifications, retries failed
 email deliveries up to three attempts and archives notifications beyond the
 retention window. Redis is not required.
 
+## Cities and destinations masters
+
+Phase 13A adds company-scoped City, Destination and ordered DestinationCity
+records under the Masters sidebar. Countries are a global, read-only ISO
+alpha-2 reference catalogue exposed from the shared package; there is no
+per-company country duplication or Country administration screen. City and
+destination records keep a country-name snapshot for stable display while
+country codes remain normalized.
+
+Active city names are unique by company and country after whitespace/case
+normalization. Airport codes are optional and normalized to three uppercase
+letters. Active destination names follow the same company/country uniqueness
+rule. A destination is explicitly Domestic or International and requires at
+least one active city from its selected country. The ordered junction prevents
+duplicate city links and lets users add, remove and reorder the route without
+embedding city data in the destination row.
+
+Destination inclusions, exclusions, payment policies, cancellation policies and
+booking terms accept limited rich text. The API sanitizes every write with an
+allowlist for ordinary paragraphs, headings, lists, emphasis and safe links;
+responses are sanitized again before the web detail tabs render them. Scripts,
+event handlers, unsafe URL schemes and arbitrary HTML are removed.
+
+Destination images use the existing private `StorageService`. The API validates
+JPEG, PNG and WebP declarations and the configured size limit, creates a
+tenant-qualified object key, returns a short-lived direct-upload URL, and only
+promotes a pending image after object size/MIME confirmation. Replacement keeps
+the previous image until the new object is confirmed. View URLs are short-lived,
+object keys are not returned in normal API responses, and deletion removes both
+active and pending objects. S3 uses server-side encryption and no public ACL;
+the memory provider exercises the flow in tests without calling AWS.
+
+Cities and destinations use soft archival. Archived rows disappear from active
+lookups, but existing destination-city relationships remain readable and no
+historical lead, quotation, template or booking text/snapshot is rewritten.
+Existing modules therefore continue accepting their current free-text fields;
+structured master adoption is intentionally conservative and requires no risky
+backfill.
+
+Access uses `masters.view` plus separate Cities and Destinations view, create,
+update, delete/archive and image permissions. Owners and Managers receive full
+access; Sales Executive and View Only are active-record readers; Data Entry can
+view/create/update and manage images but cannot archive. Every database query,
+relationship validation and storage key derives the company from the verified
+session. City, destination, relationship, status and image changes create
+metadata-only activity events without rich text, credentials, object keys or
+presigned URLs.
+
 ## Security controls
 
 Implemented in Phase 1:
@@ -934,7 +982,7 @@ consumer of the database, where RLS would be defence in depth.
 
 ## Known limitations
 
-These are deliberate boundaries after Phase 12:
+These are deliberate boundaries after Phase 13A:
 
 - Automated supplier invoice ingestion/reconciliation, withholding-tax
   accounting, external payment gateways/refund collection, WhatsApp,
@@ -946,6 +994,12 @@ These are deliberate boundaries after Phase 12:
   verification. Generated PDFs still work with the memory provider.
 - Direct S3 uploads validate declared MIME, extension, size and confirmed object
   metadata, but do not yet run antivirus or magic-byte scanning.
+- Leads, quotation templates, quotations and bookings retain their existing
+  free-text destination/city fields. Structured master selectors and optional
+  foreign keys are deferred to a dedicated compatibility phase; no automatic
+  backfill is attempted.
+- Destination image browser upload cannot complete with the in-memory provider;
+  configure private S3 or a compatible endpoint for live PUT verification.
 - Delivery status reflects the synchronous SMTP provider result. Bounce/webhook
   reconciliation remains provider-specific future work.
 - Reminder processing is an explicit CLI worker and must be scheduled by the
@@ -982,7 +1036,8 @@ These are deliberate boundaries after Phase 12:
 | **10** | Customer profiles, duplicate detection and relationship history          | ✅ Done |
 | **11** | Vendors, supplier contracts and supplier ledger foundations              | ✅ Done |
 | **12** | Reminders, booking reminders, notifications and automation rules          | ✅ Done |
-| 13     | Cross-module dashboard, reports and operational analytics                | Recommended next |
+| **13A** | Cities and destinations masters                                          | ✅ Done |
+| 13B    | Hotels and airlines masters                                              | Recommended next |
 
 ---
 
