@@ -30,6 +30,7 @@ import {
 import { emailService } from '../../services/email/email.service.js';
 import { nextCompanyNumber, quotationAudit, type RequestContext } from './quotation.utils.js';
 import { recalculateCustomerMetrics } from '../customers/customers.service.js';
+import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 export const versionInclude = {
@@ -701,6 +702,7 @@ export const quotationsService = {
         include: quotationInclude,
       });
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['QUOTATION_EXPIRY']);
     return presentQuotation(created, costing);
   },
 

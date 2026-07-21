@@ -37,6 +37,7 @@ import {
   hasExactCustomerMatch,
   recalculateCustomerMetrics,
 } from '../customers/customers.service.js';
+import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 export type RequestContext = { ipAddress: string | null; userAgent: string | null };
 export const userSelect = { id: true, fullName: true, username: true } as const;
@@ -843,6 +844,7 @@ export const queriesService = {
         }),
       });
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['LEAD_STAGE']);
     return presentQuery(await getVisible(auth, id));
   },
   async assign(

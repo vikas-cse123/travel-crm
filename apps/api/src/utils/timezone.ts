@@ -1,5 +1,5 @@
 /** Convert a wall-clock time in an IANA timezone to its UTC instant. */
-function zonedTimeToUtc(
+export function zonedTimeToUtc(
   timezone: string,
   year: number,
   month: number,
@@ -34,6 +34,26 @@ function zonedTimeToUtc(
   let result = new Date(guess.getTime() - offsetAt(guess));
   result = new Date(guess.getTime() - offsetAt(result));
   return result;
+}
+
+/** Apply a local HH:mm wall-clock time to the local calendar day of a date. */
+export function atLocalTime(timezone: string, date: Date, time: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const [hour, minute] = time.split(':').map(Number);
+  return zonedTimeToUtc(
+    timezone,
+    Number(value.year),
+    Number(value.month),
+    Number(value.day),
+    hour,
+    minute,
+  );
 }
 
 /** UTC boundaries for the current local day in the company's timezone. */

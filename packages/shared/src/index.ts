@@ -14,6 +14,7 @@ export * from './api-response.js';
 export * from './health.js';
 export * from './enums.js';
 export * from './permissions.js';
+export * from './reminders.js';
 export * from './roles.js';
 export * from './validation.js';
 export * from './auth.js';

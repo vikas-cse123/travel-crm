@@ -22,10 +22,13 @@ interface SidebarProps {
 export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const { hasPermission } = useAuth();
 
-  const items = NAV_ITEMS.filter(
-    // Unbuilt modules have no permission yet, so they are always listed;
-    // built ones are filtered by the user's effective permissions.
-    (item) => !item.permission || hasPermission(item.permission),
+  const items = NAV_ITEMS.map((item) => ({
+    ...item,
+    children: item.children?.filter(
+      (child) => !child.permission || hasPermission(child.permission),
+    ),
+  })).filter(
+    (item) => !item.permission || hasPermission(item.permission) || Boolean(item.children?.length),
   );
 
   return (
@@ -111,6 +114,32 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                   <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                   {!collapsed && <span className="truncate">{item.label}</span>}
                 </NavLink>
+                {item.children && !collapsed && (
+                  <div className="ml-5 mt-0.5 space-y-0.5 border-l border-slate-200 pl-2">
+                    {item.children.map((child) => {
+                      const ChildIcon = child.icon;
+                      return (
+                        <NavLink
+                          key={child.to}
+                          to={child.to}
+                          end={child.to === '/reminders'}
+                          onClick={onCloseMobile}
+                          className={({ isActive }) =>
+                            cn(
+                              'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                              isActive
+                                ? 'bg-brand-50 text-brand-700'
+                                : 'text-slate-600 hover:bg-slate-100',
+                            )
+                          }
+                        >
+                          <ChildIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>{child.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}

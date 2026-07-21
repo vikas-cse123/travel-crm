@@ -2,7 +2,7 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 11 (Vendors and Supplier Management) complete.**
+> **Status: Phase 12 (Reminders and Notifications) complete.**
 > The CRM includes multi-tenancy, authentication, administration, leads,
 > follow-ups, reusable quotation templates, immutable customer quotation
 > versions, secure public accept/reject links, and end-to-end booking operations
@@ -10,6 +10,9 @@ A multi-tenant SaaS CRM for travel agencies.
 > Customer profiles unify identity across sales records. Vendor workspaces now
 > add supplier contacts, services, effective-dated rates, booking snapshots,
 > payables, payment allocation, private documents and financial analytics.
+> Phase 12 adds cross-module reminders, booking operations reminders, a
+> recipient-only notification inbox, personal preferences, tenant automation
+> rules, escalation and a retryable email delivery worker.
 
 ---
 
@@ -29,6 +32,7 @@ A multi-tenant SaaS CRM for travel agencies.
 - [Booking operations](#booking-operations)
 - [Customer profiles](#customer-profiles)
 - [Vendors and supplier management](#vendors-and-supplier-management)
+- [Reminders and notifications](#reminders-and-notifications)
 - [Security controls](#security-controls)
 - [Multi-tenancy design](#multi-tenancy-design)
 - [Known limitations](#known-limitations)
@@ -210,6 +214,13 @@ anything is missing or malformed, printing all problems at once.
 | `VENDOR_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS` | Vendor document URL lifetime (default 300) |
 | `VENDOR_CONTRACT_EXPIRY_WARNING_DAYS` | Contract expiry warning window (default 30) |
 | `DEFAULT_VENDOR_COUNTRY`       | Default vendor country code (default `IN`)      |
+| `REMINDER_WORKER_BATCH_SIZE`   | Maximum candidates processed per rule (default 100) |
+| `REMINDER_WORKER_TIMEZONE_FALLBACK` | Fallback IANA timezone (`Asia/Kolkata`) |
+| `REMINDER_ESCALATION_MANAGER_ROLE` | Default escalation role (`Manager`) |
+| `REMINDER_EMAIL_ENABLED`       | Enables post-commit reminder email delivery |
+| `REMINDER_DEFAULT_DUE_TIME`    | Default local wall-clock due time (`10:00`) |
+| `REMINDER_PROCESSING_LOOKAHEAD_DAYS` | Date-event discovery window (default 60) |
+| `NOTIFICATION_RETENTION_DAYS`  | Days before active notifications auto-archive (default 180) |
 | `RATE_LIMIT_*`                  | Global rate-limit window and ceiling           |
 | `VITE_API_URL`                  | Proxy target for the Vite dev server           |
 
@@ -798,6 +809,43 @@ authenticated company session. Users without `vendors.view_all` see active
 vendors only; users without `vendors.view_financials` receive no costs, rates,
 payables, payments, bank metadata or financial aggregates.
 
+## Reminders and notifications
+
+Phase 12 expands the existing lead `QueryFollowUp` record additively into the
+canonical reminder store, preserving Phase 7 IDs and APIs. A reminder may link
+to a lead, customer, quotation, booking, payment schedule, traveller, service,
+vendor or payable. Manual reminders and automated reminders share completion,
+snooze, cancellation and assignment behaviour, but rules, executions,
+notifications, delivery attempts and escalations remain separate tenant-scoped
+tables. `ACTIVE` and `OVERDUE` are derived from the stored pending status and
+due timestamp; snoozed, completed and cancelled states are persisted.
+
+Visibility is permission-aware: Owners/Managers with `reminders.view_all` see
+the company workload, while other users see reminders assigned to or created by
+them and reminders linked to CRM records they can access. Notifications are
+always filtered to the authenticated recipient, even for Owners. Personal
+notification preferences never alter another user's inbox.
+
+Default rules cover active lead stages, approaching booking travel, customer
+payment schedules, quotation expiry, vendor payables and vendor contracts.
+Custom rule configuration supports local-time due calculation, assignment,
+templates, in-app/email channels and manager escalation. Trigger and delivery
+deduplication keys make repeated runs safe. Reminder/database work commits
+before SMTP is called; every channel has a delivery record, and email failures
+are retried without rolling back the reminder.
+
+Run the processor from a cron job or platform scheduler (for example, every
+five minutes):
+
+```bash
+npm run reminders:process
+```
+
+The command processes active tenants in bounded batches, wakes elapsed snoozes,
+creates eligible reminders, sends due/escalation notifications, retries failed
+email deliveries up to three attempts and archives notifications beyond the
+retention window. Redis is not required.
+
 ## Security controls
 
 Implemented in Phase 1:
@@ -886,7 +934,7 @@ consumer of the database, where RLS would be defence in depth.
 
 ## Known limitations
 
-These are deliberate boundaries after Phase 11:
+These are deliberate boundaries after Phase 12:
 
 - Automated supplier invoice ingestion/reconciliation, withholding-tax
   accounting, external payment gateways/refund collection, WhatsApp,
@@ -900,6 +948,8 @@ These are deliberate boundaries after Phase 11:
   metadata, but do not yet run antivirus or magic-byte scanning.
 - Delivery status reflects the synchronous SMTP provider result. Bounce/webhook
   reconciliation remains provider-specific future work.
+- Reminder processing is an explicit CLI worker and must be scheduled by the
+  deployment platform; there is intentionally no in-process timer or Redis queue.
 - Company logo storage fields and PDF rendering hooks exist, but a dedicated
   branding-settings upload UI is not part of this phase.
 - **No Row-Level Security** — see [Why not Row-Level Security](#why-not-row-level-security).
@@ -931,7 +981,8 @@ These are deliberate boundaries after Phase 11:
 | **9** | Booking conversion, travellers, payments, costs, documents and operations | ✅ Done |
 | **10** | Customer profiles, duplicate detection and relationship history          | ✅ Done |
 | **11** | Vendors, supplier contracts and supplier ledger foundations              | ✅ Done |
-| 12     | Cross-module dashboard, reports and operational analytics                | Recommended next |
+| **12** | Reminders, booking reminders, notifications and automation rules          | ✅ Done |
+| 13     | Cross-module dashboard, reports and operational analytics                | Recommended next |
 
 ---
 

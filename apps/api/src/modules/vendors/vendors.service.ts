@@ -40,6 +40,7 @@ import {
 } from '../../utils/errors.js';
 import { resolvePagination } from '../../utils/pagination.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 export type RequestContext = { ipAddress: string | null; userAgent: string | null };
 const userSelect = { id: true, fullName: true, username: true } as const;
@@ -617,7 +618,7 @@ export const vendorsService = {
       throw new ConflictError(
         'Possible duplicate vendor found. Review the matches and explicitly create anyway.',
       );
-    return serializableTransaction(async (tx) => {
+    const created = await serializableTransaction(async (tx) => {
       const vendor = await tx.vendor.create({
         data: {
           ...(vendorData(input) as Prisma.VendorUncheckedCreateInput),
@@ -638,6 +639,8 @@ export const vendorsService = {
         await has(auth, PERMISSIONS.VENDORS_VIEW_FINANCIALS),
       );
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['VENDOR_CONTRACT']);
+    return created;
   },
   async details(auth: AuthContext, vendorId: string) {
     const financial = await has(auth, PERMISSIONS.VENDORS_VIEW_FINANCIALS);
@@ -1131,7 +1134,7 @@ export const vendorsService = {
       });
       if (!cost) throw new ValidationError('Booking cost not found in this company.');
     }
-    return serializableTransaction(async (tx) => {
+    const created = await serializableTransaction(async (tx) => {
       const row = await tx.vendorPayable.create({
         data: compact({
           ...input,
@@ -1158,6 +1161,8 @@ export const vendorsService = {
       });
       return row;
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['VENDOR_PAYABLE']);
+    return created;
   },
   async updatePayable(
     auth: AuthContext,

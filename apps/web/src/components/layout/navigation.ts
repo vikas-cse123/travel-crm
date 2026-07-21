@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bell,
   Building2,
   CalendarClock,
   FileText,
@@ -29,6 +30,7 @@ export interface NavItem {
   available: boolean;
   permission?: string;
   group?: string;
+  children?: readonly NavItem[];
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -47,11 +49,41 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permission: PERMISSIONS.QUERIES_VIEW,
   },
   {
-    label: 'Follow-ups',
-    to: '/follow-ups',
+    label: 'Reminders',
+    to: '/reminders',
     icon: CalendarClock,
     available: true,
-    permission: PERMISSIONS.FOLLOWUPS_VIEW,
+    permission: PERMISSIONS.REMINDERS_VIEW,
+    children: [
+      {
+        label: 'My Reminders',
+        to: '/reminders',
+        icon: CalendarClock,
+        available: true,
+        permission: PERMISSIONS.REMINDERS_VIEW,
+      },
+      {
+        label: 'Booking Reminders',
+        to: '/reminders/bookings',
+        icon: Ticket,
+        available: true,
+        permission: PERMISSIONS.BOOKING_REMINDERS_VIEW,
+      },
+      {
+        label: 'Notifications',
+        to: '/reminders/notifications',
+        icon: Bell,
+        available: true,
+        permission: PERMISSIONS.NOTIFICATIONS_VIEW,
+      },
+      {
+        label: 'Notification Settings',
+        to: '/reminders/settings',
+        icon: Settings,
+        available: true,
+        permission: PERMISSIONS.NOTIFICATIONS_SETTINGS,
+      },
+    ],
   },
   {
     label: 'Quotation Templates',
