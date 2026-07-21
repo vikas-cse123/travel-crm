@@ -28,6 +28,13 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
         },
+        // Public quotation links intentionally do not require a session, but
+        // still need to reach the API instead of Vite's SPA fallback.
+        '/public': {
+          target: apiUrl,
+          changeOrigin: true,
+          secure: false,
+        },
       },
     },
     preview: { port: 5173 },

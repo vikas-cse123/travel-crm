@@ -322,6 +322,47 @@ describe('Phase 6 lead pages', () => {
               requiresAttention: false,
             },
             recent: { notes: [], followUps: [], timeline: [] },
+            quotations: {
+              count: 1,
+              latest: {
+                id: 'quotation-1',
+                quotationNumber: 'QT-2026-000001',
+                status: 'SENT',
+                currentVersionId: 'version-1',
+                lastSentAt: lead.createdAt,
+                lastViewedAt: null,
+                createdAt: lead.createdAt,
+                versions: [
+                  {
+                    id: 'version-1',
+                    versionNumber: 1,
+                    finalAmount: '16065.87',
+                    currency: 'INR',
+                    status: 'FINALIZED',
+                  },
+                ],
+              },
+              items: [
+                {
+                  id: 'quotation-1',
+                  quotationNumber: 'QT-2026-000001',
+                  status: 'SENT',
+                  currentVersionId: 'version-1',
+                  lastSentAt: lead.createdAt,
+                  lastViewedAt: null,
+                  createdAt: lead.createdAt,
+                  versions: [
+                    {
+                      id: 'version-1',
+                      versionNumber: 1,
+                      finalAmount: '16065.87',
+                      currency: 'INR',
+                      status: 'FINALIZED',
+                    },
+                  ],
+                },
+              ],
+            },
             indicators: [],
             timezone: 'Asia/Kolkata',
             permissions: {
@@ -332,6 +373,10 @@ describe('Phase 6 lead pages', () => {
               canScheduleFollowUp: false,
               canCompleteFollowUp: false,
               canArchive: false,
+              canViewQuotations: true,
+              canCreateQuotation: false,
+              canSendQuotation: false,
+              canGenerateQuotationPdf: false,
             },
           });
         return response(lead);
@@ -347,6 +392,8 @@ describe('Phase 6 lead pages', () => {
     expect(await screen.findByText('Customer prefers morning flights')).toBeInTheDocument();
     expect(await screen.findByText('Confirm hotel category')).toBeInTheDocument();
     expect(await screen.findByText('Lead created')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'QT-2026-000001' })).toBeInTheDocument();
+    expect(screen.getByText('1 customer quotation linked to this lead.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByText('Reassign lead')).not.toBeInTheDocument();

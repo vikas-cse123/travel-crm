@@ -85,6 +85,17 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
 
+  STORAGE_PROVIDER: z.enum(['s3', 'memory']).default('memory'),
+  AWS_REGION: z.string().default('ap-south-1'),
+  AWS_S3_BUCKET: z.string().default('interscale-travel-crm-dev'),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_S3_ENDPOINT: z.string().url().optional().or(z.literal('')),
+  AWS_S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
+  AWS_S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).default('AES256'),
+  AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  MAX_UPLOAD_SIZE_MB: intWithDefault(10),
+
   RATE_LIMIT_WINDOW_MINUTES: intWithDefault(15),
   RATE_LIMIT_MAX_REQUESTS: intWithDefault(300),
 });
@@ -140,11 +151,20 @@ function loadEnv(): Env {
       console.error('✖ SMTP_HOST is required when EMAIL_PROVIDER=smtp in production.');
       process.exit(1);
     }
+    if (value.STORAGE_PROVIDER !== 's3' || !value.AWS_S3_BUCKET) {
+      console.error('✖ Production requires STORAGE_PROVIDER=s3 and AWS_S3_BUCKET.');
+      process.exit(1);
+    }
   }
 
   // The in-memory provider must never be reachable outside the test runner.
   if (value.EMAIL_PROVIDER === 'memory' && value.NODE_ENV !== 'test') {
     console.error('✖ EMAIL_PROVIDER=memory is only valid when NODE_ENV=test.');
+    process.exit(1);
+  }
+
+  if (value.STORAGE_PROVIDER === 'memory' && value.NODE_ENV === 'production') {
+    console.error('✖ STORAGE_PROVIDER=memory is not permitted in production.');
     process.exit(1);
   }
 

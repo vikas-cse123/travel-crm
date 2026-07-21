@@ -82,3 +82,9 @@ export const resetPasswordLimiter = buildLimiter({
   windowMs: 60 * 60_000,
   limit: 10 * devMultiplier,
 });
+
+/** Public quotation tokens carry customer data and state-changing actions. */
+export const publicQuotationLimiter = buildLimiter({
+  windowMs: 15 * 60_000,
+  limit: 60 * devMultiplier,
+});

@@ -144,6 +144,11 @@ export interface LeadWorkspace {
     requiresAttention: boolean;
   };
   recent: { notes: Note[]; followUps: FollowUp[]; timeline: TimelineEntry[] };
+  quotations: {
+    count: number;
+    latest: LeadQuotationSummary | null;
+    items: LeadQuotationSummary[];
+  };
   indicators: string[];
   timezone: string;
   permissions: {
@@ -154,7 +159,27 @@ export interface LeadWorkspace {
     canScheduleFollowUp: boolean;
     canCompleteFollowUp: boolean;
     canArchive: boolean;
+    canViewQuotations: boolean;
+    canCreateQuotation: boolean;
+    canSendQuotation: boolean;
+    canGenerateQuotationPdf: boolean;
   };
+}
+export interface LeadQuotationSummary {
+  id: string;
+  quotationNumber: string;
+  status: string;
+  currentVersionId: string | null;
+  lastSentAt: string | null;
+  lastViewedAt: string | null;
+  createdAt: string;
+  versions: Array<{
+    id: string;
+    versionNumber: number;
+    finalAmount: string;
+    currency: string;
+    status: string;
+  }>;
 }
 
 export const queryKeys = {

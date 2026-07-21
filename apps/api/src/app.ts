@@ -11,6 +11,11 @@ import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
 import { apiRoutes } from './routes.js';
+import { publicQuotationsRoutes } from './modules/quotations/public-quotations.routes.js';
+
+export function redactSensitiveRequestUrl(url: string | undefined): string | undefined {
+  return url?.replace(/(\/public\/quotations\/)[^/?]+/, '$1[redacted]');
+}
 
 export function createApp(): Express {
   const app = express();
@@ -50,6 +55,12 @@ export function createApp(): Express {
       pinoHttp({
         logger,
         genReqId: (req) => req.id as string,
+        serializers: {
+          req: (request) => ({
+            ...request,
+            url: redactSensitiveRequestUrl(request.url),
+          }),
+        },
         autoLogging: { ignore: (req) => req.url === `${API_PREFIX}/health` },
         customLogLevel: (_req, res, err) => {
           if (err || res.statusCode >= 500) return 'error';
@@ -62,13 +73,13 @@ export function createApp(): Express {
 
   app.use(globalLimiter);
 
-  // CSRF runs before the routes and before authentication, so a forged
-  // state-changing request is rejected before it can touch any handler.
-  // Layer 1 covers requests with no session (register, login); layer 2 covers
-  // everything that carries one. See middleware/csrf.ts.
+  // Origin validation covers every state-changing request. Public quotation
+  // decisions additionally require their unguessable customer token and are
+  // deliberately session-independent, even when a staff session cookie is
+  // present in the browser. Authenticated API routes retain full CSRF checks.
   app.use(verifyOrigin);
+  app.use('/public/quotations', publicQuotationsRoutes);
   app.use(verifyCsrfToken);
-
   app.use(API_PREFIX, apiRoutes);
 
   // Order matters: unmatched routes, then the terminal error handler.

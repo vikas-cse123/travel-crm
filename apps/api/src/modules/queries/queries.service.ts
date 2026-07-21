@@ -418,6 +418,32 @@ export const queriesService = {
     if (query.leadStage === 'READY_TO_BOOK' && pending === 0)
       indicators.push('READY_TO_BOOK_NO_FOLLOW_UP');
     const timeline = await queriesService.timeline(auth, id, { page: 1, pageSize: 8 });
+    const quotations = permissions.includes(PERMISSIONS.QUOTATIONS_VIEW)
+      ? await prisma.quotation.findMany({
+          where: { companyId: auth.companyId, queryId: id, deletedAt: null },
+          select: {
+            id: true,
+            quotationNumber: true,
+            status: true,
+            currentVersionId: true,
+            lastSentAt: true,
+            lastViewedAt: true,
+            createdAt: true,
+            versions: {
+              select: {
+                id: true,
+                versionNumber: true,
+                finalAmount: true,
+                currency: true,
+                status: true,
+              },
+              orderBy: { versionNumber: 'desc' },
+              take: 1,
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : [];
     return {
       lead: presentQuery(query),
       operationalSummary: {
@@ -434,6 +460,11 @@ export const queriesService = {
         followUps: upcomingFollowUps.map(effectiveFollowUpStatus),
         timeline: timeline.data,
       },
+      quotations: {
+        count: quotations.length,
+        latest: quotations[0] ?? null,
+        items: quotations,
+      },
       indicators,
       timezone: company.timezone,
       permissions: {
@@ -444,6 +475,10 @@ export const queriesService = {
         canScheduleFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_CREATE),
         canCompleteFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_UPDATE),
         canArchive: permissions.includes(PERMISSIONS.QUERIES_DELETE),
+        canViewQuotations: permissions.includes(PERMISSIONS.QUOTATIONS_VIEW),
+        canCreateQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_CREATE),
+        canSendQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_SEND),
+        canGenerateQuotationPdf: permissions.includes(PERMISSIONS.QUOTATIONS_GENERATE_PDF),
       },
     };
   },

@@ -59,6 +59,8 @@ export const SERVICE_TYPES = [
   'TRAVEL_INSURANCE',
   'RAIL',
   'PASSPORT_ASSISTANCE',
+  'MEAL',
+  'GUIDE',
   'OTHER_ADD_ON',
   'GENERAL_ENQUIRY',
 ] as const;

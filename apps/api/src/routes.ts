@@ -8,6 +8,8 @@ import { permissionsRoutes } from './modules/permissions/permissions.routes.js';
 import { activityLogsRoutes } from './modules/activity-logs/activity-logs.routes.js';
 import { queriesRoutes } from './modules/queries/queries.routes.js';
 import { followUpsRoutes } from './modules/follow-ups/follow-ups.routes.js';
+import { quotationTemplatesRoutes } from './modules/quotation-templates/quotation-templates.routes.js';
+import { quotationsRoutes } from './modules/quotations/quotations.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -25,5 +27,7 @@ router.use('/permission-templates', permissionTemplatesRoutes);
 router.use('/activity-logs', activityLogsRoutes);
 router.use('/queries', queriesRoutes);
 router.use('/follow-ups', followUpsRoutes);
+router.use('/quotation-templates', quotationTemplatesRoutes);
+router.use('/quotations', quotationsRoutes);
 
 export { router as apiRoutes };

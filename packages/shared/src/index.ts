@@ -20,3 +20,4 @@ export * from './auth.js';
 export * from './users.js';
 export * from './administration.js';
 export * from './queries.js';
+export * from './quotations.js';

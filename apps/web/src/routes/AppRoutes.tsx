@@ -30,6 +30,14 @@ import { LeadsPage } from '@/pages/queries/LeadsPage';
 import { LeadFormPage } from '@/pages/queries/LeadFormPage';
 import { LeadDetailsPage } from '@/pages/queries/LeadDetailsPage';
 import { FollowUpsPage } from '@/pages/follow-ups/FollowUpsPage';
+import { QuotationTemplatesPage } from '@/pages/quotations/QuotationTemplatesPage';
+import { QuotationTemplateDetailsPage } from '@/pages/quotations/QuotationTemplateDetailsPage';
+import { QuotationTemplateFormPage } from '@/pages/quotations/QuotationTemplateFormPage';
+import { QuotationsPage } from '@/pages/quotations/QuotationsPage';
+import { NewQuotationPage } from '@/pages/quotations/NewQuotationPage';
+import { QuotationDetailsPage } from '@/pages/quotations/QuotationDetailsPage';
+import { QuotationBuilderPage } from '@/pages/quotations/QuotationBuilderPage';
+import { PublicQuotationPage } from '@/pages/quotations/PublicQuotationPage';
 
 /**
  * Route table.
@@ -54,6 +62,7 @@ export function AppRoutes() {
       </Route>
 
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+      <Route path="/q/:token" element={<PublicQuotationPage />} />
 
       <Route element={<VerificationRoute />}>
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -93,6 +102,86 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.FOLLOWUPS_VIEW}>
                 <FollowUpsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotation-templates"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATION_TEMPLATES_VIEW}>
+                <QuotationTemplatesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotation-templates/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATION_TEMPLATES_CREATE}>
+                <QuotationTemplateFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotation-templates/:templateId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATION_TEMPLATES_VIEW}>
+                <QuotationTemplateDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotation-templates/:templateId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATION_TEMPLATES_UPDATE}>
+                <QuotationTemplateFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <QuotationsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_CREATE}>
+                <NewQuotationPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/:queryId/quotations/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_CREATE}>
+                <NewQuotationPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations/:quotationId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <QuotationDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations/:quotationId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_UPDATE}>
+                <QuotationDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations/:quotationId/versions/:versionId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_UPDATE}>
+                <QuotationBuilderPage />
               </PermissionRoute>
             }
           />

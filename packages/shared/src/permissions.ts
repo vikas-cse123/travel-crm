@@ -16,6 +16,7 @@ export const PERMISSION_MODULE = {
   SETTINGS: 'settings',
   QUERIES: 'queries',
   FOLLOWUPS: 'followups',
+  QUOTATION_TEMPLATES: 'quotation_templates',
   QUOTATIONS: 'quotations',
   BOOKINGS: 'bookings',
   CUSTOMERS: 'customers',
@@ -35,6 +36,7 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   settings: 'Settings',
   queries: 'Travel Queries',
   followups: 'Follow-ups',
+  quotation_templates: 'Quotation Templates',
   quotations: 'Quotations',
   bookings: 'Bookings',
   customers: 'Customers',
@@ -119,10 +121,19 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.FOLLOWUPS, 'update', 'Edit follow-ups'),
   available(M.FOLLOWUPS, 'delete', 'Delete follow-ups'),
 
-  planned(M.QUOTATIONS, 'view', 'View quotations'),
-  planned(M.QUOTATIONS, 'create', 'Create quotations'),
-  planned(M.QUOTATIONS, 'update', 'Edit quotations'),
-  planned(M.QUOTATIONS, 'delete', 'Delete quotations'),
+  available(M.QUOTATION_TEMPLATES, 'view', 'View quotation templates'),
+  available(M.QUOTATION_TEMPLATES, 'create', 'Create quotation templates'),
+  available(M.QUOTATION_TEMPLATES, 'update', 'Edit quotation templates'),
+  available(M.QUOTATION_TEMPLATES, 'delete', 'Archive quotation templates'),
+
+  available(M.QUOTATIONS, 'view', 'View quotations'),
+  available(M.QUOTATIONS, 'create', 'Create quotations'),
+  available(M.QUOTATIONS, 'update', 'Edit quotations and create revisions'),
+  available(M.QUOTATIONS, 'delete', 'Archive quotations'),
+  available(M.QUOTATIONS, 'send', 'Send finalized quotations'),
+  available(M.QUOTATIONS, 'accept', 'Accept or reject quotations internally'),
+  available(M.QUOTATIONS, 'generate_pdf', 'Generate quotation PDFs'),
+  available(M.QUOTATIONS, 'view_costing', 'View internal costs and margins'),
 
   planned(M.BOOKINGS, 'view', 'View bookings'),
   planned(M.BOOKINGS, 'create', 'Create bookings'),
@@ -181,6 +192,20 @@ export const PERMISSIONS = {
   FOLLOWUPS_CREATE: 'followups.create',
   FOLLOWUPS_UPDATE: 'followups.update',
   FOLLOWUPS_DELETE: 'followups.delete',
+
+  QUOTATION_TEMPLATES_VIEW: 'quotation_templates.view',
+  QUOTATION_TEMPLATES_CREATE: 'quotation_templates.create',
+  QUOTATION_TEMPLATES_UPDATE: 'quotation_templates.update',
+  QUOTATION_TEMPLATES_DELETE: 'quotation_templates.delete',
+
+  QUOTATIONS_VIEW: 'quotations.view',
+  QUOTATIONS_CREATE: 'quotations.create',
+  QUOTATIONS_UPDATE: 'quotations.update',
+  QUOTATIONS_DELETE: 'quotations.delete',
+  QUOTATIONS_SEND: 'quotations.send',
+  QUOTATIONS_ACCEPT: 'quotations.accept',
+  QUOTATIONS_GENERATE_PDF: 'quotations.generate_pdf',
+  QUOTATIONS_VIEW_COSTING: 'quotations.view_costing',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

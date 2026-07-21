@@ -144,8 +144,69 @@ enum ServiceType {
   TRAVEL_INSURANCE
   RAIL
   PASSPORT_ASSISTANCE
+  MEAL
+  GUIDE
   OTHER_ADD_ON
   GENERAL_ENQUIRY
+}
+
+enum QuotationTemplateStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  ARCHIVED
+}
+
+enum QuotationVersionStatus {
+  DRAFT
+  FINALIZED
+  SUPERSEDED
+}
+
+enum PricingMode {
+  PER_PERSON
+  PACKAGE_TOTAL
+  ITEMIZED
+}
+
+enum MarkupMode {
+  NONE
+  FIXED
+  PERCENTAGE
+}
+
+enum StorageProvider {
+  S3
+  MEMORY
+}
+
+enum DocumentType {
+  QUOTATION_PDF
+  SUPPORTING_ATTACHMENT
+  COMPANY_LOGO
+  HOTEL_IMAGE
+  ITINERARY_IMAGE
+}
+
+enum DocumentStatus {
+  PENDING
+  AVAILABLE
+  FAILED
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
 }
 
 enum ActivityAction {
@@ -190,6 +251,26 @@ enum ActivityAction {
   QUERY_FOLLOW_UP_COMPLETED
   QUERY_FOLLOW_UP_CANCELLED
   QUERY_FOLLOW_UP_DELETED
+  QUOTATION_TEMPLATE_CREATED
+  QUOTATION_TEMPLATE_UPDATED
+  QUOTATION_TEMPLATE_DUPLICATED
+  QUOTATION_TEMPLATE_ACTIVATED
+  QUOTATION_TEMPLATE_DEACTIVATED
+  QUOTATION_TEMPLATE_ARCHIVED
+  QUOTATION_CREATED
+  QUOTATION_UPDATED
+  QUOTATION_ARCHIVED
+  QUOTATION_VERSION_CREATED
+  QUOTATION_VERSION_FINALIZED
+  QUOTATION_PDF_GENERATED
+  QUOTATION_SENT
+  QUOTATION_VIEWED
+  QUOTATION_ACCEPTED
+  QUOTATION_REJECTED
+  QUOTATION_PUBLIC_LINK_CREATED
+  QUOTATION_PUBLIC_LINK_REVOKED
+  QUOTATION_DOCUMENT_UPLOADED
+  QUOTATION_DOCUMENT_DELETED
 }
 
 // ---------------------------------------------------------------------------
@@ -198,30 +279,52 @@ enum ActivityAction {
 
 /// A travel agency. The tenant boundary for every other table.
 model Company {
-  id       String        @id @default(uuid()) @db.Uuid
-  name     String        @db.VarChar(120)
+  id            String        @id @default(uuid()) @db.Uuid
+  name          String        @db.VarChar(120)
   /// URL-safe identifier derived from the name. Globally unique.
-  slug     String        @unique @db.VarChar(140)
-  email    String        @db.VarChar(255)
-  phone    String?       @db.VarChar(32)
-  status   CompanyStatus @default(ACTIVE)
-  timezone String        @default("Asia/Kolkata") @db.VarChar(64)
+  slug          String        @unique @db.VarChar(140)
+  email         String        @db.VarChar(255)
+  phone         String?       @db.VarChar(32)
+  website       String?       @db.VarChar(255)
+  address       String?       @db.VarChar(1000)
+  primaryColor  String        @default("#2563eb") @db.VarChar(7)
+  logoObjectKey String?       @db.VarChar(1000)
+  status        CompanyStatus @default(ACTIVE)
+  timezone      String        @default("Asia/Kolkata") @db.VarChar(64)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users               User[]
-  roles               Role[]
-  permissionTemplates PermissionTemplate[]
-  activityLogs        ActivityLog[]
-  queries             Query[]
-  queryCounters       QueryCounter[]
-  queryNotes          QueryNote[]
-  queryStageHistory   QueryStageHistory[]
-  queryAssignments    QueryAssignmentHistory[]
-  queryFollowUps      QueryFollowUp[]
-  queryServices       QueryService[]
-  queryItineraries    QueryItinerary[]
+  users                        User[]
+  roles                        Role[]
+  permissionTemplates          PermissionTemplate[]
+  activityLogs                 ActivityLog[]
+  queries                      Query[]
+  queryCounters                QueryCounter[]
+  queryNotes                   QueryNote[]
+  queryStageHistory            QueryStageHistory[]
+  queryAssignments             QueryAssignmentHistory[]
+  queryFollowUps               QueryFollowUp[]
+  queryServices                QueryService[]
+  queryItineraries             QueryItinerary[]
+  quotationCounters            QuotationCounter[]
+  quotationTemplates           QuotationTemplate[]
+  quotationTemplateItineraries QuotationTemplateItineraryDay[]
+  quotationTemplateHotels      QuotationTemplateHotelOption[]
+  quotationTemplateServices    QuotationTemplateService[]
+  quotationTemplateInclusions  QuotationTemplateInclusion[]
+  quotationTemplateExclusions  QuotationTemplateExclusion[]
+  quotationTemplateTerms       QuotationTemplateTerm[]
+  quotations                   Quotation[]
+  quotationVersions            QuotationVersion[]
+  quotationVersionItineraries  QuotationVersionItineraryDay[]
+  quotationVersionHotels       QuotationVersionHotelOption[]
+  quotationVersionServices     QuotationVersionService[]
+  quotationVersionInclusions   QuotationVersionInclusion[]
+  quotationVersionExclusions   QuotationVersionExclusion[]
+  quotationVersionTerms        QuotationVersionTerm[]
+  quotationDocuments           QuotationDocument[]
+  quotationEmailLogs           QuotationEmailLog[]
 
   @@index([status])
   @@index([createdAt])
@@ -283,21 +386,26 @@ model User {
   // SetNull: deleting a template must never delete the users using it.
   permissionTemplate PermissionTemplate? @relation(fields: [permissionTemplateId], references: [id], onDelete: SetNull)
 
-  sessions               Session[]
-  emailVerificationOtps  EmailVerificationOtp[]
-  passwordResetTokens    PasswordResetToken[]
-  createdTemplates       PermissionTemplate[]     @relation("PermissionTemplateCreatedBy")
-  activityLogsAsActor    ActivityLog[]            @relation("ActivityLogActor")
-  activityLogsAsTarget   ActivityLog[]            @relation("ActivityLogTarget")
-  queriesCreated         Query[]                  @relation("QueryCreatedBy")
-  queriesAssigned        Query[]                  @relation("QueryAssignedTo")
-  queryNotes             QueryNote[]              @relation("QueryNoteAuthor")
-  queryStagesChanged     QueryStageHistory[]      @relation("QueryStageChangedBy")
-  queryAssignmentsMade   QueryAssignmentHistory[] @relation("QueryAssignedBy")
-  queryAssignmentsFrom   QueryAssignmentHistory[] @relation("QueryPreviousAssignee")
-  queryAssignmentsTo     QueryAssignmentHistory[] @relation("QueryNewAssignee")
-  queryFollowUpsAssigned QueryFollowUp[]          @relation("QueryFollowUpAssigned")
-  queryFollowUpsCreated  QueryFollowUp[]          @relation("QueryFollowUpCreated")
+  sessions                    Session[]
+  emailVerificationOtps       EmailVerificationOtp[]
+  passwordResetTokens         PasswordResetToken[]
+  createdTemplates            PermissionTemplate[]     @relation("PermissionTemplateCreatedBy")
+  activityLogsAsActor         ActivityLog[]            @relation("ActivityLogActor")
+  activityLogsAsTarget        ActivityLog[]            @relation("ActivityLogTarget")
+  queriesCreated              Query[]                  @relation("QueryCreatedBy")
+  queriesAssigned             Query[]                  @relation("QueryAssignedTo")
+  queryNotes                  QueryNote[]              @relation("QueryNoteAuthor")
+  queryStagesChanged          QueryStageHistory[]      @relation("QueryStageChangedBy")
+  queryAssignmentsMade        QueryAssignmentHistory[] @relation("QueryAssignedBy")
+  queryAssignmentsFrom        QueryAssignmentHistory[] @relation("QueryPreviousAssignee")
+  queryAssignmentsTo          QueryAssignmentHistory[] @relation("QueryNewAssignee")
+  queryFollowUpsAssigned      QueryFollowUp[]          @relation("QueryFollowUpAssigned")
+  queryFollowUpsCreated       QueryFollowUp[]          @relation("QueryFollowUpCreated")
+  quotationTemplatesCreated   QuotationTemplate[]      @relation("QuotationTemplateCreatedBy")
+  quotationsCreated           Quotation[]              @relation("QuotationCreatedBy")
+  quotationVersionsCreated    QuotationVersion[]       @relation("QuotationVersionCreatedBy")
+  quotationDocumentsGenerated QuotationDocument[]      @relation("QuotationDocumentGeneratedBy")
+  quotationEmailsSent         QuotationEmailLog[]      @relation("QuotationEmailSentBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -593,6 +701,7 @@ model Query {
   followUps                QueryFollowUp[]
   services                 QueryService[]
   itinerary                QueryItinerary[]
+  quotations               Quotation[]
 
   @@unique([companyId, queryNumber])
   @@index([companyId, normalizedPhone])
@@ -721,4 +830,454 @@ model QueryItinerary {
   @@unique([queryId, sequence])
   @@index([companyId, destination])
   @@map("query_itineraries")
+}
+
+// ---------------------------------------------------------------------------
+// Quotation templates and immutable customer quotation versions
+// ---------------------------------------------------------------------------
+
+model QuotationCounter {
+  companyId      String  @db.Uuid
+  year           Int
+  quotationValue Int     @default(0)
+  templateValue  Int     @default(0)
+  company        Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, year])
+  @@map("quotation_counters")
+}
+
+model QuotationTemplate {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  companyId                String                  @db.Uuid
+  templateCode             String                  @db.VarChar(24)
+  name                     String                  @db.VarChar(160)
+  description              String?                 @db.VarChar(4000)
+  destinationSummary       String                  @db.VarChar(500)
+  durationDays             Int
+  durationNights           Int
+  baseCurrency             String                  @default("INR") @db.VarChar(3)
+  adultBasePrice           Decimal?                @db.Decimal(14, 2)
+  childWithBedBasePrice    Decimal?                @db.Decimal(14, 2)
+  childWithoutBedBasePrice Decimal?                @db.Decimal(14, 2)
+  infantBasePrice          Decimal?                @db.Decimal(14, 2)
+  status                   QuotationTemplateStatus @default(ACTIVE)
+  usageCount               Int                     @default(0)
+  internalNotes            String?                 @db.VarChar(4000)
+  createdById              String                  @db.Uuid
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  deletedAt                DateTime?
+
+  company    Company                         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  User                            @relation("QuotationTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  itinerary  QuotationTemplateItineraryDay[]
+  hotels     QuotationTemplateHotelOption[]
+  services   QuotationTemplateService[]
+  inclusions QuotationTemplateInclusion[]
+  exclusions QuotationTemplateExclusion[]
+  terms      QuotationTemplateTerm[]
+  quotations Quotation[]
+
+  @@unique([companyId, templateCode])
+  @@unique([companyId, name])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, destinationSummary])
+  @@index([companyId, createdById])
+  @@map("quotation_templates")
+}
+
+model QuotationTemplateItineraryDay {
+  id                String            @id @default(uuid()) @db.Uuid
+  companyId         String            @db.Uuid
+  templateId        String            @db.Uuid
+  dayNumber         Int
+  title             String            @db.VarChar(200)
+  destination       String            @db.VarChar(120)
+  description       String            @db.VarChar(8000)
+  meals             String?           @db.VarChar(500)
+  overnightLocation String?           @db.VarChar(120)
+  activities        String?           @db.VarChar(2000)
+  transfers         String?           @db.VarChar(2000)
+  notes             String?           @db.VarChar(2000)
+  sequence          Int
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template          QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@map("quotation_template_itinerary_days")
+}
+
+model QuotationTemplateHotelOption {
+  id           String            @id @default(uuid()) @db.Uuid
+  companyId    String            @db.Uuid
+  templateId   String            @db.Uuid
+  city         String            @db.VarChar(120)
+  hotelName    String            @db.VarChar(200)
+  category     String?           @db.VarChar(40)
+  roomType     String?           @db.VarChar(100)
+  mealPlan     String?           @db.VarChar(100)
+  rooms        Int               @default(1)
+  nights       Int
+  checkInDate  DateTime?         @db.Date
+  checkOutDate DateTime?         @db.Date
+  internalCost Decimal?          @db.Decimal(14, 2)
+  sellingPrice Decimal?          @db.Decimal(14, 2)
+  selected     Boolean           @default(true)
+  notes        String?           @db.VarChar(2000)
+  sequence     Int
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template     QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@index([companyId, city])
+  @@map("quotation_template_hotel_options")
+}
+
+model QuotationTemplateService {
+  id           String            @id @default(uuid()) @db.Uuid
+  companyId    String            @db.Uuid
+  templateId   String            @db.Uuid
+  serviceType  ServiceType
+  name         String            @db.VarChar(200)
+  description  String?           @db.VarChar(4000)
+  dayNumber    Int?
+  city         String?           @db.VarChar(120)
+  quantity     Decimal           @default(1) @db.Decimal(10, 2)
+  internalCost Decimal?          @db.Decimal(14, 2)
+  sellingPrice Decimal?          @db.Decimal(14, 2)
+  taxCategory  String?           @db.VarChar(80)
+  notes        String?           @db.VarChar(2000)
+  sequence     Int
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template     QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@index([companyId, serviceType])
+  @@map("quotation_template_services")
+}
+
+model QuotationTemplateInclusion {
+  id         String            @id @default(uuid()) @db.Uuid
+  companyId  String            @db.Uuid
+  templateId String            @db.Uuid
+  content    String            @db.VarChar(2000)
+  sequence   Int
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template   QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@map("quotation_template_inclusions")
+}
+
+model QuotationTemplateExclusion {
+  id         String            @id @default(uuid()) @db.Uuid
+  companyId  String            @db.Uuid
+  templateId String            @db.Uuid
+  content    String            @db.VarChar(2000)
+  sequence   Int
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template   QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@map("quotation_template_exclusions")
+}
+
+model QuotationTemplateTerm {
+  id         String            @id @default(uuid()) @db.Uuid
+  companyId  String            @db.Uuid
+  templateId String            @db.Uuid
+  content    String            @db.VarChar(2000)
+  sequence   Int
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template   QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, sequence])
+  @@index([companyId, templateId])
+  @@map("quotation_template_terms")
+}
+
+model Quotation {
+  id                   String          @id @default(uuid()) @db.Uuid
+  companyId            String          @db.Uuid
+  quotationNumber      String          @db.VarChar(24)
+  queryId              String          @db.Uuid
+  sourceTemplateId     String?         @db.Uuid
+  createdById          String          @db.Uuid
+  currentVersionId     String?         @db.Uuid
+  acceptedVersionId    String?         @db.Uuid
+  publicVersionId      String?         @db.Uuid
+  status               QuotationStatus @default(DRAFT)
+  customerName         String          @db.VarChar(120)
+  customerEmail        String?         @db.VarChar(255)
+  customerPhone        String          @db.VarChar(32)
+  destinationSummary   String          @db.VarChar(500)
+  travelStartDate      DateTime?       @db.Date
+  travelEndDate        DateTime?       @db.Date
+  adults               Int             @default(1)
+  childrenWithBed      Int             @default(0)
+  childrenWithoutBed   Int             @default(0)
+  infants              Int             @default(0)
+  rooms                Int             @default(1)
+  currency             String          @default("INR") @db.VarChar(3)
+  validUntil           DateTime?       @db.Date
+  publicTokenHash      String?         @unique @db.VarChar(64)
+  publicTokenExpiresAt DateTime?
+  firstSentAt          DateTime?
+  lastSentAt           DateTime?
+  firstViewedAt        DateTime?
+  lastViewedAt         DateTime?
+  acceptedAt           DateTime?
+  rejectedAt           DateTime?
+  rejectionReason      String?         @db.VarChar(2000)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
+
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query          Query               @relation(fields: [queryId], references: [id], onDelete: Restrict)
+  sourceTemplate QuotationTemplate?  @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+  createdBy      User                @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  versions       QuotationVersion[]
+  documents      QuotationDocument[]
+  emailLogs      QuotationEmailLog[]
+
+  @@unique([companyId, quotationNumber])
+  @@index([companyId, queryId, deletedAt])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, createdById, deletedAt])
+  @@index([companyId, validUntil])
+  @@map("quotations")
+}
+
+model QuotationVersion {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  companyId            String                 @db.Uuid
+  quotationId          String                 @db.Uuid
+  versionNumber        Int
+  title                String                 @db.VarChar(200)
+  introduction         String?                @db.VarChar(4000)
+  destinationSummary   String                 @db.VarChar(500)
+  travelStartDate      DateTime?              @db.Date
+  travelEndDate        DateTime?              @db.Date
+  currency             String                 @db.VarChar(3)
+  subtotalCost         Decimal                @default(0) @db.Decimal(14, 2)
+  subtotalSellingPrice Decimal                @default(0) @db.Decimal(14, 2)
+  markupMode           MarkupMode             @default(NONE)
+  markupValue          Decimal                @default(0) @db.Decimal(14, 4)
+  totalMarkup          Decimal                @default(0) @db.Decimal(14, 2)
+  taxRate              Decimal                @default(0) @db.Decimal(8, 4)
+  taxAmount            Decimal                @default(0) @db.Decimal(14, 2)
+  discountAmount       Decimal                @default(0) @db.Decimal(14, 2)
+  finalAmount          Decimal                @default(0) @db.Decimal(14, 2)
+  marginAmount         Decimal                @default(0) @db.Decimal(14, 2)
+  marginPercentage     Decimal                @default(0) @db.Decimal(8, 4)
+  pricingMode          PricingMode            @default(ITEMIZED)
+  notes                String?                @db.VarChar(4000)
+  internalNotes        String?                @db.VarChar(4000)
+  status               QuotationVersionStatus @default(DRAFT)
+  finalizedAt          DateTime?
+  createdById          String                 @db.Uuid
+  createdAt            DateTime               @default(now())
+
+  company    Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotation  Quotation                      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  createdBy  User                           @relation("QuotationVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  itinerary  QuotationVersionItineraryDay[]
+  hotels     QuotationVersionHotelOption[]
+  services   QuotationVersionService[]
+  inclusions QuotationVersionInclusion[]
+  exclusions QuotationVersionExclusion[]
+  terms      QuotationVersionTerm[]
+  documents  QuotationDocument[]
+  emailLogs  QuotationEmailLog[]
+
+  @@unique([quotationId, versionNumber])
+  @@index([companyId, quotationId])
+  @@map("quotation_versions")
+}
+
+model QuotationVersionItineraryDay {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  dayNumber          Int
+  date               DateTime?        @db.Date
+  title              String           @db.VarChar(200)
+  destination        String           @db.VarChar(120)
+  description        String           @db.VarChar(8000)
+  meals              String?          @db.VarChar(500)
+  overnightLocation  String?          @db.VarChar(120)
+  activities         String?          @db.VarChar(2000)
+  transfers          String?          @db.VarChar(2000)
+  notes              String?          @db.VarChar(2000)
+  sequence           Int
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@map("quotation_version_itinerary_days")
+}
+
+model QuotationVersionHotelOption {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  city               String           @db.VarChar(120)
+  hotelName          String           @db.VarChar(200)
+  category           String?          @db.VarChar(40)
+  roomType           String?          @db.VarChar(100)
+  mealPlan           String?          @db.VarChar(100)
+  rooms              Int              @default(1)
+  nights             Int
+  checkInDate        DateTime?        @db.Date
+  checkOutDate       DateTime?        @db.Date
+  internalCost       Decimal          @default(0) @db.Decimal(14, 2)
+  sellingPrice       Decimal          @default(0) @db.Decimal(14, 2)
+  selected           Boolean          @default(true)
+  notes              String?          @db.VarChar(2000)
+  sequence           Int
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@map("quotation_version_hotel_options")
+}
+
+model QuotationVersionService {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  serviceType        ServiceType
+  name               String           @db.VarChar(200)
+  description        String?          @db.VarChar(4000)
+  dayNumber          Int?
+  city               String?          @db.VarChar(120)
+  quantity           Decimal          @default(1) @db.Decimal(10, 2)
+  unitCost           Decimal          @default(0) @db.Decimal(14, 2)
+  unitSellingPrice   Decimal          @default(0) @db.Decimal(14, 2)
+  totalCost          Decimal          @default(0) @db.Decimal(14, 2)
+  totalSellingPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  taxCategory        String?          @db.VarChar(80)
+  notes              String?          @db.VarChar(2000)
+  sequence           Int
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@index([companyId, serviceType])
+  @@map("quotation_version_services")
+}
+
+model QuotationVersionInclusion {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  content            String           @db.VarChar(2000)
+  sequence           Int
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@map("quotation_version_inclusions")
+}
+
+model QuotationVersionExclusion {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  content            String           @db.VarChar(2000)
+  sequence           Int
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@map("quotation_version_exclusions")
+}
+
+model QuotationVersionTerm {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  quotationVersionId String           @db.Uuid
+  content            String           @db.VarChar(2000)
+  sequence           Int
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationVersionId, sequence])
+  @@index([companyId, quotationVersionId])
+  @@map("quotation_version_terms")
+}
+
+model QuotationDocument {
+  id                 String            @id @default(uuid()) @db.Uuid
+  companyId          String            @db.Uuid
+  quotationId        String            @db.Uuid
+  quotationVersionId String?           @db.Uuid
+  storageProvider    StorageProvider
+  bucket             String            @db.VarChar(255)
+  objectKey          String            @db.VarChar(1000)
+  fileName           String            @db.VarChar(255)
+  mimeType           String            @db.VarChar(120)
+  fileSize           Int
+  checksum           String?           @db.VarChar(128)
+  documentType       DocumentType
+  status             DocumentStatus    @default(PENDING)
+  generatedById      String            @db.Uuid
+  createdAt          DateTime          @default(now())
+  deletedAt          DateTime?
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotation          Quotation         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion? @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+  generatedBy        User              @relation("QuotationDocumentGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, objectKey])
+  @@index([companyId, quotationId, deletedAt])
+  @@index([companyId, quotationVersionId, documentType])
+  @@map("quotation_documents")
+}
+
+model QuotationEmailLog {
+  id                 String              @id @default(uuid()) @db.Uuid
+  companyId          String              @db.Uuid
+  quotationId        String              @db.Uuid
+  quotationVersionId String              @db.Uuid
+  recipientEmail     String              @db.VarChar(255)
+  cc                 String?             @db.VarChar(1000)
+  subject            String              @db.VarChar(255)
+  providerMessageId  String?             @db.VarChar(255)
+  status             EmailDeliveryStatus @default(PENDING)
+  sentById           String              @db.Uuid
+  sentAt             DateTime?
+  failureReason      String?             @db.VarChar(2000)
+  createdAt          DateTime            @default(now())
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotation          Quotation           @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationVersion   QuotationVersion    @relation(fields: [quotationVersionId], references: [id], onDelete: Restrict)
+  sentBy             User                @relation("QuotationEmailSentBy", fields: [sentById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, quotationId, createdAt])
+  @@map("quotation_email_logs")
 }

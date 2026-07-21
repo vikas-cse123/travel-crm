@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   CalendarPlus,
   Edit3,
+  FileText,
   MessageSquarePlus,
   UserRoundCog,
 } from 'lucide-react';
@@ -160,6 +161,75 @@ export function LeadDetailsPage() {
           </article>
         ))}
       </section>
+      {allowed.canViewQuotations && (
+        <section className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold">
+                <FileText className="h-5 w-5 text-brand-600" /> Quotations
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {workspace.data.quotations.count} customer quotation
+                {workspace.data.quotations.count === 1 ? '' : 's'} linked to this lead.
+              </p>
+            </div>
+            {allowed.canCreateQuotation && (
+              <Link to={`/queries/${q.id}/quotations/new`}>
+                <Button>Create quotation</Button>
+              </Link>
+            )}
+          </div>
+          {workspace.data.quotations.items.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-4">Quotation</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Version</th>
+                    <th className="py-2 pr-4">Final amount</th>
+                    <th className="py-2 pr-4">Last sent</th>
+                    <th className="py-2">Last viewed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {workspace.data.quotations.items.map((quotation) => {
+                    const version = quotation.versions[0];
+                    return (
+                      <tr key={quotation.id}>
+                        <td className="py-3 pr-4">
+                          <Link
+                            className="font-medium text-brand-700"
+                            to={`/quotations/${quotation.id}`}
+                          >
+                            {quotation.quotationNumber}
+                          </Link>
+                        </td>
+                        <td className="py-3 pr-4">{labelForLookup(quotation.status)}</td>
+                        <td className="py-3 pr-4">{version ? `v${version.versionNumber}` : '—'}</td>
+                        <td className="py-3 pr-4">
+                          {version
+                            ? new Intl.NumberFormat('en-IN', {
+                                style: 'currency',
+                                currency: version.currency,
+                              }).format(Number(version.finalAmount))
+                            : '—'}
+                        </td>
+                        <td className="py-3 pr-4">
+                          {quotation.lastSentAt ? dateTime(quotation.lastSentAt) : '—'}
+                        </td>
+                        <td className="py-3">
+                          {quotation.lastViewedAt ? dateTime(quotation.lastViewedAt) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
           <section className="rounded-xl border bg-white p-5 shadow-sm">

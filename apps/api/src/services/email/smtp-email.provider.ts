@@ -41,9 +41,15 @@ export class SmtpEmailProvider implements EmailProvider {
     await this.getTransporter().sendMail({
       from: env.EMAIL_FROM,
       to: message.to,
+      cc: message.cc,
       subject: message.subject,
       text: message.text,
       html: message.html,
+      attachments: message.attachments?.map((attachment) => ({
+        filename: attachment.fileName,
+        content: attachment.content,
+        contentType: attachment.contentType,
+      })),
     });
 
     // Recipient and subject only — never the body, which carries the code.

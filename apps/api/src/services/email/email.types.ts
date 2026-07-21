@@ -8,9 +8,11 @@
 
 export interface EmailMessage {
   to: string;
+  cc?: string[];
   subject: string;
   text: string;
   html: string;
+  attachments?: Array<{ fileName: string; content: Buffer; contentType: string }>;
 }
 
 export interface EmailProvider {
@@ -42,4 +44,5 @@ export interface EmailService {
   sendVerificationOtp(input: VerificationOtpEmail): Promise<void>;
   sendPasswordResetEmail(input: PasswordResetEmail): Promise<void>;
   sendPasswordChangedNotification(input: PasswordChangedEmail): Promise<void>;
+  sendMessage(message: EmailMessage): Promise<void>;
 }

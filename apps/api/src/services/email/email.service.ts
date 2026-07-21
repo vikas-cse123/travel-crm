@@ -14,6 +14,7 @@ import type {
   PasswordChangedEmail,
   PasswordResetEmail,
   VerificationOtpEmail,
+  EmailMessage,
 } from './email.types.js';
 
 /**
@@ -54,6 +55,10 @@ class ProviderEmailService implements EmailService {
 
   async sendPasswordChangedNotification(input: PasswordChangedEmail): Promise<void> {
     await this.provider.send(buildPasswordChangedMessage(input));
+  }
+
+  async sendMessage(message: EmailMessage): Promise<void> {
+    await this.provider.send(message);
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { createApp } from '../src/app.js';
+import { createApp, redactSensitiveRequestUrl } from '../src/app.js';
 
 const app = createApp();
 
@@ -44,5 +44,14 @@ describe('security headers', () => {
     const response = await request(app).get('/api/health');
     expect(response.headers['x-powered-by']).toBeUndefined();
     expect(response.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it('redacts public quotation bearer tokens from request log URLs', () => {
+    expect(
+      redactSensitiveRequestUrl('/public/quotations/raw-customer-token/accept?source=email'),
+    ).toBe('/public/quotations/[redacted]/accept?source=email');
+    expect(redactSensitiveRequestUrl('/api/quotations/quotation-id')).toBe(
+      '/api/quotations/quotation-id',
+    );
   });
 });

@@ -7,11 +7,13 @@ interface FormFieldProps {
   hint?: string | undefined;
   required?: boolean;
   /** Receives the ids to wire up label, error and hint associations. */
-  children: (props: {
-    id: string;
-    'aria-invalid': boolean;
-    'aria-describedby': string | undefined;
-  }) => React.ReactNode;
+  children:
+    | React.ReactNode
+    | ((props: {
+        id: string;
+        'aria-invalid': boolean;
+        'aria-describedby': string | undefined;
+      }) => React.ReactNode);
 }
 
 /**
@@ -39,11 +41,13 @@ export function FormField({ label, error, hint, required, children }: FormFieldP
         )}
       </label>
 
-      {children({
-        id,
-        'aria-invalid': Boolean(error),
-        'aria-describedby': describedBy || undefined,
-      })}
+      {typeof children === 'function'
+        ? children({
+            id,
+            'aria-invalid': Boolean(error),
+            'aria-describedby': describedBy || undefined,
+          })
+        : children}
 
       {hint && !error && (
         <p id={hintId} className="text-xs text-slate-500">
