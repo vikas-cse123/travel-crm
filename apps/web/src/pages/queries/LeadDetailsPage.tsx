@@ -106,6 +106,14 @@ export function LeadDetailsPage() {
           <div>
             <p className="text-sm text-slate-500">Leads / {q.queryNumber}</p>
             <h1 className="text-2xl font-semibold">{q.customerName}</h1>
+            {q.customer && (
+              <Link
+                className="text-xs font-medium text-brand-700 hover:underline"
+                to={`/customers/${q.customer.id}`}
+              >
+                View {q.customer.customerNumber} customer profile
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex gap-2">

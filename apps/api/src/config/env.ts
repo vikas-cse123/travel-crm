@@ -98,6 +98,10 @@ const envSchema = z.object({
   BOOKING_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(15),
   BOOKING_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
   PASSPORT_EXPIRY_WARNING_MONTHS: intWithDefault(6),
+  CUSTOMER_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(10),
+  CUSTOMER_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  DEFAULT_PHONE_COUNTRY: z.string().trim().length(2).default('IN'),
+  CUSTOMER_DUPLICATE_NAME_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.88),
   /** Base64-encoded 32-byte AES-256 key. Never exposed to the browser. */
   DATA_ENCRYPTION_KEY: z.string().optional(),
   DATA_ENCRYPTION_KEY_VERSION: z.string().min(1).max(30).default('v1'),

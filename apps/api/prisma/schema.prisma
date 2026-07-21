@@ -350,6 +350,82 @@ enum BookingEmailType {
   PAYMENT_REMINDER
 }
 
+enum CustomerType {
+  INDIVIDUAL
+  CORPORATE
+  AGENT
+  GROUP
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  ARCHIVED
+  MERGED
+}
+
+enum CustomerLifecycleStage {
+  NEW
+  PROSPECT
+  QUALIFIED
+  QUOTED
+  BOOKED
+  REPEAT
+  ACTIVE_CUSTOMER
+  REPEAT_CUSTOMER
+  LAPSED
+  VIP
+  INACTIVE
+}
+
+enum CustomerAddressType {
+  HOME
+  WORK
+  OFFICE
+  BILLING
+  OTHER
+}
+
+enum CustomerNoteType {
+  GENERAL
+  SALES
+  SERVICE
+  FINANCIAL
+  PREFERENCE
+  WARNING
+  INTERNAL
+}
+
+enum CustomerCommunicationType {
+  PHONE
+  WHATSAPP
+  EMAIL
+  SMS
+  MEETING
+  OTHER
+}
+
+enum CustomerCommunicationDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum CustomerDocumentType {
+  AGREEMENT
+  CORPORATE_IDENTIFICATION
+  CONSENT_FORM
+  GENERAL_ATTACHMENT
+  PASSPORT
+  VISA
+  IDENTITY_DOCUMENT
+  PAN_CARD
+  ADDRESS_PROOF
+  PROFILE_PHOTO
+  OTHER
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -439,6 +515,22 @@ enum ActivityAction {
   BOOKING_CONFIRMATION_SENT
   BOOKING_PAYMENT_REMINDER_SENT
   BOOKING_NOTE_CREATED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_ARCHIVED
+  CUSTOMER_STATUS_CHANGED
+  CUSTOMER_ASSIGNED
+  CUSTOMER_TAG_ADDED
+  CUSTOMER_TAG_REMOVED
+  CUSTOMER_NOTE_CREATED
+  CUSTOMER_NOTE_UPDATED
+  CUSTOMER_NOTE_DELETED
+  CUSTOMER_COMMUNICATION_RECORDED
+  CUSTOMER_COMMUNICATION_UPDATED
+  CUSTOMER_COMMUNICATION_DELETED
+  CUSTOMER_DOCUMENT_UPLOADED
+  CUSTOMER_DOCUMENT_DELETED
+  CUSTOMER_MERGED
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +598,15 @@ model Company {
   bookingStatusHistory         BookingStatusHistory[]
   bookingAssignmentHistory     BookingAssignmentHistory[]
   bookingEmailLogs             BookingEmailLog[]
+  customerCounters             CustomerCounter[]
+  customers                    Customer[]
+  customerAddresses            CustomerAddress[]
+  customerTags                 CustomerTag[]
+  customerTagAssignments       CustomerTagAssignment[]
+  customerNotes                CustomerNote[]
+  customerCommunications       CustomerCommunication[]
+  customerDocuments            CustomerDocument[]
+  customerMergeHistory         CustomerMergeHistory[]
 
   @@index([status])
   @@index([createdAt])
@@ -601,6 +702,12 @@ model User {
   bookingAssignmentsFrom      BookingAssignmentHistory[] @relation("BookingPreviousAssignee")
   bookingAssignmentsTo        BookingAssignmentHistory[] @relation("BookingNewAssignee")
   bookingEmailsSent           BookingEmailLog[]          @relation("BookingEmailSentBy")
+  customersCreated            Customer[]                 @relation("CustomerCreatedBy")
+  customersAssigned           Customer[]                 @relation("CustomerAssignedTo")
+  customerNotesAuthored       CustomerNote[]             @relation("CustomerNoteAuthor")
+  customerCommunicationsMade  CustomerCommunication[]    @relation("CustomerCommunicationBy")
+  customerDocumentsUploaded   CustomerDocument[]         @relation("CustomerDocumentUploadedBy")
+  customerMergesPerformed     CustomerMergeHistory[]     @relation("CustomerMergePerformedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -831,6 +938,249 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+// ---------------------------------------------------------------------------
+// Customer profiles — canonical identity and cross-module relationship hub
+// ---------------------------------------------------------------------------
+
+model CustomerCounter {
+  companyId String  @db.Uuid
+  year      Int
+  value     Int     @default(0)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, year])
+  @@map("customer_counters")
+}
+
+model Customer {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  companyId              String                     @db.Uuid
+  customerNumber         String                     @db.VarChar(24)
+  type                   CustomerType               @default(INDIVIDUAL)
+  status                 CustomerStatus             @default(ACTIVE)
+  lifecycleStage         CustomerLifecycleStage     @default(PROSPECT)
+  displayName            String                     @db.VarChar(160)
+  normalizedName         String                     @db.VarChar(160)
+  primaryPhone           String?                    @db.VarChar(32)
+  normalizedPhone        String?                    @db.VarChar(24)
+  alternatePhone         String?                    @db.VarChar(32)
+  email                  String?                    @db.VarChar(255)
+  normalizedEmail        String?                    @db.VarChar(255)
+  dateOfBirth            DateTime?                  @db.Date
+  anniversaryDate        DateTime?                  @db.Date
+  companyName            String?                    @db.VarChar(160)
+  taxIdentification      String?                    @db.VarChar(80)
+  preferredContactMethod CustomerCommunicationType?
+  preferredCurrency      String                     @default("INR") @db.VarChar(3)
+  preferredLanguage      String?                    @db.VarChar(40)
+  travelPreferences      String?                    @db.VarChar(4000)
+  dietaryRequirements    String?                    @db.VarChar(2000)
+  specialRequirements    String?                    @db.VarChar(2000)
+  source                 String?                    @db.VarChar(80)
+  assignedToId           String?                    @db.Uuid
+  createdById            String                     @db.Uuid
+  mergedIntoId           String?                    @db.Uuid
+  queryCount             Int                        @default(0)
+  quotationCount         Int                        @default(0)
+  bookingCount           Int                        @default(0)
+  completedBookingCount  Int                        @default(0)
+  totalBookedValue       Decimal                    @default(0) @db.Decimal(14, 2)
+  totalPaid              Decimal                    @default(0) @db.Decimal(14, 2)
+  totalOutstanding       Decimal                    @default(0) @db.Decimal(14, 2)
+  lifetimeGrossProfit    Decimal                    @default(0) @db.Decimal(14, 2)
+  isRepeatCustomer       Boolean                    @default(false)
+  isVip                  Boolean                    @default(false)
+  customerSince          DateTime                   @default(now())
+  lastContactedAt        DateTime?
+  lastEnquiryAt          DateTime?
+  lastInteractionAt      DateTime?
+  lastBookingAt          DateTime?
+  nextFollowUpAt         DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  deletedAt              DateTime?
+
+  company          Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo       User?                   @relation("CustomerAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy        User                    @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  mergedInto       Customer?               @relation("CustomerMergeTarget", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedSources    Customer[]              @relation("CustomerMergeTarget")
+  addresses        CustomerAddress[]
+  tagAssignments   CustomerTagAssignment[]
+  notes            CustomerNote[]
+  communications   CustomerCommunication[]
+  documents        CustomerDocument[]
+  queries          Query[]
+  quotations       Quotation[]
+  bookings         Booking[]
+  mergeHistoryFrom CustomerMergeHistory[]  @relation("CustomerMergeSource")
+  mergeHistoryInto CustomerMergeHistory[]  @relation("CustomerMergeTargetHistory")
+
+  @@unique([companyId, customerNumber])
+  @@index([companyId, normalizedPhone, deletedAt])
+  @@index([companyId, normalizedEmail, deletedAt])
+  @@index([companyId, normalizedName, deletedAt])
+  @@index([companyId, assignedToId, deletedAt])
+  @@index([companyId, status, lifecycleStage, deletedAt])
+  @@index([companyId, isRepeatCustomer, isVip, deletedAt])
+  @@index([companyId, createdAt])
+  @@map("customers")
+}
+
+model CustomerAddress {
+  id         String              @id @default(uuid()) @db.Uuid
+  companyId  String              @db.Uuid
+  customerId String              @db.Uuid
+  type       CustomerAddressType @default(HOME)
+  label      String?             @db.VarChar(80)
+  line1      String              @db.VarChar(255)
+  line2      String?             @db.VarChar(255)
+  city       String              @db.VarChar(120)
+  state      String?             @db.VarChar(120)
+  postalCode String?             @db.VarChar(24)
+  country    String              @db.VarChar(80)
+  isPrimary  Boolean             @default(false)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  deletedAt  DateTime?
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, customerId, deletedAt])
+  @@map("customer_addresses")
+}
+
+model CustomerTag {
+  id             String                  @id @default(uuid()) @db.Uuid
+  companyId      String                  @db.Uuid
+  name           String                  @db.VarChar(60)
+  normalizedName String?                 @db.VarChar(60)
+  color          String                  @default("#64748b") @db.VarChar(7)
+  description    String?                 @db.VarChar(500)
+  createdById    String?                 @db.Uuid
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  deletedAt      DateTime?
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignments    CustomerTagAssignment[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, normalizedName])
+  @@index([companyId, createdAt])
+  @@map("customer_tags")
+}
+
+model CustomerTagAssignment {
+  companyId    String      @db.Uuid
+  customerId   String      @db.Uuid
+  tagId        String      @db.Uuid
+  assignedById String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer     Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag          CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+  @@index([companyId, tagId])
+  @@map("customer_tag_assignments")
+}
+
+model CustomerNote {
+  id           String           @id @default(uuid()) @db.Uuid
+  companyId    String           @db.Uuid
+  customerId   String           @db.Uuid
+  authorUserId String           @db.Uuid
+  type         CustomerNoteType @default(GENERAL)
+  content      String           @db.VarChar(4000)
+  isPinned     Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer     Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorUser   User             @relation("CustomerNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, customerId, createdAt])
+  @@map("customer_notes")
+}
+
+model CustomerCommunication {
+  id              String                         @id @default(uuid()) @db.Uuid
+  companyId       String                         @db.Uuid
+  customerId      String                         @db.Uuid
+  leadId          String?                        @db.Uuid
+  bookingId       String?                        @db.Uuid
+  performedById   String                         @db.Uuid
+  type            CustomerCommunicationType
+  direction       CustomerCommunicationDirection
+  subject         String?                        @db.VarChar(200)
+  summary         String                         @db.VarChar(4000)
+  occurredAt      DateTime                       @default(now())
+  durationSeconds Int?
+  outcome         String?                        @db.VarChar(500)
+  nextAction      String?                        @db.VarChar(1000)
+  nextActionAt    DateTime?
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+  deletedAt       DateTime?
+  company         Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer        Customer                       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lead            Query?                         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  booking         Booking?                       @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  performedBy     User                           @relation("CustomerCommunicationBy", fields: [performedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, customerId, occurredAt, deletedAt])
+  @@index([companyId, leadId])
+  @@index([companyId, bookingId])
+  @@map("customer_communications")
+}
+
+model CustomerDocument {
+  id              String               @id @default(uuid()) @db.Uuid
+  companyId       String               @db.Uuid
+  customerId      String               @db.Uuid
+  uploadedById    String               @db.Uuid
+  type            CustomerDocumentType
+  name            String               @db.VarChar(255)
+  description     String?              @db.VarChar(1000)
+  objectKey       String               @db.VarChar(1000)
+  storageProvider StorageProvider
+  status          DocumentStatus       @default(PENDING)
+  mimeType        String               @db.VarChar(120)
+  sizeBytes       Int
+  expiresAt       DateTime?            @db.Date
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer        Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  uploadedBy      User                 @relation("CustomerDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, customerId, deletedAt])
+  @@map("customer_documents")
+}
+
+model CustomerMergeHistory {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @db.Uuid
+  sourceCustomerId  String   @db.Uuid
+  targetCustomerId  String   @db.Uuid
+  performedById     String   @db.Uuid
+  reason            String?  @db.VarChar(1000)
+  sourceSnapshot    Json
+  targetSnapshot    Json
+  relationshipMoves Json
+  createdAt         DateTime @default(now())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourceCustomer    Customer @relation("CustomerMergeSource", fields: [sourceCustomerId], references: [id], onDelete: Restrict)
+  targetCustomer    Customer @relation("CustomerMergeTargetHistory", fields: [targetCustomerId], references: [id], onDelete: Restrict)
+  performedBy       User     @relation("CustomerMergePerformedBy", fields: [performedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, sourceCustomerId, createdAt])
+  @@index([companyId, targetCustomerId, createdAt])
+  @@map("customer_merge_history")
+}
+
 model QueryCounter {
   companyId String  @db.Uuid
   year      Int
@@ -844,6 +1194,7 @@ model QueryCounter {
 model Query {
   id                       String                   @id @default(uuid()) @db.Uuid
   companyId                String                   @db.Uuid
+  customerId               String?                  @db.Uuid
   queryNumber              String                   @db.VarChar(24)
   customerName             String                   @db.VarChar(120)
   phone                    String                   @db.VarChar(32)
@@ -888,6 +1239,7 @@ model Query {
   updatedAt                DateTime                 @updatedAt
   deletedAt                DateTime?
   company                  Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer                 Customer?                @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedTo               User?                    @relation("QueryAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
   createdBy                User                     @relation("QueryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   notes                    QueryNote[]
@@ -898,9 +1250,11 @@ model Query {
   itinerary                QueryItinerary[]
   quotations               Quotation[]
   bookings                 Booking[]
+  customerCommunications   CustomerCommunication[]
 
   @@unique([companyId, queryNumber])
   @@index([companyId, normalizedPhone])
+  @@index([companyId, customerId, deletedAt])
   @@index([companyId, leadStage, deletedAt])
   @@index([companyId, leadType, deletedAt])
   @@index([companyId, priority, deletedAt])
@@ -1207,6 +1561,7 @@ model QuotationTemplateTerm {
 model Quotation {
   id                   String          @id @default(uuid()) @db.Uuid
   companyId            String          @db.Uuid
+  customerId           String?         @db.Uuid
   quotationNumber      String          @db.VarChar(24)
   queryId              String          @db.Uuid
   sourceTemplateId     String?         @db.Uuid
@@ -1242,6 +1597,7 @@ model Quotation {
   deletedAt            DateTime?
 
   company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
   query          Query               @relation(fields: [queryId], references: [id], onDelete: Restrict)
   sourceTemplate QuotationTemplate?  @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   createdBy      User                @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -1252,6 +1608,7 @@ model Quotation {
 
   @@unique([companyId, quotationNumber])
   @@index([companyId, queryId, deletedAt])
+  @@index([companyId, customerId, deletedAt])
   @@index([companyId, status, deletedAt])
   @@index([companyId, createdById, deletedAt])
   @@index([companyId, validUntil])
@@ -1498,6 +1855,7 @@ model BookingCounter {
 model Booking {
   id                       String               @id @default(uuid()) @db.Uuid
   companyId                String               @db.Uuid
+  customerId               String?              @db.Uuid
   bookingNumber            String               @db.VarChar(24)
   queryId                  String?              @db.Uuid
   quotationId              String?              @unique @db.Uuid
@@ -1538,26 +1896,29 @@ model Booking {
   updatedAt                DateTime             @updatedAt
   deletedAt                DateTime?
 
-  company           Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  query             Query?                     @relation(fields: [queryId], references: [id], onDelete: Restrict)
-  quotation         Quotation?                 @relation(fields: [quotationId], references: [id], onDelete: Restrict)
-  quotationVersion  QuotationVersion?          @relation(fields: [quotationVersionId], references: [id], onDelete: Restrict)
-  bookedBy          User                       @relation("BookingBookedBy", fields: [bookedById], references: [id], onDelete: Restrict)
-  assignedTo        User?                      @relation("BookingAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
-  travellers        BookingTraveller[]
-  services          BookingService[]
-  itinerary         BookingItineraryDay[]
-  paymentSchedules  BookingPaymentSchedule[]
-  payments          BookingPayment[]
-  costs             BookingCost[]
-  documents         BookingDocument[]
-  notes             BookingNote[]
-  statusHistory     BookingStatusHistory[]
-  assignmentHistory BookingAssignmentHistory[]
-  emailLogs         BookingEmailLog[]
+  company                Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer               Customer?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  query                  Query?                     @relation(fields: [queryId], references: [id], onDelete: Restrict)
+  quotation              Quotation?                 @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  quotationVersion       QuotationVersion?          @relation(fields: [quotationVersionId], references: [id], onDelete: Restrict)
+  bookedBy               User                       @relation("BookingBookedBy", fields: [bookedById], references: [id], onDelete: Restrict)
+  assignedTo             User?                      @relation("BookingAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  travellers             BookingTraveller[]
+  services               BookingService[]
+  itinerary              BookingItineraryDay[]
+  paymentSchedules       BookingPaymentSchedule[]
+  payments               BookingPayment[]
+  costs                  BookingCost[]
+  documents              BookingDocument[]
+  notes                  BookingNote[]
+  statusHistory          BookingStatusHistory[]
+  assignmentHistory      BookingAssignmentHistory[]
+  emailLogs              BookingEmailLog[]
+  customerCommunications CustomerCommunication[]
 
   @@unique([companyId, bookingNumber])
   @@index([companyId, queryId, deletedAt])
+  @@index([companyId, customerId, deletedAt])
   @@index([companyId, bookingStatus, deletedAt])
   @@index([companyId, operationalStatus, deletedAt])
   @@index([companyId, paymentStatus, deletedAt])

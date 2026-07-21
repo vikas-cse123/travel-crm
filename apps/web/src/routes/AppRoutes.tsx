@@ -41,6 +41,9 @@ import { PublicQuotationPage } from '@/pages/quotations/PublicQuotationPage';
 import { BookingsPage } from '@/pages/bookings/BookingsPage';
 import { NewBookingPage } from '@/pages/bookings/NewBookingPage';
 import { BookingWorkspacePage } from '@/pages/bookings/BookingWorkspacePage';
+import { CustomersPage } from '@/pages/customers/CustomersPage';
+import { CustomerFormPage } from '@/pages/customers/CustomerFormPage';
+import { CustomerWorkspacePage } from '@/pages/customers/CustomerWorkspacePage';
 
 /**
  * Route table.
@@ -217,6 +220,38 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
                 <BookingWorkspacePage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_VIEW}>
+                <CustomersPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/customers/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_CREATE}>
+                <CustomerFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/customers/:customerId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_VIEW}>
+                <CustomerWorkspacePage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/customers/:customerId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_UPDATE}>
+                <CustomerFormPage />
               </PermissionRoute>
             }
           />

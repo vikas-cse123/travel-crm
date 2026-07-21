@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { SERVICE_TYPES, type QueryInput } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
+import { useCustomer, useCustomerDuplicates } from '@/features/customers/customers.api';
 
 interface ItineraryForm {
   country: string;
@@ -16,6 +18,9 @@ interface ItineraryForm {
   notes: string;
 }
 interface FormValues {
+  customerId: string;
+  createNewCustomer: boolean;
+  createAnyway: boolean;
   customerName: string;
   phone: string;
   alternatePhone: string;
@@ -65,6 +70,9 @@ const emptyRow = (sequence = 1): ItineraryForm => ({
 const dateValue = (value?: string | null) => (value ? value.slice(0, 10) : '');
 function defaults(lead?: Lead): FormValues {
   return {
+    customerId: lead?.customer?.id ?? '',
+    createNewCustomer: false,
+    createAnyway: false,
     customerName: lead?.customerName ?? '',
     phone: lead?.phone ?? '',
     alternatePhone: lead?.alternatePhone ?? '',
@@ -134,6 +142,9 @@ export function LeadForm({
   error?: string;
 }) {
   const { hasPermission, user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedCustomerId = lead ? '' : (searchParams.get('customerId') ?? '');
+  const requestedCustomer = useCustomer(requestedCustomerId || undefined);
   const { data: lookups } = useLeadLookups();
   const {
     register,
@@ -146,6 +157,14 @@ export function LeadForm({
   } = useForm<FormValues>({ defaultValues: defaults(lead) });
   useEffect(() => reset(defaults(lead)), [lead, reset]);
   useEffect(() => {
+    if (!requestedCustomer.data || lead) return;
+    setValue('customerId', requestedCustomer.data.id);
+    setValue('customerName', requestedCustomer.data.displayName);
+    setValue('phone', requestedCustomer.data.primaryPhone ?? '');
+    setValue('email', requestedCustomer.data.email ?? '');
+    setValue('alternatePhone', requestedCustomer.data.alternatePhone ?? '');
+  }, [lead, requestedCustomer.data, setValue]);
+  useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       if (isDirty) event.preventDefault();
     };
@@ -154,6 +173,8 @@ export function LeadForm({
   }, [isDirty]);
   const { fields, append, remove, move } = useFieldArray({ control, name: 'itinerary' });
   const phone = watch('phone');
+  const customerName = watch('customerName');
+  const email = watch('email');
   const services = watch('services');
   const counts = watch([
     'rooms',
@@ -164,6 +185,7 @@ export function LeadForm({
     'extraBeds',
   ]);
   const matches = usePhoneSearch(phone);
+  const customerMatches = useCustomerDuplicates({ displayName: customerName, phone, email });
   const summary = [
     `${counts[0] || 0} Room${counts[0] === 1 ? '' : 's'}`,
     `${counts[1] || 0} Adult${counts[1] === 1 ? '' : 's'}`,
@@ -256,6 +278,41 @@ export function LeadForm({
                   Use details from <strong>{m.queryNumber}</strong> · {m.customerName}
                 </button>
               ))}
+            </div>
+          )}
+          {customerMatches.data && customerMatches.data.length > 0 && !lead && (
+            <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm">
+              <p className="font-medium text-brand-900">Matching customer profiles</p>
+              <p className="text-xs text-brand-700">
+                Choose a profile to link this lead. If there is one exact match, the server links it
+                automatically.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {customerMatches.data.map((match) => (
+                  <label
+                    key={match.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-white px-3 py-2 shadow-sm"
+                  >
+                    <input type="radio" value={match.id} {...register('customerId')} />
+                    <span>
+                      <strong>{match.displayName}</strong>
+                      <span className="block text-xs text-slate-500">
+                        {match.customerNumber} · {match.primaryPhone || match.email}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <label className="mt-3 flex items-center gap-2">
+                <input type="checkbox" {...register('createNewCustomer')} />
+                Create a separate customer instead
+              </label>
+              {customerMatches.data.some((match) => match.strongMatch) && (
+                <label className="mt-2 flex items-center gap-2">
+                  <input type="checkbox" {...register('createAnyway')} />I reviewed the exact match
+                  and still want a separate profile
+                </label>
+              )}
             </div>
           )}
           <Field label="Date of birth">

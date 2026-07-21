@@ -14,12 +14,29 @@ import {
   type FollowUpCompleteInput,
 } from '@interscale/shared';
 import type { AuthContext } from '../../middleware/authenticate.js';
+import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
-import { normalizeEmail, normalizePhone } from '../../utils/normalize.js';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import {
+  normalizeCustomerName,
+  normalizeCustomerPhone,
+  normalizeEmail,
+  normalizePhone,
+} from '../../utils/normalize.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../../utils/errors.js';
 import { resolvePagination } from '../../utils/pagination.js';
 import { localDayBounds } from '../../utils/timezone.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  findDuplicates,
+  getVisibleCustomer,
+  hasExactCustomerMatch,
+  recalculateCustomerMetrics,
+} from '../customers/customers.service.js';
 
 export type RequestContext = { ipAddress: string | null; userAgent: string | null };
 export const userSelect = { id: true, fullName: true, username: true } as const;
@@ -28,6 +45,9 @@ const include = {
   createdBy: { select: userSelect },
   services: { select: { serviceType: true } },
   itinerary: { orderBy: { sequence: 'asc' as const } },
+  customer: {
+    select: { id: true, customerNumber: true, displayName: true, primaryPhone: true, email: true },
+  },
 } as const;
 type IncludedQuery = Prisma.QueryGetPayload<{ include: typeof include }>;
 export function presentQuery(value: IncludedQuery) {
@@ -572,8 +592,76 @@ export const queriesService = {
     await assertCanAssignOther(auth, assignedToId);
     if (input.initialFollowUp?.assignedToId)
       await assertAssignable(auth, input.initialFollowUp.assignedToId);
+    let linkedCustomerId = input.customerId ?? null;
+    if (linkedCustomerId) {
+      const customer = await getVisibleCustomer(auth, linkedCustomerId);
+      if (!['ACTIVE', 'INACTIVE'].includes(customer.status))
+        throw new ValidationError('The selected customer is not available in this company.');
+    } else {
+      const exactMatchExists = await hasExactCustomerMatch(auth, {
+        phone: input.phone,
+        ...(input.email ? { email: input.email } : {}),
+      });
+      const duplicates = await findDuplicates(auth, {
+        displayName: input.customerName,
+        phone: input.phone,
+        ...(input.email ? { email: input.email } : {}),
+      });
+      const strong = duplicates.filter((value) => value.strongMatch);
+      if (!strong.length && exactMatchExists && !input.createAnyway)
+        throw new ConflictError(
+          'A matching customer exists outside your visibility. Ask a manager to link it or explicitly create a separate profile.',
+        );
+      if (strong.length > 1)
+        throw new ConflictError(
+          'Multiple customer profiles match this lead. Select the correct customer before creating it.',
+        );
+      if (strong.length === 1 && input.createNewCustomer && !input.createAnyway)
+        throw new ConflictError(
+          'A matching customer already exists. Link it or choose create anyway.',
+        );
+      if (strong.length === 1 && !input.createNewCustomer) linkedCustomerId = strong[0]!.id;
+    }
     const year = new Date().getUTCFullYear();
     const id = await prisma.$transaction(async (tx) => {
+      if (!linkedCustomerId) {
+        const customerCounter = await tx.customerCounter.upsert({
+          where: { companyId_year: { companyId: auth.companyId, year } },
+          create: { companyId: auth.companyId, year, value: 1 },
+          update: { value: { increment: 1 } },
+          select: { value: true },
+        });
+        const customer = await tx.customer.create({
+          data: {
+            companyId: auth.companyId,
+            customerNumber: `CUS-${year}-${String(customerCounter.value).padStart(6, '0')}`,
+            displayName: input.customerName,
+            normalizedName: normalizeCustomerName(input.customerName),
+            primaryPhone: input.phone,
+            normalizedPhone: normalizeCustomerPhone(input.phone, env.DEFAULT_PHONE_COUNTRY),
+            alternatePhone: input.alternatePhone || null,
+            email: input.email || null,
+            normalizedEmail: input.email ? normalizeEmail(input.email) : null,
+            dateOfBirth: input.dateOfBirth ?? null,
+            source: input.leadSource,
+            assignedToId,
+            createdById: auth.userId,
+          },
+        });
+        linkedCustomerId = customer.id;
+        await tx.activityLog.create({
+          data: {
+            companyId: auth.companyId,
+            actorUserId: auth.userId,
+            action: 'CUSTOMER_CREATED',
+            entityType: 'Customer',
+            entityId: customer.id,
+            metadata: { source: 'LEAD_CREATION', customerNumber: customer.customerNumber },
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+          },
+        });
+      }
       const counter = await tx.queryCounter.upsert({
         where: { companyId_year: { companyId: auth.companyId, year } },
         create: { companyId: auth.companyId, year, value: 1 },
@@ -582,6 +670,7 @@ export const queriesService = {
       });
       const createData = {
         companyId: auth.companyId,
+        customerId: linkedCustomerId,
         queryNumber: `QRY-${year}-${String(counter.value).padStart(6, '0')}`,
         createdById: auth.userId,
         ...scalarData(input),
@@ -634,6 +723,7 @@ export const queriesService = {
       } as Prisma.QueryUncheckedCreateInput;
       const query = await tx.query.create({ data: createData, select: { id: true } });
       if (input.initialFollowUp) await recalculateNextFollowUp(tx, auth.companyId, query.id);
+      if (linkedCustomerId) await recalculateCustomerMetrics(tx, auth.companyId, linkedCustomerId);
       await tx.activityLog.create({
         data: audit(auth, 'QUERY_CREATED', query.id, context, {
           leadStage: input.leadStage,
@@ -698,11 +788,12 @@ export const queriesService = {
     return presentQuery(await getVisible(auth, id));
   },
   async archive(auth: AuthContext, id: string, context: RequestContext) {
-    await getVisible(auth, id);
-    await prisma.$transaction([
-      prisma.query.update({ where: { id }, data: { deletedAt: new Date() } }),
-      prisma.activityLog.create({ data: audit(auth, 'QUERY_ARCHIVED', id, context) }),
-    ]);
+    const query = await getVisible(auth, id);
+    await prisma.$transaction(async (tx) => {
+      await tx.query.update({ where: { id }, data: { deletedAt: new Date() } });
+      if (query.customerId) await recalculateCustomerMetrics(tx, auth.companyId, query.customerId);
+      await tx.activityLog.create({ data: audit(auth, 'QUERY_ARCHIVED', id, context) });
+    });
     return { archived: true, id };
   },
   async changeStage(

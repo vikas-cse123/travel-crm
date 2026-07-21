@@ -103,6 +103,14 @@ export function BookingWorkspacePage() {
             <h1 className="text-2xl font-semibold">
               {booking.customerName} · {booking.destinationSummary}
             </h1>
+            {booking.customer && (
+              <Link
+                className="text-xs font-medium text-brand-700 hover:underline"
+                to={`/customers/${booking.customer.id}`}
+              >
+                View {booking.customer.customerNumber} customer profile
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

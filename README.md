@@ -2,11 +2,13 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 9 (Booking Operations) complete.**
+> **Status: Phase 10 (Customer Profiles) complete.**
 > The CRM includes multi-tenancy, authentication, administration, leads,
 > follow-ups, reusable quotation templates, immutable customer quotation
 > versions, secure public accept/reject links, and end-to-end booking operations
 > for travellers, services, payments, costs, documents, PDF and email.
+> Customer profiles now unify identity, duplicate detection, communications,
+> documents, merge history and relationships across those sales records.
 
 ---
 
@@ -24,6 +26,7 @@ A multi-tenant SaaS CRM for travel agencies.
 - [API overview](#api-overview)
 - [Quotation documents and AWS S3](#quotation-documents-and-aws-s3)
 - [Booking operations](#booking-operations)
+- [Customer profiles](#customer-profiles)
 - [Security controls](#security-controls)
 - [Multi-tenancy design](#multi-tenancy-design)
 - [Known limitations](#known-limitations)
@@ -140,6 +143,7 @@ npm run db:up               # start PostgreSQL in Docker
 npm run db:generate         # generate the Prisma client
 npm run db:migrate          # apply migrations
 npm run db:seed             # optional: seed data
+npm run db:backfill-customers # idempotently link historical sales records
 
 npm run dev                 # start API (:4000) and web (:5173) together
 ```
@@ -196,6 +200,10 @@ anything is missing or malformed, printing all problems at once.
 | `BOOKING_DOCUMENT_MAX_UPLOAD_SIZE_MB` | Per-booking-document limit (default 15) |
 | `BOOKING_PRESIGNED_URL_EXPIRY_SECONDS` | Booking upload/download URL lifetime (default 300) |
 | `PASSPORT_EXPIRY_WARNING_MONTHS` | Warning window relative to travel start (default 6) |
+| `CUSTOMER_DOCUMENT_MAX_UPLOAD_SIZE_MB` | Per-customer-document limit (default 10) |
+| `CUSTOMER_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS` | Customer document URL lifetime (default 300) |
+| `DEFAULT_PHONE_COUNTRY`          | Country used to expand local phone numbers (default `IN`) |
+| `CUSTOMER_DUPLICATE_NAME_THRESHOLD` | Advisory normalized-name similarity threshold (default `0.88`) |
 | `RATE_LIMIT_*`                  | Global rate-limit window and ceiling           |
 | `VITE_API_URL`                  | Proxy target for the Vite dev server           |
 
@@ -226,6 +234,7 @@ npm run db:generate    # prisma generate
 npm run db:migrate     # prisma migrate dev  (creates + applies)
 npm run db:deploy      # prisma migrate deploy  (production/CI)
 npm run db:seed        # run prisma/seed.ts
+npm run db:backfill-customers # safe, repeatable historical customer linker
 npm run db:studio      # open Prisma Studio
 npm run db:reset       # drop, re-migrate and re-seed
 ```
@@ -402,7 +411,7 @@ The inactive and suspended accounts are intentional: they exercise the
 "cannot sign in" paths in later phases. Sessions, OTPs and reset tokens are
 **not** seeded — credentials are minted by the auth flow, never pre-created.
 
-Also seeded: the 66-key permission catalogue (57 available, 9 reserved for
+Also seeded: the 73-key permission catalogue (68 available, 5 reserved for
 future modules), 5 default roles with grants, 4 quick-setup templates, and 7
 sample activity-log entries.
 
@@ -708,6 +717,43 @@ WhatsApp or telecalling automation.
 
 ---
 
+## Customer profiles
+
+Phase 10 adds a tenant-scoped canonical `Customer` identity without rewriting
+the customer snapshots stored on leads, quotations or bookings. New leads can
+link an explicitly selected profile, automatically link one exact phone/email
+match, or create a profile in the same transaction. Quotations and bookings
+inherit that customer ID.
+
+Duplicate detection uses normalized email and an E.164-like phone key. Similar
+names are advisory only; they never trigger an automatic merge. The create UI
+shows safe candidate summaries and requires an explicit override before an
+exact-match duplicate can be created.
+
+The customer workspace includes overview, unified timeline, leads, quotations,
+bookings, travellers, payments, notes, communications, customer documents,
+linked booking documents and merge. Financial aggregates and payment history
+are permission-filtered. Private customer documents use tenant-qualified object
+keys and short-lived upload/download URLs. Merge runs at serializable isolation,
+moves all relationships, preserves snapshots in `CustomerMergeHistory`, and
+soft-archives the source profile.
+
+Cached customer metrics are recalculated from relational source rows after lead,
+quotation, booking, status, payment and cost changes and by the backfill command.
+Cancelled/archived bookings do not contribute to lifetime value. A repeat
+customer has at least two confirmed, partially confirmed, in-travel or completed
+bookings; manually selected VIP status remains authoritative.
+
+Historical linkage is deliberately conservative and repeatable:
+
+```bash
+npm run db:backfill-customers
+```
+
+The backfill groups only exact normalized phone/email identities. If phone and
+email point at different existing customers, it reports a conflict and leaves
+the lead unchanged for manual review; name similarity alone never links data.
+
 ## Security controls
 
 Implemented in Phase 1:
@@ -796,11 +842,11 @@ consumer of the database, where RLS would be defence in depth.
 
 ## Known limitations
 
-These are deliberate boundaries after Phase 9:
+These are deliberate boundaries after Phase 10:
 
-- Customer master profiles, vendors, supplier ledgers/settlement, external
-  payment gateways/refund collection, WhatsApp, telecalling and the final
-  analytics dashboard are not implemented.
+- Vendors, supplier ledgers/settlement, external payment gateways/refund
+  collection, WhatsApp, telecalling and the final analytics dashboard are not
+  implemented.
 - Direct attachment upload with the in-memory development provider is not a
   browser transport; configure S3/a compatible endpoint for manual upload
   verification. Generated PDFs still work with the memory provider.
@@ -837,7 +883,8 @@ These are deliberate boundaries after Phase 9:
 | **7** | Lead workspace, notes, follow-ups, timeline and reminders                 | ✅ Done |
 | **8** | Quotation templates, immutable quotations, PDF, email, public links, S3    | ✅ Done |
 | **9** | Booking conversion, travellers, payments, costs, documents and operations | ✅ Done |
-| 10    | Customer profiles and customer relationship history                         | Recommended next |
+| **10** | Customer profiles, duplicate detection and relationship history          | ✅ Done |
+| 11     | Vendors, supplier contracts and supplier ledger foundations              | Recommended next |
 
 ---
 

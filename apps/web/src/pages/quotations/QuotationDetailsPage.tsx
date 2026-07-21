@@ -67,6 +67,14 @@ export function QuotationDetailsPage() {
             <h1 className="text-2xl font-semibold">
               {q.customerName} · {q.destinationSummary}
             </h1>
+            {q.customer && (
+              <Link
+                className="text-xs font-medium text-brand-700 hover:underline"
+                to={`/customers/${q.customer.id}`}
+              >
+                View {q.customer.customerNumber} customer profile
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -160,6 +160,7 @@ export interface Booking {
     createdAt: string;
   }>;
   query: { id: string; queryNumber: string; leadStage: string } | null;
+  customer: { id: string; customerNumber: string; displayName: string } | null;
   quotation: { id: string; quotationNumber: string; status: string } | null;
   quotationVersion: { id: string; versionNumber: number; title: string; status: string } | null;
 }

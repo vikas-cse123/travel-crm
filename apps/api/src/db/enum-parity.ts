@@ -15,6 +15,14 @@ import type {
   BookingCostStatus as PrismaBookingCostStatus,
   BookingCostCategory as PrismaBookingCostCategory,
   BookingDocumentType as PrismaBookingDocumentType,
+  CustomerType as PrismaCustomerType,
+  CustomerStatus as PrismaCustomerStatus,
+  CustomerLifecycleStage as PrismaCustomerLifecycleStage,
+  CustomerAddressType as PrismaCustomerAddressType,
+  CustomerNoteType as PrismaCustomerNoteType,
+  CustomerCommunicationType as PrismaCustomerCommunicationType,
+  CustomerCommunicationDirection as PrismaCustomerCommunicationDirection,
+  CustomerDocumentType as PrismaCustomerDocumentType,
 } from '@prisma/client';
 import type {
   ActivityAction as SharedActivityAction,
@@ -33,6 +41,14 @@ import type {
   BookingCostStatusValue,
   BookingCostCategoryValue,
   BookingDocumentTypeValue,
+  CustomerTypeValue,
+  CustomerStatusValue,
+  CustomerLifecycleStageValue,
+  CustomerAddressTypeValue,
+  CustomerNoteTypeValue,
+  CustomerCommunicationTypeValue,
+  CustomerCommunicationDirectionValue,
+  CustomerDocumentTypeValue,
 } from '@interscale/shared';
 
 /**
@@ -86,6 +102,27 @@ const bookingCostCategoryParity: AssertEqual<BookingCostCategoryValue, PrismaBoo
   true;
 const bookingDocumentTypeParity: AssertEqual<BookingDocumentTypeValue, PrismaBookingDocumentType> =
   true;
+const customerTypeParity: AssertEqual<CustomerTypeValue, PrismaCustomerType> = true;
+const customerStatusParity: AssertEqual<CustomerStatusValue, PrismaCustomerStatus> = true;
+const customerLifecycleStageParity: AssertEqual<
+  CustomerLifecycleStageValue,
+  PrismaCustomerLifecycleStage
+> = true;
+const customerAddressTypeParity: AssertEqual<CustomerAddressTypeValue, PrismaCustomerAddressType> =
+  true;
+const customerNoteTypeParity: AssertEqual<CustomerNoteTypeValue, PrismaCustomerNoteType> = true;
+const customerCommunicationTypeParity: AssertEqual<
+  CustomerCommunicationTypeValue,
+  PrismaCustomerCommunicationType
+> = true;
+const customerCommunicationDirectionParity: AssertEqual<
+  CustomerCommunicationDirectionValue,
+  PrismaCustomerCommunicationDirection
+> = true;
+const customerDocumentTypeParity: AssertEqual<
+  CustomerDocumentTypeValue,
+  PrismaCustomerDocumentType
+> = true;
 
 /** Exported only so `noUnusedLocals` is satisfied; the types are the point. */
 export const ENUM_PARITY = {
@@ -105,4 +142,12 @@ export const ENUM_PARITY = {
   bookingCostStatusParity,
   bookingCostCategoryParity,
   bookingDocumentTypeParity,
+  customerTypeParity,
+  customerStatusParity,
+  customerLifecycleStageParity,
+  customerAddressTypeParity,
+  customerNoteTypeParity,
+  customerCommunicationTypeParity,
+  customerCommunicationDirectionParity,
+  customerDocumentTypeParity,
 } as const;

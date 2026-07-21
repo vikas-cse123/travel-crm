@@ -46,6 +46,15 @@ export function bookingObjectKey(input: {
   return `${base}/documents/${input.documentId}/${name}`;
 }
 
+export function customerObjectKey(input: {
+  companyId: string;
+  customerId: string;
+  documentId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/customers/${input.customerId}/documents/${input.documentId}/${sanitizeFileName(input.fileName)}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

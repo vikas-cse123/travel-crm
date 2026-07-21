@@ -17,6 +17,7 @@
     "db:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
     "db:studio": "dotenv -e ../../.env -- prisma studio",
     "db:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
+    "db:backfill-customers": "dotenv -e ../../.env -- tsx src/scripts/backfill-customers.ts",
     "clean": "rm -rf dist"
   },
   "prisma": {

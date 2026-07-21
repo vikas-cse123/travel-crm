@@ -47,6 +47,13 @@ export interface Lead {
   updatedAt: string;
   assignedTo: UserOption | null;
   createdBy: UserOption;
+  customer: {
+    id: string;
+    customerNumber: string;
+    displayName: string;
+    primaryPhone: string | null;
+    email: string | null;
+  } | null;
   services: Array<{ serviceType: string }>;
   itinerary: Array<{
     id: string;

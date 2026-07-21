@@ -185,6 +185,7 @@ export const bookingPaymentScheduleInputSchema = z.object({
 export const bookingManualInputSchema = z
   .object({
     queryId: z.string().uuid().nullable().optional(),
+    customerId: z.string().uuid().nullable().optional(),
     customerName: z.string().trim().min(2).max(120),
     customerEmail: z.string().trim().email().max(255).nullable().optional().or(z.literal('')),
     customerPhone: z.string().trim().min(5).max(32),

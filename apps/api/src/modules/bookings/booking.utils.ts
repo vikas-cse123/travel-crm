@@ -1,6 +1,7 @@
 import { Prisma, type ActivityAction } from '@prisma/client';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { localDayBounds } from '../../utils/timezone.js';
+import { recalculateCustomerMetrics } from '../customers/customers.service.js';
 
 export type RequestContext = { ipAddress: string | null; userAgent: string | null };
 
@@ -65,6 +66,7 @@ export async function recalculateBookingFinancials(
     where: { id: bookingId, companyId },
     select: {
       totalSellingAmount: true,
+      customerId: true,
       company: { select: { timezone: true } },
       paymentSchedules: {
         where: { deletedAt: null },
@@ -120,7 +122,7 @@ export async function recalculateBookingFinancials(
       : paid.greaterThan(0)
         ? 'PARTIALLY_PAID'
         : 'UNPAID';
-  return tx.booking.update({
+  const updated = await tx.booking.update({
     where: { id: bookingId },
     data: {
       totalCustomerPaid: paid,
@@ -131,4 +133,8 @@ export async function recalculateBookingFinancials(
       profitMarginPercentage: margin,
     },
   });
+  if (booking.customerId) {
+    await recalculateCustomerMetrics(tx, companyId, booking.customerId);
+  }
+  return updated;
 }

@@ -11,6 +11,8 @@ import { followUpsRoutes } from './modules/follow-ups/follow-ups.routes.js';
 import { quotationTemplatesRoutes } from './modules/quotation-templates/quotation-templates.routes.js';
 import { quotationsRoutes } from './modules/quotations/quotations.routes.js';
 import { bookingsRoutes } from './modules/bookings/bookings.routes.js';
+import { customersRoutes } from './modules/customers/customers.routes.js';
+import { customerTagsRoutes } from './modules/customers/customer-tags.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -31,5 +33,7 @@ router.use('/follow-ups', followUpsRoutes);
 router.use('/quotation-templates', quotationTemplatesRoutes);
 router.use('/quotations', quotationsRoutes);
 router.use('/bookings', bookingsRoutes);
+router.use('/customers', customersRoutes);
+router.use('/customer-tags', customerTagsRoutes);
 
 export { router as apiRoutes };

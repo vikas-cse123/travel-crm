@@ -148,6 +148,7 @@ export interface Quotation {
   id: string;
   quotationNumber: string;
   queryId: string;
+  customer: { id: string; customerNumber: string; displayName: string } | null;
   currentVersionId: string | null;
   acceptedVersionId: string | null;
   status: string;

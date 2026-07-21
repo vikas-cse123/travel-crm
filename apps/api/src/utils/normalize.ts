@@ -23,6 +23,32 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
+ * E.164-like key for customer identity matching. Indian local numbers are
+ * expanded with +91 by default; already international numbers retain their
+ * country code. Invalid or blank values are not matchable.
+ */
+export function normalizeCustomerPhone(phone: string | null | undefined, defaultCountry = 'IN') {
+  if (!phone?.trim()) return null;
+  let digits = phone.replace(/\D/g, '');
+  if (phone.trim().startsWith('00')) digits = digits.slice(2);
+  if (defaultCountry === 'IN') {
+    if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+    if (digits.length === 10) digits = `91${digits}`;
+  }
+  return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+}
+
+export function normalizeCustomerName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/**
  * Turn a company name into a URL-safe slug.
  *
  * Accents are decomposed and stripped so "Voyages Été" becomes "voyages-ete"

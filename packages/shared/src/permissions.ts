@@ -151,10 +151,17 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.BOOKINGS, 'export', 'Generate booking confirmation documents'),
   available(M.BOOKINGS, 'view_all', 'View all company bookings'),
 
-  planned(M.CUSTOMERS, 'view', 'View customers'),
-  planned(M.CUSTOMERS, 'create', 'Create customers'),
-  planned(M.CUSTOMERS, 'update', 'Edit customers'),
-  planned(M.CUSTOMERS, 'delete', 'Delete customers'),
+  available(M.CUSTOMERS, 'view', 'View customers'),
+  available(M.CUSTOMERS, 'create', 'Create customers'),
+  available(M.CUSTOMERS, 'update', 'Edit customers'),
+  available(M.CUSTOMERS, 'delete', 'Archive customers'),
+  available(M.CUSTOMERS, 'merge', 'Preview and merge duplicate customers'),
+  available(M.CUSTOMERS, 'manage_tags', 'Manage customer tags'),
+  available(M.CUSTOMERS, 'manage_notes', 'Manage customer notes and communications'),
+  available(M.CUSTOMERS, 'view_financials', 'View customer financial metrics'),
+  available(M.CUSTOMERS, 'view_documents', 'View and manage customer documents'),
+  available(M.CUSTOMERS, 'export', 'Export customer records'),
+  available(M.CUSTOMERS, 'view_all', 'View all company customers'),
 
   planned(M.VENDORS, 'view', 'View vendors'),
   planned(M.VENDORS, 'create', 'Create vendors'),
@@ -233,6 +240,18 @@ export const PERMISSIONS = {
   BOOKINGS_SEND_CONFIRMATION: 'bookings.send_confirmation',
   BOOKINGS_EXPORT: 'bookings.export',
   BOOKINGS_VIEW_ALL: 'bookings.view_all',
+
+  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMERS_CREATE: 'customers.create',
+  CUSTOMERS_UPDATE: 'customers.update',
+  CUSTOMERS_DELETE: 'customers.delete',
+  CUSTOMERS_MERGE: 'customers.merge',
+  CUSTOMERS_MANAGE_TAGS: 'customers.manage_tags',
+  CUSTOMERS_MANAGE_NOTES: 'customers.manage_notes',
+  CUSTOMERS_VIEW_FINANCIALS: 'customers.view_financials',
+  CUSTOMERS_VIEW_DOCUMENTS: 'customers.view_documents',
+  CUSTOMERS_EXPORT: 'customers.export',
+  CUSTOMERS_VIEW_ALL: 'customers.view_all',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

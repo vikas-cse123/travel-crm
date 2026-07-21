@@ -101,6 +101,9 @@ export const followUpInputSchema = z.object({
 export const queryInputSchema = z
   .object({
     customerName: z.string().trim().min(2).max(120),
+    customerId: z.string().uuid().nullable().optional(),
+    createNewCustomer: z.boolean().default(false),
+    createAnyway: z.boolean().default(false),
     phone: z.string().trim().min(5).max(32),
     alternatePhone: optionalText(32),
     email: z.string().trim().email().max(255).nullable().optional().or(z.literal('')),
@@ -174,7 +177,15 @@ export const queryInputSchema = z
 
 export const queryUpdateSchema = queryInputSchema
   .innerType()
-  .omit({ initialNote: true, initialFollowUp: true, leadStage: true, assignedToId: true })
+  .omit({
+    initialNote: true,
+    initialFollowUp: true,
+    leadStage: true,
+    assignedToId: true,
+    customerId: true,
+    createNewCustomer: true,
+    createAnyway: true,
+  })
   .partial()
   .refine((v) => Object.keys(v).length > 0);
 export const stageInputSchema = z.object({

@@ -61,6 +61,7 @@ import { localDayBounds } from '../../utils/timezone.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 const bookingInclude = {
+  customer: { select: { id: true, customerNumber: true, displayName: true } },
   bookedBy: { select: userSelect },
   assignedTo: { select: userSelect },
   query: {
@@ -623,6 +624,7 @@ export const bookingsService = {
       const booking = await tx.booking.create({
         data: {
           companyId: auth.companyId,
+          customerId: quotation.customerId,
           bookingNumber,
           queryId: quotation.queryId,
           quotationId: quotation.id,
@@ -777,7 +779,22 @@ export const bookingsService = {
   },
 
   async create(auth: AuthContext, input: BookingManualInput, context: RequestContext) {
-    if (input.queryId) await getVisibleLead(auth, input.queryId);
+    const sourceLead = input.queryId ? await getVisibleLead(auth, input.queryId) : null;
+    let customerId = input.customerId ?? sourceLead?.customerId ?? null;
+    if (customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          companyId: auth.companyId,
+          deletedAt: null,
+          status: { in: ['ACTIVE', 'INACTIVE'] },
+        },
+        select: { id: true },
+      });
+      if (!customer)
+        throw new ValidationError('The selected customer is not available in this company.');
+      customerId = customer.id;
+    }
     await assertAssignable(auth, input.assignedToId);
     const canViewFinancials = await financialAccess(auth);
     const created = await prisma.$transaction(async (tx) => {
@@ -785,6 +802,7 @@ export const bookingsService = {
       const booking = await tx.booking.create({
         data: {
           companyId: auth.companyId,
+          customerId,
           bookingNumber,
           queryId: input.queryId ?? null,
           customerName: input.customerName,
@@ -898,6 +916,7 @@ export const bookingsService = {
         where: { id: bookingId },
         data: compact(input) as Prisma.BookingUpdateInput,
       });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
       await tx.activityLog.create({
         data: bookingAudit(auth, 'BOOKING_UPDATED', 'Booking', bookingId, context),
       });
@@ -908,15 +927,16 @@ export const bookingsService = {
 
   async archive(auth: AuthContext, bookingId: string, context: RequestContext) {
     await getBooking(auth, bookingId);
-    await prisma.$transaction([
-      prisma.booking.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.booking.update({
         where: { id: bookingId },
         data: { bookingStatus: 'ARCHIVED', deletedAt: new Date() },
-      }),
-      prisma.activityLog.create({
+      });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
+      await tx.activityLog.create({
         data: bookingAudit(auth, 'BOOKING_ARCHIVED', 'Booking', bookingId, context),
-      }),
-    ]);
+      });
+    });
     return { id: bookingId, archived: true };
   },
 
@@ -957,6 +977,7 @@ export const bookingsService = {
             : {}),
         }) as Prisma.BookingUpdateInput,
       });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
       await tx.bookingStatusHistory.create({
         data: {
           companyId: auth.companyId,

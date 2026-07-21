@@ -29,6 +29,7 @@ import {
 } from '../../services/storage/storage.service.js';
 import { emailService } from '../../services/email/email.service.js';
 import { nextCompanyNumber, quotationAudit, type RequestContext } from './quotation.utils.js';
+import { recalculateCustomerMetrics } from '../customers/customers.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 export const versionInclude = {
@@ -41,6 +42,7 @@ export const versionInclude = {
   terms: { orderBy: { sequence: 'asc' as const } },
 } as const;
 const quotationInclude = {
+  customer: { select: { id: true, customerNumber: true, displayName: true } },
   query: {
     select: { id: true, queryNumber: true, leadStage: true, assignedToId: true, createdById: true },
   },
@@ -641,6 +643,7 @@ export const quotationsService = {
       const quotation = await tx.quotation.create({
         data: {
           companyId: auth.companyId,
+          customerId: lead.customerId,
           quotationNumber,
           queryId: lead.id,
           sourceTemplateId: input.templateId ?? null,
@@ -692,6 +695,7 @@ export const quotationsService = {
           { versionId: initial.id, versionNumber: 1 },
         ),
       });
+      if (lead.customerId) await recalculateCustomerMetrics(tx, auth.companyId, lead.customerId);
       return tx.quotation.findUniqueOrThrow({
         where: { id: quotation.id },
         include: quotationInclude,
@@ -739,8 +743,8 @@ export const quotationsService = {
     const existing = await getQuotation(auth, id);
     if (existing.status === 'ACCEPTED')
       throw new ConflictError('Accepted quotations cannot be archived.');
-    await prisma.$transaction([
-      prisma.quotation.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.quotation.update({
         where: { id },
         data: {
           deletedAt: new Date(),
@@ -748,11 +752,13 @@ export const quotationsService = {
           publicTokenHash: null,
           publicTokenExpiresAt: null,
         },
-      }),
-      prisma.activityLog.create({
+      });
+      if (existing.customerId)
+        await recalculateCustomerMetrics(tx, auth.companyId, existing.customerId);
+      await tx.activityLog.create({
         data: quotationAudit(auth, 'QUOTATION_ARCHIVED', 'Quotation', id, context),
-      }),
-    ]);
+      });
+    });
     return { id, archived: true };
   },
 
