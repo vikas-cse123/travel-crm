@@ -429,6 +429,7 @@ export const queriesService = {
             lastSentAt: true,
             lastViewedAt: true,
             createdAt: true,
+            booking: { select: { id: true, bookingNumber: true, bookingStatus: true } },
             versions: {
               select: {
                 id: true,
@@ -442,6 +443,23 @@ export const queriesService = {
             },
           },
           orderBy: { updatedAt: 'desc' },
+        })
+      : [];
+    const bookings = permissions.includes(PERMISSIONS.BOOKINGS_VIEW)
+      ? await prisma.booking.findMany({
+          where: { companyId: auth.companyId, queryId: id, deletedAt: null },
+          select: {
+            id: true,
+            bookingNumber: true,
+            bookingStatus: true,
+            operationalStatus: true,
+            paymentStatus: true,
+            destinationSummary: true,
+            travelStartDate: true,
+            travelEndDate: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
         })
       : [];
     return {
@@ -465,6 +483,7 @@ export const queriesService = {
         latest: quotations[0] ?? null,
         items: quotations,
       },
+      bookings: { count: bookings.length, latest: bookings[0] ?? null, items: bookings },
       indicators,
       timezone: company.timezone,
       permissions: {
@@ -479,6 +498,8 @@ export const queriesService = {
         canCreateQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_CREATE),
         canSendQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_SEND),
         canGenerateQuotationPdf: permissions.includes(PERMISSIONS.QUOTATIONS_GENERATE_PDF),
+        canViewBookings: permissions.includes(PERMISSIONS.BOOKINGS_VIEW),
+        canConvertBooking: permissions.includes(PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION),
       },
     };
   },

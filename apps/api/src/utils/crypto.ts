@@ -1,4 +1,11 @@
-import { createHash, randomInt, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomInt,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import argon2 from 'argon2';
 import { OTP_LENGTH } from '@interscale/shared';
 
@@ -59,4 +66,43 @@ export function safeCompare(a: string, b: string): boolean {
   const bufferB = Buffer.from(b, 'utf8');
   if (bufferA.length !== bufferB.length) return false;
   return timingSafeEqual(bufferA, bufferB);
+}
+
+/** AES-256-GCM envelope for sensitive operational strings such as passport numbers. */
+export function encryptSensitiveValue(
+  plaintext: string,
+  base64Key: string,
+  version: string,
+): string {
+  const key = Buffer.from(base64Key, 'base64');
+  if (key.length !== 32) throw new Error('The data-encryption key must contain 32 bytes.');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [
+    version,
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    ciphertext.toString('base64url'),
+  ].join(':');
+}
+
+export function decryptSensitiveValue(envelope: string, base64Key: string): string {
+  const [, ivValue, tagValue, encryptedValue] = envelope.split(':');
+  if (!ivValue || !tagValue || !encryptedValue) throw new Error('Malformed encrypted value.');
+  const key = Buffer.from(base64Key, 'base64');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedValue, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+export function maskSensitiveIdentifier(value: string): string {
+  const compact = value.replace(/\s+/g, '');
+  return compact.length <= 4
+    ? `••••${compact}`
+    : `${'•'.repeat(Math.min(8, compact.length - 4))}${compact.slice(-4)}`;
 }

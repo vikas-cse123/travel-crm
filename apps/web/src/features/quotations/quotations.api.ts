@@ -149,6 +149,7 @@ export interface Quotation {
   quotationNumber: string;
   queryId: string;
   currentVersionId: string | null;
+  acceptedVersionId: string | null;
   status: string;
   customerName: string;
   customerEmail: string | null;
@@ -190,6 +191,7 @@ export interface Quotation {
     createdAt: string;
     actorUser: PersonRef | null;
   }>;
+  booking: { id: string; bookingNumber: string; bookingStatus: string } | null;
 }
 export interface EmailLog {
   id: string;

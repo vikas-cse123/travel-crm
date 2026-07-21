@@ -3,12 +3,36 @@ import type {
   CompanyStatus as PrismaCompanyStatus,
   TemplateStatus as PrismaTemplateStatus,
   UserStatus as PrismaUserStatus,
+  BookingStatus as PrismaBookingStatus,
+  OperationalStatus as PrismaOperationalStatus,
+  BookingPaymentStatus as PrismaBookingPaymentStatus,
+  TravellerType as PrismaTravellerType,
+  VisaStatus as PrismaVisaStatus,
+  ServiceConfirmationStatus as PrismaServiceConfirmationStatus,
+  PaymentScheduleStatus as PrismaPaymentScheduleStatus,
+  PaymentMethod as PrismaPaymentMethod,
+  PaymentRecordStatus as PrismaPaymentRecordStatus,
+  BookingCostStatus as PrismaBookingCostStatus,
+  BookingCostCategory as PrismaBookingCostCategory,
+  BookingDocumentType as PrismaBookingDocumentType,
 } from '@prisma/client';
 import type {
   ActivityAction as SharedActivityAction,
   CompanyStatus as SharedCompanyStatus,
   TemplateStatus as SharedTemplateStatus,
   UserStatus as SharedUserStatus,
+  BookingStatusValue,
+  OperationalStatusValue,
+  BookingPaymentStatusValue,
+  TravellerTypeValue,
+  VisaStatusValue,
+  ServiceConfirmationStatusValue,
+  PaymentScheduleStatusValue,
+  PaymentMethodValue,
+  PaymentRecordStatusValue,
+  BookingCostStatusValue,
+  BookingCostCategoryValue,
+  BookingDocumentTypeValue,
 } from '@interscale/shared';
 
 /**
@@ -38,6 +62,30 @@ const companyStatusParity: AssertEqual<SharedCompanyStatus, PrismaCompanyStatus>
 const userStatusParity: AssertEqual<SharedUserStatus, PrismaUserStatus> = true;
 const templateStatusParity: AssertEqual<SharedTemplateStatus, PrismaTemplateStatus> = true;
 const activityActionParity: AssertEqual<SharedActivityAction, PrismaActivityAction> = true;
+const bookingStatusParity: AssertEqual<BookingStatusValue, PrismaBookingStatus> = true;
+const operationalStatusParity: AssertEqual<OperationalStatusValue, PrismaOperationalStatus> = true;
+const bookingPaymentStatusParity: AssertEqual<
+  BookingPaymentStatusValue,
+  PrismaBookingPaymentStatus
+> = true;
+const travellerTypeParity: AssertEqual<TravellerTypeValue, PrismaTravellerType> = true;
+const visaStatusParity: AssertEqual<VisaStatusValue, PrismaVisaStatus> = true;
+const serviceConfirmationStatusParity: AssertEqual<
+  ServiceConfirmationStatusValue,
+  PrismaServiceConfirmationStatus
+> = true;
+const paymentScheduleStatusParity: AssertEqual<
+  PaymentScheduleStatusValue,
+  PrismaPaymentScheduleStatus
+> = true;
+const paymentMethodParity: AssertEqual<PaymentMethodValue, PrismaPaymentMethod> = true;
+const paymentRecordStatusParity: AssertEqual<PaymentRecordStatusValue, PrismaPaymentRecordStatus> =
+  true;
+const bookingCostStatusParity: AssertEqual<BookingCostStatusValue, PrismaBookingCostStatus> = true;
+const bookingCostCategoryParity: AssertEqual<BookingCostCategoryValue, PrismaBookingCostCategory> =
+  true;
+const bookingDocumentTypeParity: AssertEqual<BookingDocumentTypeValue, PrismaBookingDocumentType> =
+  true;
 
 /** Exported only so `noUnusedLocals` is satisfied; the types are the point. */
 export const ENUM_PARITY = {
@@ -45,4 +93,16 @@ export const ENUM_PARITY = {
   userStatusParity,
   templateStatusParity,
   activityActionParity,
+  bookingStatusParity,
+  operationalStatusParity,
+  bookingPaymentStatusParity,
+  travellerTypeParity,
+  visaStatusParity,
+  serviceConfirmationStatusParity,
+  paymentScheduleStatusParity,
+  paymentMethodParity,
+  paymentRecordStatusParity,
+  bookingCostStatusParity,
+  bookingCostCategoryParity,
+  bookingDocumentTypeParity,
 } as const;

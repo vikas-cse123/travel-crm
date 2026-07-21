@@ -67,7 +67,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     available: true,
     permission: PERMISSIONS.QUOTATIONS_VIEW,
   },
-  { label: 'Bookings', to: '/bookings', icon: Ticket, available: false },
+  {
+    label: 'Bookings',
+    to: '/bookings',
+    icon: Ticket,
+    available: true,
+    permission: PERMISSIONS.BOOKINGS_VIEW,
+  },
   { label: 'Customers', to: '/customers', icon: Users, available: false },
   { label: 'Vendors', to: '/vendors', icon: Building2, available: false },
   // Users, Reports and Settings have permissions already, but their screens

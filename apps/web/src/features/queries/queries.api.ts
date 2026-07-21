@@ -149,6 +149,11 @@ export interface LeadWorkspace {
     latest: LeadQuotationSummary | null;
     items: LeadQuotationSummary[];
   };
+  bookings: {
+    count: number;
+    latest: LeadBookingSummary | null;
+    items: LeadBookingSummary[];
+  };
   indicators: string[];
   timezone: string;
   permissions: {
@@ -163,6 +168,8 @@ export interface LeadWorkspace {
     canCreateQuotation: boolean;
     canSendQuotation: boolean;
     canGenerateQuotationPdf: boolean;
+    canViewBookings: boolean;
+    canConvertBooking: boolean;
   };
 }
 export interface LeadQuotationSummary {
@@ -173,6 +180,7 @@ export interface LeadQuotationSummary {
   lastSentAt: string | null;
   lastViewedAt: string | null;
   createdAt: string;
+  booking: { id: string; bookingNumber: string; bookingStatus: string } | null;
   versions: Array<{
     id: string;
     versionNumber: number;
@@ -180,6 +188,17 @@ export interface LeadQuotationSummary {
     currency: string;
     status: string;
   }>;
+}
+export interface LeadBookingSummary {
+  id: string;
+  bookingNumber: string;
+  bookingStatus: string;
+  operationalStatus: string;
+  paymentStatus: string;
+  destinationSummary: string;
+  travelStartDate: string | null;
+  travelEndDate: string | null;
+  createdAt: string;
 }
 
 export const queryKeys = {

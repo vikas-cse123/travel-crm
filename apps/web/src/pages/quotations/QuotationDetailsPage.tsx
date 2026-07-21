@@ -9,6 +9,7 @@ import {
   Mail,
   Plus,
   Send,
+  TicketCheck,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { labelForLookup, PERMISSIONS } from '@interscale/shared';
@@ -69,6 +70,24 @@ export function QuotationDetailsPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {q.booking ? (
+            <Link to={`/bookings/${q.booking.id}`}>
+              <Button variant="secondary">
+                <TicketCheck className="h-4 w-4" />
+                View {q.booking.bookingNumber}
+              </Button>
+            </Link>
+          ) : (
+            q.status === 'ACCEPTED' &&
+            hasPermission(PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION) && (
+              <Link to={`/quotations/${q.id}/convert-to-booking`}>
+                <Button>
+                  <TicketCheck className="h-4 w-4" />
+                  Convert to booking
+                </Button>
+              </Link>
+            )
+          )}
           {current?.status === 'DRAFT' && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
             <Link to={`/quotations/${q.id}/versions/${current.id}/edit`}>
               <Button variant="secondary">

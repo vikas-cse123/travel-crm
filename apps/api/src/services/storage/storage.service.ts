@@ -26,6 +26,26 @@ export function quotationObjectKey(input: {
   return `companies/${input.companyId}/quotations/${input.quotationId}/versions/${input.versionId}/documents/${input.documentId}/${fileName}`;
 }
 
+export function bookingObjectKey(input: {
+  companyId: string;
+  bookingId: string;
+  documentId: string;
+  fileName: string;
+  travellerId?: string | null;
+  serviceId?: string | null;
+  paymentId?: string | null;
+}): string {
+  const name = sanitizeFileName(input.fileName);
+  const base = `companies/${input.companyId}/bookings/${input.bookingId}`;
+  if (input.travellerId)
+    return `${base}/travellers/${input.travellerId}/documents/${input.documentId}/${name}`;
+  if (input.serviceId)
+    return `${base}/services/${input.serviceId}/documents/${input.documentId}/${name}`;
+  if (input.paymentId)
+    return `${base}/payments/${input.paymentId}/receipts/${input.documentId}/${name}`;
+  return `${base}/documents/${input.documentId}/${name}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

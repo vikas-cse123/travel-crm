@@ -95,6 +95,12 @@ const envSchema = z.object({
   AWS_S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).default('AES256'),
   AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
   MAX_UPLOAD_SIZE_MB: intWithDefault(10),
+  BOOKING_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(15),
+  BOOKING_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  PASSPORT_EXPIRY_WARNING_MONTHS: intWithDefault(6),
+  /** Base64-encoded 32-byte AES-256 key. Never exposed to the browser. */
+  DATA_ENCRYPTION_KEY: z.string().optional(),
+  DATA_ENCRYPTION_KEY_VERSION: z.string().min(1).max(30).default('v1'),
 
   RATE_LIMIT_WINDOW_MINUTES: intWithDefault(15),
   RATE_LIMIT_MAX_REQUESTS: intWithDefault(300),
@@ -155,6 +161,10 @@ function loadEnv(): Env {
       console.error('✖ Production requires STORAGE_PROVIDER=s3 and AWS_S3_BUCKET.');
       process.exit(1);
     }
+    if (!value.DATA_ENCRYPTION_KEY) {
+      console.error('✖ DATA_ENCRYPTION_KEY is required in production for passport protection.');
+      process.exit(1);
+    }
   }
 
   // The in-memory provider must never be reachable outside the test runner.
@@ -166,6 +176,14 @@ function loadEnv(): Env {
   if (value.STORAGE_PROVIDER === 'memory' && value.NODE_ENV === 'production') {
     console.error('✖ STORAGE_PROVIDER=memory is not permitted in production.');
     process.exit(1);
+  }
+
+  if (value.DATA_ENCRYPTION_KEY) {
+    const bytes = Buffer.from(value.DATA_ENCRYPTION_KEY, 'base64');
+    if (bytes.length !== 32) {
+      console.error('✖ DATA_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
+      process.exit(1);
+    }
   }
 
   return value;

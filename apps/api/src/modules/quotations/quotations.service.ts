@@ -51,6 +51,9 @@ const quotationInclude = {
     orderBy: { createdAt: 'desc' as const },
     include: { sentBy: { select: userSelect } },
   },
+  booking: {
+    select: { id: true, bookingNumber: true, bookingStatus: true },
+  },
 } as const;
 type FullQuotation = Prisma.QuotationGetPayload<{ include: typeof quotationInclude }>;
 type FullVersion = Prisma.QuotationVersionGetPayload<{ include: typeof versionInclude }>;

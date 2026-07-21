@@ -209,6 +209,147 @@ enum EmailDeliveryStatus {
   BOUNCED
 }
 
+enum BookingStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  PARTIALLY_CONFIRMED
+  ON_HOLD
+  TRAVEL_IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum OperationalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  ALL_SERVICES_CONFIRMED
+  DOCUMENTS_PENDING
+  READY_FOR_TRAVEL
+  TRAVEL_IN_PROGRESS
+  COMPLETED
+  ACTION_REQUIRED
+}
+
+enum BookingPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum TravellerType {
+  ADULT
+  CHILD_WITH_BED
+  CHILD_WITHOUT_BED
+  INFANT
+}
+
+enum VisaStatus {
+  NOT_REQUIRED
+  NOT_STARTED
+  DOCUMENTS_PENDING
+  APPLIED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum ServiceConfirmationStatus {
+  PENDING
+  REQUESTED
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentScheduleStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CARD
+  CHEQUE
+  PAYMENT_LINK
+  OTHER
+}
+
+enum PaymentRecordStatus {
+  RECEIVED
+  PENDING_CLEARANCE
+  CLEARED
+  FAILED
+  REVERSED
+  REFUNDED
+}
+
+enum BookingCostStatus {
+  ESTIMATED
+  PAYABLE
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum BookingCostCategory {
+  HOTEL
+  FLIGHT
+  TRANSFER
+  SIGHTSEEING
+  VISA
+  INSURANCE
+  GUIDE
+  MEALS
+  TAX
+  COMMISSION
+  OTHER
+}
+
+enum BookingDocumentType {
+  PASSPORT
+  VISA
+  IDENTITY_DOCUMENT
+  FLIGHT_TICKET
+  HOTEL_VOUCHER
+  TRANSFER_VOUCHER
+  INSURANCE
+  INVOICE
+  PAYMENT_RECEIPT
+  BOOKING_CONFIRMATION
+  SUPPLIER_CONFIRMATION
+  ITINERARY
+  OTHER
+}
+
+enum DocumentVisibility {
+  INTERNAL
+  CUSTOMER_VISIBLE
+}
+
+enum BookingNoteType {
+  GENERAL
+  CUSTOMER_COMMUNICATION
+  SUPPLIER_COMMUNICATION
+  OPERATIONAL
+  FINANCIAL
+}
+
+enum BookingEmailType {
+  CONFIRMATION
+  PAYMENT_REMINDER
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -271,6 +412,33 @@ enum ActivityAction {
   QUOTATION_PUBLIC_LINK_REVOKED
   QUOTATION_DOCUMENT_UPLOADED
   QUOTATION_DOCUMENT_DELETED
+  BOOKING_CREATED
+  BOOKING_CONVERTED_FROM_QUOTATION
+  BOOKING_UPDATED
+  BOOKING_STATUS_CHANGED
+  BOOKING_ASSIGNED
+  BOOKING_CANCELLED
+  BOOKING_COMPLETED
+  BOOKING_ARCHIVED
+  BOOKING_TRAVELLER_CREATED
+  BOOKING_TRAVELLER_UPDATED
+  BOOKING_TRAVELLER_DELETED
+  BOOKING_SERVICE_CREATED
+  BOOKING_SERVICE_UPDATED
+  BOOKING_SERVICE_CONFIRMED
+  BOOKING_PAYMENT_SCHEDULE_CREATED
+  BOOKING_PAYMENT_SCHEDULE_UPDATED
+  BOOKING_PAYMENT_RECEIVED
+  BOOKING_PAYMENT_REVERSED
+  BOOKING_COST_CREATED
+  BOOKING_COST_UPDATED
+  BOOKING_COST_PAID
+  BOOKING_DOCUMENT_UPLOADED
+  BOOKING_DOCUMENT_DELETED
+  BOOKING_CONFIRMATION_GENERATED
+  BOOKING_CONFIRMATION_SENT
+  BOOKING_PAYMENT_REMINDER_SENT
+  BOOKING_NOTE_CREATED
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +493,19 @@ model Company {
   quotationVersionTerms        QuotationVersionTerm[]
   quotationDocuments           QuotationDocument[]
   quotationEmailLogs           QuotationEmailLog[]
+  bookingCounters              BookingCounter[]
+  bookings                     Booking[]
+  bookingTravellers            BookingTraveller[]
+  bookingServices              BookingService[]
+  bookingItineraries           BookingItineraryDay[]
+  bookingPaymentSchedules      BookingPaymentSchedule[]
+  bookingPayments              BookingPayment[]
+  bookingCosts                 BookingCost[]
+  bookingDocuments             BookingDocument[]
+  bookingNotes                 BookingNote[]
+  bookingStatusHistory         BookingStatusHistory[]
+  bookingAssignmentHistory     BookingAssignmentHistory[]
+  bookingEmailLogs             BookingEmailLog[]
 
   @@index([status])
   @@index([createdAt])
@@ -389,23 +570,37 @@ model User {
   sessions                    Session[]
   emailVerificationOtps       EmailVerificationOtp[]
   passwordResetTokens         PasswordResetToken[]
-  createdTemplates            PermissionTemplate[]     @relation("PermissionTemplateCreatedBy")
-  activityLogsAsActor         ActivityLog[]            @relation("ActivityLogActor")
-  activityLogsAsTarget        ActivityLog[]            @relation("ActivityLogTarget")
-  queriesCreated              Query[]                  @relation("QueryCreatedBy")
-  queriesAssigned             Query[]                  @relation("QueryAssignedTo")
-  queryNotes                  QueryNote[]              @relation("QueryNoteAuthor")
-  queryStagesChanged          QueryStageHistory[]      @relation("QueryStageChangedBy")
-  queryAssignmentsMade        QueryAssignmentHistory[] @relation("QueryAssignedBy")
-  queryAssignmentsFrom        QueryAssignmentHistory[] @relation("QueryPreviousAssignee")
-  queryAssignmentsTo          QueryAssignmentHistory[] @relation("QueryNewAssignee")
-  queryFollowUpsAssigned      QueryFollowUp[]          @relation("QueryFollowUpAssigned")
-  queryFollowUpsCreated       QueryFollowUp[]          @relation("QueryFollowUpCreated")
-  quotationTemplatesCreated   QuotationTemplate[]      @relation("QuotationTemplateCreatedBy")
-  quotationsCreated           Quotation[]              @relation("QuotationCreatedBy")
-  quotationVersionsCreated    QuotationVersion[]       @relation("QuotationVersionCreatedBy")
-  quotationDocumentsGenerated QuotationDocument[]      @relation("QuotationDocumentGeneratedBy")
-  quotationEmailsSent         QuotationEmailLog[]      @relation("QuotationEmailSentBy")
+  createdTemplates            PermissionTemplate[]       @relation("PermissionTemplateCreatedBy")
+  activityLogsAsActor         ActivityLog[]              @relation("ActivityLogActor")
+  activityLogsAsTarget        ActivityLog[]              @relation("ActivityLogTarget")
+  queriesCreated              Query[]                    @relation("QueryCreatedBy")
+  queriesAssigned             Query[]                    @relation("QueryAssignedTo")
+  queryNotes                  QueryNote[]                @relation("QueryNoteAuthor")
+  queryStagesChanged          QueryStageHistory[]        @relation("QueryStageChangedBy")
+  queryAssignmentsMade        QueryAssignmentHistory[]   @relation("QueryAssignedBy")
+  queryAssignmentsFrom        QueryAssignmentHistory[]   @relation("QueryPreviousAssignee")
+  queryAssignmentsTo          QueryAssignmentHistory[]   @relation("QueryNewAssignee")
+  queryFollowUpsAssigned      QueryFollowUp[]            @relation("QueryFollowUpAssigned")
+  queryFollowUpsCreated       QueryFollowUp[]            @relation("QueryFollowUpCreated")
+  quotationTemplatesCreated   QuotationTemplate[]        @relation("QuotationTemplateCreatedBy")
+  quotationsCreated           Quotation[]                @relation("QuotationCreatedBy")
+  quotationVersionsCreated    QuotationVersion[]         @relation("QuotationVersionCreatedBy")
+  quotationDocumentsGenerated QuotationDocument[]        @relation("QuotationDocumentGeneratedBy")
+  quotationEmailsSent         QuotationEmailLog[]        @relation("QuotationEmailSentBy")
+  bookingsCreated             Booking[]                  @relation("BookingBookedBy")
+  bookingsAssigned            Booking[]                  @relation("BookingAssignedTo")
+  bookingTravellersCreated    BookingTraveller[]         @relation("BookingTravellerCreatedBy")
+  bookingSchedulesCreated     BookingPaymentSchedule[]   @relation("BookingScheduleCreatedBy")
+  bookingPaymentsRecorded     BookingPayment[]           @relation("BookingPaymentRecordedBy")
+  bookingPaymentsReversed     BookingPayment[]           @relation("BookingPaymentReversedBy")
+  bookingCostsRecorded        BookingCost[]              @relation("BookingCostRecordedBy")
+  bookingDocumentsUploaded    BookingDocument[]          @relation("BookingDocumentUploadedBy")
+  bookingNotesAuthored        BookingNote[]              @relation("BookingNoteAuthor")
+  bookingStatusesChanged      BookingStatusHistory[]     @relation("BookingStatusChangedBy")
+  bookingAssignmentsMade      BookingAssignmentHistory[] @relation("BookingAssignedBy")
+  bookingAssignmentsFrom      BookingAssignmentHistory[] @relation("BookingPreviousAssignee")
+  bookingAssignmentsTo        BookingAssignmentHistory[] @relation("BookingNewAssignee")
+  bookingEmailsSent           BookingEmailLog[]          @relation("BookingEmailSentBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -702,6 +897,7 @@ model Query {
   services                 QueryService[]
   itinerary                QueryItinerary[]
   quotations               Quotation[]
+  bookings                 Booking[]
 
   @@unique([companyId, queryNumber])
   @@index([companyId, normalizedPhone])
@@ -1052,6 +1248,7 @@ model Quotation {
   versions       QuotationVersion[]
   documents      QuotationDocument[]
   emailLogs      QuotationEmailLog[]
+  booking        Booking?
 
   @@unique([companyId, quotationNumber])
   @@index([companyId, queryId, deletedAt])
@@ -1102,6 +1299,7 @@ model QuotationVersion {
   terms      QuotationVersionTerm[]
   documents  QuotationDocument[]
   emailLogs  QuotationEmailLog[]
+  booking    Booking?
 
   @@unique([quotationId, versionNumber])
   @@index([companyId, quotationId])
@@ -1280,4 +1478,397 @@ model QuotationEmailLog {
 
   @@index([companyId, quotationId, createdAt])
   @@map("quotation_email_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Booking operations — immutable quotation source plus operational records
+// ---------------------------------------------------------------------------
+
+model BookingCounter {
+  companyId    String  @db.Uuid
+  year         Int
+  bookingValue Int     @default(0)
+  paymentValue Int     @default(0)
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, year])
+  @@map("booking_counters")
+}
+
+model Booking {
+  id                       String               @id @default(uuid()) @db.Uuid
+  companyId                String               @db.Uuid
+  bookingNumber            String               @db.VarChar(24)
+  queryId                  String?              @db.Uuid
+  quotationId              String?              @unique @db.Uuid
+  quotationVersionId       String?              @unique @db.Uuid
+  customerName             String               @db.VarChar(120)
+  customerEmail            String?              @db.VarChar(255)
+  customerPhone            String               @db.VarChar(32)
+  destinationSummary       String               @db.VarChar(500)
+  travelStartDate          DateTime?            @db.Date
+  travelEndDate            DateTime?            @db.Date
+  rooms                    Int                  @default(1)
+  adults                   Int                  @default(1)
+  childrenWithBed          Int                  @default(0)
+  childrenWithoutBed       Int                  @default(0)
+  infants                  Int                  @default(0)
+  currency                 String               @default("INR") @db.VarChar(3)
+  bookingStatus            BookingStatus        @default(PENDING_CONFIRMATION)
+  operationalStatus        OperationalStatus    @default(NOT_STARTED)
+  paymentStatus            BookingPaymentStatus @default(UNPAID)
+  totalSellingAmount       Decimal              @default(0) @db.Decimal(14, 2)
+  totalCustomerPaid        Decimal              @default(0) @db.Decimal(14, 2)
+  totalCustomerOutstanding Decimal              @default(0) @db.Decimal(14, 2)
+  totalCost                Decimal              @default(0) @db.Decimal(14, 2)
+  grossProfit              Decimal              @default(0) @db.Decimal(14, 2)
+  profitMarginPercentage   Decimal              @default(0) @db.Decimal(8, 4)
+  bookedById               String               @db.Uuid
+  assignedToId             String?              @db.Uuid
+  sourceTitle              String?              @db.VarChar(200)
+  sourceTerms              Json?
+  manualCreationReason     String?              @db.VarChar(2000)
+  acceptedAt               DateTime?
+  confirmedAt              DateTime?
+  cancelledAt              DateTime?
+  completedAt              DateTime?
+  cancellationReason       String?              @db.VarChar(2000)
+  internalNotes            String?              @db.VarChar(4000)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  deletedAt                DateTime?
+
+  company           Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query             Query?                     @relation(fields: [queryId], references: [id], onDelete: Restrict)
+  quotation         Quotation?                 @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  quotationVersion  QuotationVersion?          @relation(fields: [quotationVersionId], references: [id], onDelete: Restrict)
+  bookedBy          User                       @relation("BookingBookedBy", fields: [bookedById], references: [id], onDelete: Restrict)
+  assignedTo        User?                      @relation("BookingAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  travellers        BookingTraveller[]
+  services          BookingService[]
+  itinerary         BookingItineraryDay[]
+  paymentSchedules  BookingPaymentSchedule[]
+  payments          BookingPayment[]
+  costs             BookingCost[]
+  documents         BookingDocument[]
+  notes             BookingNote[]
+  statusHistory     BookingStatusHistory[]
+  assignmentHistory BookingAssignmentHistory[]
+  emailLogs         BookingEmailLog[]
+
+  @@unique([companyId, bookingNumber])
+  @@index([companyId, queryId, deletedAt])
+  @@index([companyId, bookingStatus, deletedAt])
+  @@index([companyId, operationalStatus, deletedAt])
+  @@index([companyId, paymentStatus, deletedAt])
+  @@index([companyId, assignedToId, deletedAt])
+  @@index([companyId, travelStartDate])
+  @@index([companyId, createdAt])
+  @@map("bookings")
+}
+
+model BookingTraveller {
+  id                      String        @id @default(uuid()) @db.Uuid
+  companyId               String        @db.Uuid
+  bookingId               String        @db.Uuid
+  travellerType           TravellerType
+  title                   String        @db.VarChar(20)
+  firstName               String        @db.VarChar(100)
+  middleName              String?       @db.VarChar(100)
+  lastName                String        @db.VarChar(100)
+  gender                  String?       @db.VarChar(30)
+  dateOfBirth             DateTime?     @db.Date
+  nationality             String?       @db.VarChar(80)
+  email                   String?       @db.VarChar(255)
+  phone                   String?       @db.VarChar(32)
+  passportNumberEncrypted String?       @db.Text
+  passportKeyVersion      String?       @db.VarChar(30)
+  passportCountry         String?       @db.VarChar(80)
+  passportIssuedAt        DateTime?     @db.Date
+  passportExpiresAt       DateTime?     @db.Date
+  visaStatus              VisaStatus    @default(NOT_STARTED)
+  specialRequirements     String?       @db.VarChar(2000)
+  isPrimaryTraveller      Boolean       @default(false)
+  sequence                Int
+  createdById             String        @db.Uuid
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  deletedAt               DateTime?
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking   Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("BookingTravellerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  documents BookingDocument[]
+
+  @@unique([bookingId, sequence])
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, passportExpiresAt])
+  @@map("booking_travellers")
+}
+
+model BookingService {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  companyId             String                    @db.Uuid
+  bookingId             String                    @db.Uuid
+  serviceType           ServiceType
+  name                  String                    @db.VarChar(200)
+  description           String?                   @db.VarChar(4000)
+  city                  String?                   @db.VarChar(120)
+  serviceDate           DateTime?                 @db.Date
+  startDate             DateTime?                 @db.Date
+  endDate               DateTime?                 @db.Date
+  confirmationStatus    ServiceConfirmationStatus @default(PENDING)
+  confirmationNumber    String?                   @db.VarChar(255)
+  supplierName          String?                   @db.VarChar(200)
+  supplierReference     String?                   @db.VarChar(255)
+  customerSellingAmount Decimal                   @default(0) @db.Decimal(14, 2)
+  internalCostSnapshot  Decimal                   @default(0) @db.Decimal(14, 2)
+  paymentDueAt          DateTime?
+  cancellationDeadline  DateTime?
+  notes                 String?                   @db.VarChar(2000)
+  sequence              Int
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  deletedAt             DateTime?
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking   Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  costs     BookingCost[]
+  documents BookingDocument[]
+
+  @@unique([bookingId, sequence])
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, confirmationStatus])
+  @@map("booking_services")
+}
+
+model BookingItineraryDay {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @db.Uuid
+  bookingId         String    @db.Uuid
+  dayNumber         Int
+  date              DateTime? @db.Date
+  title             String    @db.VarChar(200)
+  destination       String    @db.VarChar(120)
+  description       String    @db.VarChar(8000)
+  meals             String?   @db.VarChar(500)
+  overnightLocation String?   @db.VarChar(120)
+  sequence          Int
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, sequence])
+  @@index([companyId, bookingId])
+  @@map("booking_itinerary_days")
+}
+
+model BookingPaymentSchedule {
+  id                String                @id @default(uuid()) @db.Uuid
+  companyId         String                @db.Uuid
+  bookingId         String                @db.Uuid
+  installmentNumber Int
+  label             String                @db.VarChar(120)
+  amount            Decimal               @db.Decimal(14, 2)
+  dueDate           DateTime              @db.Date
+  status            PaymentScheduleStatus @default(PENDING)
+  notes             String?               @db.VarChar(2000)
+  createdById       String                @db.Uuid
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  deletedAt         DateTime?
+
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("BookingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  payments  BookingPayment[]
+
+  @@unique([bookingId, installmentNumber])
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, dueDate, status])
+  @@map("booking_payment_schedules")
+}
+
+model BookingPayment {
+  id                String              @id @default(uuid()) @db.Uuid
+  companyId         String              @db.Uuid
+  bookingId         String              @db.Uuid
+  paymentScheduleId String?             @db.Uuid
+  paymentNumber     String              @db.VarChar(24)
+  amount            Decimal             @db.Decimal(14, 2)
+  currency          String              @db.VarChar(3)
+  paymentMethod     PaymentMethod
+  paymentStatus     PaymentRecordStatus @default(RECEIVED)
+  receivedAt        DateTime
+  referenceNumber   String?             @db.VarChar(255)
+  bankName          String?             @db.VarChar(200)
+  notes             String?             @db.VarChar(2000)
+  recordedById      String              @db.Uuid
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  reversedAt        DateTime?
+  reversedById      String?             @db.Uuid
+  reversalReason    String?             @db.VarChar(2000)
+
+  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking         Booking                 @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  paymentSchedule BookingPaymentSchedule? @relation(fields: [paymentScheduleId], references: [id], onDelete: Restrict)
+  recordedBy      User                    @relation("BookingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  reversedBy      User?                   @relation("BookingPaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  documents       BookingDocument[]
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, bookingId, createdAt])
+  @@index([companyId, paymentScheduleId])
+  @@map("booking_payments")
+}
+
+model BookingCost {
+  id                String              @id @default(uuid()) @db.Uuid
+  companyId         String              @db.Uuid
+  bookingId         String              @db.Uuid
+  bookingServiceId  String?             @db.Uuid
+  costCategory      BookingCostCategory
+  supplierName      String              @db.VarChar(200)
+  supplierReference String?             @db.VarChar(255)
+  description       String              @db.VarChar(1000)
+  amount            Decimal             @db.Decimal(14, 2)
+  currency          String              @db.VarChar(3)
+  costStatus        BookingCostStatus   @default(ESTIMATED)
+  dueDate           DateTime?           @db.Date
+  paidAt            DateTime?
+  paymentReference  String?             @db.VarChar(255)
+  notes             String?             @db.VarChar(2000)
+  recordedById      String              @db.Uuid
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking        Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingService BookingService? @relation(fields: [bookingServiceId], references: [id], onDelete: SetNull)
+  recordedBy     User            @relation("BookingCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, dueDate, costStatus])
+  @@map("booking_costs")
+}
+
+model BookingDocument {
+  id               String              @id @default(uuid()) @db.Uuid
+  companyId        String              @db.Uuid
+  bookingId        String              @db.Uuid
+  travellerId      String?             @db.Uuid
+  bookingServiceId String?             @db.Uuid
+  paymentId        String?             @db.Uuid
+  documentType     BookingDocumentType
+  storageProvider  StorageProvider
+  bucket           String              @db.VarChar(255)
+  objectKey        String              @db.VarChar(1000)
+  fileName         String              @db.VarChar(255)
+  originalFileName String              @db.VarChar(255)
+  mimeType         String              @db.VarChar(120)
+  fileSize         Int
+  checksum         String?             @db.VarChar(128)
+  uploadStatus     DocumentStatus      @default(PENDING)
+  visibility       DocumentVisibility  @default(INTERNAL)
+  expiresAt        DateTime?
+  uploadedById     String              @db.Uuid
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  deletedAt        DateTime?
+
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking        Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  traveller      BookingTraveller? @relation(fields: [travellerId], references: [id], onDelete: Restrict)
+  bookingService BookingService?   @relation(fields: [bookingServiceId], references: [id], onDelete: Restrict)
+  payment        BookingPayment?   @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  uploadedBy     User              @relation("BookingDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, objectKey])
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, travellerId, deletedAt])
+  @@index([companyId, bookingServiceId, deletedAt])
+  @@index([companyId, paymentId, deletedAt])
+  @@map("booking_documents")
+}
+
+model BookingNote {
+  id           String          @id @default(uuid()) @db.Uuid
+  companyId    String          @db.Uuid
+  bookingId    String          @db.Uuid
+  authorUserId String          @db.Uuid
+  content      String          @db.VarChar(4000)
+  noteType     BookingNoteType @default(GENERAL)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  deletedAt    DateTime?
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking    Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  authorUser User    @relation("BookingNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, bookingId, createdAt])
+  @@map("booking_notes")
+}
+
+model BookingStatusHistory {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @db.Uuid
+  bookingId      String         @db.Uuid
+  previousStatus BookingStatus?
+  newStatus      BookingStatus
+  changedById    String         @db.Uuid
+  reason         String?        @db.VarChar(2000)
+  createdAt      DateTime       @default(now())
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changedBy User    @relation("BookingStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, bookingId, createdAt])
+  @@map("booking_status_history")
+}
+
+model BookingAssignmentHistory {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @db.Uuid
+  bookingId          String   @db.Uuid
+  previousAssigneeId String?  @db.Uuid
+  newAssigneeId      String?  @db.Uuid
+  assignedById       String   @db.Uuid
+  createdAt          DateTime @default(now())
+
+  company          Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking          Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  previousAssignee User?   @relation("BookingPreviousAssignee", fields: [previousAssigneeId], references: [id], onDelete: SetNull)
+  newAssignee      User?   @relation("BookingNewAssignee", fields: [newAssigneeId], references: [id], onDelete: SetNull)
+  assignedBy       User    @relation("BookingAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, bookingId, createdAt])
+  @@map("booking_assignment_history")
+}
+
+model BookingEmailLog {
+  id                String              @id @default(uuid()) @db.Uuid
+  companyId         String              @db.Uuid
+  bookingId         String              @db.Uuid
+  emailType         BookingEmailType
+  recipientEmail    String              @db.VarChar(255)
+  subject           String              @db.VarChar(255)
+  providerMessageId String?             @db.VarChar(255)
+  status            EmailDeliveryStatus @default(PENDING)
+  failureReason     String?             @db.VarChar(2000)
+  sentById          String              @db.Uuid
+  sentAt            DateTime?
+  createdAt         DateTime            @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sentBy  User    @relation("BookingEmailSentBy", fields: [sentById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, bookingId, createdAt])
+  @@map("booking_email_logs")
 }

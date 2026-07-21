@@ -33,7 +33,12 @@ export class S3StorageService implements StorageService {
     );
   }
 
-  async createUploadUrl(key: string, contentType: string, size: number): Promise<string> {
+  async createUploadUrl(
+    key: string,
+    contentType: string,
+    size: number,
+    expiresInSeconds = env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
+  ): Promise<string> {
     return getSignedUrl(
       this.client,
       new PutObjectCommand({
@@ -43,11 +48,15 @@ export class S3StorageService implements StorageService {
         ContentLength: size,
         ServerSideEncryption: env.AWS_S3_SERVER_SIDE_ENCRYPTION,
       }),
-      { expiresIn: env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS },
+      { expiresIn: expiresInSeconds },
     );
   }
 
-  async createDownloadUrl(key: string, fileName: string): Promise<string> {
+  async createDownloadUrl(
+    key: string,
+    fileName: string,
+    expiresInSeconds = env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
+  ): Promise<string> {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
@@ -55,7 +64,7 @@ export class S3StorageService implements StorageService {
         Key: key,
         ResponseContentDisposition: `attachment; filename="${fileName.replace(/["\\]/g, '_')}"`,
       }),
-      { expiresIn: env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS },
+      { expiresIn: expiresInSeconds },
     );
   }
 

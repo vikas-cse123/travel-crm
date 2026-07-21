@@ -9,12 +9,14 @@ import {
   quotationSendSchema,
   publicLinkSchema,
   uploadRequestSchema,
+  quotationConversionInputSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
-import { requirePermission } from '../../middleware/require-permission.js';
+import { requireAnyPermission, requirePermission } from '../../middleware/require-permission.js';
 import { validateRequest } from '../../middleware/validate-request.js';
 import { asyncHandler } from '../../utils/async-handler.js';
 import { quotationsController as controller } from './quotations.controller.js';
+import { bookingsController } from '../bookings/bookings.controller.js';
 
 const router = Router();
 const id = z.object({ quotationId: z.string().uuid() });
@@ -45,6 +47,12 @@ router.post(
   requirePermission(PERMISSIONS.QUOTATIONS_CREATE),
   validateRequest({ body: quotationInputSchema }),
   asyncHandler(controller.create),
+);
+router.post(
+  '/:quotationId/convert-to-booking',
+  requireAnyPermission(PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION, PERMISSIONS.BOOKINGS_CREATE),
+  validateRequest({ params: id, body: quotationConversionInputSchema }),
+  asyncHandler(bookingsController.convertFromQuotation),
 );
 router.get(
   '/:quotationId/versions',

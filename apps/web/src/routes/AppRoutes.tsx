@@ -38,6 +38,9 @@ import { NewQuotationPage } from '@/pages/quotations/NewQuotationPage';
 import { QuotationDetailsPage } from '@/pages/quotations/QuotationDetailsPage';
 import { QuotationBuilderPage } from '@/pages/quotations/QuotationBuilderPage';
 import { PublicQuotationPage } from '@/pages/quotations/PublicQuotationPage';
+import { BookingsPage } from '@/pages/bookings/BookingsPage';
+import { NewBookingPage } from '@/pages/bookings/NewBookingPage';
+import { BookingWorkspacePage } from '@/pages/bookings/BookingWorkspacePage';
 
 /**
  * Route table.
@@ -182,6 +185,38 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.QUOTATIONS_UPDATE}>
                 <QuotationBuilderPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/bookings"
+            element={
+              <PermissionRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
+                <BookingsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/bookings/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.BOOKINGS_CREATE}>
+                <NewBookingPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/quotations/:quotationId/convert-to-booking"
+            element={
+              <PermissionRoute permission={PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION}>
+                <NewBookingPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/bookings/:bookingId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
+                <BookingWorkspacePage />
               </PermissionRoute>
             }
           />

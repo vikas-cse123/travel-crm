@@ -230,6 +230,44 @@ export function LeadDetailsPage() {
           )}
         </section>
       )}
+      {allowed.canViewBookings && workspace.data.bookings.count > 0 && (
+        <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="font-semibold text-emerald-900">Linked booking</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              This lead has been converted into an operational travel file.
+            </p>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="py-2">Booking</th>
+                  <th>Status</th>
+                  <th>Operations</th>
+                  <th>Payment</th>
+                  <th>Travel</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspace.data.bookings.items.map((booking) => (
+                  <tr key={booking.id} className="border-t">
+                    <td className="py-3">
+                      <Link className="font-semibold text-brand-700" to={`/bookings/${booking.id}`}>
+                        {booking.bookingNumber}
+                      </Link>
+                    </td>
+                    <td>{labelForLookup(booking.bookingStatus)}</td>
+                    <td>{labelForLookup(booking.operationalStatus)}</td>
+                    <td>{labelForLookup(booking.paymentStatus)}</td>
+                    <td>{booking.travelStartDate ? dateTime(booking.travelStartDate) : 'Open'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
           <section className="rounded-xl border bg-white p-5 shadow-sm">

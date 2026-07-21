@@ -2,12 +2,11 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 8 (Quotation Templates and Customer Quotations) complete.**
+> **Status: Phase 9 (Booking Operations) complete.**
 > The CRM includes multi-tenancy, authentication, administration, leads,
 > follow-ups, reusable quotation templates, immutable customer quotation
-> versions, private document storage, PDF generation, email delivery and
-> secure public accept/reject links. Bookings and payments are intentionally
-> deferred to Phase 9.
+> versions, secure public accept/reject links, and end-to-end booking operations
+> for travellers, services, payments, costs, documents, PDF and email.
 
 ---
 
@@ -24,6 +23,7 @@ A multi-tenant SaaS CRM for travel agencies.
 - [Building](#building)
 - [API overview](#api-overview)
 - [Quotation documents and AWS S3](#quotation-documents-and-aws-s3)
+- [Booking operations](#booking-operations)
 - [Security controls](#security-controls)
 - [Multi-tenancy design](#multi-tenancy-design)
 - [Known limitations](#known-limitations)
@@ -190,7 +190,12 @@ anything is missing or malformed, printing all problems at once.
 | `AWS_S3_ENDPOINT`, `AWS_S3_FORCE_PATH_STYLE` | Optional S3-compatible development endpoint |
 | `AWS_S3_SERVER_SIDE_ENCRYPTION` | `AES256` or `aws:kms`                           |
 | `AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS` | Upload/download URL lifetime (default 300) |
-| `MAX_UPLOAD_SIZE_MB`            | Per-attachment limit (default 10)              |
+| `MAX_UPLOAD_SIZE_MB`            | Per-quotation-attachment limit (default 10)    |
+| `DATA_ENCRYPTION_KEY`           | Base64 32-byte AES-256 booking-data key; required in production |
+| `DATA_ENCRYPTION_KEY_VERSION`   | Version label stored beside encrypted values   |
+| `BOOKING_DOCUMENT_MAX_UPLOAD_SIZE_MB` | Per-booking-document limit (default 15) |
+| `BOOKING_PRESIGNED_URL_EXPIRY_SECONDS` | Booking upload/download URL lifetime (default 300) |
+| `PASSPORT_EXPIRY_WARNING_MONTHS` | Warning window relative to travel start (default 6) |
 | `RATE_LIMIT_*`                  | Global rate-limit window and ceiling           |
 | `VITE_API_URL`                  | Proxy target for the Vite dev server           |
 
@@ -397,7 +402,7 @@ The inactive and suspended accounts are intentional: they exercise the
 "cannot sign in" paths in later phases. Sessions, OTPs and reset tokens are
 **not** seeded — credentials are minted by the auth flow, never pre-created.
 
-Also seeded: the 47-key permission catalogue (21 available, 26 reserved for
+Also seeded: the 66-key permission catalogue (57 available, 9 reserved for
 future modules), 5 default roles with grants, 4 quick-setup templates, and 7
 sample activity-log entries.
 
@@ -596,6 +601,113 @@ creates a booking or payment.
 
 ---
 
+## Booking operations
+
+Phase 9 introduces a separate operational aggregate after the sales lead and
+immutable commercial quotation. The preferred lifecycle is:
+
+```text
+Lead → accepted quotation/version → booking → travellers/services/documents
+     → payment schedules/payments/costs → travel → completion/archive
+```
+
+`POST /api/quotations/:quotationId/convert-to-booking` accepts only the exact
+accepted quotation version. One transaction generates the company/year-scoped
+`BK-YYYY-NNNNNN` number, snapshots customer, travel, itinerary, services,
+commercial totals and terms, links the source records, updates the lead to
+`BOOKING_CONFIRMED`, and writes history/activity rows. A unique quotation and
+version link prevents duplicate conversion. Later quotation/template edits do
+not change an existing booking. `POST /api/bookings` is the permission-gated
+manual alternative and requires a reason.
+
+The authenticated booking APIs cover list/analytics/lookups/details, controlled
+status and assignment, travellers, services, itinerary, customer-payment
+schedules, payments and reversals, costs, private documents, notes, timeline,
+confirmation PDF, confirmation/reminder email and email history. The web routes
+are `/bookings`, `/bookings/new`,
+`/quotations/:quotationId/convert-to-booking`, and `/bookings/:bookingId`.
+
+### Visibility, permissions and history
+
+- Every query derives `companyId` from the session. `bookings.view_all` grants
+  company-wide visibility; otherwise a booking must be booked by/assigned to
+  the user or inherit visibility from its linked lead.
+- Dedicated permissions separate creation, conversion, status, travellers,
+  documents, sensitive-document access, customer payments, costs, financial
+  projections, email, export and company-wide visibility. Financial totals,
+  schedule amounts, payment rows, service rates and costs are omitted—not just
+  visually hidden—when `bookings.view_financials` is absent.
+- Status transitions are explicit. Cancellation requires a reason; completed,
+  cancelled and archived bookings are operationally immutable. Owner/Manager
+  corrections are controlled and logged. Payments, cleared costs and documents
+  are preserved through reversal or soft deletion rather than erased.
+- The normalized timeline combines booking, assignment, status, traveller,
+  service, payment, cost, document, note, PDF and email activity. Financial
+  metadata is redacted without financial permission; passport values and
+  credentials are never activity metadata.
+
+### Travellers and passport data
+
+Traveller counts are checked by type and cannot be reduced below recorded
+travellers. Only one active primary traveller is maintained. Passport issue,
+birth and expiry chronology is validated, and expiry close to travel produces
+an attention warning. Passport numbers are optional; when supplied they are
+encrypted with AES-256-GCM using `DATA_ENCRYPTION_KEY`, tagged with the key
+version, masked in API responses, and never logged. Passport/identity scans are
+never stored in PostgreSQL and require the stricter
+`bookings.view_sensitive_documents` permission to download.
+
+### Payments, costs and decimal policy
+
+- Phase 9 uses one optional payment-schedule link per payment. Partial and
+  multiple payments per installment are supported; unallocated payments require
+  notes. Split allocation JSON is deliberately not used.
+- `PAY-YYYY-NNNNNN` receipt numbers share the atomic company/year counter
+  architecture. Customer paid is the Decimal sum of non-reversed `RECEIVED` and
+  `CLEARED` rows. Overpayment is rejected. A correction reverses the original
+  row with actor, time and reason, then recalculates totals; it never deletes it.
+- Schedule and booking overdue states are recalculated using the company IANA
+  timezone on financial writes and booking reads. Allocated installment amounts
+  cannot be silently changed.
+- Active, non-cancelled `BookingCost` rows are the sole total-cost source of
+  truth. Service internal-cost snapshots are context only and are not
+  double-counted. Money is rounded half-up to two decimals; margin uses four
+  decimals. Outstanding is `max(0, selling - paid)`, gross profit is
+  `selling - cost`, and zero selling yields a zero margin.
+
+### Private booking documents, PDF and email
+
+Booking documents reuse the private `StorageService` and direct presigned PUT,
+confirm, short-lived GET flow. The server validates MIME, configured size,
+tenant visibility and parent ownership, then verifies object size/content type
+before marking metadata available. Raw keys are never returned. Keys are
+backend-generated and filename-sanitized:
+
+```text
+companies/{companyId}/bookings/{bookingId}/documents/{documentId}/{fileName}
+companies/{companyId}/bookings/{bookingId}/travellers/{travellerId}/documents/{documentId}/{fileName}
+companies/{companyId}/bookings/{bookingId}/services/{serviceId}/documents/{documentId}/{fileName}
+companies/{companyId}/bookings/{bookingId}/payments/{paymentId}/receipts/{documentId}/{fileName}
+```
+
+The generated A4 confirmation PDF is stored as a private booking document. It
+contains customer/travel/traveller/confirmed-service/itinerary/payment-summary
+content, never passport numbers, internal notes, supplier costs, profit, margin
+or storage keys. Confirmation and reminder email attempts reuse the existing
+email abstraction and are recorded as sent or failed in booking email history.
+
+### Current booking boundaries
+
+Direct S3 uploads validate declared and stored metadata but do not yet stream
+the object through antivirus or magic-byte inspection; production deployments
+should add an S3 event scanning/quarantine pipeline. The memory provider keeps
+automated tests AWS-free but is not a browser PUT transport. Phase 9 records
+supplier names/references and cost status only—it does not implement vendors,
+supplier ledgers, gateway collection/refunds, customer master profiles,
+WhatsApp or telecalling automation.
+
+---
+
 ## Security controls
 
 Implemented in Phase 1:
@@ -684,10 +796,11 @@ consumer of the database, where RLS would be defence in depth.
 
 ## Known limitations
 
-These are deliberate boundaries after Phase 8:
+These are deliberate boundaries after Phase 9:
 
-- Bookings, payments, customers, vendors, supplier settlement, WhatsApp,
-  telecalling and the final analytics dashboard are not implemented.
+- Customer master profiles, vendors, supplier ledgers/settlement, external
+  payment gateways/refund collection, WhatsApp, telecalling and the final
+  analytics dashboard are not implemented.
 - Direct attachment upload with the in-memory development provider is not a
   browser transport; configure S3/a compatible endpoint for manual upload
   verification. Generated PDFs still work with the memory provider.
@@ -723,7 +836,8 @@ These are deliberate boundaries after Phase 8:
 | **6** | Travel lead/query management, analytics and filtering                    | ✅ Done |
 | **7** | Lead workspace, notes, follow-ups, timeline and reminders                 | ✅ Done |
 | **8** | Quotation templates, immutable quotations, PDF, email, public links, S3    | ✅ Done |
-| 9     | Booking conversion and booking operations (no payment collection initially) | Recommended next |
+| **9** | Booking conversion, travellers, payments, costs, documents and operations | ✅ Done |
+| 10    | Customer profiles and customer relationship history                         | Recommended next |
 
 ---
 
