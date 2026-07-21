@@ -81,7 +81,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     available: true,
     permission: PERMISSIONS.CUSTOMERS_VIEW,
   },
-  { label: 'Vendors', to: '/vendors', icon: Building2, available: false },
+  {
+    label: 'Vendors',
+    to: '/vendors',
+    icon: Building2,
+    available: true,
+    permission: PERMISSIONS.VENDORS_VIEW,
+  },
   // Users, Reports and Settings have permissions already, but their screens
   // are Phase 4+ work, so they stay disabled here.
   {

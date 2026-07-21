@@ -130,6 +130,18 @@ export const bookingsController = {
       ),
       'Service status updated.',
     ),
+  linkServiceVendor: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.linkServiceVendor(
+        auth(req),
+        id(req),
+        req.params.serviceId!,
+        req.body,
+        context(req),
+      ),
+      'Vendor link updated.',
+    ),
   deleteService: async (req: Request, res: Response) =>
     sendSuccess(
       res,

@@ -41,6 +41,11 @@ export interface BookingService {
   confirmationNumber: string | null;
   supplierName: string | null;
   supplierReference: string | null;
+  vendorId: string | null;
+  vendorServiceId: string | null;
+  vendorNameSnapshot: string | null;
+  vendorServiceSnapshot: string | null;
+  supplierConfirmationNumber: string | null;
   customerSellingAmount: string;
   internalCostSnapshot?: string;
   sequence: number;

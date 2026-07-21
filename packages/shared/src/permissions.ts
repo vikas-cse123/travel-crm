@@ -163,10 +163,20 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.CUSTOMERS, 'export', 'Export customer records'),
   available(M.CUSTOMERS, 'view_all', 'View all company customers'),
 
-  planned(M.VENDORS, 'view', 'View vendors'),
-  planned(M.VENDORS, 'create', 'Create vendors'),
-  planned(M.VENDORS, 'update', 'Edit vendors'),
-  planned(M.VENDORS, 'delete', 'Delete vendors'),
+  available(M.VENDORS, 'view', 'View active vendors'),
+  available(M.VENDORS, 'create', 'Create vendors'),
+  available(M.VENDORS, 'update', 'Edit vendor profiles'),
+  available(M.VENDORS, 'delete', 'Archive vendors'),
+  available(M.VENDORS, 'view_all', 'View inactive and archived vendors'),
+  available(M.VENDORS, 'manage_services', 'Manage vendor services and rates'),
+  available(M.VENDORS, 'manage_contacts', 'Manage vendor contacts'),
+  available(M.VENDORS, 'manage_documents', 'Manage vendor documents'),
+  available(M.VENDORS, 'view_financials', 'View vendor costs and balances'),
+  available(M.VENDORS, 'manage_payables', 'Manage vendor payables'),
+  available(M.VENDORS, 'manage_payments', 'Record and reverse vendor payments'),
+  available(M.VENDORS, 'view_bank_details', 'View full vendor bank details'),
+  available(M.VENDORS, 'export', 'Export vendor records'),
+  available(M.VENDORS, 'change_status', 'Activate, deactivate or archive vendors'),
 
   planned(M.REPORTS, 'view', 'View reports'),
 ] as const;
@@ -252,6 +262,21 @@ export const PERMISSIONS = {
   CUSTOMERS_VIEW_DOCUMENTS: 'customers.view_documents',
   CUSTOMERS_EXPORT: 'customers.export',
   CUSTOMERS_VIEW_ALL: 'customers.view_all',
+
+  VENDORS_VIEW: 'vendors.view',
+  VENDORS_CREATE: 'vendors.create',
+  VENDORS_UPDATE: 'vendors.update',
+  VENDORS_DELETE: 'vendors.delete',
+  VENDORS_VIEW_ALL: 'vendors.view_all',
+  VENDORS_MANAGE_SERVICES: 'vendors.manage_services',
+  VENDORS_MANAGE_CONTACTS: 'vendors.manage_contacts',
+  VENDORS_MANAGE_DOCUMENTS: 'vendors.manage_documents',
+  VENDORS_VIEW_FINANCIALS: 'vendors.view_financials',
+  VENDORS_MANAGE_PAYABLES: 'vendors.manage_payables',
+  VENDORS_MANAGE_PAYMENTS: 'vendors.manage_payments',
+  VENDORS_VIEW_BANK_DETAILS: 'vendors.view_bank_details',
+  VENDORS_EXPORT: 'vendors.export',
+  VENDORS_CHANGE_STATUS: 'vendors.change_status',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

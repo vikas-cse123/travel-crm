@@ -20,6 +20,7 @@ import {
   useBookingAction,
   useBookingTimeline,
 } from '@/features/bookings/bookings.api';
+import { useVendors } from '@/features/vendors/vendors.api';
 
 const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const money = (value: string | undefined, currency = 'INR') =>
@@ -58,9 +59,11 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 export function BookingWorkspacePage() {
   const { bookingId = '' } = useParams();
   const { hasPermission } = useAuth();
+  const canVendor = hasPermission(PERMISSIONS.VENDORS_VIEW);
   const query = useBooking(bookingId);
   const action = useBookingAction(bookingId);
   const timeline = useBookingTimeline(bookingId);
+  const vendors = useVendors(new URLSearchParams({ pageSize: '100', status: 'ACTIVE' }), canVendor);
   const [tab, setTab] = useState<(typeof tabs)[number]>('Overview');
   const [form, setForm] = useState<Record<string, string>>({});
   const [file, setFile] = useState<File | null>(null);
@@ -440,28 +443,109 @@ export function BookingWorkspacePage() {
                     <td>{service.city ?? '—'}</td>
                     <td>{labelForLookup(service.confirmationStatus)}</td>
                     <td>{service.confirmationNumber ?? '—'}</td>
-                    <td>{service.supplierName ?? '—'}</td>
+                    <td>
+                      <span>{service.vendorNameSnapshot ?? service.supplierName ?? '—'}</span>
+                      {service.vendorServiceSnapshot && (
+                        <p className="text-xs text-slate-500">{service.vendorServiceSnapshot}</p>
+                      )}
+                    </td>
                     {canFinance && <td>{money(service.internalCostSnapshot, booking.currency)}</td>}
                     {canUpdate && (
-                      <td>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={service.confirmationStatus === 'CONFIRMED'}
-                          onClick={() =>
-                            mutate(
-                              `services/${service.id}/status`,
-                              {
-                                confirmationStatus: 'CONFIRMED',
-                                confirmationNumber:
-                                  service.confirmationNumber || `CONF-${service.sequence}`,
-                              },
-                              'patch',
-                            )
-                          }
-                        >
-                          Confirm
-                        </Button>
+                      <td className="min-w-64">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={service.confirmationStatus === 'CONFIRMED'}
+                            onClick={() =>
+                              mutate(
+                                `services/${service.id}/status`,
+                                {
+                                  confirmationStatus: 'CONFIRMED',
+                                  confirmationNumber:
+                                    service.confirmationNumber || `CONF-${service.sequence}`,
+                                },
+                                'patch',
+                              )
+                            }
+                          >
+                            Confirm
+                          </Button>
+                          {canVendor && !terminal && (
+                            <>
+                              <select
+                                aria-label={`Vendor for ${service.name}`}
+                                className="rounded border px-2 py-1 text-xs"
+                                value={form[`vendor-${service.id}`] ?? service.vendorId ?? ''}
+                                onChange={(event) => {
+                                  set(`vendor-${service.id}`, event.target.value);
+                                  set(`vendor-service-${service.id}`, '');
+                                }}
+                              >
+                                <option value="">No structured vendor</option>
+                                {vendors.data?.data.map((row) => (
+                                  <option key={row.id} value={row.id}>
+                                    {row.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {(() => {
+                                const selectedVendorId =
+                                  form[`vendor-${service.id}`] ?? service.vendorId ?? '';
+                                const selectedVendor = vendors.data?.data.find(
+                                  (row) => row.id === selectedVendorId,
+                                );
+                                const compatible =
+                                  selectedVendor?.services.filter(
+                                    (row) =>
+                                      row.serviceType === service.serviceType &&
+                                      row.status === 'ACTIVE',
+                                  ) ?? [];
+                                return compatible.length ? (
+                                  <select
+                                    aria-label={`Vendor service for ${service.name}`}
+                                    className="rounded border px-2 py-1 text-xs"
+                                    value={
+                                      form[`vendor-service-${service.id}`] ??
+                                      service.vendorServiceId ??
+                                      ''
+                                    }
+                                    onChange={(event) =>
+                                      set(`vendor-service-${service.id}`, event.target.value)
+                                    }
+                                  >
+                                    <option value="">Vendor only</option>
+                                    {compatible.map((row) => (
+                                      <option key={row.id} value={row.id}>
+                                        {row.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : null;
+                              })()}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  mutate(
+                                    `services/${service.id}/vendor`,
+                                    {
+                                      vendorId:
+                                        form[`vendor-${service.id}`] ?? service.vendorId ?? null,
+                                      vendorServiceId:
+                                        form[`vendor-service-${service.id}`] ??
+                                        service.vendorServiceId ??
+                                        null,
+                                    },
+                                    'patch',
+                                  )
+                                }
+                              >
+                                Link vendor
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>

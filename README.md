@@ -2,13 +2,14 @@
 
 A multi-tenant SaaS CRM for travel agencies.
 
-> **Status: Phase 10 (Customer Profiles) complete.**
+> **Status: Phase 11 (Vendors and Supplier Management) complete.**
 > The CRM includes multi-tenancy, authentication, administration, leads,
 > follow-ups, reusable quotation templates, immutable customer quotation
 > versions, secure public accept/reject links, and end-to-end booking operations
 > for travellers, services, payments, costs, documents, PDF and email.
-> Customer profiles now unify identity, duplicate detection, communications,
-> documents, merge history and relationships across those sales records.
+> Customer profiles unify identity across sales records. Vendor workspaces now
+> add supplier contacts, services, effective-dated rates, booking snapshots,
+> payables, payment allocation, private documents and financial analytics.
 
 ---
 
@@ -27,6 +28,7 @@ A multi-tenant SaaS CRM for travel agencies.
 - [Quotation documents and AWS S3](#quotation-documents-and-aws-s3)
 - [Booking operations](#booking-operations)
 - [Customer profiles](#customer-profiles)
+- [Vendors and supplier management](#vendors-and-supplier-management)
 - [Security controls](#security-controls)
 - [Multi-tenancy design](#multi-tenancy-design)
 - [Known limitations](#known-limitations)
@@ -204,6 +206,10 @@ anything is missing or malformed, printing all problems at once.
 | `CUSTOMER_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS` | Customer document URL lifetime (default 300) |
 | `DEFAULT_PHONE_COUNTRY`          | Country used to expand local phone numbers (default `IN`) |
 | `CUSTOMER_DUPLICATE_NAME_THRESHOLD` | Advisory normalized-name similarity threshold (default `0.88`) |
+| `VENDOR_DOCUMENT_MAX_UPLOAD_SIZE_MB` | Per-vendor-document limit (default 15) |
+| `VENDOR_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS` | Vendor document URL lifetime (default 300) |
+| `VENDOR_CONTRACT_EXPIRY_WARNING_DAYS` | Contract expiry warning window (default 30) |
+| `DEFAULT_VENDOR_COUNTRY`       | Default vendor country code (default `IN`)      |
 | `RATE_LIMIT_*`                  | Global rate-limit window and ceiling           |
 | `VITE_API_URL`                  | Proxy target for the Vite dev server           |
 
@@ -711,9 +717,8 @@ Direct S3 uploads validate declared and stored metadata but do not yet stream
 the object through antivirus or magic-byte inspection; production deployments
 should add an S3 event scanning/quarantine pipeline. The memory provider keeps
 automated tests AWS-free but is not a browser PUT transport. Phase 9 records
-supplier names/references and cost status only—it does not implement vendors,
-supplier ledgers, gateway collection/refunds, customer master profiles,
-WhatsApp or telecalling automation.
+supplier names/references and cost status. Phase 11 adds the canonical vendor
+and supplier-ledger layer while preserving those booking snapshots.
 
 ---
 
@@ -753,6 +758,45 @@ npm run db:backfill-customers
 The backfill groups only exact normalized phone/email identities. If phone and
 email point at different existing customers, it reports a conflict and leaves
 the lead unchanged for manual review; name similarity alone never links data.
+
+## Vendors and supplier management
+
+Phase 11 adds a tenant-scoped `Vendor` profile with contacts, services,
+effective-dated rates, documents, notes, bank accounts, booking relationships,
+payables and payments. Codes are allocated atomically per company and calendar
+year (`VEN-YYYY-######`, `VP-YYYY-######` and `VPAY-YYYY-######`). Duplicate
+checks normalize phone/email, GST and PAN, while name plus city remains an
+advisory match that users can explicitly override.
+
+Vendor services cover hotels, transport, flights, activities, visas, insurance,
+cruises, guides, meals and miscellaneous supply. Rates have validity windows,
+currency, amount and optional commercial terms. Assigning a vendor service to a
+booking verifies tenant ownership and service compatibility, then copies the
+vendor/service name and selected rate into immutable booking snapshots. Future
+vendor or rate edits therefore do not rewrite an existing booking's history.
+
+The supplier ledger uses `VendorPayable` as its accounting source of truth.
+Payments are allocated explicitly to one or more payables; allocation totals
+cannot exceed either the payment or outstanding balances. Reversal records are
+append-only and restore the affected payable balances. Cached vendor metrics
+(business, paid, outstanding, booking count and average booking cost) are
+recalculated from relational rows after relevant mutations rather than trusted
+from client input. Overdue state is derived from due date and outstanding value.
+
+Bank account numbers use the same versioned AES-256-GCM data-encryption boundary
+as sensitive booking data. Normal responses expose only masked last-four values;
+full values require both financial and bank-detail permissions. Vendor document
+objects use private, tenant-qualified keys and short-lived upload/download URLs.
+The in-memory storage provider supports automated confirmation tests but not a
+browser PUT transport; configure S3 or an S3-compatible endpoint for end-to-end
+manual document upload.
+
+Vendor access is independently permissioned for viewing, all-record visibility,
+create/update/delete, services, contacts, documents, financials, payables,
+payments, bank details, export and status changes. Every query is scoped from the
+authenticated company session. Users without `vendors.view_all` see active
+vendors only; users without `vendors.view_financials` receive no costs, rates,
+payables, payments, bank metadata or financial aggregates.
 
 ## Security controls
 
@@ -842,11 +886,13 @@ consumer of the database, where RLS would be defence in depth.
 
 ## Known limitations
 
-These are deliberate boundaries after Phase 10:
+These are deliberate boundaries after Phase 11:
 
-- Vendors, supplier ledgers/settlement, external payment gateways/refund
-  collection, WhatsApp, telecalling and the final analytics dashboard are not
-  implemented.
+- Automated supplier invoice ingestion/reconciliation, withholding-tax
+  accounting, external payment gateways/refund collection, WhatsApp,
+  telecalling and the final cross-module analytics dashboard are not implemented.
+- Vendor export currently produces the permission-filtered first 100 matching
+  records. Large asynchronous exports are deferred.
 - Direct attachment upload with the in-memory development provider is not a
   browser transport; configure S3/a compatible endpoint for manual upload
   verification. Generated PDFs still work with the memory provider.
@@ -884,7 +930,8 @@ These are deliberate boundaries after Phase 10:
 | **8** | Quotation templates, immutable quotations, PDF, email, public links, S3    | ✅ Done |
 | **9** | Booking conversion, travellers, payments, costs, documents and operations | ✅ Done |
 | **10** | Customer profiles, duplicate detection and relationship history          | ✅ Done |
-| 11     | Vendors, supplier contracts and supplier ledger foundations              | Recommended next |
+| **11** | Vendors, supplier contracts and supplier ledger foundations              | ✅ Done |
+| 12     | Cross-module dashboard, reports and operational analytics                | Recommended next |
 
 ---
 

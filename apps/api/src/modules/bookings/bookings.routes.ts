@@ -25,6 +25,7 @@ import {
   bookingServiceInputSchema,
   bookingServiceStatusSchema,
   bookingServiceUpdateSchema,
+  vendorBookingLinkSchema,
   bookingStatusInputSchema,
   bookingUpdateSchema,
   travellerInputSchema,
@@ -160,6 +161,12 @@ router.patch(
   requirePermission(PERMISSIONS.BOOKINGS_UPDATE),
   validateRequest({ params: childId('serviceId'), body: bookingServiceStatusSchema }),
   asyncHandler(c.serviceStatus),
+);
+router.patch(
+  '/:bookingId/services/:serviceId/vendor',
+  requirePermission(PERMISSIONS.BOOKINGS_UPDATE),
+  validateRequest({ params: childId('serviceId'), body: vendorBookingLinkSchema }),
+  asyncHandler(c.linkServiceVendor),
 );
 router.delete(
   '/:bookingId/services/:serviceId',

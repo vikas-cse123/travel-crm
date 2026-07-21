@@ -44,6 +44,11 @@ import { BookingWorkspacePage } from '@/pages/bookings/BookingWorkspacePage';
 import { CustomersPage } from '@/pages/customers/CustomersPage';
 import { CustomerFormPage } from '@/pages/customers/CustomerFormPage';
 import { CustomerWorkspacePage } from '@/pages/customers/CustomerWorkspacePage';
+import { VendorsPage } from '@/pages/vendors/VendorsPage';
+import { VendorFormPage } from '@/pages/vendors/VendorFormPage';
+import { VendorWorkspacePage } from '@/pages/vendors/VendorWorkspacePage';
+import { VendorServicesPage } from '@/pages/vendors/VendorServicesPage';
+import { VendorServiceFormPage } from '@/pages/vendors/VendorServiceFormPage';
 
 /**
  * Route table.
@@ -252,6 +257,62 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.CUSTOMERS_UPDATE}>
                 <CustomerFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_VIEW}>
+                <VendorsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_CREATE}>
+                <VendorFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/:vendorId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_VIEW}>
+                <VendorWorkspacePage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/:vendorId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_UPDATE}>
+                <VendorFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/:vendorId/services"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_VIEW}>
+                <VendorServicesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/:vendorId/services/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_MANAGE_SERVICES}>
+                <VendorServiceFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/vendors/:vendorId/services/:serviceId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.VENDORS_MANAGE_SERVICES}>
+                <VendorServiceFormPage />
               </PermissionRoute>
             }
           />

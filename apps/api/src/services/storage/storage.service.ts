@@ -55,6 +55,23 @@ export function customerObjectKey(input: {
   return `companies/${input.companyId}/customers/${input.customerId}/documents/${input.documentId}/${sanitizeFileName(input.fileName)}`;
 }
 
+export function vendorObjectKey(input: {
+  companyId: string;
+  vendorId: string;
+  documentId: string;
+  fileName: string;
+  serviceId?: string | null;
+  paymentId?: string | null;
+}): string {
+  const name = sanitizeFileName(input.fileName);
+  const base = `companies/${input.companyId}/vendors/${input.vendorId}`;
+  if (input.serviceId)
+    return `${base}/services/${input.serviceId}/documents/${input.documentId}/${name}`;
+  if (input.paymentId)
+    return `${base}/payments/${input.paymentId}/receipts/${input.documentId}/${name}`;
+  return `${base}/documents/${input.documentId}/${name}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

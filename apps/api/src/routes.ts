@@ -13,6 +13,7 @@ import { quotationsRoutes } from './modules/quotations/quotations.routes.js';
 import { bookingsRoutes } from './modules/bookings/bookings.routes.js';
 import { customersRoutes } from './modules/customers/customers.routes.js';
 import { customerTagsRoutes } from './modules/customers/customer-tags.routes.js';
+import { vendorsRoutes } from './modules/vendors/vendors.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -35,5 +36,6 @@ router.use('/quotations', quotationsRoutes);
 router.use('/bookings', bookingsRoutes);
 router.use('/customers', customersRoutes);
 router.use('/customer-tags', customerTagsRoutes);
+router.use('/vendors', vendorsRoutes);
 
 export { router as apiRoutes };

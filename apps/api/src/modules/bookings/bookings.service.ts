@@ -17,6 +17,7 @@ import {
   type BookingPaymentInput,
   type BookingPaymentScheduleInput,
   type BookingServiceInput,
+  type VendorBookingLink,
   type BookingUpdate,
   type QuotationConversionInput,
   type TravellerInput,
@@ -58,6 +59,7 @@ import {
   type RequestContext,
 } from './booking.utils.js';
 import { localDayBounds } from '../../utils/timezone.js';
+import { recalculateVendor } from '../vendors/vendors.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 const bookingInclude = {
@@ -1268,6 +1270,127 @@ export const bookingsService = {
         }),
       }),
     ]);
+    return (await this.details(auth, bookingId)).services.find((row) => row.id === serviceId);
+  },
+
+  async linkServiceVendor(
+    auth: AuthContext,
+    bookingId: string,
+    serviceId: string,
+    input: VendorBookingLink,
+    context: RequestContext,
+  ) {
+    const booking = await getBooking(auth, bookingId);
+    await assertOperationallyMutable(booking);
+    const bookingService = booking.services.find((row) => row.id === serviceId);
+    if (!bookingService) throw new NotFoundError('Booking service not found.');
+    if (!(await hasPermission(auth, PERMISSIONS.VENDORS_VIEW)))
+      throw new ForbiddenError('Vendor access is required to link a supplier.');
+
+    if (!input.vendorId) {
+      await prisma.$transaction(async (tx) => {
+        await tx.bookingService.update({
+          where: { id: serviceId },
+          data: { vendorId: null, vendorServiceId: null },
+        });
+        if (bookingService.vendorId)
+          await recalculateVendor(tx, auth.companyId, bookingService.vendorId);
+        await tx.activityLog.create({
+          data: bookingAudit(
+            auth,
+            'BOOKING_SERVICE_UPDATED',
+            'BookingService',
+            serviceId,
+            context,
+            { bookingId, vendorUnlinked: true },
+          ),
+        });
+      });
+      return (await this.details(auth, bookingId)).services.find((row) => row.id === serviceId);
+    }
+
+    const vendor = await prisma.vendor.findFirst({
+      where: {
+        id: input.vendorId,
+        companyId: auth.companyId,
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
+      select: { id: true, name: true },
+    });
+    if (!vendor) throw new ValidationError('Select an active vendor from this company.');
+    const vendorService = input.vendorServiceId
+      ? await prisma.vendorService.findFirst({
+          where: {
+            id: input.vendorServiceId,
+            companyId: auth.companyId,
+            vendorId: vendor.id,
+            serviceType: bookingService.serviceType,
+            status: 'ACTIVE',
+            deletedAt: null,
+          },
+          select: { id: true, name: true, baseCost: true },
+        })
+      : null;
+    if (input.vendorServiceId && !vendorService)
+      throw new ValidationError(
+        'The selected vendor service must be active, compatible and owned by this vendor.',
+      );
+    if (input.vendorRateId && !vendorService)
+      throw new ValidationError('Select a vendor service before selecting a rate.');
+    const rate = input.vendorRateId
+      ? await prisma.vendorRate.findFirst({
+          where: {
+            id: input.vendorRateId,
+            companyId: auth.companyId,
+            vendorServiceId: vendorService!.id,
+            deletedAt: null,
+          },
+          select: { netRate: true },
+        })
+      : null;
+    if (input.vendorRateId && !rate)
+      throw new ValidationError('The selected rate must belong to the selected vendor service.');
+    const canManageCost =
+      (await hasPermission(auth, PERMISSIONS.BOOKINGS_MANAGE_COSTS)) &&
+      (await hasPermission(auth, PERMISSIONS.VENDORS_VIEW_FINANCIALS));
+    if (input.internalCostSnapshot !== undefined && !canManageCost)
+      throw new ForbiddenError('Booking and vendor financial access is required to set cost.');
+    const selectedCost =
+      input.internalCostSnapshot ?? rate?.netRate.toNumber() ?? vendorService?.baseCost?.toNumber();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.bookingService.update({
+        where: { id: serviceId },
+        data: compact({
+          vendorId: vendor.id,
+          vendorServiceId: vendorService?.id ?? null,
+          vendorNameSnapshot: vendor.name,
+          vendorServiceSnapshot: vendorService?.name ?? bookingService.name,
+          supplierName: vendor.name,
+          supplierReference: input.supplierReference,
+          supplierConfirmationNumber: input.supplierConfirmationNumber,
+          confirmationNumber: input.supplierConfirmationNumber,
+          confirmationStatus: input.confirmationStatus,
+          internalCostSnapshot: canManageCost ? selectedCost : undefined,
+          paymentDueAt: input.paymentDueAt,
+          cancellationDeadline: input.cancellationDeadline,
+        }) as Prisma.BookingServiceUncheckedUpdateInput,
+      });
+      if (bookingService.vendorId && bookingService.vendorId !== vendor.id)
+        await recalculateVendor(tx, auth.companyId, bookingService.vendorId);
+      await recalculateVendor(tx, auth.companyId, vendor.id);
+      await tx.activityLog.create({
+        data: bookingAudit(
+          auth,
+          'VENDOR_LINKED_TO_BOOKING_SERVICE',
+          'BookingService',
+          serviceId,
+          context,
+          { bookingId, vendorId: vendor.id, vendorServiceId: vendorService?.id ?? null },
+        ),
+      });
+    });
     return (await this.details(auth, bookingId)).services.find((row) => row.id === serviceId);
   },
 

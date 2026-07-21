@@ -23,3 +23,4 @@ export * from './queries.js';
 export * from './quotations.js';
 export * from './bookings.js';
 export * from './customers.js';
+export * from './vendors.js';

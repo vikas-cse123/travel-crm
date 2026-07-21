@@ -100,6 +100,10 @@ const envSchema = z.object({
   PASSPORT_EXPIRY_WARNING_MONTHS: intWithDefault(6),
   CUSTOMER_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(10),
   CUSTOMER_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  VENDOR_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(15),
+  VENDOR_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  VENDOR_CONTRACT_EXPIRY_WARNING_DAYS: intWithDefault(30),
+  DEFAULT_VENDOR_COUNTRY: z.string().trim().length(2).default('IN'),
   DEFAULT_PHONE_COUNTRY: z.string().trim().length(2).default('IN'),
   CUSTOMER_DUPLICATE_NAME_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.88),
   /** Base64-encoded 32-byte AES-256 key. Never exposed to the browser. */

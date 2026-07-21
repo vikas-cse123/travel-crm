@@ -426,6 +426,86 @@ enum CustomerDocumentType {
   OTHER
 }
 
+enum VendorType {
+  HOTEL
+  AIRLINE
+  TRANSPORT
+  DMC
+  CRUISE
+  SIGHTSEEING
+  VISA
+  INSURANCE
+  GUIDE
+  RAIL
+  RESTAURANT
+  ACTIVITY_PROVIDER
+  OTHER
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum VendorContractType {
+  NET_RATE
+  COMMISSION_BASED
+  FIXED_CONTRACT
+  ON_REQUEST
+  NO_CONTRACT
+}
+
+enum VendorPaymentTerm {
+  IMMEDIATE
+  ADVANCE
+  NET_7
+  NET_15
+  NET_30
+  NET_45
+  NET_60
+  CUSTOM
+}
+
+enum VendorPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
+}
+
+enum VendorServiceStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum VendorNoteType {
+  GENERAL
+  CONTRACT
+  SERVICE
+  PAYMENT
+  PERFORMANCE
+  WARNING
+}
+
+enum VendorDocumentType {
+  RATE_CONTRACT
+  SUPPLIER_AGREEMENT
+  GST_CERTIFICATE
+  PAN_DOCUMENT
+  BANK_PROOF
+  CANCELLED_CHEQUE
+  SERVICE_BROCHURE
+  RATE_SHEET
+  INSURANCE_CERTIFICATE
+  INVOICE
+  PAYMENT_RECEIPT
+  OTHER
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -531,6 +611,26 @@ enum ActivityAction {
   CUSTOMER_DOCUMENT_UPLOADED
   CUSTOMER_DOCUMENT_DELETED
   CUSTOMER_MERGED
+  VENDOR_CREATED
+  VENDOR_UPDATED
+  VENDOR_STATUS_CHANGED
+  VENDOR_ARCHIVED
+  VENDOR_CONTACT_CREATED
+  VENDOR_CONTACT_UPDATED
+  VENDOR_SERVICE_CREATED
+  VENDOR_SERVICE_UPDATED
+  VENDOR_SERVICE_ARCHIVED
+  VENDOR_RATE_CREATED
+  VENDOR_RATE_UPDATED
+  VENDOR_LINKED_TO_BOOKING_SERVICE
+  VENDOR_PAYABLE_CREATED
+  VENDOR_PAYABLE_UPDATED
+  VENDOR_PAYMENT_RECORDED
+  VENDOR_PAYMENT_REVERSED
+  VENDOR_DOCUMENT_UPLOADED
+  VENDOR_DOCUMENT_DELETED
+  VENDOR_NOTE_CREATED
+  VENDOR_RATING_UPDATED
 }
 
 // ---------------------------------------------------------------------------
@@ -607,6 +707,17 @@ model Company {
   customerCommunications       CustomerCommunication[]
   customerDocuments            CustomerDocument[]
   customerMergeHistory         CustomerMergeHistory[]
+  vendorCounters               VendorCounter[]
+  vendors                      Vendor[]
+  vendorContacts               VendorContact[]
+  vendorServices               VendorService[]
+  vendorRates                  VendorRate[]
+  vendorDocuments              VendorDocument[]
+  vendorNotes                  VendorNote[]
+  vendorPayables               VendorPayable[]
+  vendorPayments               VendorPayment[]
+  vendorPaymentAllocations     VendorPaymentAllocation[]
+  vendorBankAccounts           VendorBankAccount[]
 
   @@index([status])
   @@index([createdAt])
@@ -708,6 +819,14 @@ model User {
   customerCommunicationsMade  CustomerCommunication[]    @relation("CustomerCommunicationBy")
   customerDocumentsUploaded   CustomerDocument[]         @relation("CustomerDocumentUploadedBy")
   customerMergesPerformed     CustomerMergeHistory[]     @relation("CustomerMergePerformedBy")
+  vendorsCreated              Vendor[]                   @relation("VendorCreatedBy")
+  vendorsAssigned             Vendor[]                   @relation("VendorAssignedTo")
+  vendorServicesCreated       VendorService[]            @relation("VendorServiceCreatedBy")
+  vendorDocumentsUploaded     VendorDocument[]           @relation("VendorDocumentUploadedBy")
+  vendorNotesAuthored         VendorNote[]               @relation("VendorNoteAuthor")
+  vendorPayablesCreated       VendorPayable[]            @relation("VendorPayableCreatedBy")
+  vendorPaymentsRecorded      VendorPayment[]            @relation("VendorPaymentRecordedBy")
+  vendorPaymentsReversed      VendorPayment[]            @relation("VendorPaymentReversedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1838,6 +1957,330 @@ model QuotationEmailLog {
 }
 
 // ---------------------------------------------------------------------------
+// Vendors — supplier catalogue, rates, payables and allocated payments
+// ---------------------------------------------------------------------------
+
+model VendorCounter {
+  companyId    String  @db.Uuid
+  year         Int
+  vendorValue  Int     @default(0)
+  payableValue Int     @default(0)
+  paymentValue Int     @default(0)
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, year])
+  @@map("vendor_counters")
+}
+
+model Vendor {
+  id                    String             @id @default(uuid()) @db.Uuid
+  companyId             String             @db.Uuid
+  vendorCode            String             @db.VarChar(24)
+  name                  String             @db.VarChar(200)
+  normalizedName        String             @db.VarChar(200)
+  vendorType            VendorType
+  contactPerson         String?            @db.VarChar(160)
+  primaryPhone          String?            @db.VarChar(32)
+  normalizedPhone       String?            @db.VarChar(24)
+  primaryEmail          String?            @db.VarChar(255)
+  normalizedEmail       String?            @db.VarChar(255)
+  address               String?            @db.VarChar(1000)
+  city                  String?            @db.VarChar(120)
+  state                 String?            @db.VarChar(120)
+  country               String?            @db.VarChar(80)
+  postalCode            String?            @db.VarChar(24)
+  coverageAreas         String?            @db.VarChar(2000)
+  servicesOffered       String?            @db.VarChar(2000)
+  contractType          VendorContractType @default(NET_RATE)
+  contractStartDate     DateTime?          @db.Date
+  contractEndDate       DateTime?          @db.Date
+  paymentTerm           VendorPaymentTerm  @default(NET_30)
+  customPaymentTermDays Int?
+  taxRegistrationNumber String?            @db.VarChar(80)
+  gstNumber             String?            @db.VarChar(32)
+  panNumber             String?            @db.VarChar(20)
+  status                VendorStatus       @default(ACTIVE)
+  rating                Decimal?           @db.Decimal(3, 2)
+  confirmationRate      Decimal            @default(0) @db.Decimal(8, 4)
+  totalBookings         Int                @default(0)
+  totalBusiness         Decimal            @default(0) @db.Decimal(14, 2)
+  totalPaid             Decimal            @default(0) @db.Decimal(14, 2)
+  totalOutstanding      Decimal            @default(0) @db.Decimal(14, 2)
+  averageBookingCost    Decimal            @default(0) @db.Decimal(14, 2)
+  createdById           String             @db.Uuid
+  assignedToId          String?            @db.Uuid
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  deletedAt             DateTime?
+
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User                @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo      User?               @relation("VendorAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  contacts        VendorContact[]
+  services        VendorService[]
+  documents       VendorDocument[]
+  notes           VendorNote[]
+  payables        VendorPayable[]
+  payments        VendorPayment[]
+  bankAccounts    VendorBankAccount[]
+  bookingServices BookingService[]
+  bookingCosts    BookingCost[]
+
+  @@unique([companyId, vendorCode])
+  @@index([companyId, normalizedPhone, deletedAt])
+  @@index([companyId, normalizedEmail, deletedAt])
+  @@index([companyId, normalizedName, city, deletedAt])
+  @@index([companyId, vendorType, status, deletedAt])
+  @@index([companyId, totalOutstanding])
+  @@map("vendors")
+}
+
+model VendorContact {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @db.Uuid
+  vendorId        String    @db.Uuid
+  name            String    @db.VarChar(160)
+  designation     String?   @db.VarChar(120)
+  phone           String?   @db.VarChar(32)
+  normalizedPhone String?   @db.VarChar(24)
+  email           String?   @db.VarChar(255)
+  normalizedEmail String?   @db.VarChar(255)
+  whatsappPhone   String?   @db.VarChar(32)
+  isPrimary       Boolean   @default(false)
+  notes           String?   @db.VarChar(1000)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor          Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorId, deletedAt])
+  @@map("vendor_contacts")
+}
+
+model VendorService {
+  id                    String              @id @default(uuid()) @db.Uuid
+  companyId             String              @db.Uuid
+  vendorId              String              @db.Uuid
+  serviceType           ServiceType
+  name                  String              @db.VarChar(200)
+  description           String?             @db.VarChar(2000)
+  destination           String?             @db.VarChar(160)
+  city                  String?             @db.VarChar(120)
+  coverageArea          String?             @db.VarChar(500)
+  currency              String              @default("INR") @db.VarChar(3)
+  baseCost              Decimal?            @db.Decimal(14, 2)
+  sellingReferencePrice Decimal?            @db.Decimal(14, 2)
+  taxPercentage         Decimal?            @db.Decimal(7, 4)
+  commissionPercentage  Decimal?            @db.Decimal(7, 4)
+  minimumQuantity       Int?
+  maximumQuantity       Int?
+  validFrom             DateTime?           @db.Date
+  validUntil            DateTime?           @db.Date
+  status                VendorServiceStatus @default(ACTIVE)
+  metadata              Json?
+  notes                 String?             @db.VarChar(2000)
+  createdById           String              @db.Uuid
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  deletedAt             DateTime?
+  company               Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor                Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  createdBy             User                @relation("VendorServiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  rates                 VendorRate[]
+  documents             VendorDocument[]
+  bookingServices       BookingService[]
+
+  @@index([companyId, vendorId, status, deletedAt])
+  @@index([companyId, serviceType, city])
+  @@map("vendor_services")
+}
+
+model VendorRate {
+  id                 String        @id @default(uuid()) @db.Uuid
+  companyId          String        @db.Uuid
+  vendorServiceId    String        @db.Uuid
+  name               String        @db.VarChar(160)
+  currency           String        @db.VarChar(3)
+  rateType           String        @default("NET_RATE") @db.VarChar(40)
+  netRate            Decimal       @db.Decimal(14, 2)
+  taxAmount          Decimal?      @db.Decimal(14, 2)
+  commissionAmount   Decimal?      @db.Decimal(14, 2)
+  effectiveFrom      DateTime      @db.Date
+  effectiveUntil     DateTime      @db.Date
+  seasonName         String?       @db.VarChar(120)
+  weekdayRules       Json?
+  minimumQuantity    Int?
+  minimumNights      Int?
+  cancellationPolicy String?       @db.VarChar(4000)
+  notes              String?       @db.VarChar(2000)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorService      VendorService @relation(fields: [vendorServiceId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorServiceId, effectiveFrom, effectiveUntil])
+  @@map("vendor_rates")
+}
+
+model VendorDocument {
+  id               String             @id @default(uuid()) @db.Uuid
+  companyId        String             @db.Uuid
+  vendorId         String             @db.Uuid
+  vendorServiceId  String?            @db.Uuid
+  documentType     VendorDocumentType
+  storageProvider  StorageProvider
+  bucket           String             @db.VarChar(255)
+  objectKey        String             @db.VarChar(1000)
+  fileName         String             @db.VarChar(255)
+  originalFileName String             @db.VarChar(255)
+  mimeType         String             @db.VarChar(160)
+  fileSize         Int
+  checksum         String?            @db.VarChar(128)
+  uploadStatus     DocumentStatus     @default(PENDING)
+  expiresAt        DateTime?
+  uploadedById     String             @db.Uuid
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  deletedAt        DateTime?
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorService    VendorService?     @relation(fields: [vendorServiceId], references: [id], onDelete: SetNull)
+  uploadedBy       User               @relation("VendorDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, vendorId, deletedAt])
+  @@map("vendor_documents")
+}
+
+model VendorNote {
+  id           String         @id @default(uuid()) @db.Uuid
+  companyId    String         @db.Uuid
+  vendorId     String         @db.Uuid
+  authorUserId String         @db.Uuid
+  noteType     VendorNoteType @default(GENERAL)
+  content      String         @db.VarChar(4000)
+  isPinned     Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  author       User           @relation("VendorNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, vendorId, deletedAt])
+  @@map("vendor_notes")
+}
+
+model VendorPayable {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  companyId             String                    @db.Uuid
+  vendorId              String                    @db.Uuid
+  bookingId             String                    @db.Uuid
+  bookingServiceId      String?                   @db.Uuid
+  bookingCostId         String?                   @unique @db.Uuid
+  payableNumber         String                    @db.VarChar(28)
+  description           String                    @db.VarChar(1000)
+  currency              String                    @db.VarChar(3)
+  originalAmount        Decimal                   @db.Decimal(14, 2)
+  paidAmount            Decimal                   @default(0) @db.Decimal(14, 2)
+  outstandingAmount     Decimal                   @db.Decimal(14, 2)
+  dueDate               DateTime?                 @db.Date
+  paymentStatus         VendorPaymentStatus       @default(UNPAID)
+  supplierInvoiceNumber String?                   @db.VarChar(160)
+  supplierInvoiceDate   DateTime?                 @db.Date
+  notes                 String?                   @db.VarChar(2000)
+  createdById           String                    @db.Uuid
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  deletedAt             DateTime?
+  company               Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor                Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  booking               Booking                   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingService        BookingService?           @relation(fields: [bookingServiceId], references: [id], onDelete: SetNull)
+  bookingCost           BookingCost?              @relation(fields: [bookingCostId], references: [id], onDelete: SetNull)
+  createdBy             User                      @relation("VendorPayableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations           VendorPaymentAllocation[]
+
+  @@unique([companyId, payableNumber])
+  @@index([companyId, vendorId, paymentStatus, dueDate])
+  @@index([companyId, bookingId])
+  @@map("vendor_payables")
+}
+
+model VendorPayment {
+  id                String                    @id @default(uuid()) @db.Uuid
+  companyId         String                    @db.Uuid
+  vendorId          String                    @db.Uuid
+  paymentNumber     String                    @db.VarChar(28)
+  amount            Decimal                   @db.Decimal(14, 2)
+  currency          String                    @db.VarChar(3)
+  paymentMethod     PaymentMethod
+  paymentStatus     PaymentRecordStatus       @default(CLEARED)
+  paidAt            DateTime
+  referenceNumber   String?                   @db.VarChar(255)
+  bankName          String?                   @db.VarChar(200)
+  notes             String?                   @db.VarChar(2000)
+  receiptDocumentId String?                   @db.Uuid
+  recordedById      String                    @db.Uuid
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  reversedAt        DateTime?
+  reversedById      String?                   @db.Uuid
+  reversalReason    String?                   @db.VarChar(2000)
+  company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor            Vendor                    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  recordedBy        User                      @relation("VendorPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  reversedBy        User?                     @relation("VendorPaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  allocations       VendorPaymentAllocation[]
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, vendorId, paidAt])
+  @@map("vendor_payments")
+}
+
+model VendorPaymentAllocation {
+  id              String        @id @default(uuid()) @db.Uuid
+  companyId       String        @db.Uuid
+  vendorPaymentId String        @db.Uuid
+  vendorPayableId String        @db.Uuid
+  amount          Decimal       @db.Decimal(14, 2)
+  createdAt       DateTime      @default(now())
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorPayment   VendorPayment @relation(fields: [vendorPaymentId], references: [id], onDelete: Restrict)
+  vendorPayable   VendorPayable @relation(fields: [vendorPayableId], references: [id], onDelete: Restrict)
+
+  @@unique([vendorPaymentId, vendorPayableId])
+  @@index([companyId, vendorPayableId])
+  @@map("vendor_payment_allocations")
+}
+
+model VendorBankAccount {
+  id                     String    @id @default(uuid()) @db.Uuid
+  companyId              String    @db.Uuid
+  vendorId               String    @db.Uuid
+  accountHolderName      String    @db.VarChar(200)
+  bankName               String    @db.VarChar(200)
+  accountNumberEncrypted String    @db.Text
+  accountNumberLast4     String    @db.VarChar(4)
+  encryptionKeyVersion   String    @db.VarChar(30)
+  ifscCode               String?   @db.VarChar(20)
+  swiftCode              String?   @db.VarChar(20)
+  branchName             String?   @db.VarChar(160)
+  accountType            String?   @db.VarChar(40)
+  currency               String?   @db.VarChar(3)
+  isPrimary              Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+  company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor                 Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorId, deletedAt])
+  @@map("vendor_bank_accounts")
+}
+
+// ---------------------------------------------------------------------------
 // Booking operations — immutable quotation source plus operational records
 // ---------------------------------------------------------------------------
 
@@ -1915,6 +2358,7 @@ model Booking {
   assignmentHistory      BookingAssignmentHistory[]
   emailLogs              BookingEmailLog[]
   customerCommunications CustomerCommunication[]
+  vendorPayables         VendorPayable[]
 
   @@unique([companyId, bookingNumber])
   @@index([companyId, queryId, deletedAt])
@@ -1968,38 +2412,47 @@ model BookingTraveller {
 }
 
 model BookingService {
-  id                    String                    @id @default(uuid()) @db.Uuid
-  companyId             String                    @db.Uuid
-  bookingId             String                    @db.Uuid
-  serviceType           ServiceType
-  name                  String                    @db.VarChar(200)
-  description           String?                   @db.VarChar(4000)
-  city                  String?                   @db.VarChar(120)
-  serviceDate           DateTime?                 @db.Date
-  startDate             DateTime?                 @db.Date
-  endDate               DateTime?                 @db.Date
-  confirmationStatus    ServiceConfirmationStatus @default(PENDING)
-  confirmationNumber    String?                   @db.VarChar(255)
-  supplierName          String?                   @db.VarChar(200)
-  supplierReference     String?                   @db.VarChar(255)
-  customerSellingAmount Decimal                   @default(0) @db.Decimal(14, 2)
-  internalCostSnapshot  Decimal                   @default(0) @db.Decimal(14, 2)
-  paymentDueAt          DateTime?
-  cancellationDeadline  DateTime?
-  notes                 String?                   @db.VarChar(2000)
-  sequence              Int
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
-  deletedAt             DateTime?
+  id                         String                    @id @default(uuid()) @db.Uuid
+  companyId                  String                    @db.Uuid
+  bookingId                  String                    @db.Uuid
+  vendorId                   String?                   @db.Uuid
+  vendorServiceId            String?                   @db.Uuid
+  serviceType                ServiceType
+  name                       String                    @db.VarChar(200)
+  description                String?                   @db.VarChar(4000)
+  city                       String?                   @db.VarChar(120)
+  serviceDate                DateTime?                 @db.Date
+  startDate                  DateTime?                 @db.Date
+  endDate                    DateTime?                 @db.Date
+  confirmationStatus         ServiceConfirmationStatus @default(PENDING)
+  confirmationNumber         String?                   @db.VarChar(255)
+  supplierName               String?                   @db.VarChar(200)
+  supplierReference          String?                   @db.VarChar(255)
+  vendorNameSnapshot         String?                   @db.VarChar(200)
+  vendorServiceSnapshot      String?                   @db.VarChar(200)
+  supplierConfirmationNumber String?                   @db.VarChar(255)
+  customerSellingAmount      Decimal                   @default(0) @db.Decimal(14, 2)
+  internalCostSnapshot       Decimal                   @default(0) @db.Decimal(14, 2)
+  paymentDueAt               DateTime?
+  cancellationDeadline       DateTime?
+  notes                      String?                   @db.VarChar(2000)
+  sequence                   Int
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  deletedAt                  DateTime?
 
-  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  booking   Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  costs     BookingCost[]
-  documents BookingDocument[]
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking        Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  vendor         Vendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorService  VendorService?    @relation(fields: [vendorServiceId], references: [id], onDelete: SetNull)
+  costs          BookingCost[]
+  documents      BookingDocument[]
+  vendorPayables VendorPayable[]
 
   @@unique([bookingId, sequence])
   @@index([companyId, bookingId, deletedAt])
   @@index([companyId, confirmationStatus])
+  @@index([companyId, vendorId, deletedAt])
   @@map("booking_services")
 }
 
@@ -2091,6 +2544,7 @@ model BookingCost {
   companyId         String              @db.Uuid
   bookingId         String              @db.Uuid
   bookingServiceId  String?             @db.Uuid
+  vendorId          String?             @db.Uuid
   costCategory      BookingCostCategory
   supplierName      String              @db.VarChar(200)
   supplierReference String?             @db.VarChar(255)
@@ -2111,9 +2565,12 @@ model BookingCost {
   booking        Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   bookingService BookingService? @relation(fields: [bookingServiceId], references: [id], onDelete: SetNull)
   recordedBy     User            @relation("BookingCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  vendor         Vendor?         @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorPayable  VendorPayable?
 
   @@index([companyId, bookingId, deletedAt])
   @@index([companyId, dueDate, costStatus])
+  @@index([companyId, vendorId, deletedAt])
   @@map("booking_costs")
 }
 
