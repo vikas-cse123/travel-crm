@@ -19,6 +19,7 @@ import {
   provisionCompanyDefaults,
 } from '../src/modules/companies/company-provisioning.service.js';
 import { DEMO_COMPANY, DEV_PASSWORD, SEED_ACTIVITY_LOG_IDS, SEED_USERS } from './seed-data.js';
+import { reminderRulesService } from '../src/modules/reminders/reminder-rules.service.js';
 
 const prisma = new PrismaClient();
 
@@ -259,6 +260,8 @@ export async function runSeed(): Promise<void> {
       where: { companyId: company.id, createdById: null },
       data: { createdById: ownerId },
     });
+    const reminderRules = await reminderRulesService.ensureDefaults(company.id, ownerId);
+    console.log(`  reminder rules: ${reminderRules.length}`);
   }
   console.log(`  templates:   ${templateIds.size}`);
 

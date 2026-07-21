@@ -215,6 +215,7 @@ export const followUpsService = {
     context: RequestContext,
   ) {
     const row = await get(auth, followUpId);
+    if (!row.queryId) throw new NotFoundError('Lead follow-up not found.');
     return queriesService.updateFollowUp(auth, row.queryId, followUpId, input, context);
   },
 
@@ -225,11 +226,13 @@ export const followUpsService = {
     context: RequestContext,
   ) {
     const row = await get(auth, followUpId);
+    if (!row.queryId) throw new NotFoundError('Lead follow-up not found.');
     return queriesService.closeFollowUp(auth, row.queryId, followUpId, 'COMPLETED', input, context);
   },
 
   async cancel(auth: AuthContext, followUpId: string, reason: string, context: RequestContext) {
     const row = await get(auth, followUpId);
+    if (!row.queryId) throw new NotFoundError('Lead follow-up not found.');
     return queriesService.closeFollowUp(
       auth,
       row.queryId,
@@ -242,6 +245,7 @@ export const followUpsService = {
 
   async delete(auth: AuthContext, followUpId: string, context: RequestContext) {
     const row = await get(auth, followUpId);
+    if (!row.queryId) throw new NotFoundError('Lead follow-up not found.');
     return queriesService.deleteFollowUp(auth, row.queryId, followUpId, context);
   },
 

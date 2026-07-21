@@ -36,6 +36,7 @@ import { emailService, sendEmailSafely } from '../../services/email/email.servic
 import { authRepository, type AuthUser } from './auth.repository.js';
 import { permissionsService } from './permissions.service.js';
 import { sessionService, type IssuedSession } from './session.service.js';
+import { reminderRulesService } from '../reminders/reminder-rules.service.js';
 
 /**
  * The authentication flows.
@@ -209,6 +210,7 @@ export const authService = {
 
       companyId = result.companyId;
       ownerUserId = result.ownerId;
+      await reminderRulesService.ensureDefaults(companyId, ownerUserId);
     } catch (error) {
       // The unique index is the authority; a concurrent registration lands here.
       if (

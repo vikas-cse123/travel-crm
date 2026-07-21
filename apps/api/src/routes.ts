@@ -14,6 +14,11 @@ import { bookingsRoutes } from './modules/bookings/bookings.routes.js';
 import { customersRoutes } from './modules/customers/customers.routes.js';
 import { customerTagsRoutes } from './modules/customers/customer-tags.routes.js';
 import { vendorsRoutes } from './modules/vendors/vendors.routes.js';
+import { remindersRoutes } from './modules/reminders/reminders.routes.js';
+import { bookingRemindersRoutes } from './modules/reminders/booking-reminders.routes.js';
+import { reminderRulesRoutes } from './modules/reminders/reminder-rules.routes.js';
+import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
+import { notificationPreferencesRoutes } from './modules/notifications/notification-preferences.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -37,5 +42,10 @@ router.use('/bookings', bookingsRoutes);
 router.use('/customers', customersRoutes);
 router.use('/customer-tags', customerTagsRoutes);
 router.use('/vendors', vendorsRoutes);
+router.use('/reminders', remindersRoutes);
+router.use('/booking-reminders', bookingRemindersRoutes);
+router.use('/reminder-rules', reminderRulesRoutes);
+router.use('/notifications', notificationsRoutes);
+router.use('/notification-preferences', notificationPreferencesRoutes);
 
 export { router as apiRoutes };

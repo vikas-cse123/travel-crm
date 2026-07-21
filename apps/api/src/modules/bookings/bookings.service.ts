@@ -60,6 +60,7 @@ import {
 } from './booking.utils.js';
 import { localDayBounds } from '../../utils/timezone.js';
 import { recalculateVendor } from '../vendors/vendors.service.js';
+import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 const bookingInclude = {
@@ -882,6 +883,7 @@ export const bookingsService = {
       return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: bookingInclude });
     });
     const scheduled = input.paymentSchedule.reduce((sum, row) => sum.plus(row.amount), currency(0));
+    reminderProcessor.scheduleEvent(auth.companyId, ['BOOKING_TRAVEL', 'CUSTOMER_PAYMENT']);
     return {
       ...presentBooking(created, canViewFinancials),
       scheduleWarning: scheduled.equals(created.totalSellingAmount)
@@ -1100,6 +1102,7 @@ export const bookingsService = {
       });
       return traveller;
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['BOOKING_DOCUMENT', 'VISA']);
     return (await this.details(auth, bookingId)).travellers.find((row) => row.id === created.id);
   },
 
@@ -1241,6 +1244,7 @@ export const bookingsService = {
       });
       return service;
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['SERVICE_CONFIRMATION']);
     return (await this.details(auth, bookingId)).services.find((row) => row.id === created.id);
   },
 
@@ -1591,6 +1595,7 @@ export const bookingsService = {
       });
       return schedule;
     });
+    reminderProcessor.scheduleEvent(auth.companyId, ['CUSTOMER_PAYMENT']);
     return created;
   },
 

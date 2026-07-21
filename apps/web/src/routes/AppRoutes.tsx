@@ -29,7 +29,11 @@ import { ActivityLogsPage } from '@/pages/administration/ActivityLogsPage';
 import { LeadsPage } from '@/pages/queries/LeadsPage';
 import { LeadFormPage } from '@/pages/queries/LeadFormPage';
 import { LeadDetailsPage } from '@/pages/queries/LeadDetailsPage';
-import { FollowUpsPage } from '@/pages/follow-ups/FollowUpsPage';
+import { RemindersPage } from '@/pages/reminders/RemindersPage';
+import { ReminderFormPage } from '@/pages/reminders/ReminderFormPage';
+import { BookingRemindersPage } from '@/pages/reminders/BookingRemindersPage';
+import { NotificationsPage } from '@/pages/reminders/NotificationsPage';
+import { NotificationSettingsPage } from '@/pages/reminders/NotificationSettingsPage';
 import { QuotationTemplatesPage } from '@/pages/quotations/QuotationTemplatesPage';
 import { QuotationTemplateDetailsPage } from '@/pages/quotations/QuotationTemplateDetailsPage';
 import { QuotationTemplateFormPage } from '@/pages/quotations/QuotationTemplateFormPage';
@@ -108,11 +112,52 @@ export function AppRoutes() {
               </PermissionRoute>
             }
           />
+          <Route path="/follow-ups" element={<Navigate to="/reminders" replace />} />
           <Route
-            path="/follow-ups"
+            path="/reminders"
             element={
-              <PermissionRoute permission={PERMISSIONS.FOLLOWUPS_VIEW}>
-                <FollowUpsPage />
+              <PermissionRoute permission={PERMISSIONS.REMINDERS_VIEW}>
+                <RemindersPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reminders/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.REMINDERS_CREATE}>
+                <ReminderFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reminders/bookings"
+            element={
+              <PermissionRoute permission={PERMISSIONS.BOOKING_REMINDERS_VIEW}>
+                <BookingRemindersPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reminders/notifications"
+            element={
+              <PermissionRoute permission={PERMISSIONS.NOTIFICATIONS_VIEW}>
+                <NotificationsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reminders/settings"
+            element={
+              <PermissionRoute permission={PERMISSIONS.NOTIFICATIONS_SETTINGS}>
+                <NotificationSettingsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reminders/:reminderId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.REMINDERS_VIEW}>
+                <ReminderFormPage />
               </PermissionRoute>
             }
           />

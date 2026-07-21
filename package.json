@@ -33,6 +33,7 @@
     "db:studio": "npm run db:studio --workspace @interscale/api",
     "db:reset": "npm run db:reset --workspace @interscale/api",
     "db:backfill-customers": "npm run db:backfill-customers --workspace @interscale/api",
+    "reminders:process": "npm run reminders:process --workspace @interscale/api",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "format": "prettier --write .",

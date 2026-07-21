@@ -37,6 +37,11 @@ if (envFile) {
 
 /** Coerce a decimal string to a positive integer, with a default. */
 const intWithDefault = (fallback: number) => z.coerce.number().int().positive().default(fallback);
+const booleanWithDefault = (fallback: boolean) =>
+  z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .default(fallback ? 'true' : 'false');
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -103,6 +108,16 @@ const envSchema = z.object({
   VENDOR_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(15),
   VENDOR_DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
   VENDOR_CONTRACT_EXPIRY_WARNING_DAYS: intWithDefault(30),
+  REMINDER_WORKER_BATCH_SIZE: intWithDefault(100),
+  REMINDER_WORKER_TIMEZONE_FALLBACK: z.string().min(1).default('Asia/Kolkata'),
+  REMINDER_ESCALATION_MANAGER_ROLE: z.string().min(1).default('Manager'),
+  REMINDER_EMAIL_ENABLED: booleanWithDefault(true),
+  REMINDER_DEFAULT_DUE_TIME: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .default('10:00'),
+  REMINDER_PROCESSING_LOOKAHEAD_DAYS: intWithDefault(60),
+  NOTIFICATION_RETENTION_DAYS: intWithDefault(180),
   DEFAULT_VENDOR_COUNTRY: z.string().trim().length(2).default('IN'),
   DEFAULT_PHONE_COUNTRY: z.string().trim().length(2).default('IN'),
   CUSTOMER_DUPLICATE_NAME_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.88),

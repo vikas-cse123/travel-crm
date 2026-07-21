@@ -105,9 +105,128 @@ enum QueryPriority {
 
 enum FollowUpStatus {
   PENDING
+  SNOOZED
   COMPLETED
   CANCELLED
   MISSED
+}
+
+enum ReminderType {
+  CUSTOM
+  LEAD_FOLLOW_UP
+  CUSTOMER_FOLLOW_UP
+  QUOTATION_FOLLOW_UP
+  QUOTATION_EXPIRY
+  BOOKING_FOLLOW_UP
+  BOOKING_TRAVEL
+  CUSTOMER_PAYMENT_DUE
+  CUSTOMER_PAYMENT_OVERDUE
+  PASSPORT_EXPIRY
+  VISA_PENDING
+  DOCUMENT_PENDING
+  SERVICE_CONFIRMATION
+  VENDOR_PAYMENT_DUE
+  VENDOR_PAYMENT_OVERDUE
+  SUPPLIER_CONFIRMATION
+  OTHER
+}
+
+enum ReminderSource {
+  MANUAL
+  LEAD_STAGE_RULE
+  BOOKING_RULE
+  PAYMENT_RULE
+  QUOTATION_RULE
+  DOCUMENT_RULE
+  VENDOR_RULE
+  SYSTEM
+}
+
+enum ReminderPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ReminderRuleType {
+  LEAD_STAGE
+  BOOKING_TRAVEL
+  CUSTOMER_PAYMENT
+  BOOKING_DOCUMENT
+  VISA
+  SERVICE_CONFIRMATION
+  QUOTATION_EXPIRY
+  VENDOR_PAYABLE
+  VENDOR_CONTRACT
+}
+
+enum ReminderDelayUnit {
+  MINUTES
+  HOURS
+  DAYS
+  WEEKS
+  MONTHS
+}
+
+enum ReminderAssignToMode {
+  ENTITY_ASSIGNEE
+  ENTITY_CREATOR
+  LEAD_ASSIGNEE
+  LEAD_CREATOR
+  BOOKING_ASSIGNEE
+  VENDOR_ASSIGNEE
+  FIXED_USER
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  ARCHIVED
+}
+
+enum NotificationCategory {
+  REMINDER
+  REMINDER_OVERDUE
+  ESCALATION
+  BOOKING
+  PAYMENT
+  QUOTATION
+  DOCUMENT
+  VENDOR
+  SYSTEM
+}
+
+enum NotificationSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  CRITICAL
+}
+
+enum NotificationDeliveryChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationDigestMode {
+  IMMEDIATE
+  DAILY
+  NONE
+}
+
+enum ReminderExecutionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  SKIPPED
 }
 
 enum FollowUpOutcome {
@@ -631,6 +750,23 @@ enum ActivityAction {
   VENDOR_DOCUMENT_DELETED
   VENDOR_NOTE_CREATED
   VENDOR_RATING_UPDATED
+  REMINDER_CREATED
+  REMINDER_UPDATED
+  REMINDER_COMPLETED
+  REMINDER_SNOOZED
+  REMINDER_CANCELLED
+  REMINDER_REASSIGNED
+  REMINDER_DELETED
+  REMINDER_RULE_CREATED
+  REMINDER_RULE_UPDATED
+  REMINDER_RULE_DELETED
+  REMINDER_RULE_RESET
+  REMINDER_WORKER_PROCESSED
+  NOTIFICATION_READ
+  NOTIFICATION_UNREAD
+  NOTIFICATION_ARCHIVED
+  NOTIFICATIONS_READ_ALL
+  NOTIFICATION_PREFERENCES_UPDATED
 }
 
 // ---------------------------------------------------------------------------
@@ -718,6 +854,12 @@ model Company {
   vendorPayments               VendorPayment[]
   vendorPaymentAllocations     VendorPaymentAllocation[]
   vendorBankAccounts           VendorBankAccount[]
+  reminderRules                ReminderRule[]
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
+  notificationDeliveries       NotificationDelivery[]
+  reminderExecutions           ReminderExecution[]
+  reminderEscalations          ReminderEscalation[]
 
   @@index([status])
   @@index([createdAt])
@@ -794,6 +936,13 @@ model User {
   queryAssignmentsTo          QueryAssignmentHistory[]   @relation("QueryNewAssignee")
   queryFollowUpsAssigned      QueryFollowUp[]            @relation("QueryFollowUpAssigned")
   queryFollowUpsCreated       QueryFollowUp[]            @relation("QueryFollowUpCreated")
+  queryFollowUpsCompleted     QueryFollowUp[]            @relation("QueryFollowUpCompleted")
+  queryFollowUpsCancelled     QueryFollowUp[]            @relation("QueryFollowUpCancelled")
+  reminderRulesCreated        ReminderRule[]             @relation("ReminderRuleCreatedBy")
+  reminderRulesAssigned       ReminderRule[]             @relation("ReminderRuleFixedUser")
+  notificationsReceived       Notification[]             @relation("NotificationRecipient")
+  notificationPreference      NotificationPreference?
+  reminderEscalationsReceived ReminderEscalation[]       @relation("ReminderEscalatedTo")
   quotationTemplatesCreated   QuotationTemplate[]        @relation("QuotationTemplateCreatedBy")
   quotationsCreated           Quotation[]                @relation("QuotationCreatedBy")
   quotationVersionsCreated    QuotationVersion[]         @relation("QuotationVersionCreatedBy")
@@ -1134,6 +1283,7 @@ model Customer {
   bookings         Booking[]
   mergeHistoryFrom CustomerMergeHistory[]  @relation("CustomerMergeSource")
   mergeHistoryInto CustomerMergeHistory[]  @relation("CustomerMergeTargetHistory")
+  reminders        QueryFollowUp[]
 
   @@unique([companyId, customerNumber])
   @@index([companyId, normalizedPhone, deletedAt])
@@ -1440,31 +1590,225 @@ model QueryAssignmentHistory {
 }
 
 model QueryFollowUp {
-  id                 String           @id @default(uuid()) @db.Uuid
-  companyId          String           @db.Uuid
-  queryId            String           @db.Uuid
-  assignedToId       String           @db.Uuid
-  createdById        String           @db.Uuid
-  scheduledAt        DateTime
-  status             FollowUpStatus   @default(PENDING)
-  outcomeType        FollowUpOutcome?
-  outcome            String?          @db.VarChar(1000)
-  notes              String?          @db.VarChar(2000)
-  completionNotes    String?          @db.VarChar(2000)
-  completedAt        DateTime?
-  cancelledAt        DateTime?
-  cancellationReason String?          @db.VarChar(1000)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  deletedAt          DateTime?
-  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  query              Query            @relation(fields: [queryId], references: [id], onDelete: Cascade)
-  assignedTo         User             @relation("QueryFollowUpAssigned", fields: [assignedToId], references: [id], onDelete: Restrict)
-  createdBy          User             @relation("QueryFollowUpCreated", fields: [createdById], references: [id], onDelete: Restrict)
+  id                       String                  @id @default(uuid()) @db.Uuid
+  companyId                String                  @db.Uuid
+  queryId                  String?                 @db.Uuid
+  customerId               String?                 @db.Uuid
+  quotationId              String?                 @db.Uuid
+  bookingId                String?                 @db.Uuid
+  bookingPaymentScheduleId String?                 @db.Uuid
+  bookingTravellerId       String?                 @db.Uuid
+  bookingServiceId         String?                 @db.Uuid
+  vendorId                 String?                 @db.Uuid
+  vendorPayableId          String?                 @db.Uuid
+  reminderRuleId           String?                 @db.Uuid
+  assignedToId             String                  @db.Uuid
+  createdById              String                  @db.Uuid
+  completedById            String?                 @db.Uuid
+  cancelledById            String?                 @db.Uuid
+  title                    String                  @default("Follow-up") @db.VarChar(200)
+  reminderType             ReminderType            @default(LEAD_FOLLOW_UP)
+  source                   ReminderSource          @default(MANUAL)
+  reminderPriority         ReminderPriority        @default(MEDIUM)
+  scheduledAt              DateTime
+  originalDueAt            DateTime?
+  snoozedUntil             DateTime?
+  status                   FollowUpStatus          @default(PENDING)
+  outcomeType              FollowUpOutcome?
+  outcome                  String?                 @db.VarChar(1000)
+  notes                    String?                 @db.VarChar(2000)
+  completionNotes          String?                 @db.VarChar(2000)
+  completionOutcome        String?                 @db.VarChar(500)
+  completedAt              DateTime?
+  cancelledAt              DateTime?
+  cancellationReason       String?                 @db.VarChar(1000)
+  deduplicationKey         String?                 @db.VarChar(255)
+  metadata                 Json?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  deletedAt                DateTime?
+  company                  Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  query                    Query?                  @relation(fields: [queryId], references: [id], onDelete: SetNull)
+  customer                 Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  quotation                Quotation?              @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  booking                  Booking?                @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingPaymentSchedule   BookingPaymentSchedule? @relation(fields: [bookingPaymentScheduleId], references: [id], onDelete: SetNull)
+  bookingTraveller         BookingTraveller?       @relation(fields: [bookingTravellerId], references: [id], onDelete: SetNull)
+  bookingService           BookingService?         @relation(fields: [bookingServiceId], references: [id], onDelete: SetNull)
+  vendor                   Vendor?                 @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorPayable            VendorPayable?          @relation(fields: [vendorPayableId], references: [id], onDelete: SetNull)
+  reminderRule             ReminderRule?           @relation(fields: [reminderRuleId], references: [id], onDelete: SetNull)
+  assignedTo               User                    @relation("QueryFollowUpAssigned", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy                User                    @relation("QueryFollowUpCreated", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy              User?                   @relation("QueryFollowUpCompleted", fields: [completedById], references: [id], onDelete: SetNull)
+  cancelledBy              User?                   @relation("QueryFollowUpCancelled", fields: [cancelledById], references: [id], onDelete: SetNull)
+  notifications            Notification[]
+  escalations              ReminderEscalation[]
 
+  @@unique([companyId, deduplicationKey])
   @@index([companyId, queryId, scheduledAt])
   @@index([companyId, assignedToId, status, scheduledAt])
+  @@index([companyId, bookingId, reminderType, scheduledAt])
+  @@index([companyId, reminderType, source, scheduledAt])
   @@map("query_follow_ups")
+}
+
+model ReminderRule {
+  id                   String                        @id @default(uuid()) @db.Uuid
+  companyId            String                        @db.Uuid
+  createdById          String                        @db.Uuid
+  fixedUserId          String?                       @db.Uuid
+  name                 String                        @db.VarChar(160)
+  description          String?                       @db.VarChar(1000)
+  ruleType             ReminderRuleType
+  isEnabled            Boolean                       @default(true)
+  sortOrder            Int                           @default(0)
+  leadStage            LeadStage?
+  reminderType         ReminderType
+  reminderPriority     ReminderPriority              @default(MEDIUM)
+  delayValue           Int                           @default(1)
+  delayUnit            ReminderDelayUnit             @default(DAYS)
+  dueTime              String                        @default("10:00") @db.VarChar(5)
+  assignToMode         ReminderAssignToMode          @default(ENTITY_ASSIGNEE)
+  titleTemplate        String                        @db.VarChar(300)
+  descriptionTemplate  String?                       @db.VarChar(2000)
+  channels             NotificationDeliveryChannel[] @default([IN_APP])
+  escalationEnabled    Boolean                       @default(false)
+  escalationAfterValue Int?
+  escalationAfterUnit  ReminderDelayUnit?
+  escalationRoleName   String?                       @db.VarChar(80)
+  configuration        Json?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  deletedAt            DateTime?
+  company              Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy            User                          @relation("ReminderRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  fixedUser            User?                         @relation("ReminderRuleFixedUser", fields: [fixedUserId], references: [id], onDelete: SetNull)
+  reminders            QueryFollowUp[]
+  executions           ReminderExecution[]
+
+  @@unique([companyId, name])
+  @@index([companyId, ruleType, isEnabled, deletedAt])
+  @@map("reminder_rules")
+}
+
+model Notification {
+  id               String                 @id @default(uuid()) @db.Uuid
+  companyId        String                 @db.Uuid
+  recipientUserId  String                 @db.Uuid
+  reminderId       String?                @db.Uuid
+  category         NotificationCategory
+  severity         NotificationSeverity   @default(INFO)
+  status           NotificationStatus     @default(UNREAD)
+  title            String                 @db.VarChar(200)
+  message          String                 @db.VarChar(2000)
+  actionUrl        String?                @db.VarChar(500)
+  entityType       String?                @db.VarChar(80)
+  entityId         String?                @db.Uuid
+  deduplicationKey String?                @db.VarChar(255)
+  metadata         Json?
+  readAt           DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  recipient        User                   @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  reminder         QueryFollowUp?         @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+  deliveries       NotificationDelivery[]
+
+  @@unique([companyId, recipientUserId, deduplicationKey])
+  @@index([companyId, recipientUserId, status, createdAt])
+  @@index([companyId, category, createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id               String                 @id @default(uuid()) @db.Uuid
+  companyId        String                 @db.Uuid
+  userId           String                 @unique @db.Uuid
+  inAppEnabled     Boolean                @default(true)
+  emailEnabled     Boolean                @default(true)
+  reminderAlerts   Boolean                @default(true)
+  overdueAlerts    Boolean                @default(true)
+  escalationAlerts Boolean                @default(true)
+  bookingAlerts    Boolean                @default(true)
+  paymentAlerts    Boolean                @default(true)
+  quotationAlerts  Boolean                @default(true)
+  documentAlerts   Boolean                @default(true)
+  vendorAlerts     Boolean                @default(true)
+  digestMode       NotificationDigestMode @default(IMMEDIATE)
+  quietHoursStart  String?                @db.VarChar(5)
+  quietHoursEnd    String?                @db.VarChar(5)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId])
+  @@map("notification_preferences")
+}
+
+model NotificationDelivery {
+  id                String                      @id @default(uuid()) @db.Uuid
+  companyId         String                      @db.Uuid
+  notificationId    String                      @db.Uuid
+  channel           NotificationDeliveryChannel
+  status            NotificationDeliveryStatus  @default(PENDING)
+  recipientAddress  String?                     @db.VarChar(255)
+  attempts          Int                         @default(0)
+  providerMessageId String?                     @db.VarChar(255)
+  lastError         String?                     @db.VarChar(2000)
+  nextAttemptAt     DateTime?
+  sentAt            DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  notification      Notification                @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel])
+  @@index([companyId, status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+model ReminderExecution {
+  id           String                  @id @default(uuid()) @db.Uuid
+  companyId    String                  @db.Uuid
+  ruleId       String?                 @db.Uuid
+  entityType   String                  @db.VarChar(80)
+  entityId     String                  @db.Uuid
+  triggerKey   String                  @db.VarChar(255)
+  status       ReminderExecutionStatus @default(PENDING)
+  reminderId   String?                 @db.Uuid
+  attempts     Int                     @default(0)
+  errorMessage String?                 @db.VarChar(2000)
+  startedAt    DateTime                @default(now())
+  completedAt  DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  company      Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rule         ReminderRule?           @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, triggerKey])
+  @@index([companyId, status, startedAt])
+  @@map("reminder_executions")
+}
+
+model ReminderEscalation {
+  id                String        @id @default(uuid()) @db.Uuid
+  companyId         String        @db.Uuid
+  reminderId        String        @db.Uuid
+  escalatedToUserId String        @db.Uuid
+  escalationLevel   Int           @default(1)
+  reason            String        @db.VarChar(1000)
+  deduplicationKey  String        @db.VarChar(255)
+  createdAt         DateTime      @default(now())
+  company           Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reminder          QueryFollowUp @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  escalatedTo       User          @relation("ReminderEscalatedTo", fields: [escalatedToUserId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, deduplicationKey])
+  @@index([companyId, reminderId, createdAt])
+  @@map("reminder_escalations")
 }
 
 model QueryService {
@@ -1724,6 +2068,7 @@ model Quotation {
   documents      QuotationDocument[]
   emailLogs      QuotationEmailLog[]
   booking        Booking?
+  reminders      QueryFollowUp[]
 
   @@unique([companyId, quotationNumber])
   @@index([companyId, queryId, deletedAt])
@@ -2025,6 +2370,7 @@ model Vendor {
   bankAccounts    VendorBankAccount[]
   bookingServices BookingService[]
   bookingCosts    BookingCost[]
+  reminders       QueryFollowUp[]
 
   @@unique([companyId, vendorCode])
   @@index([companyId, normalizedPhone, deletedAt])
@@ -2201,6 +2547,7 @@ model VendorPayable {
   bookingCost           BookingCost?              @relation(fields: [bookingCostId], references: [id], onDelete: SetNull)
   createdBy             User                      @relation("VendorPayableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   allocations           VendorPaymentAllocation[]
+  reminders             QueryFollowUp[]
 
   @@unique([companyId, payableNumber])
   @@index([companyId, vendorId, paymentStatus, dueDate])
@@ -2359,6 +2706,7 @@ model Booking {
   emailLogs              BookingEmailLog[]
   customerCommunications CustomerCommunication[]
   vendorPayables         VendorPayable[]
+  reminders              QueryFollowUp[]
 
   @@unique([companyId, bookingNumber])
   @@index([companyId, queryId, deletedAt])
@@ -2404,6 +2752,7 @@ model BookingTraveller {
   booking   Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   createdBy User              @relation("BookingTravellerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   documents BookingDocument[]
+  reminders QueryFollowUp[]
 
   @@unique([bookingId, sequence])
   @@index([companyId, bookingId, deletedAt])
@@ -2448,6 +2797,7 @@ model BookingService {
   costs          BookingCost[]
   documents      BookingDocument[]
   vendorPayables VendorPayable[]
+  reminders      QueryFollowUp[]
 
   @@unique([bookingId, sequence])
   @@index([companyId, bookingId, deletedAt])
@@ -2498,6 +2848,7 @@ model BookingPaymentSchedule {
   booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   createdBy User             @relation("BookingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   payments  BookingPayment[]
+  reminders QueryFollowUp[]
 
   @@unique([bookingId, installmentNumber])
   @@index([companyId, bookingId, deletedAt])
