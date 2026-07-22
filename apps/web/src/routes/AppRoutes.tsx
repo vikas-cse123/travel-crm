@@ -59,6 +59,12 @@ import { CityFormPage } from '@/pages/masters/CityFormPage';
 import { DestinationsPage } from '@/pages/masters/DestinationsPage';
 import { DestinationDetailsPage } from '@/pages/masters/DestinationDetailsPage';
 import { DestinationFormPage } from '@/pages/masters/DestinationFormPage';
+import { HotelsPage } from '@/pages/masters/HotelsPage';
+import { HotelDetailsPage } from '@/pages/masters/HotelDetailsPage';
+import { HotelFormPage } from '@/pages/masters/HotelFormPage';
+import { AirlinesPage } from '@/pages/masters/AirlinesPage';
+import { AirlineDetailsPage } from '@/pages/masters/AirlineDetailsPage';
+import { AirlineFormPage } from '@/pages/masters/AirlineFormPage';
 
 /**
  * Route table.
@@ -512,6 +518,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTER_DESTINATIONS_UPDATE}>
                 <DestinationFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/hotels"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_HOTELS_VIEW}>
+                <HotelsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/hotels/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_HOTELS_CREATE}>
+                <HotelFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/hotels/:hotelId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_HOTELS_VIEW}>
+                <HotelDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/hotels/:hotelId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_HOTELS_UPDATE}>
+                <HotelFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/airlines"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_AIRLINES_VIEW}>
+                <AirlinesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/airlines/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_AIRLINES_CREATE}>
+                <AirlineFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/airlines/:airlineId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_AIRLINES_VIEW}>
+                <AirlineDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/airlines/:airlineId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_AIRLINES_UPDATE}>
+                <AirlineFormPage />
               </PermissionRoute>
             }
           />

@@ -89,6 +89,8 @@ describe('Phase 13A master pages', () => {
     expect(masters?.children?.map((item) => [item.label, item.available])).toEqual([
       ['Cities', true],
       ['Destinations', true],
+      ['Hotels', true],
+      ['Airlines', true],
     ]);
   });
 

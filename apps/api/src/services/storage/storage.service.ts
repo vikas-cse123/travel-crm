@@ -81,6 +81,24 @@ export function destinationImageObjectKey(input: {
   return `companies/${input.companyId}/masters/destinations/${input.destinationId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
 }
 
+export function hotelImageObjectKey(input: {
+  companyId: string;
+  hotelId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/masters/hotels/${input.hotelId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
+}
+
+export function airlineLogoObjectKey(input: {
+  companyId: string;
+  airlineId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/masters/airlines/${input.airlineId}/logos/${input.imageId}/${sanitizeFileName(input.fileName)}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

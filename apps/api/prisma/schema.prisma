@@ -636,6 +636,15 @@ enum DestinationType {
   INTERNATIONAL
 }
 
+enum HotelMealPlanType {
+  ROOM_ONLY
+  BREAKFAST
+  HALF_BOARD
+  FULL_BOARD
+  ALL_INCLUSIVE
+  CUSTOM
+}
+
 enum ActivityAction {
   COMPANY_REGISTERED
   EMAIL_OTP_SENT
@@ -792,6 +801,27 @@ enum ActivityAction {
   DESTINATION_IMAGE_UPLOADED
   DESTINATION_IMAGE_REPLACED
   DESTINATION_IMAGE_DELETED
+  HOTEL_CREATED
+  HOTEL_UPDATED
+  HOTEL_STATUS_CHANGED
+  HOTEL_ARCHIVED
+  HOTEL_DEFAULT_CHANGED
+  HOTEL_IMAGE_UPLOADED
+  HOTEL_IMAGE_REPLACED
+  HOTEL_IMAGE_DELETED
+  HOTEL_ROOM_TYPE_CREATED
+  HOTEL_ROOM_TYPE_UPDATED
+  HOTEL_ROOM_TYPE_ARCHIVED
+  HOTEL_MEAL_PLAN_CREATED
+  HOTEL_MEAL_PLAN_UPDATED
+  HOTEL_MEAL_PLAN_ARCHIVED
+  AIRLINE_CREATED
+  AIRLINE_UPDATED
+  AIRLINE_STATUS_CHANGED
+  AIRLINE_ARCHIVED
+  AIRLINE_LOGO_UPLOADED
+  AIRLINE_LOGO_REPLACED
+  AIRLINE_LOGO_DELETED
 }
 
 // ---------------------------------------------------------------------------
@@ -888,6 +918,10 @@ model Company {
   cities                       City[]
   destinations                 Destination[]
   destinationCities            DestinationCity[]
+  hotels                       Hotel[]
+  hotelRoomTypes               HotelRoomType[]
+  hotelMealPlans               HotelMealPlan[]
+  airlines                     Airline[]
 
   @@index([status])
   @@index([createdAt])
@@ -1006,6 +1040,8 @@ model User {
   vendorPaymentsReversed      VendorPayment[]            @relation("VendorPaymentReversedBy")
   citiesCreated               City[]                     @relation("CityCreatedBy")
   destinationsCreated         Destination[]              @relation("DestinationCreatedBy")
+  hotelsCreated               Hotel[]                    @relation("HotelCreatedBy")
+  airlinesCreated             Airline[]                  @relation("AirlineCreatedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1037,6 +1073,7 @@ model City {
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy        User              @relation("CityCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   destinationLinks DestinationCity[]
+  hotels           Hotel[]
 
   @@index([companyId, countryCode, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -1078,6 +1115,7 @@ model Destination {
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User              @relation("DestinationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   cities    DestinationCity[]
+  hotels    Hotel[]
 
   @@index([companyId, countryCode, normalizedName])
   @@index([companyId, destinationType, status, deletedAt])
@@ -1102,6 +1140,173 @@ model DestinationCity {
   @@unique([destinationId, sequence])
   @@index([companyId, cityId])
   @@map("destination_cities")
+}
+
+/// A reusable hotel content record. A master entity in its own right — never
+/// merged with Vendor. May later be referenced by quotations and bookings.
+model Hotel {
+  id                    String           @id @default(uuid()) @db.Uuid
+  companyId             String           @db.Uuid
+  destinationId         String           @db.Uuid
+  cityId                String           @db.Uuid
+  name                  String           @db.VarChar(200)
+  normalizedName        String           @db.VarChar(200)
+  starCategory          Int?
+  starRating            Decimal?         @db.Decimal(2, 1)
+  propertyType          String?          @db.VarChar(80)
+  address               String?          @db.VarChar(1000)
+  landmark              String?          @db.VarChar(200)
+  postalCode            String?          @db.VarChar(20)
+  latitude              Decimal?         @db.Decimal(9, 6)
+  longitude             Decimal?         @db.Decimal(9, 6)
+  contactName           String?          @db.VarChar(160)
+  phone                 String?          @db.VarChar(40)
+  email                 String?          @db.VarChar(255)
+  website               String?          @db.VarChar(255)
+  reviewLink            String?          @db.VarChar(500)
+  checkInTime           String?          @db.VarChar(5)
+  checkOutTime          String?          @db.VarChar(5)
+  description           String?          @db.Text
+  amenities             String?          @db.Text
+  internalNotes         String?          @db.Text
+  externalCode          String?          @db.VarChar(80)
+  isDefaultForCity      Boolean          @default(false)
+  isFeatured            Boolean          @default(false)
+  sortOrder             Int              @default(0)
+  imageStorageProvider  StorageProvider?
+  imageBucket           String?          @db.VarChar(255)
+  imageObjectKey        String?          @db.VarChar(1000)
+  imageFileName         String?          @db.VarChar(255)
+  imageMimeType         String?          @db.VarChar(120)
+  imageFileSize         Int?
+  imageConfirmedAt      DateTime?
+  pendingImageObjectKey String?          @db.VarChar(1000)
+  pendingImageFileName  String?          @db.VarChar(255)
+  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageFileSize  Int?
+  status                MasterStatus     @default(ACTIVE)
+  createdById           String           @db.Uuid
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime?
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  destination Destination     @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  city        City            @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  createdBy   User            @relation("HotelCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  roomTypes   HotelRoomType[]
+  mealPlans   HotelMealPlan[]
+
+  quotationTemplateOptions QuotationTemplateHotelOption[]
+  quotationVersionOptions  QuotationVersionHotelOption[]
+
+  @@index([companyId, cityId, normalizedName])
+  @@index([companyId, destinationId])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, cityId, isDefaultForCity])
+  @@index([createdById])
+  @@map("hotels")
+}
+
+model HotelRoomType {
+  id            String       @id @default(uuid()) @db.Uuid
+  companyId     String       @db.Uuid
+  hotelId       String       @db.Uuid
+  name          String       @db.VarChar(160)
+  code          String?      @db.VarChar(40)
+  description   String?      @db.VarChar(2000)
+  maxAdults     Int?
+  maxChildren   Int?
+  maxOccupancy  Int?
+  bedType       String?      @db.VarChar(80)
+  numberOfBeds  Int?
+  roomSize      String?      @db.VarChar(60)
+  viewType      String?      @db.VarChar(80)
+  baseCost      Decimal?     @db.Decimal(14, 2)
+  sellingPrice  Decimal?     @db.Decimal(14, 2)
+  currency      String       @default("INR") @db.VarChar(3)
+  taxPercentage Decimal?     @db.Decimal(5, 2)
+  internalNotes String?      @db.VarChar(2000)
+  status        MasterStatus @default(ACTIVE)
+  sortOrder     Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  quotationTemplateOptions QuotationTemplateHotelOption[]
+  quotationVersionOptions  QuotationVersionHotelOption[]
+
+  @@index([companyId, hotelId])
+  @@index([hotelId, sortOrder])
+  @@map("hotel_room_types")
+}
+
+model HotelMealPlan {
+  id            String            @id @default(uuid()) @db.Uuid
+  companyId     String            @db.Uuid
+  hotelId       String            @db.Uuid
+  name          String            @db.VarChar(160)
+  code          String?           @db.VarChar(40)
+  type          HotelMealPlanType @default(CUSTOM)
+  description   String?           @db.VarChar(2000)
+  baseCost      Decimal?          @db.Decimal(14, 2)
+  sellingPrice  Decimal?          @db.Decimal(14, 2)
+  currency      String            @default("INR") @db.VarChar(3)
+  internalNotes String?           @db.VarChar(2000)
+  status        MasterStatus      @default(ACTIVE)
+  sortOrder     Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  quotationTemplateOptions QuotationTemplateHotelOption[]
+  quotationVersionOptions  QuotationVersionHotelOption[]
+
+  @@index([companyId, hotelId])
+  @@index([hotelId, sortOrder])
+  @@map("hotel_meal_plans")
+}
+
+model Airline {
+  id                   String           @id @default(uuid()) @db.Uuid
+  companyId            String           @db.Uuid
+  name                 String           @db.VarChar(200)
+  normalizedName       String           @db.VarChar(200)
+  iataCode             String?          @db.VarChar(2)
+  icaoCode             String?          @db.VarChar(3)
+  countryCode          String?          @db.Char(2)
+  countryName          String?          @db.VarChar(120)
+  website              String?          @db.VarChar(255)
+  internalNotes        String?          @db.Text
+  logoStorageProvider  StorageProvider?
+  logoBucket           String?          @db.VarChar(255)
+  logoObjectKey        String?          @db.VarChar(1000)
+  logoFileName         String?          @db.VarChar(255)
+  logoMimeType         String?          @db.VarChar(120)
+  logoFileSize         Int?
+  logoConfirmedAt      DateTime?
+  pendingLogoObjectKey String?          @db.VarChar(1000)
+  pendingLogoFileName  String?          @db.VarChar(255)
+  pendingLogoMimeType  String?          @db.VarChar(120)
+  pendingLogoFileSize  Int?
+  status               MasterStatus     @default(ACTIVE)
+  createdById          String           @db.Uuid
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("AirlineCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, normalizedName])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, countryCode])
+  @@index([createdById])
+  @@map("airlines")
 }
 
 // ---------------------------------------------------------------------------
@@ -2043,31 +2248,38 @@ model QuotationTemplateItineraryDay {
 }
 
 model QuotationTemplateHotelOption {
-  id           String            @id @default(uuid()) @db.Uuid
-  companyId    String            @db.Uuid
-  templateId   String            @db.Uuid
-  city         String            @db.VarChar(120)
-  hotelName    String            @db.VarChar(200)
-  category     String?           @db.VarChar(40)
-  roomType     String?           @db.VarChar(100)
-  mealPlan     String?           @db.VarChar(100)
-  rooms        Int               @default(1)
-  nights       Int
-  checkInDate  DateTime?         @db.Date
-  checkOutDate DateTime?         @db.Date
-  internalCost Decimal?          @db.Decimal(14, 2)
-  sellingPrice Decimal?          @db.Decimal(14, 2)
-  selected     Boolean           @default(true)
-  notes        String?           @db.VarChar(2000)
-  sequence     Int
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  template     QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id              String            @id @default(uuid()) @db.Uuid
+  companyId       String            @db.Uuid
+  templateId      String            @db.Uuid
+  hotelId         String?           @db.Uuid
+  hotelRoomTypeId String?           @db.Uuid
+  hotelMealPlanId String?           @db.Uuid
+  city            String            @db.VarChar(120)
+  hotelName       String            @db.VarChar(200)
+  category        String?           @db.VarChar(40)
+  roomType        String?           @db.VarChar(100)
+  mealPlan        String?           @db.VarChar(100)
+  rooms           Int               @default(1)
+  nights          Int
+  checkInDate     DateTime?         @db.Date
+  checkOutDate    DateTime?         @db.Date
+  internalCost    Decimal?          @db.Decimal(14, 2)
+  sellingPrice    Decimal?          @db.Decimal(14, 2)
+  selected        Boolean           @default(true)
+  notes           String?           @db.VarChar(2000)
+  sequence        Int
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template        QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  hotel           Hotel?            @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  hotelRoomType   HotelRoomType?    @relation(fields: [hotelRoomTypeId], references: [id], onDelete: SetNull)
+  hotelMealPlan   HotelMealPlan?    @relation(fields: [hotelMealPlanId], references: [id], onDelete: SetNull)
 
   @@unique([templateId, sequence])
   @@index([companyId, templateId])
   @@index([companyId, city])
+  @@index([hotelId])
   @@map("quotation_template_hotel_options")
 }
 
@@ -2274,6 +2486,9 @@ model QuotationVersionHotelOption {
   id                 String           @id @default(uuid()) @db.Uuid
   companyId          String           @db.Uuid
   quotationVersionId String           @db.Uuid
+  hotelId            String?          @db.Uuid
+  hotelRoomTypeId    String?          @db.Uuid
+  hotelMealPlanId    String?          @db.Uuid
   city               String           @db.VarChar(120)
   hotelName          String           @db.VarChar(200)
   category           String?          @db.VarChar(40)
@@ -2292,9 +2507,13 @@ model QuotationVersionHotelOption {
   updatedAt          DateTime         @updatedAt
   company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+  hotel              Hotel?           @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  hotelRoomType      HotelRoomType?   @relation(fields: [hotelRoomTypeId], references: [id], onDelete: SetNull)
+  hotelMealPlan      HotelMealPlan?   @relation(fields: [hotelMealPlanId], references: [id], onDelete: SetNull)
 
   @@unique([quotationVersionId, sequence])
   @@index([companyId, quotationVersionId])
+  @@index([hotelId])
   @@map("quotation_version_hotel_options")
 }
 

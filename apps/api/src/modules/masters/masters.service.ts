@@ -53,7 +53,7 @@ function audit(
   };
 }
 
-function sanitizeRichText(value: string | null | undefined): string | null {
+export function sanitizeRichText(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
   const safe = sanitizeHtml(value, {
     allowedTags: [

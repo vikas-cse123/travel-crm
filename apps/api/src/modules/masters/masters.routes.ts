@@ -4,6 +4,9 @@ import {
   DESTINATION_TYPES,
   MASTER_STATUSES,
   PERMISSIONS,
+  airlineInputSchema,
+  airlineLogoUploadSchema,
+  airlineUpdateSchema,
   cityInputSchema,
   cityUpdateSchema,
   destinationCityAddSchema,
@@ -11,6 +14,13 @@ import {
   destinationImageUploadSchema,
   destinationInputSchema,
   destinationUpdateSchema,
+  hotelImageUploadSchema,
+  hotelInputSchema,
+  hotelMealPlanInputSchema,
+  hotelMealPlanUpdateSchema,
+  hotelRoomTypeInputSchema,
+  hotelRoomTypeUpdateSchema,
+  hotelUpdateSchema,
   masterStatusSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
@@ -18,8 +28,10 @@ import { requirePermission } from '../../middleware/require-permission.js';
 import { validateRequest } from '../../middleware/validate-request.js';
 import { asyncHandler } from '../../utils/async-handler.js';
 import {
+  airlinesController as airlines,
   citiesController as cities,
   destinationsController as destinations,
+  hotelsController as hotels,
 } from './masters.controller.js';
 
 const router = Router();
@@ -64,6 +76,37 @@ const lookups = z.object({
     .optional(),
   search: z.string().trim().max(160).optional(),
 });
+const hotelId = z.object({ hotelId: z.string().uuid() });
+const hotelRoomTypeId = hotelId.extend({ roomTypeId: z.string().uuid() });
+const hotelMealPlanId = hotelId.extend({ mealPlanId: z.string().uuid() });
+const airlineId = z.object({ airlineId: z.string().uuid() });
+const hotelList = z.object({
+  page: commonList.page,
+  pageSize: commonList.pageSize,
+  search: commonList.search,
+  status: commonList.status,
+  sortOrder: commonList.sortOrder,
+  destinationId: z.string().uuid().optional(),
+  cityId: z.string().uuid().optional(),
+  starCategory: z.coerce.number().int().min(1).max(5).optional(),
+  isDefaultForCity: bool.optional(),
+  sortBy: z.enum(['name', 'starCategory', 'createdAt', 'updatedAt']).optional(),
+});
+const hotelLookups = z.object({
+  destinationId: z.string().uuid().optional(),
+  cityId: z.string().uuid().optional(),
+  search: z.string().trim().max(160).optional(),
+});
+const airlineList = z.object({
+  page: commonList.page,
+  pageSize: commonList.pageSize,
+  search: commonList.search,
+  status: commonList.status,
+  country: commonList.country,
+  sortOrder: commonList.sortOrder,
+  sortBy: z.enum(['name', 'createdAt', 'updatedAt']).optional(),
+});
+const airlineLookups = z.object({ search: z.string().trim().max(160).optional() });
 
 router.use(requireAuth, requireVerifiedEmail);
 
@@ -199,6 +242,172 @@ router.delete(
   requirePermission(PERMISSIONS.MASTER_DESTINATIONS_MANAGE_IMAGES),
   validateRequest({ params: destinationId }),
   asyncHandler(destinations.imageDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Hotels
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/hotels',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_VIEW),
+  validateRequest({ query: hotelList }),
+  asyncHandler(hotels.list),
+);
+router.get(
+  '/hotels/lookups',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_VIEW),
+  validateRequest({ query: hotelLookups }),
+  asyncHandler(hotels.lookups),
+);
+router.post(
+  '/hotels',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_CREATE),
+  validateRequest({ body: hotelInputSchema }),
+  asyncHandler(hotels.create),
+);
+router.get(
+  '/hotels/:hotelId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_VIEW),
+  validateRequest({ params: hotelId }),
+  asyncHandler(hotels.details),
+);
+router.patch(
+  '/hotels/:hotelId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: hotelUpdateSchema }),
+  asyncHandler(hotels.update),
+);
+router.patch(
+  '/hotels/:hotelId/status',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: masterStatusSchema }),
+  asyncHandler(hotels.status),
+);
+router.delete(
+  '/hotels/:hotelId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_DELETE),
+  validateRequest({ params: hotelId }),
+  asyncHandler(hotels.archive),
+);
+router.post(
+  '/hotels/:hotelId/room-types',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: hotelRoomTypeInputSchema }),
+  asyncHandler(hotels.createRoomType),
+);
+router.patch(
+  '/hotels/:hotelId/room-types/:roomTypeId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeId, body: hotelRoomTypeUpdateSchema }),
+  asyncHandler(hotels.updateRoomType),
+);
+router.post(
+  '/hotels/:hotelId/meal-plans',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: hotelMealPlanInputSchema }),
+  asyncHandler(hotels.createMealPlan),
+);
+router.patch(
+  '/hotels/:hotelId/meal-plans/:mealPlanId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanId, body: hotelMealPlanUpdateSchema }),
+  asyncHandler(hotels.updateMealPlan),
+);
+router.post(
+  '/hotels/:hotelId/image/upload',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA),
+  validateRequest({ params: hotelId, body: hotelImageUploadSchema }),
+  asyncHandler(hotels.imageUpload),
+);
+router.post(
+  '/hotels/:hotelId/image/confirm',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA),
+  validateRequest({ params: hotelId }),
+  asyncHandler(hotels.imageConfirm),
+);
+router.get(
+  '/hotels/:hotelId/image/download-url',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_VIEW),
+  validateRequest({ params: hotelId }),
+  asyncHandler(hotels.imageDownload),
+);
+router.delete(
+  '/hotels/:hotelId/image',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA),
+  validateRequest({ params: hotelId }),
+  asyncHandler(hotels.imageDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Airlines
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/airlines',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_VIEW),
+  validateRequest({ query: airlineList }),
+  asyncHandler(airlines.list),
+);
+router.get(
+  '/airlines/lookups',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_VIEW),
+  validateRequest({ query: airlineLookups }),
+  asyncHandler(airlines.lookups),
+);
+router.post(
+  '/airlines',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_CREATE),
+  validateRequest({ body: airlineInputSchema }),
+  asyncHandler(airlines.create),
+);
+router.get(
+  '/airlines/:airlineId',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_VIEW),
+  validateRequest({ params: airlineId }),
+  asyncHandler(airlines.details),
+);
+router.patch(
+  '/airlines/:airlineId',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_UPDATE),
+  validateRequest({ params: airlineId, body: airlineUpdateSchema }),
+  asyncHandler(airlines.update),
+);
+router.patch(
+  '/airlines/:airlineId/status',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_UPDATE),
+  validateRequest({ params: airlineId, body: masterStatusSchema }),
+  asyncHandler(airlines.status),
+);
+router.delete(
+  '/airlines/:airlineId',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_DELETE),
+  validateRequest({ params: airlineId }),
+  asyncHandler(airlines.archive),
+);
+router.post(
+  '/airlines/:airlineId/logo/upload',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
+  validateRequest({ params: airlineId, body: airlineLogoUploadSchema }),
+  asyncHandler(airlines.logoUpload),
+);
+router.post(
+  '/airlines/:airlineId/logo/confirm',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
+  validateRequest({ params: airlineId }),
+  asyncHandler(airlines.logoConfirm),
+);
+router.get(
+  '/airlines/:airlineId/logo/download-url',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_VIEW),
+  validateRequest({ params: airlineId }),
+  asyncHandler(airlines.logoDownload),
+);
+router.delete(
+  '/airlines/:airlineId/logo',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
+  validateRequest({ params: airlineId }),
+  asyncHandler(airlines.logoDelete),
 );
 
 export { router as mastersRoutes };

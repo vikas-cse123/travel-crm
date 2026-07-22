@@ -192,3 +192,16 @@ export function SafeRichText({
 export function LoadingCard() {
   return <div className="h-64 animate-pulse rounded-xl border bg-slate-100" />;
 }
+
+export function Stars({ value }: { value: number | null }) {
+  if (!value) return <span className="text-sm text-slate-400">—</span>;
+  return (
+    <span className="inline-flex items-center gap-0.5 text-amber-500" aria-label={`${value} star`}>
+      {Array.from({ length: 5 }, (_, index) => (
+        <span key={index} className={index < value ? 'text-amber-500' : 'text-slate-300'}>
+          ★
+        </span>
+      ))}
+    </span>
+  );
+}

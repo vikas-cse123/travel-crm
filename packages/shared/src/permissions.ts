@@ -27,6 +27,8 @@ export const PERMISSION_MODULE = {
   MASTERS: 'masters',
   MASTER_CITIES: 'masters.cities',
   MASTER_DESTINATIONS: 'masters.destinations',
+  MASTER_HOTELS: 'masters.hotels',
+  MASTER_AIRLINES: 'masters.airlines',
   REPORTS: 'reports',
 } as const;
 
@@ -53,6 +55,8 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   masters: 'Masters',
   'masters.cities': 'Masters — Cities',
   'masters.destinations': 'Masters — Destinations',
+  'masters.hotels': 'Masters — Hotels',
+  'masters.airlines': 'Masters — Airlines',
   reports: 'Reports',
 };
 
@@ -217,6 +221,18 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_DESTINATIONS, 'update', 'Edit destinations and change status'),
   available(M.MASTER_DESTINATIONS, 'delete', 'Archive destinations'),
   available(M.MASTER_DESTINATIONS, 'manage_images', 'Manage destination images'),
+  available(M.MASTER_HOTELS, 'view', 'View active hotels'),
+  available(M.MASTER_HOTELS, 'create', 'Create hotels'),
+  available(M.MASTER_HOTELS, 'update', 'Edit hotels and change status'),
+  available(M.MASTER_HOTELS, 'delete', 'Archive hotels'),
+  available(M.MASTER_HOTELS, 'manage_media', 'Manage hotel images'),
+  available(M.MASTER_HOTELS, 'view_costing', 'View hotel room and meal plan costs'),
+  available(M.MASTER_HOTELS, 'manage_costing', 'Edit hotel room and meal plan costs'),
+  available(M.MASTER_AIRLINES, 'view', 'View active airlines'),
+  available(M.MASTER_AIRLINES, 'create', 'Create airlines'),
+  available(M.MASTER_AIRLINES, 'update', 'Edit airlines and change status'),
+  available(M.MASTER_AIRLINES, 'delete', 'Archive airlines'),
+  available(M.MASTER_AIRLINES, 'manage_media', 'Manage airline logos'),
 
   planned(M.REPORTS, 'view', 'View reports'),
 ] as const;
@@ -345,6 +361,18 @@ export const PERMISSIONS = {
   MASTER_DESTINATIONS_UPDATE: 'masters.destinations.update',
   MASTER_DESTINATIONS_DELETE: 'masters.destinations.delete',
   MASTER_DESTINATIONS_MANAGE_IMAGES: 'masters.destinations.manage_images',
+  MASTER_HOTELS_VIEW: 'masters.hotels.view',
+  MASTER_HOTELS_CREATE: 'masters.hotels.create',
+  MASTER_HOTELS_UPDATE: 'masters.hotels.update',
+  MASTER_HOTELS_DELETE: 'masters.hotels.delete',
+  MASTER_HOTELS_MANAGE_MEDIA: 'masters.hotels.manage_media',
+  MASTER_HOTELS_VIEW_COSTING: 'masters.hotels.view_costing',
+  MASTER_HOTELS_MANAGE_COSTING: 'masters.hotels.manage_costing',
+  MASTER_AIRLINES_VIEW: 'masters.airlines.view',
+  MASTER_AIRLINES_CREATE: 'masters.airlines.create',
+  MASTER_AIRLINES_UPDATE: 'masters.airlines.update',
+  MASTER_AIRLINES_DELETE: 'masters.airlines.delete',
+  MASTER_AIRLINES_MANAGE_MEDIA: 'masters.airlines.manage_media',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

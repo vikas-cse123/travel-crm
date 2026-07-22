@@ -1,11 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AirlineInput,
+  AirlineLogoUploadInput,
+  AirlineUpdateInput,
   CityInput,
   CityUpdateInput,
   CountryReference,
   DestinationImageUploadInput,
   DestinationInput,
   DestinationUpdateInput,
+  HotelImageUploadInput,
+  HotelInput,
+  HotelMealPlanInput,
+  HotelMealPlanUpdateInput,
+  HotelRoomTypeInput,
+  HotelRoomTypeUpdateInput,
+  HotelUpdateInput,
 } from '@interscale/shared';
 import { apiClient } from '@/api/client';
 
@@ -185,4 +195,279 @@ export async function destinationImageUrl(id: string) {
 }
 export async function deleteDestinationImage(id: string) {
   return apiClient.delete<{ deleted: true }>(`/masters/destinations/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Hotels
+// ---------------------------------------------------------------------------
+
+export interface HotelRoomType {
+  id: string;
+  hotelId: string;
+  name: string;
+  code: string | null;
+  description: string | null;
+  maxAdults: number | null;
+  maxChildren: number | null;
+  maxOccupancy: number | null;
+  bedType: string | null;
+  numberOfBeds: number | null;
+  roomSize: string | null;
+  viewType: string | null;
+  baseCost?: number | null;
+  sellingPrice?: number | null;
+  currency: string;
+  taxPercentage?: number | null;
+  internalNotes: string | null;
+  status: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelMealPlan {
+  id: string;
+  hotelId: string;
+  name: string;
+  code: string | null;
+  type: string;
+  description: string | null;
+  baseCost?: number | null;
+  sellingPrice?: number | null;
+  currency: string;
+  internalNotes: string | null;
+  status: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelSummary {
+  id: string;
+  name: string;
+  starCategory: number | null;
+  starRating: number | null;
+  status: string;
+  isDefaultForCity: boolean;
+  isFeatured: boolean;
+  hasImage: boolean;
+  updatedAt: string;
+  createdAt: string;
+  destination: { id: string; name: string };
+  city: { id: string; name: string };
+  _count?: { roomTypes: number; mealPlans: number };
+}
+
+export interface Hotel extends Omit<HotelSummary, 'destination' | 'city'> {
+  destinationId: string;
+  cityId: string;
+  propertyType: string | null;
+  address: string | null;
+  landmark: string | null;
+  postalCode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  reviewLink: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  description: string | null;
+  amenities: string | null;
+  internalNotes: string | null;
+  externalCode: string | null;
+  sortOrder: number;
+  imageFileName: string | null;
+  imageMimeType: string | null;
+  imageFileSize: number | null;
+  imageConfirmedAt: string | null;
+  destination: { id: string; name: string; countryCode?: string; countryName?: string };
+  city: { id: string; name: string; airportCode?: string | null };
+  createdBy: { id: string; fullName: string };
+  roomTypes: HotelRoomType[];
+  mealPlans: HotelMealPlan[];
+}
+
+const hotelKeys = {
+  all: ['masters', 'hotels'] as const,
+  one: (id: string) => ['masters', 'hotels', id] as const,
+};
+
+export function useHotels(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...hotelKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<HotelSummary>>(`/masters/hotels${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useHotel(id?: string) {
+  return useQuery({
+    queryKey: hotelKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Hotel>(`/masters/hotels/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateHotel = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: hotelKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: hotelKeys.one(id) });
+};
+export function useCreateHotel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelInput) => apiClient.post<Hotel>('/masters/hotels', input),
+    onSuccess: () => invalidateHotel(client),
+  });
+}
+export function useUpdateHotel(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelUpdateInput) => apiClient.patch<Hotel>(`/masters/hotels/${id}`, input),
+    onSuccess: () => invalidateHotel(client, id),
+  });
+}
+export function useArchiveHotel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Hotel>(`/masters/hotels/${id}`),
+    onSuccess: (_, id) => invalidateHotel(client, id),
+  });
+}
+export function useCreateRoomType(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelRoomTypeInput) =>
+      apiClient.post<Hotel>(`/masters/hotels/${hotelId}/room-types`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateRoomType(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: HotelRoomTypeUpdateInput }) =>
+      apiClient.patch<Hotel>(`/masters/hotels/${hotelId}/room-types/${id}`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateMealPlan(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelMealPlanInput) =>
+      apiClient.post<Hotel>(`/masters/hotels/${hotelId}/meal-plans`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateMealPlan(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: HotelMealPlanUpdateInput }) =>
+      apiClient.patch<Hotel>(`/masters/hotels/${hotelId}/meal-plans/${id}`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export async function approveHotelImage(id: string, input: HotelImageUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/hotels/${id}/image/upload`,
+    input,
+  );
+}
+export async function confirmHotelImage(id: string) {
+  return apiClient.post<Hotel>(`/masters/hotels/${id}/image/confirm`);
+}
+export async function hotelImageUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/hotels/${id}/image/download-url`,
+  );
+}
+export async function deleteHotelImage(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/hotels/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Airlines
+// ---------------------------------------------------------------------------
+
+export interface Airline {
+  id: string;
+  name: string;
+  iataCode: string | null;
+  icaoCode: string | null;
+  countryCode: string | null;
+  countryName: string | null;
+  website: string | null;
+  internalNotes: string | null;
+  status: string;
+  hasLogo: boolean;
+  logoFileName: string | null;
+  logoMimeType: string | null;
+  logoConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+}
+
+const airlineKeys = {
+  all: ['masters', 'airlines'] as const,
+  one: (id: string) => ['masters', 'airlines', id] as const,
+};
+
+export function useAirlines(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...airlineKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Airline>>(`/masters/airlines${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useAirline(id?: string) {
+  return useQuery({
+    queryKey: airlineKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Airline>(`/masters/airlines/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateAirline = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: airlineKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: airlineKeys.one(id) });
+};
+export function useCreateAirline() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AirlineInput) => apiClient.post<Airline>('/masters/airlines', input),
+    onSuccess: () => invalidateAirline(client),
+  });
+}
+export function useUpdateAirline(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AirlineUpdateInput) =>
+      apiClient.patch<Airline>(`/masters/airlines/${id}`, input),
+    onSuccess: () => invalidateAirline(client, id),
+  });
+}
+export function useArchiveAirline() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Airline>(`/masters/airlines/${id}`),
+    onSuccess: (_, id) => invalidateAirline(client, id),
+  });
+}
+export async function approveAirlineLogo(id: string, input: AirlineLogoUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/airlines/${id}/logo/upload`,
+    input,
+  );
+}
+export async function confirmAirlineLogo(id: string) {
+  return apiClient.post<Airline>(`/masters/airlines/${id}/logo/confirm`);
+}
+export async function airlineLogoUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/airlines/${id}/logo/download-url`,
+  );
+}
+export async function deleteAirlineLogo(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/airlines/${id}/logo`);
 }
