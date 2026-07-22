@@ -31,6 +31,8 @@ export const PERMISSION_MODULE = {
   MASTER_AIRLINES: 'masters.airlines',
   MASTER_CRUISES: 'masters.cruises',
   MASTER_VEHICLES: 'masters.vehicles',
+  MASTER_SIGHTSEEING: 'masters.sightseeing',
+  MASTER_ADD_ON_SERVICES: 'masters.add_on_services',
   REPORTS: 'reports',
 } as const;
 
@@ -61,6 +63,8 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   'masters.airlines': 'Masters — Airlines',
   'masters.cruises': 'Masters — Cruises',
   'masters.vehicles': 'Masters — Vehicles',
+  'masters.sightseeing': 'Masters — Sightseeing',
+  'masters.add_on_services': 'Masters — Add-On Services',
   reports: 'Reports',
 };
 
@@ -249,6 +253,15 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_VEHICLES, 'update', 'Edit vehicles and change status'),
   available(M.MASTER_VEHICLES, 'delete', 'Archive vehicles'),
   available(M.MASTER_VEHICLES, 'manage_media', 'Manage vehicle images'),
+  available(M.MASTER_SIGHTSEEING, 'view', 'View active sightseeing'),
+  available(M.MASTER_SIGHTSEEING, 'create', 'Create sightseeing'),
+  available(M.MASTER_SIGHTSEEING, 'update', 'Edit sightseeing, reorder and change status'),
+  available(M.MASTER_SIGHTSEEING, 'delete', 'Archive sightseeing'),
+  available(M.MASTER_SIGHTSEEING, 'manage_media', 'Manage sightseeing images'),
+  available(M.MASTER_ADD_ON_SERVICES, 'view', 'View active add-on services'),
+  available(M.MASTER_ADD_ON_SERVICES, 'create', 'Create add-on services'),
+  available(M.MASTER_ADD_ON_SERVICES, 'update', 'Edit add-on services and change status'),
+  available(M.MASTER_ADD_ON_SERVICES, 'delete', 'Archive add-on services'),
 
   planned(M.REPORTS, 'view', 'View reports'),
 ] as const;
@@ -401,6 +414,15 @@ export const PERMISSIONS = {
   MASTER_VEHICLES_UPDATE: 'masters.vehicles.update',
   MASTER_VEHICLES_DELETE: 'masters.vehicles.delete',
   MASTER_VEHICLES_MANAGE_MEDIA: 'masters.vehicles.manage_media',
+  MASTER_SIGHTSEEING_VIEW: 'masters.sightseeing.view',
+  MASTER_SIGHTSEEING_CREATE: 'masters.sightseeing.create',
+  MASTER_SIGHTSEEING_UPDATE: 'masters.sightseeing.update',
+  MASTER_SIGHTSEEING_DELETE: 'masters.sightseeing.delete',
+  MASTER_SIGHTSEEING_MANAGE_MEDIA: 'masters.sightseeing.manage_media',
+  MASTER_ADD_ON_SERVICES_VIEW: 'masters.add_on_services.view',
+  MASTER_ADD_ON_SERVICES_CREATE: 'masters.add_on_services.create',
+  MASTER_ADD_ON_SERVICES_UPDATE: 'masters.add_on_services.update',
+  MASTER_ADD_ON_SERVICES_DELETE: 'masters.add_on_services.delete',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

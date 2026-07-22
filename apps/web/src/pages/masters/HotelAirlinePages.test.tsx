@@ -161,6 +161,8 @@ describe('Phase 13B master pages', () => {
       'Airlines',
       'Cruises',
       'Vehicles',
+      'Sightseeing',
+      'Add-On Services',
     ]);
   });
 

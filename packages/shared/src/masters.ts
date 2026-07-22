@@ -75,6 +75,12 @@ export const CRUISE_IMAGE_MIME_TYPES = [
   'image/webp',
   'image/gif',
 ] as const;
+export const SIGHTSEEING_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
 export const VEHICLE_IMAGE_MIME_TYPES = [
   'image/jpeg',
   'image/png',
@@ -290,6 +296,76 @@ export const vehicleImageUploadSchema = z.object({
   fileSize: z.coerce.number().int().positive(),
 });
 
+// ---------------------------------------------------------------------------
+// Sightseeing
+// ---------------------------------------------------------------------------
+
+/** Wall-clock HH:mm suggestion, not an instant. */
+const optionalTimeOfDay = z
+  .string()
+  .trim()
+  .refine((value) => value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'Use a HH:mm time.')
+  .nullable()
+  .optional();
+
+const sightseeingBaseSchema = z.object({
+  destinationId: z.string().uuid('Select a destination.'),
+  cityId: z.string().uuid('Select a city.'),
+  title: z.string().trim().min(2, 'Title is required.').max(250),
+  // Restarts per city in the reference and tolerates gaps, so it is a plain
+  // positive integer rather than a unique ordinal.
+  sequence: z.coerce.number().int().min(1, 'Sequence must be 1 or more.').max(100_000).default(1),
+  estimatedHours: z.coerce
+    .number()
+    .min(0, 'Duration cannot be negative.')
+    .max(999.99, 'Duration looks too large.')
+    .nullable()
+    .optional(),
+  suggestedStartTime: optionalTimeOfDay,
+  description: optionalRichText,
+  remarks: optionalRichText,
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const sightseeingInputSchema = sightseeingBaseSchema;
+export const sightseeingUpdateSchema = sightseeingBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const sightseeingImageUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(SIGHTSEEING_IMAGE_MIME_TYPES),
+  fileSize: z.coerce.number().int().positive(),
+});
+
+/** Move one row up or down within its city group. */
+export const sightseeingReorderSchema = z.object({
+  direction: z.enum(['UP', 'DOWN']),
+});
+
+// ---------------------------------------------------------------------------
+// Add-On Services
+// ---------------------------------------------------------------------------
+
+const addOnServiceBaseSchema = z.object({
+  name: z.string().trim().min(2, 'Service name is required.').max(200),
+  description: optionalRichText,
+  // A single public price. The reference has no cost/selling split, so this
+  // module deliberately has no costing permissions.
+  price: z.coerce
+    .number()
+    .nonnegative('Price cannot be negative.')
+    .max(99_999_999.99, 'Price looks too large.')
+    .default(0),
+  currency: currency.default('INR'),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const addOnServiceInputSchema = addOnServiceBaseSchema;
+export const addOnServiceUpdateSchema = addOnServiceBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
 export const destinationCityAddSchema = z.object({ cityId: z.string().uuid() });
 export const destinationCityReorderSchema = z.object({
   cityIds: z.array(z.string().uuid()).min(1).max(100),
@@ -319,3 +395,9 @@ export type CruiseImageUploadInput = z.infer<typeof cruiseImageUploadSchema>;
 export type VehicleInput = z.infer<typeof vehicleInputSchema>;
 export type VehicleUpdateInput = z.infer<typeof vehicleUpdateSchema>;
 export type VehicleImageUploadInput = z.infer<typeof vehicleImageUploadSchema>;
+export type SightseeingInput = z.infer<typeof sightseeingInputSchema>;
+export type SightseeingUpdateInput = z.infer<typeof sightseeingUpdateSchema>;
+export type SightseeingImageUploadInput = z.infer<typeof sightseeingImageUploadSchema>;
+export type SightseeingReorderInput = z.infer<typeof sightseeingReorderSchema>;
+export type AddOnServiceInput = z.infer<typeof addOnServiceInputSchema>;
+export type AddOnServiceUpdateInput = z.infer<typeof addOnServiceUpdateSchema>;

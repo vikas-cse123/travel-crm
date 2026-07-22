@@ -9,6 +9,11 @@ import type {
   VehicleImageUploadInput,
   VehicleInput,
   VehicleUpdateInput,
+  SightseeingImageUploadInput,
+  SightseeingInput,
+  SightseeingUpdateInput,
+  AddOnServiceInput,
+  AddOnServiceUpdateInput,
   CityInput,
   CityUpdateInput,
   CountryReference,
@@ -685,4 +690,203 @@ export async function vehicleImageUrl(id: string) {
 }
 export async function deleteVehicleImage(id: string) {
   return apiClient.delete<{ deleted: true }>(`/masters/vehicles/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Sightseeing
+// ---------------------------------------------------------------------------
+
+export interface Sightseeing {
+  id: string;
+  title: string;
+  sequence: number;
+  estimatedHours: number | null;
+  suggestedStartTime: string | null;
+  description: string | null;
+  remarks: string | null;
+  status: string;
+  hasImage: boolean;
+  imageFileName: string | null;
+  imageMimeType: string | null;
+  imageConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  destination: { id: string; name: string; countryCode?: string; countryName?: string };
+  city: { id: string; name: string; airportCode?: string | null };
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+export interface SightseeingSummary {
+  totalAttractions: number;
+  destinations: number;
+  citiesCovered: number;
+  withImages: number;
+}
+
+const sightseeingKeys = {
+  all: ['masters', 'sightseeing'] as const,
+  one: (id: string) => ['masters', 'sightseeing', id] as const,
+  summary: ['masters', 'sightseeing', 'summary'] as const,
+};
+
+export function useSightseeingList(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...sightseeingKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Sightseeing>>(`/masters/sightseeing${query ? `?${query}` : ''}`, signal),
+  });
+}
+/** Counts for the reference's Summary Statistics strip. */
+export function useSightseeingSummary() {
+  return useQuery({
+    queryKey: sightseeingKeys.summary,
+    queryFn: ({ signal }) =>
+      apiClient.get<SightseeingSummary>('/masters/sightseeing/summary', signal),
+  });
+}
+export function useSightseeing(id?: string) {
+  return useQuery({
+    queryKey: sightseeingKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Sightseeing>(`/masters/sightseeing/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateSightseeing = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: sightseeingKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: sightseeingKeys.one(id) });
+};
+export function useCreateSightseeing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SightseeingInput) =>
+      apiClient.post<Sightseeing>('/masters/sightseeing', input),
+    onSuccess: () => invalidateSightseeing(client),
+  });
+}
+export function useUpdateSightseeing(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SightseeingUpdateInput) =>
+      apiClient.patch<Sightseeing>(`/masters/sightseeing/${id}`, input),
+    onSuccess: () => invalidateSightseeing(client, id),
+  });
+}
+export function useArchiveSightseeing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Sightseeing>(`/masters/sightseeing/${id}`),
+    onSuccess: (_, id) => invalidateSightseeing(client, id),
+  });
+}
+export function useRestoreSightseeing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch<Sightseeing>(`/masters/sightseeing/${id}/status`, { status: 'ACTIVE' }),
+    onSuccess: (_, id) => invalidateSightseeing(client, id),
+  });
+}
+/** Move a row up or down within its city group. */
+export function useReorderSightseeing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, direction }: { id: string; direction: 'UP' | 'DOWN' }) =>
+      apiClient.patch<Sightseeing>(`/masters/sightseeing/${id}/reorder`, { direction }),
+    onSuccess: (_, variables) => invalidateSightseeing(client, variables.id),
+  });
+}
+export async function approveSightseeingImage(id: string, input: SightseeingImageUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/sightseeing/${id}/image/upload`,
+    input,
+  );
+}
+export async function confirmSightseeingImage(id: string) {
+  return apiClient.post<Sightseeing>(`/masters/sightseeing/${id}/image/confirm`);
+}
+export async function sightseeingImageUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/sightseeing/${id}/image/download-url`,
+  );
+}
+export async function deleteSightseeingImage(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/sightseeing/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Add-On Services
+// ---------------------------------------------------------------------------
+
+export interface AddOnService {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+const addOnServiceKeys = {
+  all: ['masters', 'add-on-services'] as const,
+  one: (id: string) => ['masters', 'add-on-services', id] as const,
+};
+
+export function useAddOnServices(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...addOnServiceKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<AddOnService>>(
+        `/masters/add-on-services${query ? `?${query}` : ''}`,
+        signal,
+      ),
+  });
+}
+export function useAddOnService(id?: string) {
+  return useQuery({
+    queryKey: addOnServiceKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<AddOnService>(`/masters/add-on-services/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateAddOnService = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: addOnServiceKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: addOnServiceKeys.one(id) });
+};
+export function useCreateAddOnService() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddOnServiceInput) =>
+      apiClient.post<AddOnService>('/masters/add-on-services', input),
+    onSuccess: () => invalidateAddOnService(client),
+  });
+}
+export function useUpdateAddOnService(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddOnServiceUpdateInput) =>
+      apiClient.patch<AddOnService>(`/masters/add-on-services/${id}`, input),
+    onSuccess: () => invalidateAddOnService(client, id),
+  });
+}
+export function useArchiveAddOnService() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<AddOnService>(`/masters/add-on-services/${id}`),
+    onSuccess: (_, id) => invalidateAddOnService(client, id),
+  });
+}
+export function useRestoreAddOnService() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch<AddOnService>(`/masters/add-on-services/${id}/status`, { status: 'ACTIVE' }),
+    onSuccess: (_, id) => invalidateAddOnService(client, id),
+  });
 }

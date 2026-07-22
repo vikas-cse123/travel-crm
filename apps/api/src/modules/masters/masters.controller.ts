@@ -6,6 +6,8 @@ import { hotelsService } from './hotels.service.js';
 import { airlinesService } from './airlines.service.js';
 import { cruisesService } from './cruises.service.js';
 import { vehiclesService } from './vehicles.service.js';
+import { sightseeingService } from './sightseeing.service.js';
+import { addOnServicesService } from './add-on-services.service.js';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
@@ -408,5 +410,122 @@ export const vehiclesController = {
       res,
       await vehiclesService.deleteImage(auth(req), req.params.vehicleId!, context(req)),
       'Vehicle image deleted.',
+    ),
+};
+
+export const sightseeingController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.list(auth(req), req.query)),
+  summary: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.summary(auth(req))),
+  lookups: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.lookups(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.details(auth(req), req.params.sightseeingId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.create(auth(req), req.body, context(req)),
+      'Sightseeing created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.update(auth(req), req.params.sightseeingId!, req.body, context(req)),
+      'Sightseeing updated.',
+    ),
+  reorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.reorder(
+        auth(req),
+        req.params.sightseeingId!,
+        req.body.direction,
+        context(req),
+      ),
+      'Sightseeing reordered.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.status(
+        auth(req),
+        req.params.sightseeingId!,
+        req.body.status,
+        context(req),
+      ),
+      'Sightseeing status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.archive(auth(req), req.params.sightseeingId!, context(req)),
+      'Sightseeing archived.',
+    ),
+  imageUpload: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.createImageUpload(auth(req), req.params.sightseeingId!, req.body),
+      'Sightseeing image upload authorized.',
+      201,
+    ),
+  imageConfirm: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.confirmImage(auth(req), req.params.sightseeingId!, context(req)),
+      'Sightseeing image confirmed.',
+    ),
+  imageDownload: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.imageDownload(auth(req), req.params.sightseeingId!)),
+  imageDelete: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.deleteImage(auth(req), req.params.sightseeingId!, context(req)),
+      'Sightseeing image deleted.',
+    ),
+};
+
+export const addOnServicesController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await addOnServicesService.list(auth(req), req.query)),
+  lookups: async (req: Request, res: Response) =>
+    sendSuccess(res, await addOnServicesService.lookups(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await addOnServicesService.details(auth(req), req.params.addOnServiceId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await addOnServicesService.create(auth(req), req.body, context(req)),
+      'Add-on service created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await addOnServicesService.update(
+        auth(req),
+        req.params.addOnServiceId!,
+        req.body,
+        context(req),
+      ),
+      'Add-on service updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await addOnServicesService.status(
+        auth(req),
+        req.params.addOnServiceId!,
+        req.body.status,
+        context(req),
+      ),
+      'Add-on service status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await addOnServicesService.archive(auth(req), req.params.addOnServiceId!, context(req)),
+      'Add-on service archived.',
     ),
 };

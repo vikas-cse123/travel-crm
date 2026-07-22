@@ -28,6 +28,12 @@ import {
   vehicleImageUploadSchema,
   vehicleInputSchema,
   vehicleUpdateSchema,
+  sightseeingImageUploadSchema,
+  sightseeingInputSchema,
+  sightseeingReorderSchema,
+  sightseeingUpdateSchema,
+  addOnServiceInputSchema,
+  addOnServiceUpdateSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
@@ -40,6 +46,8 @@ import {
   hotelsController as hotels,
   cruisesController as cruises,
   vehiclesController as vehicles,
+  sightseeingController as sightseeing,
+  addOnServicesController as addOnServices,
 } from './masters.controller.js';
 
 const router = Router();
@@ -47,6 +55,8 @@ const cityId = z.object({ cityId: z.string().uuid() });
 const destinationId = z.object({ destinationId: z.string().uuid() });
 const cruiseId = z.object({ cruiseId: z.string().uuid() });
 const vehicleId = z.object({ vehicleId: z.string().uuid() });
+const sightseeingId = z.object({ sightseeingId: z.string().uuid() });
+const addOnServiceId = z.object({ addOnServiceId: z.string().uuid() });
 const destinationCityId = destinationId.extend({ cityId: z.string().uuid() });
 const bool = z.enum(['true', 'false']).transform((value) => value === 'true');
 const commonList = {
@@ -576,6 +586,153 @@ router.delete(
   requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
   validateRequest({ params: vehicleId }),
   asyncHandler(vehicles.imageDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Sightseeing
+// ---------------------------------------------------------------------------
+
+const sightseeingList = z.object({
+  ...commonList,
+  destinationId: z.string().uuid().optional(),
+  cityId: z.string().uuid().optional(),
+  sortBy: z.enum(['title', 'sequence', 'createdAt', 'updatedAt']).optional(),
+});
+
+router.get(
+  '/sightseeing',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({ query: sightseeingList }),
+  asyncHandler(sightseeing.list),
+);
+router.get(
+  '/sightseeing/summary',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  asyncHandler(sightseeing.summary),
+);
+router.get(
+  '/sightseeing/lookups',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({
+    query: z.object({
+      search: z.string().trim().max(200).optional(),
+      destinationId: z.string().uuid().optional(),
+      cityId: z.string().uuid().optional(),
+    }),
+  }),
+  asyncHandler(sightseeing.lookups),
+);
+router.post(
+  '/sightseeing',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_CREATE),
+  validateRequest({ body: sightseeingInputSchema }),
+  asyncHandler(sightseeing.create),
+);
+router.get(
+  '/sightseeing/:sightseeingId',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({ params: sightseeingId }),
+  asyncHandler(sightseeing.details),
+);
+router.patch(
+  '/sightseeing/:sightseeingId',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE),
+  validateRequest({ params: sightseeingId, body: sightseeingUpdateSchema }),
+  asyncHandler(sightseeing.update),
+);
+router.patch(
+  '/sightseeing/:sightseeingId/reorder',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE),
+  validateRequest({ params: sightseeingId, body: sightseeingReorderSchema }),
+  asyncHandler(sightseeing.reorder),
+);
+router.patch(
+  '/sightseeing/:sightseeingId/status',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE),
+  validateRequest({ params: sightseeingId, body: masterStatusSchema }),
+  asyncHandler(sightseeing.status),
+);
+router.delete(
+  '/sightseeing/:sightseeingId',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_DELETE),
+  validateRequest({ params: sightseeingId }),
+  asyncHandler(sightseeing.archive),
+);
+router.post(
+  '/sightseeing/:sightseeingId/image/upload',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA),
+  validateRequest({ params: sightseeingId, body: sightseeingImageUploadSchema }),
+  asyncHandler(sightseeing.imageUpload),
+);
+router.post(
+  '/sightseeing/:sightseeingId/image/confirm',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA),
+  validateRequest({ params: sightseeingId }),
+  asyncHandler(sightseeing.imageConfirm),
+);
+router.get(
+  '/sightseeing/:sightseeingId/image/download-url',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({ params: sightseeingId }),
+  asyncHandler(sightseeing.imageDownload),
+);
+router.delete(
+  '/sightseeing/:sightseeingId/image',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA),
+  validateRequest({ params: sightseeingId }),
+  asyncHandler(sightseeing.imageDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Add-On Services
+// ---------------------------------------------------------------------------
+
+const addOnServiceList = z.object({
+  ...commonList,
+  sortBy: z.enum(['name', 'price', 'createdAt', 'updatedAt']).optional(),
+});
+
+router.get(
+  '/add-on-services',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW),
+  validateRequest({ query: addOnServiceList }),
+  asyncHandler(addOnServices.list),
+);
+router.get(
+  '/add-on-services/lookups',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW),
+  validateRequest({ query: z.object({ search: z.string().trim().max(200).optional() }) }),
+  asyncHandler(addOnServices.lookups),
+);
+router.post(
+  '/add-on-services',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_CREATE),
+  validateRequest({ body: addOnServiceInputSchema }),
+  asyncHandler(addOnServices.create),
+);
+router.get(
+  '/add-on-services/:addOnServiceId',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW),
+  validateRequest({ params: addOnServiceId }),
+  asyncHandler(addOnServices.details),
+);
+router.patch(
+  '/add-on-services/:addOnServiceId',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE),
+  validateRequest({ params: addOnServiceId, body: addOnServiceUpdateSchema }),
+  asyncHandler(addOnServices.update),
+);
+router.patch(
+  '/add-on-services/:addOnServiceId/status',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE),
+  validateRequest({ params: addOnServiceId, body: masterStatusSchema }),
+  asyncHandler(addOnServices.status),
+);
+router.delete(
+  '/add-on-services/:addOnServiceId',
+  requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_DELETE),
+  validateRequest({ params: addOnServiceId }),
+  asyncHandler(addOnServices.archive),
 );
 
 export { router as mastersRoutes };

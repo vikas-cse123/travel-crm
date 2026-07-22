@@ -117,6 +117,15 @@ export function vehicleImageObjectKey(input: {
   return `companies/${input.companyId}/masters/vehicles/${input.vehicleId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
 }
 
+export function sightseeingImageObjectKey(input: {
+  companyId: string;
+  sightseeingId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/masters/sightseeing/${input.sightseeingId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

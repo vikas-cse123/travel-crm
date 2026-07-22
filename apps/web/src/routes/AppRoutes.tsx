@@ -71,6 +71,12 @@ import { CruiseFormPage } from '@/pages/masters/CruiseFormPage';
 import { VehiclesPage } from '@/pages/masters/VehiclesPage';
 import { VehicleDetailsPage } from '@/pages/masters/VehicleDetailsPage';
 import { VehicleFormPage } from '@/pages/masters/VehicleFormPage';
+import { SightseeingPage } from '@/pages/masters/SightseeingPage';
+import { SightseeingDetailsPage } from '@/pages/masters/SightseeingDetailsPage';
+import { SightseeingFormPage } from '@/pages/masters/SightseeingFormPage';
+import { AddOnServicesPage } from '@/pages/masters/AddOnServicesPage';
+import { AddOnServiceDetailsPage } from '@/pages/masters/AddOnServiceDetailsPage';
+import { AddOnServiceFormPage } from '@/pages/masters/AddOnServiceFormPage';
 
 /**
  * Route table.
@@ -652,6 +658,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTER_VEHICLES_UPDATE}>
                 <VehicleFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/sightseeing"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_SIGHTSEEING_VIEW}>
+                <SightseeingPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/sightseeing/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_SIGHTSEEING_CREATE}>
+                <SightseeingFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/sightseeing/:sightseeingId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_SIGHTSEEING_VIEW}>
+                <SightseeingDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/sightseeing/:sightseeingId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_SIGHTSEEING_UPDATE}>
+                <SightseeingFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/add-on-services"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW}>
+                <AddOnServicesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/add-on-services/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_CREATE}>
+                <AddOnServiceFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/add-on-services/:addOnServiceId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW}>
+                <AddOnServiceDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/add-on-services/:addOnServiceId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE}>
+                <AddOnServiceFormPage />
               </PermissionRoute>
             }
           />
