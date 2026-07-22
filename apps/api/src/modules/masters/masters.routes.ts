@@ -22,6 +22,12 @@ import {
   hotelRoomTypeUpdateSchema,
   hotelUpdateSchema,
   masterStatusSchema,
+  cruiseImageUploadSchema,
+  cruiseInputSchema,
+  cruiseUpdateSchema,
+  vehicleImageUploadSchema,
+  vehicleInputSchema,
+  vehicleUpdateSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
@@ -32,11 +38,15 @@ import {
   citiesController as cities,
   destinationsController as destinations,
   hotelsController as hotels,
+  cruisesController as cruises,
+  vehiclesController as vehicles,
 } from './masters.controller.js';
 
 const router = Router();
 const cityId = z.object({ cityId: z.string().uuid() });
 const destinationId = z.object({ destinationId: z.string().uuid() });
+const cruiseId = z.object({ cruiseId: z.string().uuid() });
+const vehicleId = z.object({ vehicleId: z.string().uuid() });
 const destinationCityId = destinationId.extend({ cityId: z.string().uuid() });
 const bool = z.enum(['true', 'false']).transform((value) => value === 'true');
 const commonList = {
@@ -408,6 +418,164 @@ router.delete(
   requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
   validateRequest({ params: airlineId }),
   asyncHandler(airlines.logoDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Cruises
+// ---------------------------------------------------------------------------
+
+const cruiseList = z.object({
+  ...commonList,
+  sortBy: z.enum(['name', 'createdAt', 'updatedAt']).optional(),
+});
+
+router.get(
+  '/cruises',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_VIEW),
+  validateRequest({ query: cruiseList }),
+  asyncHandler(cruises.list),
+);
+router.get(
+  '/cruises/lookups',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_VIEW),
+  validateRequest({ query: z.object({ search: z.string().trim().max(200).optional() }) }),
+  asyncHandler(cruises.lookups),
+);
+router.post(
+  '/cruises',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_CREATE),
+  validateRequest({ body: cruiseInputSchema }),
+  asyncHandler(cruises.create),
+);
+router.get(
+  '/cruises/:cruiseId',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_VIEW),
+  validateRequest({ params: cruiseId }),
+  asyncHandler(cruises.details),
+);
+router.patch(
+  '/cruises/:cruiseId',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_UPDATE),
+  validateRequest({ params: cruiseId, body: cruiseUpdateSchema }),
+  asyncHandler(cruises.update),
+);
+router.patch(
+  '/cruises/:cruiseId/status',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_UPDATE),
+  validateRequest({ params: cruiseId, body: masterStatusSchema }),
+  asyncHandler(cruises.status),
+);
+router.delete(
+  '/cruises/:cruiseId',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_DELETE),
+  validateRequest({ params: cruiseId }),
+  asyncHandler(cruises.archive),
+);
+router.post(
+  '/cruises/:cruiseId/image/upload',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA),
+  validateRequest({ params: cruiseId, body: cruiseImageUploadSchema }),
+  asyncHandler(cruises.imageUpload),
+);
+router.post(
+  '/cruises/:cruiseId/image/confirm',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA),
+  validateRequest({ params: cruiseId }),
+  asyncHandler(cruises.imageConfirm),
+);
+router.get(
+  '/cruises/:cruiseId/image/download-url',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_VIEW),
+  validateRequest({ params: cruiseId }),
+  asyncHandler(cruises.imageDownload),
+);
+router.delete(
+  '/cruises/:cruiseId/image',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA),
+  validateRequest({ params: cruiseId }),
+  asyncHandler(cruises.imageDelete),
+);
+
+// ---------------------------------------------------------------------------
+// Vehicles
+// ---------------------------------------------------------------------------
+
+const vehicleList = z.object({
+  ...commonList,
+  vehicleType: z.string().trim().max(120).optional(),
+  sortBy: z.enum(['name', 'capacity', 'createdAt', 'updatedAt']).optional(),
+});
+
+router.get(
+  '/vehicles',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
+  validateRequest({ query: vehicleList }),
+  asyncHandler(vehicles.list),
+);
+router.get(
+  '/vehicles/types',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
+  asyncHandler(vehicles.types),
+);
+router.get(
+  '/vehicles/lookups',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
+  validateRequest({ query: z.object({ search: z.string().trim().max(200).optional() }) }),
+  asyncHandler(vehicles.lookups),
+);
+router.post(
+  '/vehicles',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_CREATE),
+  validateRequest({ body: vehicleInputSchema }),
+  asyncHandler(vehicles.create),
+);
+router.get(
+  '/vehicles/:vehicleId',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
+  validateRequest({ params: vehicleId }),
+  asyncHandler(vehicles.details),
+);
+router.patch(
+  '/vehicles/:vehicleId',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_UPDATE),
+  validateRequest({ params: vehicleId, body: vehicleUpdateSchema }),
+  asyncHandler(vehicles.update),
+);
+router.patch(
+  '/vehicles/:vehicleId/status',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_UPDATE),
+  validateRequest({ params: vehicleId, body: masterStatusSchema }),
+  asyncHandler(vehicles.status),
+);
+router.delete(
+  '/vehicles/:vehicleId',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_DELETE),
+  validateRequest({ params: vehicleId }),
+  asyncHandler(vehicles.archive),
+);
+router.post(
+  '/vehicles/:vehicleId/image/upload',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
+  validateRequest({ params: vehicleId, body: vehicleImageUploadSchema }),
+  asyncHandler(vehicles.imageUpload),
+);
+router.post(
+  '/vehicles/:vehicleId/image/confirm',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
+  validateRequest({ params: vehicleId }),
+  asyncHandler(vehicles.imageConfirm),
+);
+router.get(
+  '/vehicles/:vehicleId/image/download-url',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
+  validateRequest({ params: vehicleId }),
+  asyncHandler(vehicles.imageDownload),
+);
+router.delete(
+  '/vehicles/:vehicleId/image',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
+  validateRequest({ params: vehicleId }),
+  asyncHandler(vehicles.imageDelete),
 );
 
 export { router as mastersRoutes };

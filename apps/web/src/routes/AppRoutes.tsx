@@ -65,6 +65,12 @@ import { HotelFormPage } from '@/pages/masters/HotelFormPage';
 import { AirlinesPage } from '@/pages/masters/AirlinesPage';
 import { AirlineDetailsPage } from '@/pages/masters/AirlineDetailsPage';
 import { AirlineFormPage } from '@/pages/masters/AirlineFormPage';
+import { CruisesPage } from '@/pages/masters/CruisesPage';
+import { CruiseDetailsPage } from '@/pages/masters/CruiseDetailsPage';
+import { CruiseFormPage } from '@/pages/masters/CruiseFormPage';
+import { VehiclesPage } from '@/pages/masters/VehiclesPage';
+import { VehicleDetailsPage } from '@/pages/masters/VehicleDetailsPage';
+import { VehicleFormPage } from '@/pages/masters/VehicleFormPage';
 
 /**
  * Route table.
@@ -582,6 +588,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTER_AIRLINES_UPDATE}>
                 <AirlineFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cruises"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CRUISES_VIEW}>
+                <CruisesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cruises/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CRUISES_CREATE}>
+                <CruiseFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cruises/:cruiseId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CRUISES_VIEW}>
+                <CruiseDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cruises/:cruiseId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CRUISES_UPDATE}>
+                <CruiseFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/vehicles"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VEHICLES_VIEW}>
+                <VehiclesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/vehicles/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VEHICLES_CREATE}>
+                <VehicleFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/vehicles/:vehicleId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VEHICLES_VIEW}>
+                <VehicleDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/vehicles/:vehicleId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VEHICLES_UPDATE}>
+                <VehicleFormPage />
               </PermissionRoute>
             }
           />

@@ -3,7 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useArchiveHotel, useDestination, useDestinations, useHotels } from '@/features/masters/masters.api';
+import {
+  useArchiveHotel,
+  useDestination,
+  useDestinations,
+  useHotels,
+} from '@/features/masters/masters.api';
 import { MasterHeader, Pagination, Stars, StatusBadge } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
@@ -135,13 +140,20 @@ export function HotelsPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-900 text-xs uppercase tracking-wide text-white">
                   <tr>
-                    {['Hotel', 'Destination', 'City', 'Rating', 'Default', 'Status', 'Updated', 'Actions'].map(
-                      (heading) => (
-                        <th key={heading} className="px-4 py-3">
-                          {heading}
-                        </th>
-                      ),
-                    )}
+                    {[
+                      'Hotel',
+                      'Destination',
+                      'City',
+                      'Rating',
+                      'Default',
+                      'Status',
+                      'Updated',
+                      'Actions',
+                    ].map((heading) => (
+                      <th key={heading} className="px-4 py-3">
+                        {heading}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y">

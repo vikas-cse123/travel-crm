@@ -83,7 +83,7 @@ describe('Phase 13A master pages', () => {
     ]);
   });
 
-  it('activates only Cities and Destinations beneath the Masters sidebar item', () => {
+  it('activates every built master beneath the Masters sidebar item', () => {
     const masters = NAV_ITEMS.find((item) => item.label === 'Masters');
     expect(masters).toMatchObject({ available: true, permission: 'masters.view' });
     expect(masters?.children?.map((item) => [item.label, item.available])).toEqual([
@@ -91,6 +91,8 @@ describe('Phase 13A master pages', () => {
       ['Destinations', true],
       ['Hotels', true],
       ['Airlines', true],
+      ['Cruises', true],
+      ['Vehicles', true],
     ]);
   });
 

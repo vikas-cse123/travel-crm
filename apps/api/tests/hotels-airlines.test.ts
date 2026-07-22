@@ -139,7 +139,9 @@ describe('Phase 13B hotels master', () => {
     const { city, destination } = await setupDestinationCity(client);
     const first = await createHotel(client, destination.id, city.id);
     expect(first.status).toBe(201);
-    const dup = await createHotel(client, destination.id, city.id, { name: '  SHAH PALACE HOTEL ' });
+    const dup = await createHotel(client, destination.id, city.id, {
+      name: '  SHAH PALACE HOTEL ',
+    });
     expect(dup.status).toBe(409);
 
     const other = await owner('other@ha.test', 'Other Hotel Travel');
@@ -157,12 +159,12 @@ describe('Phase 13B hotels master', () => {
       name: 'Default B',
       isDefaultForCity: true,
     });
-    expect((await db.hotel.findUniqueOrThrow({ where: { id: a.body.data.id } })).isDefaultForCity).toBe(
-      false,
-    );
-    expect((await db.hotel.findUniqueOrThrow({ where: { id: b.body.data.id } })).isDefaultForCity).toBe(
-      true,
-    );
+    expect(
+      (await db.hotel.findUniqueOrThrow({ where: { id: a.body.data.id } })).isDefaultForCity,
+    ).toBe(false);
+    expect(
+      (await db.hotel.findUniqueOrThrow({ where: { id: b.body.data.id } })).isDefaultForCity,
+    ).toBe(true);
 
     // Archiving the default hotel strips its default flag transactionally.
     expect((await client.delete(`/api/masters/hotels/${b.body.data.id}`)).status).toBe(200);
@@ -229,8 +231,13 @@ describe('Phase 13B hotels master', () => {
     const hotel = (await createHotel(client, destination.id, city.id)).body.data as { id: string };
     const sales = await roleClient('owner@ha.test', 'Sales Executive', 'sales@ha.test');
     expect(
-      (await sales.post('/api/masters/hotels', { destinationId: destination.id, cityId: city.id, name: 'X' }))
-        .status,
+      (
+        await sales.post('/api/masters/hotels', {
+          destinationId: destination.id,
+          cityId: city.id,
+          name: 'X',
+        })
+      ).status,
     ).toBe(403);
     expect((await sales.delete(`/api/masters/hotels/${hotel.id}`)).status).toBe(403);
   });
@@ -297,12 +304,20 @@ describe('Phase 13B hotels master', () => {
 
 describe('Phase 13B airlines master', () => {
   async function createAirline(client: Client, overrides: Record<string, unknown> = {}) {
-    return client.post('/api/masters/airlines', { name: 'Air India', status: 'ACTIVE', ...overrides });
+    return client.post('/api/masters/airlines', {
+      name: 'Air India',
+      status: 'ACTIVE',
+      ...overrides,
+    });
   }
 
   it('creates airlines, normalizes codes and snapshots the country', async () => {
     const client = await owner();
-    const created = await createAirline(client, { iataCode: 'ai', icaoCode: 'aic', countryCode: 'in' });
+    const created = await createAirline(client, {
+      iataCode: 'ai',
+      icaoCode: 'aic',
+      countryCode: 'in',
+    });
     expect(created.status).toBe(201);
     expect(created.body.data).toMatchObject({
       name: 'Air India',
@@ -335,7 +350,9 @@ describe('Phase 13B airlines master', () => {
     expect(list.body.data.pagination.total).toBe(1);
     expect(list.body.data.data[0]).toMatchObject({ name: 'Emirates' });
 
-    const updated = await client.patch(`/api/masters/airlines/${a.id}`, { website: 'emirates.com' });
+    const updated = await client.patch(`/api/masters/airlines/${a.id}`, {
+      website: 'emirates.com',
+    });
     expect(updated.body.data).toMatchObject({ website: 'emirates.com' });
     expect((await client.delete(`/api/masters/airlines/${a.id}`)).status).toBe(200);
     expect(await db.airline.count({ where: { id: a.id, status: 'ARCHIVED' } })).toBe(1);

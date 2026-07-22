@@ -101,9 +101,14 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [] }: Props) {
         )}
       </div>
       <div className="space-y-3 p-5">
-        {!items.length && <p className="text-sm text-slate-500">No {title.toLowerCase()} added yet.</p>}
+        {!items.length && (
+          <p className="text-sm text-slate-500">No {title.toLowerCase()} added yet.</p>
+        )}
         {items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div
+            key={item.id}
+            className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm"
+          >
             <div className="min-w-0">
               <p className="truncate font-medium">{item.name}</p>
               <p className="text-xs text-slate-500">
@@ -118,7 +123,10 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [] }: Props) {
                       .join(' · ') || '—'
                   : (item as Hotel['mealPlans'][number]).type.replaceAll('_', ' ')}
                 {canViewCosting && item.sellingPrice != null && (
-                  <> · {item.currency} {item.sellingPrice}</>
+                  <>
+                    {' '}
+                    · {item.currency} {item.sellingPrice}
+                  </>
                 )}
               </p>
             </div>

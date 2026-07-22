@@ -1,19 +1,28 @@
-import { Archive, Eye, Pencil, Plane, Plus, Search } from 'lucide-react';
+import { Archive, Bus, Eye, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { COUNTRIES, PERMISSIONS } from '@interscale/shared';
+import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useAirlines, useArchiveAirline } from '@/features/masters/masters.api';
+import {
+  useArchiveVehicle,
+  useRestoreVehicle,
+  useVehicles,
+  useVehicleTypes,
+} from '@/features/masters/masters.api';
 import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
 
-export function AirlinesPage() {
+export function VehiclesPage() {
   const [params, setParams] = useSearchParams();
-  const airlines = useAirlines(params);
-  const archive = useArchiveAirline();
+  const vehicles = useVehicles(params);
+  // Free-text field, so the dropdown is built from values actually in use.
+  const types = useVehicleTypes();
+  const archive = useArchiveVehicle();
+  const restore = useRestoreVehicle();
   const { hasPermission } = useAuth();
-  const canCreate = hasPermission(PERMISSIONS.MASTER_AIRLINES_CREATE);
-  const canUpdate = hasPermission(PERMISSIONS.MASTER_AIRLINES_UPDATE);
-  const canArchive = hasPermission(PERMISSIONS.MASTER_AIRLINES_DELETE);
+  const canCreate = hasPermission(PERMISSIONS.MASTER_VEHICLES_CREATE);
+  const canUpdate = hasPermission(PERMISSIONS.MASTER_VEHICLES_UPDATE);
+  const canArchive = hasPermission(PERMISSIONS.MASTER_VEHICLES_DELETE);
+
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -29,14 +38,14 @@ export function AirlinesPage() {
   return (
     <div className="space-y-5">
       <MasterHeader
-        title="Airline Master"
-        description="Maintain the airlines used across quotations and bookings."
-        current="Airlines"
+        title="Vehicle Master"
+        description="Maintain the vehicle categories used for transfers and sightseeing."
+        current="Vehicles"
         action={
           canCreate ? (
-            <Link to="/masters/airlines/new">
+            <Link to="/masters/vehicles/new">
               <Button>
-                <Plus className="h-4 w-4" /> Add New Airline
+                <Plus className="h-4 w-4" /> Add New Vehicle
               </Button>
             </Link>
           ) : undefined
@@ -45,32 +54,32 @@ export function AirlinesPage() {
       <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_200px_160px]">
           <label className="relative">
-            <span className="sr-only">Search airlines</span>
+            <span className="sr-only">Search vehicles</span>
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <input
-              aria-label="Search airlines"
-              placeholder="Search airline or code…"
+              aria-label="Search vehicles"
+              placeholder="Search vehicle or type…"
               className="w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm"
               value={params.get('search') ?? ''}
               onChange={(event) => update('search', event.target.value)}
             />
           </label>
           <select
-            aria-label="Airline country"
+            aria-label="Vehicle type"
             className="rounded-lg border px-3 py-2.5 text-sm"
-            value={params.get('country') ?? ''}
-            onChange={(event) => update('country', event.target.value)}
+            value={params.get('vehicleType') ?? ''}
+            onChange={(event) => update('vehicleType', event.target.value)}
           >
-            <option value="">All countries</option>
-            {COUNTRIES.map((country) => (
-              <option key={country.code} value={country.code}>
-                {country.name}
+            <option value="">All Vehicle Types</option>
+            {(types.data?.vehicleTypes ?? []).map((type) => (
+              <option key={type} value={type}>
+                {type}
               </option>
             ))}
           </select>
           {canUpdate ? (
             <select
-              aria-label="Airline status"
+              aria-label="Vehicle status"
               className="rounded-lg border px-3 py-2.5 text-sm"
               value={params.get('status') ?? ''}
               onChange={(event) => update('status', event.target.value)}
@@ -84,17 +93,18 @@ export function AirlinesPage() {
             <div />
           )}
         </div>
-        {airlines.isPending ? (
+
+        {vehicles.isPending ? (
           <div className="h-72 animate-pulse bg-slate-100" />
-        ) : airlines.isError ? (
+        ) : vehicles.isError ? (
           <div role="alert" className="p-8 text-center text-red-700">
-            Airlines could not be loaded.
+            Vehicles could not be loaded.
           </div>
-        ) : !airlines.data?.data.length ? (
+        ) : !vehicles.data?.data.length ? (
           <div className="p-12 text-center">
-            <Plane className="mx-auto h-10 w-10 text-slate-300" />
-            <h2 className="mt-3 font-semibold">No airlines found</h2>
-            <p className="text-sm text-slate-500">Adjust the filters or add the first airline.</p>
+            <Bus className="mx-auto h-10 w-10 text-slate-300" />
+            <h2 className="mt-3 font-semibold">No vehicles found</h2>
+            <p className="text-sm text-slate-500">Adjust the filters or add the first vehicle.</p>
           </div>
         ) : (
           <>
@@ -103,13 +113,12 @@ export function AirlinesPage() {
                 <thead className="bg-slate-900 text-xs uppercase tracking-wide text-white">
                   <tr>
                     {[
-                      'Logo',
-                      'Airline',
-                      'IATA',
-                      'ICAO',
-                      'Country',
+                      'Image',
+                      'Vehicle Name',
+                      'Type',
+                      'Capacity',
                       'Status',
-                      'Updated',
+                      'Created At',
                       'Actions',
                     ].map((heading) => (
                       <th key={heading} className="px-4 py-3">
@@ -119,54 +128,64 @@ export function AirlinesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {airlines.data.data.map((airline) => (
-                    <tr key={airline.id} className="hover:bg-slate-50">
+                  {vehicles.data.data.map((vehicle) => (
+                    <tr key={vehicle.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="flex h-9 w-14 items-center justify-center rounded bg-slate-100 text-slate-500">
-                          {airline.hasLogo ? (
-                            <Plane className="h-4 w-4 text-brand-600" />
+                          {vehicle.hasImage ? (
+                            <Bus className="h-4 w-4 text-brand-600" />
                           ) : (
                             <span className="text-[10px] font-semibold text-slate-400">
-                              No Logo
+                              No Image
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{airline.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{airline.iataCode ?? '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{airline.icaoCode ?? '—'}</td>
-                      <td className="px-4 py-3">{airline.countryName ?? '—'}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{vehicle.name}</td>
+                      <td className="px-4 py-3 text-slate-700">{vehicle.vehicleType}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {vehicle.capacity != null ? `${vehicle.capacity} persons` : '—'}
+                      </td>
                       <td className="px-4 py-3">
-                        <StatusBadge value={airline.status} />
+                        <StatusBadge value={vehicle.status} />
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(airline.updatedAt).toLocaleDateString()}
+                        {new Date(vehicle.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
                           <Link
-                            aria-label={`View ${airline.name}`}
-                            to={`/masters/airlines/${airline.id}`}
+                            aria-label={`View ${vehicle.name}`}
+                            to={`/masters/vehicles/${vehicle.id}`}
                             className="rounded bg-cyan-600 p-2 text-white"
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
                           {canUpdate && (
                             <Link
-                              aria-label={`Edit ${airline.name}`}
-                              to={`/masters/airlines/${airline.id}/edit`}
+                              aria-label={`Edit ${vehicle.name}`}
+                              to={`/masters/vehicles/${vehicle.id}/edit`}
                               className="rounded bg-brand-600 p-2 text-white"
                             >
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && airline.status !== 'ARCHIVED' && (
+                          {canArchive && vehicle.status !== 'ARCHIVED' && (
                             <button
-                              aria-label={`Archive ${airline.name}`}
-                              onClick={() => archiveRow(airline.id, airline.name)}
+                              aria-label={`Archive ${vehicle.name}`}
+                              onClick={() => archiveRow(vehicle.id, vehicle.name)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canUpdate && vehicle.status === 'ARCHIVED' && (
+                            <button
+                              aria-label={`Restore ${vehicle.name}`}
+                              onClick={() => restore.mutate(vehicle.id)}
+                              className="rounded bg-emerald-600 p-2 text-white"
+                            >
+                              <RotateCcw className="h-4 w-4" />
                             </button>
                           )}
                         </div>
@@ -177,20 +196,21 @@ export function AirlinesPage() {
               </table>
             </div>
             <div className="divide-y md:hidden">
-              {airlines.data.data.map((airline) => (
-                <article key={airline.id} className="flex items-center justify-between gap-2 p-4">
-                  <div>
-                    <h2 className="font-semibold">{airline.name}</h2>
-                    <p className="font-mono text-xs text-slate-500">
-                      {airline.iataCode ?? '—'} · {airline.icaoCode ?? '—'}
+              {vehicles.data.data.map((vehicle) => (
+                <article key={vehicle.id} className="flex items-center justify-between gap-2 p-4">
+                  <div className="min-w-0">
+                    <h2 className="truncate font-semibold">{vehicle.name}</h2>
+                    <p className="text-xs text-slate-500">
+                      {vehicle.vehicleType}
+                      {vehicle.capacity != null ? ` · ${vehicle.capacity} persons` : ''}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <Link to={`/masters/airlines/${airline.id}`}>
+                  <div className="flex shrink-0 gap-2">
+                    <Link to={`/masters/vehicles/${vehicle.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
                     {canUpdate && (
-                      <Link to={`/masters/airlines/${airline.id}/edit`}>
+                      <Link to={`/masters/vehicles/${vehicle.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
                     )}
@@ -199,9 +219,9 @@ export function AirlinesPage() {
               ))}
             </div>
             <Pagination
-              page={airlines.data.pagination.page}
-              totalPages={airlines.data.pagination.totalPages}
-              total={airlines.data.pagination.total}
+              page={vehicles.data.pagination.page}
+              totalPages={vehicles.data.pagination.totalPages}
+              total={vehicles.data.pagination.total}
               onPage={(page) => update('page', String(page))}
             />
           </>

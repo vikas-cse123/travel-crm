@@ -29,6 +29,8 @@ export const PERMISSION_MODULE = {
   MASTER_DESTINATIONS: 'masters.destinations',
   MASTER_HOTELS: 'masters.hotels',
   MASTER_AIRLINES: 'masters.airlines',
+  MASTER_CRUISES: 'masters.cruises',
+  MASTER_VEHICLES: 'masters.vehicles',
   REPORTS: 'reports',
 } as const;
 
@@ -57,6 +59,8 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   'masters.destinations': 'Masters — Destinations',
   'masters.hotels': 'Masters — Hotels',
   'masters.airlines': 'Masters — Airlines',
+  'masters.cruises': 'Masters — Cruises',
+  'masters.vehicles': 'Masters — Vehicles',
   reports: 'Reports',
 };
 
@@ -233,6 +237,18 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_AIRLINES, 'update', 'Edit airlines and change status'),
   available(M.MASTER_AIRLINES, 'delete', 'Archive airlines'),
   available(M.MASTER_AIRLINES, 'manage_media', 'Manage airline logos'),
+  available(M.MASTER_CRUISES, 'view', 'View active cruises'),
+  available(M.MASTER_CRUISES, 'create', 'Create cruises'),
+  available(M.MASTER_CRUISES, 'update', 'Edit cruises and change status'),
+  available(M.MASTER_CRUISES, 'delete', 'Archive cruises'),
+  available(M.MASTER_CRUISES, 'manage_media', 'Manage cruise images'),
+  available(M.MASTER_CRUISES, 'view_costing', 'View cruise room type prices'),
+  available(M.MASTER_CRUISES, 'manage_costing', 'Edit cruise room type prices'),
+  available(M.MASTER_VEHICLES, 'view', 'View active vehicles'),
+  available(M.MASTER_VEHICLES, 'create', 'Create vehicles'),
+  available(M.MASTER_VEHICLES, 'update', 'Edit vehicles and change status'),
+  available(M.MASTER_VEHICLES, 'delete', 'Archive vehicles'),
+  available(M.MASTER_VEHICLES, 'manage_media', 'Manage vehicle images'),
 
   planned(M.REPORTS, 'view', 'View reports'),
 ] as const;
@@ -373,6 +389,18 @@ export const PERMISSIONS = {
   MASTER_AIRLINES_UPDATE: 'masters.airlines.update',
   MASTER_AIRLINES_DELETE: 'masters.airlines.delete',
   MASTER_AIRLINES_MANAGE_MEDIA: 'masters.airlines.manage_media',
+  MASTER_CRUISES_VIEW: 'masters.cruises.view',
+  MASTER_CRUISES_CREATE: 'masters.cruises.create',
+  MASTER_CRUISES_UPDATE: 'masters.cruises.update',
+  MASTER_CRUISES_DELETE: 'masters.cruises.delete',
+  MASTER_CRUISES_MANAGE_MEDIA: 'masters.cruises.manage_media',
+  MASTER_CRUISES_VIEW_COSTING: 'masters.cruises.view_costing',
+  MASTER_CRUISES_MANAGE_COSTING: 'masters.cruises.manage_costing',
+  MASTER_VEHICLES_VIEW: 'masters.vehicles.view',
+  MASTER_VEHICLES_CREATE: 'masters.vehicles.create',
+  MASTER_VEHICLES_UPDATE: 'masters.vehicles.update',
+  MASTER_VEHICLES_DELETE: 'masters.vehicles.delete',
+  MASTER_VEHICLES_MANAGE_MEDIA: 'masters.vehicles.manage_media',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

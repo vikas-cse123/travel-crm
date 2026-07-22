@@ -4,6 +4,8 @@ import { UnauthorizedError } from '../../utils/errors.js';
 import { citiesService, destinationsService } from './masters.service.js';
 import { hotelsService } from './hotels.service.js';
 import { airlinesService } from './airlines.service.js';
+import { cruisesService } from './cruises.service.js';
+import { vehiclesService } from './vehicles.service.js';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
@@ -157,7 +159,12 @@ export const hotelsController = {
   details: async (req: Request, res: Response) =>
     sendSuccess(res, await hotelsService.details(auth(req), req.params.hotelId!)),
   create: async (req: Request, res: Response) =>
-    sendSuccess(res, await hotelsService.create(auth(req), req.body, context(req)), 'Hotel created.', 201),
+    sendSuccess(
+      res,
+      await hotelsService.create(auth(req), req.body, context(req)),
+      'Hotel created.',
+      201,
+    ),
   update: async (req: Request, res: Response) =>
     sendSuccess(
       res,
@@ -289,5 +296,117 @@ export const airlinesController = {
       res,
       await airlinesService.deleteLogo(auth(req), req.params.airlineId!, context(req)),
       'Airline logo deleted.',
+    ),
+};
+
+export const cruisesController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await cruisesService.list(auth(req), req.query)),
+  lookups: async (req: Request, res: Response) =>
+    sendSuccess(res, await cruisesService.lookups(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await cruisesService.details(auth(req), req.params.cruiseId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.create(auth(req), req.body, context(req)),
+      'Cruise created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.update(auth(req), req.params.cruiseId!, req.body, context(req)),
+      'Cruise updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.status(auth(req), req.params.cruiseId!, req.body.status, context(req)),
+      'Cruise status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.archive(auth(req), req.params.cruiseId!, context(req)),
+      'Cruise archived.',
+    ),
+  imageUpload: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.createImageUpload(auth(req), req.params.cruiseId!, req.body),
+      'Cruise image upload authorized.',
+      201,
+    ),
+  imageConfirm: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.confirmImage(auth(req), req.params.cruiseId!, context(req)),
+      'Cruise image confirmed.',
+    ),
+  imageDownload: async (req: Request, res: Response) =>
+    sendSuccess(res, await cruisesService.imageDownload(auth(req), req.params.cruiseId!)),
+  imageDelete: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.deleteImage(auth(req), req.params.cruiseId!, context(req)),
+      'Cruise image deleted.',
+    ),
+};
+
+export const vehiclesController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await vehiclesService.list(auth(req), req.query)),
+  types: async (req: Request, res: Response) =>
+    sendSuccess(res, await vehiclesService.types(auth(req))),
+  lookups: async (req: Request, res: Response) =>
+    sendSuccess(res, await vehiclesService.lookups(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await vehiclesService.details(auth(req), req.params.vehicleId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.create(auth(req), req.body, context(req)),
+      'Vehicle created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.update(auth(req), req.params.vehicleId!, req.body, context(req)),
+      'Vehicle updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.status(auth(req), req.params.vehicleId!, req.body.status, context(req)),
+      'Vehicle status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.archive(auth(req), req.params.vehicleId!, context(req)),
+      'Vehicle archived.',
+    ),
+  imageUpload: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.createImageUpload(auth(req), req.params.vehicleId!, req.body),
+      'Vehicle image upload authorized.',
+      201,
+    ),
+  imageConfirm: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.confirmImage(auth(req), req.params.vehicleId!, context(req)),
+      'Vehicle image confirmed.',
+    ),
+  imageDownload: async (req: Request, res: Response) =>
+    sendSuccess(res, await vehiclesService.imageDownload(auth(req), req.params.vehicleId!)),
+  imageDelete: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.deleteImage(auth(req), req.params.vehicleId!, context(req)),
+      'Vehicle image deleted.',
     ),
 };

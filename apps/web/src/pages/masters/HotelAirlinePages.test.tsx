@@ -30,7 +30,9 @@ const destination = {
   name: 'Azerbaijan',
   destinationType: 'INTERNATIONAL',
   status: 'ACTIVE',
-  cities: [{ id: 'link-1', cityId, sequence: 0, city: { id: cityId, name: 'Baku', airportCode: null } }],
+  cities: [
+    { id: 'link-1', cityId, sequence: 0, city: { id: cityId, name: 'Baku', airportCode: null } },
+  ],
   _count: { cities: 1 },
   createdAt: '2026-07-20T00:00:00.000Z',
   updatedAt: '2026-07-20T00:00:00.000Z',
@@ -157,6 +159,8 @@ describe('Phase 13B master pages', () => {
       'Destinations',
       'Hotels',
       'Airlines',
+      'Cruises',
+      'Vehicles',
     ]);
   });
 
@@ -177,7 +181,10 @@ describe('Phase 13B master pages', () => {
 
   it('shows hotel loading, empty and error states', async () => {
     const never = new Promise<Response>(() => undefined);
-    vi.stubGlobal('fetch', vi.fn(() => never));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => never),
+    );
     const loading = renderWithProviders(<HotelsPage />);
     expect(loading.container.querySelector('.animate-pulse')).toBeInTheDocument();
     loading.unmount();
@@ -185,7 +192,9 @@ describe('Phase 13B master pages', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (request: RequestInfo | URL) =>
-        String(request).includes('/masters/destinations') ? response(page([destination])) : response(page([])),
+        String(request).includes('/masters/destinations')
+          ? response(page([destination]))
+          : response(page([])),
       ),
     );
     const empty = renderWithProviders(<HotelsPage />);
@@ -249,7 +258,10 @@ describe('Phase 13B master pages', () => {
   });
 
   it('renders hotel detail and gates costing by permission', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(hotel)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(hotel)),
+    );
     const view = renderWithProviders(
       <Routes>
         <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
@@ -264,7 +276,10 @@ describe('Phase 13B master pages', () => {
 
     // Without view_costing the price must not be rendered.
     auth.permissions = new Set(['masters.hotels.view']);
-    vi.stubGlobal('fetch', vi.fn(async () => response(hotel)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(hotel)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
@@ -277,13 +292,19 @@ describe('Phase 13B master pages', () => {
   });
 
   it('renders the airline list and validates the airline create form', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(page([airline]))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(page([airline]))),
+    );
     const list = renderWithProviders(<AirlinesPage />);
     expect((await screen.findAllByText('Air India')).length).toBeGreaterThan(0);
     expect(screen.getByText('AI')).toBeInTheDocument();
     list.unmount();
 
-    vi.stubGlobal('fetch', vi.fn(async () => response(airline)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(airline)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/masters/airlines/new" element={<AirlineFormPage />} />
@@ -300,7 +321,10 @@ describe('Phase 13B master pages', () => {
   });
 
   it('renders airline detail', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(airline)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(airline)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/masters/airlines/:airlineId" element={<AirlineDetailsPage />} />

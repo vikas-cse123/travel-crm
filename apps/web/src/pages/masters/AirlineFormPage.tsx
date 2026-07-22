@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { AIRLINE_LOGO_MIME_TYPES, COUNTRIES, PERMISSIONS, type AirlineInput } from '@interscale/shared';
+import {
+  AIRLINE_LOGO_MIME_TYPES,
+  COUNTRIES,
+  PERMISSIONS,
+  type AirlineInput,
+} from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
@@ -84,7 +89,9 @@ export function AirlineFormPage() {
       fileSize: file.size,
     });
     if (!approval.uploadUrl.startsWith('http'))
-      throw new Error('Local memory storage has no browser upload transport. Configure S3 to upload logos.');
+      throw new Error(
+        'Local memory storage has no browser upload transport. Configure S3 to upload logos.',
+      );
     const response = await fetch(approval.uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': file.type },
@@ -144,7 +151,11 @@ export function AirlineFormPage() {
           <div className="space-y-5 p-5">
             <label className="block text-sm font-medium">
               Airline Name *
-              <input className={fieldClass} placeholder="Enter airline name" {...form.register('name')} />
+              <input
+                className={fieldClass}
+                placeholder="Enter airline name"
+                {...form.register('name')}
+              />
               {form.formState.errors.name && (
                 <span className="text-xs text-red-600">{form.formState.errors.name.message}</span>
               )}
@@ -155,7 +166,9 @@ export function AirlineFormPage() {
                 <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600 hover:bg-slate-50">
                   <ImagePlus className="h-5 w-5" />
                   {logo?.name ??
-                    (airline.data?.hasLogo ? `Replace ${airline.data.logoFileName}` : 'Choose JPEG, PNG or WebP')}
+                    (airline.data?.hasLogo
+                      ? `Replace ${airline.data.logoFileName}`
+                      : 'Choose JPEG, PNG or WebP')}
                   <input
                     className="sr-only"
                     type="file"
@@ -191,11 +204,21 @@ export function AirlineFormPage() {
           <div className="grid gap-5 p-5 sm:grid-cols-2">
             <label className="block text-sm font-medium">
               IATA Code
-              <input className={fieldClass} maxLength={2} placeholder="e.g. AI" {...form.register('iataCode')} />
+              <input
+                className={fieldClass}
+                maxLength={2}
+                placeholder="e.g. AI"
+                {...form.register('iataCode')}
+              />
             </label>
             <label className="block text-sm font-medium">
               ICAO Code
-              <input className={fieldClass} maxLength={3} placeholder="e.g. AIC" {...form.register('icaoCode')} />
+              <input
+                className={fieldClass}
+                maxLength={3}
+                placeholder="e.g. AIC"
+                {...form.register('icaoCode')}
+              />
             </label>
             <label className="block text-sm font-medium">
               Country

@@ -67,6 +67,20 @@ export const destinationImageUploadSchema = z.object({
 
 export const HOTEL_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const AIRLINE_LOGO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+// The reference CRM advertises JPG/JPEG/PNG/GIF; webp is kept because it is the
+// house standard everywhere else in this codebase.
+export const CRUISE_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
+export const VEHICLE_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
 export const HOTEL_MEAL_PLAN_TYPES = [
   'ROOM_ONLY',
   'BREAKFAST',
@@ -210,6 +224,72 @@ export const airlineLogoUploadSchema = z.object({
   fileSize: z.coerce.number().int().positive(),
 });
 
+// ---------------------------------------------------------------------------
+// Cruises
+// ---------------------------------------------------------------------------
+
+/// One sellable cabin category. `price` stays optional so a cruise can be
+/// catalogued before commercial terms are agreed.
+export const cruiseRoomTypeInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1, 'Room type name is required.').max(160),
+  description: optionalText(2000),
+  price: optionalMoney,
+  currency: currency.default('INR'),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+  sortOrder: z.coerce.number().int().min(0).max(100_000).optional(),
+});
+
+const cruiseBaseSchema = z.object({
+  name: z.string().trim().min(2, 'Cruise name is required.').max(200),
+  description: optionalRichText,
+  // The whole set is replaced on write, mirroring the reference's inline
+  // add/remove editor. Omitting the key leaves existing room types untouched.
+  roomTypes: z.array(cruiseRoomTypeInputSchema).max(50).optional(),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const cruiseInputSchema = cruiseBaseSchema;
+export const cruiseUpdateSchema = cruiseBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const cruiseImageUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(CRUISE_IMAGE_MIME_TYPES),
+  fileSize: z.coerce.number().int().positive(),
+});
+
+// ---------------------------------------------------------------------------
+// Vehicles
+// ---------------------------------------------------------------------------
+
+const vehicleBaseSchema = z.object({
+  name: z.string().trim().min(2, 'Vehicle name is required.').max(200),
+  // Free text in the reference; the list filter is derived from used values.
+  vehicleType: z.string().trim().min(1, 'Vehicle type is required.').max(120),
+  capacity: z.coerce
+    .number()
+    .int('Capacity must be a whole number.')
+    .min(1, 'Capacity must be at least 1.')
+    .max(1000, 'Capacity looks too large.')
+    .nullable()
+    .optional(),
+  description: optionalText(50_000),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const vehicleInputSchema = vehicleBaseSchema;
+export const vehicleUpdateSchema = vehicleBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const vehicleImageUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(VEHICLE_IMAGE_MIME_TYPES),
+  fileSize: z.coerce.number().int().positive(),
+});
+
 export const destinationCityAddSchema = z.object({ cityId: z.string().uuid() });
 export const destinationCityReorderSchema = z.object({
   cityIds: z.array(z.string().uuid()).min(1).max(100),
@@ -232,3 +312,10 @@ export type HotelMealPlanType = (typeof HOTEL_MEAL_PLAN_TYPES)[number];
 export type AirlineInput = z.infer<typeof airlineInputSchema>;
 export type AirlineUpdateInput = z.infer<typeof airlineUpdateSchema>;
 export type AirlineLogoUploadInput = z.infer<typeof airlineLogoUploadSchema>;
+export type CruiseInput = z.infer<typeof cruiseInputSchema>;
+export type CruiseUpdateInput = z.infer<typeof cruiseUpdateSchema>;
+export type CruiseRoomTypeInput = z.infer<typeof cruiseRoomTypeInputSchema>;
+export type CruiseImageUploadInput = z.infer<typeof cruiseImageUploadSchema>;
+export type VehicleInput = z.infer<typeof vehicleInputSchema>;
+export type VehicleUpdateInput = z.infer<typeof vehicleUpdateSchema>;
+export type VehicleImageUploadInput = z.infer<typeof vehicleImageUploadSchema>;

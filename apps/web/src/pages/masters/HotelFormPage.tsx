@@ -92,7 +92,9 @@ const textOrNull = (value: string): string | null => value.trim() || null;
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
-      <div className="border-b bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">{title}</div>
+      <div className="border-b bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
+        {title}
+      </div>
       <div className="space-y-4 p-5">{children}</div>
     </section>
   );
@@ -187,7 +189,9 @@ export function HotelFormPage() {
       fileSize: file.size,
     });
     if (!approval.uploadUrl.startsWith('http'))
-      throw new Error('Local memory storage has no browser upload transport. Configure S3 to upload images.');
+      throw new Error(
+        'Local memory storage has no browser upload transport. Configure S3 to upload images.',
+      );
     const response = await fetch(approval.uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': file.type },
@@ -238,16 +242,15 @@ export function HotelFormPage() {
       status: values.status,
     };
     try {
-      const saved = hotelId
-        ? await update.mutateAsync(payload)
-        : await create.mutateAsync(payload);
+      const saved = hotelId ? await update.mutateAsync(payload) : await create.mutateAsync(payload);
       if (image && canManageMedia) {
         setUploading(true);
         await uploadImage(saved.id, image);
       }
       navigate(`/masters/hotels/${saved.id}`);
     } catch (error) {
-      if (error instanceof Error && !(error as { code?: string }).code) setImageError(error.message);
+      if (error instanceof Error && !(error as { code?: string }).code)
+        setImageError(error.message);
     } finally {
       setUploading(false);
     }
@@ -287,7 +290,9 @@ export function HotelFormPage() {
             </Field>
             <Field label="City *" error={errors.cityId?.message}>
               <select className={fieldClass} {...form.register('cityId')} disabled={!destinationId}>
-                <option value="">{destinationId ? 'Select city' : 'Select a destination first'}</option>
+                <option value="">
+                  {destinationId ? 'Select city' : 'Select a destination first'}
+                </option>
                 {destinationDetail.data?.cities.map((link) => (
                   <option key={link.cityId} value={link.cityId}>
                     {link.city.name}
@@ -296,7 +301,11 @@ export function HotelFormPage() {
               </select>
             </Field>
             <Field label="Hotel Name *" error={errors.name?.message}>
-              <input className={fieldClass} placeholder="Enter hotel name" {...form.register('name')} />
+              <input
+                className={fieldClass}
+                placeholder="Enter hotel name"
+                {...form.register('name')}
+              />
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Star Category">
@@ -323,7 +332,11 @@ export function HotelFormPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Property Type">
-                <input className={fieldClass} placeholder="Hotel, Resort…" {...form.register('propertyType')} />
+                <input
+                  className={fieldClass}
+                  placeholder="Hotel, Resort…"
+                  {...form.register('propertyType')}
+                />
               </Field>
               <Field label="External Hotel Code">
                 <input className={fieldClass} {...form.register('externalCode')} />
@@ -333,7 +346,9 @@ export function HotelFormPage() {
               <input type="checkbox" className="mt-0.5" {...form.register('isDefaultForCity')} />
               <span>
                 <span className="font-medium">Set as default hotel for this city</span>
-                <span className="block text-xs text-slate-500">Only one hotel can be default per city.</span>
+                <span className="block text-xs text-slate-500">
+                  Only one hotel can be default per city.
+                </span>
               </span>
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -363,10 +378,20 @@ export function HotelFormPage() {
                   <input className={fieldClass} {...form.register('postalCode')} />
                 </Field>
                 <Field label="Latitude">
-                  <input className={fieldClass} type="number" step="any" {...form.register('latitude')} />
+                  <input
+                    className={fieldClass}
+                    type="number"
+                    step="any"
+                    {...form.register('latitude')}
+                  />
                 </Field>
                 <Field label="Longitude">
-                  <input className={fieldClass} type="number" step="any" {...form.register('longitude')} />
+                  <input
+                    className={fieldClass}
+                    type="number"
+                    step="any"
+                    {...form.register('longitude')}
+                  />
                 </Field>
               </div>
             </Card>
@@ -431,7 +456,9 @@ export function HotelFormPage() {
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600 hover:bg-slate-50">
               <ImagePlus className="h-5 w-5" />
               {image?.name ??
-                (hotel.data?.hasImage ? `Replace ${hotel.data.imageFileName}` : 'Choose JPEG, PNG or WebP')}
+                (hotel.data?.hasImage
+                  ? `Replace ${hotel.data.imageFileName}`
+                  : 'Choose JPEG, PNG or WebP')}
               <input
                 className="sr-only"
                 type="file"

@@ -13,10 +13,7 @@ import {
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
-import {
-  hotelImageObjectKey,
-  storageService,
-} from '../../services/storage/storage.service.js';
+import { hotelImageObjectKey, storageService } from '../../services/storage/storage.service.js';
 import { normalizeCustomerName } from '../../utils/normalize.js';
 import {
   buildPaginationMeta,
@@ -54,7 +51,8 @@ function audit(
   };
 }
 
-const num = (value: Prisma.Decimal | null): number | null => (value === null ? null : value.toNumber());
+const num = (value: Prisma.Decimal | null): number | null =>
+  value === null ? null : value.toNumber();
 const blankToNull = (value: string | null | undefined): string | null => value?.trim() || null;
 const PRESIGN_TTL = env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS;
 
@@ -137,10 +135,18 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean) {
     longitude: num(safe.longitude as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     ...(Array.isArray(roomTypes)
-      ? { roomTypes: roomTypes.map((r) => presentRoomType(r as Record<string, unknown>, canViewCosting)) }
+      ? {
+          roomTypes: roomTypes.map((r) =>
+            presentRoomType(r as Record<string, unknown>, canViewCosting),
+          ),
+        }
       : {}),
     ...(Array.isArray(mealPlans)
-      ? { mealPlans: mealPlans.map((m) => presentMealPlan(m as Record<string, unknown>, canViewCosting)) }
+      ? {
+          mealPlans: mealPlans.map((m) =>
+            presentMealPlan(m as Record<string, unknown>, canViewCosting),
+          ),
+        }
       : {}),
   };
 }
@@ -189,7 +195,9 @@ function hotelWriteData(input: HotelInput | HotelUpdateInput, canManageCosting: 
   void canManageCosting; // hotels carry no direct cost fields; costing lives on room types / meal plans
   const key = <K extends keyof (HotelInput & HotelUpdateInput)>(k: K) => k in input;
   return {
-    ...(key('name') ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) } : {}),
+    ...(key('name')
+      ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) }
+      : {}),
     ...(key('starCategory') ? { starCategory: input.starCategory ?? null } : {}),
     ...(key('starRating') ? { starRating: input.starRating ?? null } : {}),
     ...(key('propertyType') ? { propertyType: blankToNull(input.propertyType) } : {}),
@@ -348,7 +356,10 @@ export const hotelsService = {
             isDefaultForCity: makeDefault,
           }),
         });
-        return tx.hotel.findUniqueOrThrow({ where: { id: created.id }, include: hotelDetailInclude });
+        return tx.hotel.findUniqueOrThrow({
+          where: { id: created.id },
+          include: hotelDetailInclude,
+        });
       });
       return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
     } catch (error) {
@@ -394,14 +405,20 @@ export const hotelsService = {
             changedFields: Object.keys(input),
           }),
         });
-        if (input.isDefaultForCity !== undefined && input.isDefaultForCity !== current.isDefaultForCity)
+        if (
+          input.isDefaultForCity !== undefined &&
+          input.isDefaultForCity !== current.isDefaultForCity
+        )
           await tx.activityLog.create({
             data: audit(auth, 'HOTEL_DEFAULT_CHANGED', 'Hotel', current.id, context, {
               cityId,
               isDefaultForCity: defaultActive,
             }),
           });
-        return tx.hotel.findUniqueOrThrow({ where: { id: current.id }, include: hotelDetailInclude });
+        return tx.hotel.findUniqueOrThrow({
+          where: { id: current.id },
+          include: hotelDetailInclude,
+        });
       });
       return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
     } catch (error) {
@@ -505,7 +522,8 @@ export const hotelsService = {
         where: { id: existing.id },
         data: roomTypeWriteData(input, canManageCosting),
       });
-      const action = input.status === 'ARCHIVED' ? 'HOTEL_ROOM_TYPE_ARCHIVED' : 'HOTEL_ROOM_TYPE_UPDATED';
+      const action =
+        input.status === 'ARCHIVED' ? 'HOTEL_ROOM_TYPE_ARCHIVED' : 'HOTEL_ROOM_TYPE_UPDATED';
       await tx.activityLog.create({
         data: audit(auth, action, 'HotelRoomType', existing.id, context, {
           changedFields: Object.keys(input),
@@ -600,7 +618,12 @@ export const hotelsService = {
     });
     if (oldPending && oldPending !== key) await storageService.deleteObject(oldPending);
     return {
-      uploadUrl: await storageService.createUploadUrl(key, input.mimeType, input.fileSize, PRESIGN_TTL),
+      uploadUrl: await storageService.createUploadUrl(
+        key,
+        input.mimeType,
+        input.fileSize,
+        PRESIGN_TTL,
+      ),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
@@ -617,7 +640,10 @@ export const hotelsService = {
       throw new ValidationError('No hotel image upload is awaiting confirmation.');
     const metadata = await storageService.headObject(key);
     if (!metadata) throw new ValidationError('The uploaded hotel image could not be found.');
-    if (metadata.size !== hotel.pendingImageFileSize || metadata.contentType !== hotel.pendingImageMimeType)
+    if (
+      metadata.size !== hotel.pendingImageFileSize ||
+      metadata.contentType !== hotel.pendingImageMimeType
+    )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
     const oldKey = hotel.imageObjectKey;
     const action = oldKey ? 'HOTEL_IMAGE_REPLACED' : 'HOTEL_IMAGE_UPLOADED';
@@ -656,7 +682,11 @@ export const hotelsService = {
     if (!hotel.imageObjectKey || !hotel.imageFileName || !hotel.imageConfirmedAt)
       throw new NotFoundError('Hotel image not found.');
     return {
-      url: await storageService.createDownloadUrl(hotel.imageObjectKey, hotel.imageFileName, PRESIGN_TTL),
+      url: await storageService.createDownloadUrl(
+        hotel.imageObjectKey,
+        hotel.imageFileName,
+        PRESIGN_TTL,
+      ),
       expiresInSeconds: PRESIGN_TTL,
     };
   },

@@ -151,7 +151,9 @@ export function HotelDetailsPage() {
           </div>
           <div role="tabpanel" className="min-h-72 space-y-3 p-6">
             {tab === 'description' && <SafeRichText html={value.description} />}
-            {tab === 'amenities' && <SafeRichText html={value.amenities} empty="No amenities listed." />}
+            {tab === 'amenities' && (
+              <SafeRichText html={value.amenities} empty="No amenities listed." />
+            )}
             {tab === 'roomTypes' &&
               (value.roomTypes.length ? (
                 value.roomTypes.map((room) => (
@@ -165,7 +167,10 @@ export function HotelDetailsPage() {
                         .filter(Boolean)
                         .join(' · ') || '—'}
                       {canViewCosting && room.sellingPrice != null && (
-                        <> · {room.currency} {room.sellingPrice}</>
+                        <>
+                          {' '}
+                          · {room.currency} {room.sellingPrice}
+                        </>
                       )}
                     </p>
                   </div>
@@ -184,7 +189,10 @@ export function HotelDetailsPage() {
                     <p className="text-xs text-slate-500">
                       {plan.type.replaceAll('_', ' ')}
                       {canViewCosting && plan.sellingPrice != null && (
-                        <> · {plan.currency} {plan.sellingPrice}</>
+                        <>
+                          {' '}
+                          · {plan.currency} {plan.sellingPrice}
+                        </>
                       )}
                     </p>
                   </div>

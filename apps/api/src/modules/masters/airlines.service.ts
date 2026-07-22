@@ -83,7 +83,10 @@ function duplicateError(error: unknown): never {
   throw error;
 }
 
-function countrySnapshot(code: string | null | undefined): { countryCode: string | null; countryName: string | null } {
+function countrySnapshot(code: string | null | undefined): {
+  countryCode: string | null;
+  countryName: string | null;
+} {
   if (!code) return { countryCode: null, countryName: null };
   const name = countryNameForCode(code);
   if (!name) throw new ValidationError('Select a valid country.');
@@ -111,7 +114,9 @@ async function getAirline(auth: AuthContext, airlineId: string, forManage = fals
 function writeData(input: AirlineInput | AirlineUpdateInput) {
   const key = <K extends keyof (AirlineInput & AirlineUpdateInput)>(k: K) => k in input;
   return {
-    ...(key('name') ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) } : {}),
+    ...(key('name')
+      ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) }
+      : {}),
     ...(key('iataCode') ? { iataCode: blankToNull(input.iataCode) } : {}),
     ...(key('icaoCode') ? { icaoCode: blankToNull(input.icaoCode) } : {}),
     ...(key('countryCode') ? countrySnapshot(input.countryCode) : {}),
@@ -156,7 +161,12 @@ export const airlinesService = {
           ? { updatedAt: order }
           : { name: order };
     const [rows, total] = await Promise.all([
-      prisma.airline.findMany({ where, ...toPrismaPagination(pagination), orderBy, include: airlineInclude }),
+      prisma.airline.findMany({
+        where,
+        ...toPrismaPagination(pagination),
+        orderBy,
+        include: airlineInclude,
+      }),
       prisma.airline.count({ where }),
     ]);
     return {
@@ -189,7 +199,9 @@ export const airlinesService = {
   },
 
   async details(auth: AuthContext, airlineId: string) {
-    return presentAirline((await getAirline(auth, airlineId)) as unknown as Record<string, unknown>);
+    return presentAirline(
+      (await getAirline(auth, airlineId)) as unknown as Record<string, unknown>,
+    );
   },
 
   async create(auth: AuthContext, input: AirlineInput, context: MastersRequestContext) {
@@ -319,7 +331,12 @@ export const airlinesService = {
     });
     if (oldPending && oldPending !== key) await storageService.deleteObject(oldPending);
     return {
-      uploadUrl: await storageService.createUploadUrl(key, input.mimeType, input.fileSize, PRESIGN_TTL),
+      uploadUrl: await storageService.createUploadUrl(
+        key,
+        input.mimeType,
+        input.fileSize,
+        PRESIGN_TTL,
+      ),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
@@ -327,11 +344,19 @@ export const airlinesService = {
   async confirmLogo(auth: AuthContext, airlineId: string, context: MastersRequestContext) {
     const airline = await getAirline(auth, airlineId, true);
     const key = airline.pendingLogoObjectKey;
-    if (!key || !airline.pendingLogoFileName || !airline.pendingLogoMimeType || !airline.pendingLogoFileSize)
+    if (
+      !key ||
+      !airline.pendingLogoFileName ||
+      !airline.pendingLogoMimeType ||
+      !airline.pendingLogoFileSize
+    )
       throw new ValidationError('No airline logo upload is awaiting confirmation.');
     const metadata = await storageService.headObject(key);
     if (!metadata) throw new ValidationError('The uploaded airline logo could not be found.');
-    if (metadata.size !== airline.pendingLogoFileSize || metadata.contentType !== airline.pendingLogoMimeType)
+    if (
+      metadata.size !== airline.pendingLogoFileSize ||
+      metadata.contentType !== airline.pendingLogoMimeType
+    )
       throw new ValidationError('Uploaded logo metadata does not match the approved file.');
     const oldKey = airline.logoObjectKey;
     const action = oldKey ? 'AIRLINE_LOGO_REPLACED' : 'AIRLINE_LOGO_UPLOADED';
@@ -370,7 +395,11 @@ export const airlinesService = {
     if (!airline.logoObjectKey || !airline.logoFileName || !airline.logoConfirmedAt)
       throw new NotFoundError('Airline logo not found.');
     return {
-      url: await storageService.createDownloadUrl(airline.logoObjectKey, airline.logoFileName, PRESIGN_TTL),
+      url: await storageService.createDownloadUrl(
+        airline.logoObjectKey,
+        airline.logoFileName,
+        PRESIGN_TTL,
+      ),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
@@ -397,7 +426,9 @@ export const airlinesService = {
           pendingLogoFileSize: null,
         },
       });
-      await tx.activityLog.create({ data: audit(auth, 'AIRLINE_LOGO_DELETED', airline.id, context) });
+      await tx.activityLog.create({
+        data: audit(auth, 'AIRLINE_LOGO_DELETED', airline.id, context),
+      });
     });
     await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };

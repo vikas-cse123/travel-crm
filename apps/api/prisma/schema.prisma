@@ -822,6 +822,22 @@ enum ActivityAction {
   AIRLINE_LOGO_UPLOADED
   AIRLINE_LOGO_REPLACED
   AIRLINE_LOGO_DELETED
+  CRUISE_CREATED
+  CRUISE_UPDATED
+  CRUISE_STATUS_CHANGED
+  CRUISE_ARCHIVED
+  CRUISE_RESTORED
+  CRUISE_IMAGE_UPLOADED
+  CRUISE_IMAGE_REPLACED
+  CRUISE_IMAGE_DELETED
+  VEHICLE_CREATED
+  VEHICLE_UPDATED
+  VEHICLE_STATUS_CHANGED
+  VEHICLE_ARCHIVED
+  VEHICLE_RESTORED
+  VEHICLE_IMAGE_UPLOADED
+  VEHICLE_IMAGE_REPLACED
+  VEHICLE_IMAGE_DELETED
 }
 
 // ---------------------------------------------------------------------------
@@ -922,6 +938,9 @@ model Company {
   hotelRoomTypes               HotelRoomType[]
   hotelMealPlans               HotelMealPlan[]
   airlines                     Airline[]
+  cruises                      Cruise[]
+  cruiseRoomTypes              CruiseRoomType[]
+  vehicles                     Vehicle[]
 
   @@index([status])
   @@index([createdAt])
@@ -1042,6 +1061,10 @@ model User {
   destinationsCreated         Destination[]              @relation("DestinationCreatedBy")
   hotelsCreated               Hotel[]                    @relation("HotelCreatedBy")
   airlinesCreated             Airline[]                  @relation("AirlineCreatedBy")
+  cruisesCreated              Cruise[]                   @relation("CruiseCreatedBy")
+  cruisesUpdated              Cruise[]                   @relation("CruiseUpdatedBy")
+  vehiclesCreated             Vehicle[]                  @relation("VehicleCreatedBy")
+  vehiclesUpdated             Vehicle[]                  @relation("VehicleUpdatedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1307,6 +1330,129 @@ model Airline {
   @@index([companyId, countryCode])
   @@index([createdById])
   @@map("airlines")
+}
+
+/// A cruise product offered to travellers, with its sellable room types.
+///
+/// Scope is deliberately narrow (Phase 13C): the reference CRM's Cruise Master
+/// is a catalogue entry — name, description, image and room types. It is not an
+/// itinerary, sailing-schedule or deck-plan engine.
+model Cruise {
+  id             String  @id @default(uuid()) @db.Uuid
+  companyId      String  @db.Uuid
+  name           String  @db.VarChar(200)
+  /// Lower-cased name backing case-insensitive search and per-tenant uniqueness.
+  normalizedName String  @db.VarChar(200)
+  /// Rich-text HTML from the description editor.
+  description    String? @db.Text
+
+  // Private media. Mirrors the Hotel/Airline two-phase upload: the pending*
+  // columns hold an approved-but-unconfirmed object until the client confirms.
+  imageStorageProvider  StorageProvider?
+  imageBucket           String?          @db.VarChar(255)
+  imageObjectKey        String?          @db.VarChar(1000)
+  imageFileName         String?          @db.VarChar(255)
+  imageMimeType         String?          @db.VarChar(120)
+  imageFileSize         Int?
+  imageConfirmedAt      DateTime?
+  pendingImageObjectKey String?          @db.VarChar(1000)
+  pendingImageFileName  String?          @db.VarChar(255)
+  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageFileSize  Int?
+
+  status      MasterStatus @default(ACTIVE)
+  createdById String       @db.Uuid
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("CruiseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User?            @relation("CruiseUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  roomTypes CruiseRoomType[]
+
+  @@unique([companyId, normalizedName])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, normalizedName])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("cruises")
+}
+
+/// A sellable cabin/room category on a cruise (Interior, Ocean View, Suite…).
+model CruiseRoomType {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  cruiseId    String   @db.Uuid
+  name        String   @db.VarChar(160)
+  description String?  @db.VarChar(2000)
+  /// Nullable: the reference allows a room type with no price yet, which is
+  /// why the list can render "No pricing information available".
+  price       Decimal? @db.Decimal(14, 2)
+  currency    String   @default("INR") @db.VarChar(3)
+
+  status    MasterStatus @default(ACTIVE)
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Cascade: a room type has no meaning without its cruise, and cruises are
+  // only ever soft-archived, so this never destroys historical data.
+  cruise  Cruise  @relation(fields: [cruiseId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, cruiseId])
+  @@index([cruiseId, sortOrder])
+  @@map("cruise_room_types")
+}
+
+/// A vehicle category offered for transfers and sightseeing.
+///
+/// This is a catalogue master (name/type/capacity), NOT fleet management: no
+/// drivers, registrations, maintenance, GPS or scheduling.
+model Vehicle {
+  id             String  @id @default(uuid()) @db.Uuid
+  companyId      String  @db.Uuid
+  name           String  @db.VarChar(200)
+  normalizedName String  @db.VarChar(200)
+  /// Free text in the reference ("Luxury SUV", "AC Coach"); the list filter is
+  /// built from the distinct values a tenant has actually used.
+  vehicleType    String  @db.VarChar(120)
+  /// Seats available to travellers. Nullable — the reference leaves it optional.
+  capacity       Int?
+  description    String? @db.Text
+
+  imageStorageProvider  StorageProvider?
+  imageBucket           String?          @db.VarChar(255)
+  imageObjectKey        String?          @db.VarChar(1000)
+  imageFileName         String?          @db.VarChar(255)
+  imageMimeType         String?          @db.VarChar(120)
+  imageFileSize         Int?
+  imageConfirmedAt      DateTime?
+  pendingImageObjectKey String?          @db.VarChar(1000)
+  pendingImageFileName  String?          @db.VarChar(255)
+  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageFileSize  Int?
+
+  status      MasterStatus @default(ACTIVE)
+  createdById String       @db.Uuid
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("VehicleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User?   @relation("VehicleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, normalizedName])
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, vehicleType])
+  @@index([companyId, normalizedName])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("vehicles")
 }
 
 // ---------------------------------------------------------------------------

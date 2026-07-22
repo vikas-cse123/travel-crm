@@ -3,6 +3,12 @@ import type {
   AirlineInput,
   AirlineLogoUploadInput,
   AirlineUpdateInput,
+  CruiseImageUploadInput,
+  CruiseInput,
+  CruiseUpdateInput,
+  VehicleImageUploadInput,
+  VehicleInput,
+  VehicleUpdateInput,
   CityInput,
   CityUpdateInput,
   CountryReference,
@@ -470,4 +476,213 @@ export async function airlineLogoUrl(id: string) {
 }
 export async function deleteAirlineLogo(id: string) {
   return apiClient.delete<{ deleted: true }>(`/masters/airlines/${id}/logo`);
+}
+
+// ---------------------------------------------------------------------------
+// Cruises
+// ---------------------------------------------------------------------------
+
+export interface CruiseRoomType {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Absent when the viewer lacks the costing permission. */
+  price?: number | null;
+  currency?: string;
+  status: string;
+  sortOrder: number;
+}
+
+export interface Cruise {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  hasImage: boolean;
+  imageFileName: string | null;
+  imageMimeType: string | null;
+  imageConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+  roomTypes?: CruiseRoomType[];
+  /** List responses only. */
+  roomTypeCount?: number;
+  activeRoomTypeCount?: number;
+  priceRange?: { min: number; max: number } | null;
+}
+
+const cruiseKeys = {
+  all: ['masters', 'cruises'] as const,
+  one: (id: string) => ['masters', 'cruises', id] as const,
+};
+
+export function useCruises(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...cruiseKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Cruise>>(`/masters/cruises${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useCruise(id?: string) {
+  return useQuery({
+    queryKey: cruiseKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Cruise>(`/masters/cruises/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateCruise = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: cruiseKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: cruiseKeys.one(id) });
+};
+export function useCreateCruise() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CruiseInput) => apiClient.post<Cruise>('/masters/cruises', input),
+    onSuccess: () => invalidateCruise(client),
+  });
+}
+export function useUpdateCruise(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CruiseUpdateInput) =>
+      apiClient.patch<Cruise>(`/masters/cruises/${id}`, input),
+    onSuccess: () => invalidateCruise(client, id),
+  });
+}
+export function useArchiveCruise() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Cruise>(`/masters/cruises/${id}`),
+    onSuccess: (_, id) => invalidateCruise(client, id),
+  });
+}
+export function useRestoreCruise() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch<Cruise>(`/masters/cruises/${id}/status`, { status: 'ACTIVE' }),
+    onSuccess: (_, id) => invalidateCruise(client, id),
+  });
+}
+export async function approveCruiseImage(id: string, input: CruiseImageUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/cruises/${id}/image/upload`,
+    input,
+  );
+}
+export async function confirmCruiseImage(id: string) {
+  return apiClient.post<Cruise>(`/masters/cruises/${id}/image/confirm`);
+}
+export async function cruiseImageUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/cruises/${id}/image/download-url`,
+  );
+}
+export async function deleteCruiseImage(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/cruises/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Vehicles
+// ---------------------------------------------------------------------------
+
+export interface Vehicle {
+  id: string;
+  name: string;
+  vehicleType: string;
+  capacity: number | null;
+  description: string | null;
+  status: string;
+  hasImage: boolean;
+  imageFileName: string | null;
+  imageMimeType: string | null;
+  imageConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+const vehicleKeys = {
+  all: ['masters', 'vehicles'] as const,
+  one: (id: string) => ['masters', 'vehicles', id] as const,
+  types: ['masters', 'vehicles', 'types'] as const,
+};
+
+export function useVehicles(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...vehicleKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Vehicle>>(`/masters/vehicles${query ? `?${query}` : ''}`, signal),
+  });
+}
+/** Distinct types already in use, powering the list's type dropdown. */
+export function useVehicleTypes() {
+  return useQuery({
+    queryKey: vehicleKeys.types,
+    queryFn: ({ signal }) =>
+      apiClient.get<{ vehicleTypes: string[] }>('/masters/vehicles/types', signal),
+  });
+}
+export function useVehicle(id?: string) {
+  return useQuery({
+    queryKey: vehicleKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Vehicle>(`/masters/vehicles/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateVehicle = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: vehicleKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: vehicleKeys.one(id) });
+};
+export function useCreateVehicle() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: VehicleInput) => apiClient.post<Vehicle>('/masters/vehicles', input),
+    onSuccess: () => invalidateVehicle(client),
+  });
+}
+export function useUpdateVehicle(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: VehicleUpdateInput) =>
+      apiClient.patch<Vehicle>(`/masters/vehicles/${id}`, input),
+    onSuccess: () => invalidateVehicle(client, id),
+  });
+}
+export function useArchiveVehicle() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Vehicle>(`/masters/vehicles/${id}`),
+    onSuccess: (_, id) => invalidateVehicle(client, id),
+  });
+}
+export function useRestoreVehicle() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch<Vehicle>(`/masters/vehicles/${id}/status`, { status: 'ACTIVE' }),
+    onSuccess: (_, id) => invalidateVehicle(client, id),
+  });
+}
+export async function approveVehicleImage(id: string, input: VehicleImageUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/vehicles/${id}/image/upload`,
+    input,
+  );
+}
+export async function confirmVehicleImage(id: string) {
+  return apiClient.post<Vehicle>(`/masters/vehicles/${id}/image/confirm`);
+}
+export async function vehicleImageUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/vehicles/${id}/image/download-url`,
+  );
+}
+export async function deleteVehicleImage(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/vehicles/${id}/image`);
 }
