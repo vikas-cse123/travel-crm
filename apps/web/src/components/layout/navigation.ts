@@ -5,7 +5,10 @@ import {
   CalendarClock,
   FileText,
   Files,
+  Globe2,
   LayoutDashboard,
+  Map,
+  MapPin,
   MessageSquare,
   Settings,
   Shield,
@@ -119,6 +122,29 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Building2,
     available: true,
     permission: PERMISSIONS.VENDORS_VIEW,
+  },
+  {
+    label: 'Masters',
+    to: '/masters/cities',
+    icon: Map,
+    available: true,
+    permission: PERMISSIONS.MASTERS_VIEW,
+    children: [
+      {
+        label: 'Cities',
+        to: '/masters/cities',
+        icon: MapPin,
+        available: true,
+        permission: PERMISSIONS.MASTER_CITIES_VIEW,
+      },
+      {
+        label: 'Destinations',
+        to: '/masters/destinations',
+        icon: Globe2,
+        available: true,
+        permission: PERMISSIONS.MASTER_DESTINATIONS_VIEW,
+      },
+    ],
   },
   // Users, Reports and Settings have permissions already, but their screens
   // are Phase 4+ work, so they stay disabled here.

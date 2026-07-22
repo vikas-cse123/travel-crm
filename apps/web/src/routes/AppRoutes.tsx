@@ -53,6 +53,12 @@ import { VendorFormPage } from '@/pages/vendors/VendorFormPage';
 import { VendorWorkspacePage } from '@/pages/vendors/VendorWorkspacePage';
 import { VendorServicesPage } from '@/pages/vendors/VendorServicesPage';
 import { VendorServiceFormPage } from '@/pages/vendors/VendorServiceFormPage';
+import { CitiesPage } from '@/pages/masters/CitiesPage';
+import { CityDetailsPage } from '@/pages/masters/CityDetailsPage';
+import { CityFormPage } from '@/pages/masters/CityFormPage';
+import { DestinationsPage } from '@/pages/masters/DestinationsPage';
+import { DestinationDetailsPage } from '@/pages/masters/DestinationDetailsPage';
+import { DestinationFormPage } from '@/pages/masters/DestinationFormPage';
 
 /**
  * Route table.
@@ -442,6 +448,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.ACTIVITY_LOGS_VIEW}>
                 <ActivityLogsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cities"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CITIES_VIEW}>
+                <CitiesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cities/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CITIES_CREATE}>
+                <CityFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cities/:cityId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CITIES_VIEW}>
+                <CityDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/cities/:cityId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_CITIES_UPDATE}>
+                <CityFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destinations"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_DESTINATIONS_VIEW}>
+                <DestinationsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destinations/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_DESTINATIONS_CREATE}>
+                <DestinationFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destinations/:destinationId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_DESTINATIONS_VIEW}>
+                <DestinationDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destinations/:destinationId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_DESTINATIONS_UPDATE}>
+                <DestinationFormPage />
               </PermissionRoute>
             }
           />
