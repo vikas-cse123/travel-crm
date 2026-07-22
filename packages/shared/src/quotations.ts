@@ -20,6 +20,14 @@ const optionalDate = z.coerce.date().nullable().optional();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);
 const optionalMoney = money.nullable().optional();
 const sequence = z.coerce.number().int().min(1).max(500);
+/**
+ * Optional link to a travel master (Phase 14).
+ *
+ * Always optional: master selection is a convenience, never a requirement, and
+ * every row must stay valid as pure free text. The snapshot columns beside
+ * these references remain the authoritative rendered values.
+ */
+const optionalMasterId = z.string().uuid().nullable().optional();
 
 export const quotationItinerarySchema = z.object({
   dayNumber: z.coerce.number().int().min(1).max(500),
@@ -37,6 +45,11 @@ export const quotationItinerarySchema = z.object({
 
 export const quotationHotelSchema = z
   .object({
+    // Master references. These columns already existed on the hotel-option
+    // tables; Phase 14 makes them reachable through the API.
+    hotelId: optionalMasterId,
+    hotelRoomTypeId: optionalMasterId,
+    hotelMealPlanId: optionalMasterId,
     city: z.string().trim().min(1).max(120),
     hotelName: z.string().trim().min(1).max(200),
     category: optionalText(40),
@@ -59,6 +72,14 @@ export const quotationHotelSchema = z
 
 export const quotationServiceSchema = z.object({
   serviceType: z.enum(SERVICE_TYPES),
+  // Master references, each valid only for its matching service type. The
+  // server enforces that pairing; see master-refs.service.ts.
+  airlineId: optionalMasterId,
+  cruiseId: optionalMasterId,
+  cruiseRoomTypeId: optionalMasterId,
+  vehicleId: optionalMasterId,
+  sightseeingId: optionalMasterId,
+  addOnServiceId: optionalMasterId,
   name: z.string().trim().min(1).max(200),
   description: optionalText(4000),
   dayNumber: z.coerce.number().int().min(1).max(500).nullable().optional(),

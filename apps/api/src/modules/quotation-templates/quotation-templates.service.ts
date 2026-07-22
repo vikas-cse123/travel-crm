@@ -14,6 +14,7 @@ import {
   quotationAudit,
   type RequestContext,
 } from '../quotations/quotation.utils.js';
+import { validateMasterRefs } from '../quotations/master-refs.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 export const templateInclude = {
@@ -203,6 +204,7 @@ export const quotationTemplatesService = {
   },
 
   async create(auth: AuthContext, input: QuotationTemplateInput, context: RequestContext) {
+    await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
     try {
       const value = await prisma.$transaction(async (tx) => {
         const templateCode = await nextCompanyNumber(tx, auth.companyId, 'template');
@@ -298,6 +300,7 @@ export const quotationTemplatesService = {
     context: RequestContext,
   ) {
     await get(auth, id);
+    await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
     try {
       const value = await prisma.$transaction(async (tx) => {
         const scalar = {

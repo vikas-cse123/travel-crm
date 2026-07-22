@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { ArrowDown, ArrowLeft, ArrowUp, Plus, Save, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -15,6 +15,13 @@ import {
   useQuotationTemplate,
   useSaveQuotationTemplate,
 } from '@/features/quotations/quotations.api';
+import {
+  CLEARED_SERVICE_MASTERS,
+  HotelMasterFields,
+  ServiceMasterFields,
+  type HotelRowPatch,
+  type ServiceRowPatch,
+} from '@/features/quotations/MasterFields';
 
 const defaults: QuotationTemplateInput = {
   name: '',
@@ -90,6 +97,22 @@ export function QuotationTemplateFormPage() {
   const inclusions = useFieldArray({ control: form.control, name: 'inclusions' });
   const exclusions = useFieldArray({ control: form.control, name: 'exclusions' });
   const terms = useFieldArray({ control: form.control, name: 'terms' });
+  const watchedHotels = useWatch({ control: form.control, name: 'hotels' });
+  const watchedServices = useWatch({ control: form.control, name: 'services' });
+  /**
+   * Write a master picker's patch onto its row. The picker owns only the ids;
+   * the snapshot text it suggests lands in the same fields the user can still
+   * edit by hand afterwards.
+   */
+  const applyPatch = (path: 'hotels' | 'services', index: number, patch: object) => {
+    for (const [key, value] of Object.entries(patch))
+      form.setValue(`${path}.${index}.${key}` as 'hotels.0.hotelName', value as never, {
+        shouldDirty: true,
+      });
+  };
+  const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
+  const applyService = (index: number, patch: ServiceRowPatch) =>
+    applyPatch('services', index, patch);
   useEffect(() => {
     if (!detail.data) return;
     const t = detail.data;
@@ -118,6 +141,14 @@ export function QuotationTemplateFormPage() {
       })),
       services: t.services.map((row) => ({
         serviceType: row.serviceType as QuotationTemplateInput['services'][number]['serviceType'],
+        // Master links are enumerated here because this mapper lists fields
+        // rather than spreading: anything omitted is silently lost on edit.
+        airlineId: row.airlineId ?? null,
+        cruiseId: row.cruiseId ?? null,
+        cruiseRoomTypeId: row.cruiseRoomTypeId ?? null,
+        vehicleId: row.vehicleId ?? null,
+        sightseeingId: row.sightseeingId ?? null,
+        addOnServiceId: row.addOnServiceId ?? null,
         name: row.name,
         description: row.description,
         dayNumber: row.dayNumber,
@@ -276,6 +307,9 @@ export function QuotationTemplateFormPage() {
                 category: null,
                 roomType: null,
                 mealPlan: null,
+                hotelId: null,
+                hotelRoomTypeId: null,
+                hotelMealPlanId: null,
                 rooms: 1,
                 nights: 1,
                 checkInDate: null,
@@ -305,6 +339,15 @@ export function QuotationTemplateFormPage() {
                 />
               </div>
               <div className="grid gap-3 md:grid-cols-4">
+                <HotelMasterFields
+                  canCost
+                  value={{
+                    hotelId: watchedHotels?.[index]?.hotelId,
+                    hotelRoomTypeId: watchedHotels?.[index]?.hotelRoomTypeId,
+                    hotelMealPlanId: watchedHotels?.[index]?.hotelMealPlanId,
+                  }}
+                  onChange={(patch) => applyHotel(index, patch)}
+                />
                 <input
                   aria-label="Hotel city"
                   placeholder="City"
@@ -459,6 +502,7 @@ export function QuotationTemplateFormPage() {
             onClick={() =>
               services.append({
                 serviceType: 'SIGHTSEEING',
+                ...CLEARED_SERVICE_MASTERS,
                 name: '',
                 description: null,
                 dayNumber: null,
@@ -491,7 +535,11 @@ export function QuotationTemplateFormPage() {
               <div className="grid gap-3 md:grid-cols-4">
                 <select
                   aria-label="Service type"
-                  {...form.register(`services.${index}.serviceType`)}
+                  {...form.register(`services.${index}.serviceType`, {
+                    // A master is only valid for its own service type, so
+                    // switching type must drop whatever was linked before.
+                    onChange: () => applyService(index, CLEARED_SERVICE_MASTERS),
+                  })}
                   className={field}
                 >
                   {SERVICE_TYPES.map((value) => (
@@ -500,6 +548,18 @@ export function QuotationTemplateFormPage() {
                     </option>
                   ))}
                 </select>
+                <ServiceMasterFields
+                  serviceType={watchedServices?.[index]?.serviceType ?? 'SIGHTSEEING'}
+                  value={{
+                    airlineId: watchedServices?.[index]?.airlineId,
+                    cruiseId: watchedServices?.[index]?.cruiseId,
+                    cruiseRoomTypeId: watchedServices?.[index]?.cruiseRoomTypeId,
+                    vehicleId: watchedServices?.[index]?.vehicleId,
+                    sightseeingId: watchedServices?.[index]?.sightseeingId,
+                    addOnServiceId: watchedServices?.[index]?.addOnServiceId,
+                  }}
+                  onChange={(patch) => applyService(index, patch)}
+                />
                 <input
                   aria-label="Service name"
                   placeholder="Name"

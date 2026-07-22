@@ -27,7 +27,21 @@ export interface TemplateItinerary {
   notes: string | null;
   sequence: number;
 }
-export interface TemplateHotel {
+/** Optional links to travel masters; the snapshot fields below still render. */
+export interface MasterHotelRefs {
+  hotelId?: string | null;
+  hotelRoomTypeId?: string | null;
+  hotelMealPlanId?: string | null;
+}
+export interface MasterServiceRefs {
+  airlineId?: string | null;
+  cruiseId?: string | null;
+  cruiseRoomTypeId?: string | null;
+  vehicleId?: string | null;
+  sightseeingId?: string | null;
+  addOnServiceId?: string | null;
+}
+export interface TemplateHotel extends MasterHotelRefs {
   id: string;
   city: string;
   hotelName: string;
@@ -44,7 +58,7 @@ export interface TemplateHotel {
   notes: string | null;
   sequence: number;
 }
-export interface TemplateService {
+export interface TemplateService extends MasterServiceRefs {
   id: string;
   serviceType: string;
   name: string;

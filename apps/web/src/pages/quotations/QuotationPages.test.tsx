@@ -677,3 +677,392 @@ describe('Phase 8 quotation pages', () => {
     expect(await screen.findByText(/Your response has been recorded/)).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 14 — master selectors inside the quotation and template builders
+// ---------------------------------------------------------------------------
+
+const hotelSummary = {
+  id: 'aaaaaaa1-1111-4111-8111-111111111111',
+  name: 'Shah Palace Hotel',
+  starCategory: 4,
+  starRating: null,
+  status: 'ACTIVE',
+  isDefaultForCity: false,
+  isFeatured: false,
+  hasImage: false,
+  updatedAt: '2026-07-21T00:00:00.000Z',
+  createdAt: '2026-07-21T00:00:00.000Z',
+  destination: { id: 'dest-1', name: 'Azerbaijan' },
+  city: { id: 'city-1', name: 'Baku' },
+};
+const hotelDetail = {
+  ...hotelSummary,
+  roomTypes: [
+    {
+      id: 'aaaaaaa2-1111-4111-8111-111111111111',
+      hotelId: 'aaaaaaa1-1111-4111-8111-111111111111',
+      name: 'Deluxe Room',
+      baseCost: 4000,
+      sellingPrice: 6000,
+      currency: 'INR',
+      status: 'ACTIVE',
+      sortOrder: 1,
+    },
+  ],
+  mealPlans: [
+    {
+      id: 'aaaaaaa3-1111-4111-8111-111111111111',
+      hotelId: 'aaaaaaa1-1111-4111-8111-111111111111',
+      name: 'Breakfast Only',
+      type: 'BREAKFAST',
+      baseCost: 500,
+      sellingPrice: 800,
+      currency: 'INR',
+      status: 'ACTIVE',
+      sortOrder: 1,
+    },
+  ],
+};
+const airline = { id: 'aaaaaaa4-1111-4111-8111-111111111111', name: 'Air India', status: 'ACTIVE' };
+const cruise = {
+  id: 'aaaaaaa5-1111-4111-8111-111111111111',
+  name: 'Dream Genting',
+  status: 'ACTIVE',
+};
+const cruiseDetail = {
+  ...cruise,
+  roomTypes: [
+    {
+      id: 'aaaaaaa6-1111-4111-8111-111111111111',
+      name: 'Interior',
+      price: 18000,
+      currency: 'INR',
+      status: 'ACTIVE',
+      sortOrder: 1,
+    },
+  ],
+};
+const vehicle = {
+  id: 'aaaaaaa7-1111-4111-8111-111111111111',
+  name: 'Innova Crysta',
+  vehicleType: 'Standard MPV',
+  capacity: 8,
+  status: 'ACTIVE',
+};
+const sightseeing = {
+  id: 'aaaaaaa8-1111-4111-8111-111111111111',
+  title: 'Gobustan Tour',
+  sequence: 1,
+  status: 'ACTIVE',
+};
+const addOn = {
+  id: 'aaaaaaa9-1111-4111-8111-111111111111',
+  name: 'Visa Assistance',
+  price: 3800,
+  currency: 'INR',
+  status: 'ACTIVE',
+};
+
+/** Route master lookups by URL so one stub can serve every selector. */
+function masterFetch(base: unknown, extra: Record<string, unknown> = {}) {
+  const routes: Record<string, unknown> = {
+    '/masters/hotels/': hotelDetail,
+    '/masters/hotels': page([hotelSummary]),
+    '/masters/airlines': page([airline]),
+    '/masters/cruises/': cruiseDetail,
+    '/masters/cruises': page([cruise]),
+    '/masters/vehicles': page([vehicle]),
+    '/masters/sightseeing': page([sightseeing]),
+    '/masters/add-on-services': page([addOn]),
+    ...extra,
+  };
+  return vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
+    void _options;
+    const url = String(input);
+    // Detail routes carry an id segment, so they are matched before the list.
+    for (const [prefix, body] of Object.entries(routes))
+      if (prefix.endsWith('/') ? url.includes(prefix) && !url.includes('?') : url.includes(prefix))
+        return response(body);
+    return response(base);
+  });
+}
+
+const builderQuotation = (overrides: Record<string, unknown> = {}) => ({
+  quotationNumber: 'QT-2026-000001',
+  versions: [
+    {
+      id: 'version-1',
+      versionNumber: 1,
+      title: 'Goa proposal',
+      introduction: null,
+      destinationSummary: 'Goa',
+      travelStartDate: null,
+      travelEndDate: null,
+      currency: 'INR',
+      subtotalSellingPrice: '0',
+      subtotalCost: '0',
+      markupMode: 'NONE',
+      markupValue: '0',
+      totalMarkup: '0',
+      taxRate: '0',
+      taxAmount: '0',
+      discountAmount: '0',
+      finalAmount: '0',
+      pricingMode: 'ITEMIZED',
+      notes: null,
+      internalNotes: null,
+      status: 'DRAFT',
+      finalizedAt: null,
+      createdAt: '2026-07-21T00:00:00.000Z',
+      createdBy: person,
+      itinerary: [],
+      hotels: [],
+      services: [],
+      inclusions: [],
+      exclusions: [],
+      terms: [],
+      ...overrides,
+    },
+  ],
+});
+
+const renderBuilderPage = () =>
+  renderWithProviders(
+    <Routes>
+      <Route
+        path="/quotations/:quotationId/versions/:versionId/edit"
+        element={<QuotationBuilderPage />}
+      />
+    </Routes>,
+    { route: '/quotations/quotation-1/versions/version-1/edit' },
+  );
+
+describe('Phase 14 master selectors', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.permissions = new Set([
+      'quotation_templates.view',
+      'quotation_templates.create',
+      'quotation_templates.update',
+      'quotations.view',
+      'quotations.update',
+      'quotations.view_costing',
+    ]);
+  });
+
+  it('keeps room type and meal plan disabled until a hotel is linked', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    expect(screen.getByLabelText('Hotel master')).toBeEnabled();
+    expect(screen.getByLabelText('Room type master')).toBeDisabled();
+    expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
+  });
+
+  it('prefills the hotel snapshot and adds room type and meal plan pricing', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+
+    // The snapshot fields are filled but stay editable free text.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Hotel name')).toHaveValue('Shah Palace Hotel'),
+    );
+    expect(screen.getByLabelText('Hotel city')).toHaveValue('Baku');
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await waitFor(() => expect(screen.getByLabelText('Hotel selling price')).toHaveValue(6000));
+    expect(screen.getByLabelText('Hotel internal cost')).toHaveValue(4000);
+    expect(screen.getByLabelText('Room type')).toHaveValue('Deluxe Room');
+
+    // Meal plan is added to the room type rather than replacing it.
+    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Only');
+    await waitFor(() => expect(screen.getByLabelText('Hotel selling price')).toHaveValue(6800));
+    expect(screen.getByLabelText('Hotel internal cost')).toHaveValue(4500);
+  });
+
+  it('never prefills internal cost without the costing permission', async () => {
+    auth.permissions.delete('quotations.view_costing');
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await waitFor(() => expect(screen.getByLabelText('Hotel selling price')).toHaveValue(6000));
+    expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
+  });
+
+  it('shows only the selector that matches the service type and clears it on switch', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
+
+    // Rows default to sightseeing.
+    expect(screen.getByLabelText('Sightseeing master')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Airline master')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Sightseeing master'), 'Gobustan Tour');
+    await waitFor(() => expect(screen.getByLabelText('Service name')).toHaveValue('Gobustan Tour'));
+
+    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'FLIGHT');
+    expect(await screen.findByLabelText('Airline master')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Sightseeing master')).not.toBeInTheDocument();
+    // The previous link is dropped, so nothing incompatible can be submitted.
+    expect(screen.getByLabelText('Airline master')).toHaveValue('');
+  });
+
+  it('links a cruise before its cabin and prefills the cabin price', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
+    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'CRUISE');
+    expect(await screen.findByLabelText('Cruise room type master')).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Cruise master'), 'Dream Genting');
+    await waitFor(() => expect(screen.getByLabelText('Cruise room type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Cruise room type master'), 'Interior');
+    await waitFor(() => expect(screen.getByLabelText('Service unit selling')).toHaveValue(18000));
+  });
+
+  it('prefills an add-on service price and leaves priceless masters alone', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
+
+    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'OTHER_ADD_ON');
+    await userEvent.type(await screen.findByLabelText('Add-on service master'), 'Visa Assistance');
+    await waitFor(() => expect(screen.getByLabelText('Service unit selling')).toHaveValue(3800));
+
+    // A vehicle has no price of its own, so a typed figure must survive.
+    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'VEHICLE_TRANSFER');
+    await userEvent.type(await screen.findByLabelText('Vehicle master'), 'Innova Crysta');
+    await waitFor(() => expect(screen.getByLabelText('Service name')).toHaveValue('Innova Crysta'));
+    expect(screen.getByLabelText('Service unit selling')).toHaveValue(3800);
+  });
+
+  it('submits the linked master ids alongside the snapshot fields', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      const body = JSON.parse(String(patch![1]!.body));
+      expect(body.hotels[0]).toMatchObject({
+        hotelId: 'aaaaaaa1-1111-4111-8111-111111111111',
+        hotelRoomTypeId: 'aaaaaaa2-1111-4111-8111-111111111111',
+        hotelName: 'Shah Palace Hotel',
+      });
+    });
+  });
+
+  it('keeps a row usable as free text with no master linked', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await userEvent.type(screen.getByLabelText('Hotel name'), 'Typed by hand');
+    await userEvent.type(screen.getByLabelText('Hotel city'), 'Manali');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      const body = JSON.parse(String(patch![1]!.body));
+      expect(body.hotels[0]).toMatchObject({ hotelName: 'Typed by hand', hotelId: null });
+    });
+  });
+
+  it('unlinks a master without erasing the snapshot text', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Hotel name')).toHaveValue('Shah Palace Hotel'),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear Hotel master' }));
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeDisabled());
+    expect(screen.getByLabelText('Hotel name')).toHaveValue('Shah Palace Hotel');
+  });
+
+  it('loads an existing row with its master already linked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({
+          hotels: [
+            {
+              id: 'hotel-row-1',
+              hotelId: 'aaaaaaa1-1111-4111-8111-111111111111',
+              hotelRoomTypeId: 'aaaaaaa2-1111-4111-8111-111111111111',
+              hotelMealPlanId: null,
+              city: 'Baku',
+              hotelName: 'Shah Palace Hotel',
+              category: null,
+              roomType: 'Deluxe Room',
+              mealPlan: null,
+              rooms: 1,
+              nights: 2,
+              checkInDate: null,
+              checkOutDate: null,
+              internalCost: '4000',
+              sellingPrice: '6000',
+              selected: true,
+              notes: null,
+              sequence: 1,
+            },
+          ],
+          services: [
+            {
+              id: 'service-row-1',
+              serviceType: 'FLIGHT',
+              airlineId: 'aaaaaaa4-1111-4111-8111-111111111111',
+              name: 'Delhi to Baku',
+              description: null,
+              dayNumber: null,
+              city: null,
+              quantity: '2',
+              unitCost: '0',
+              unitSellingPrice: '30000',
+              taxCategory: null,
+              notes: null,
+              sequence: 1,
+            },
+          ],
+        }),
+      ),
+    );
+    renderBuilderPage();
+    await waitFor(() =>
+      expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
+    );
+    expect(screen.getByLabelText('Room type master')).toBeEnabled();
+    await waitFor(() => expect(screen.getByLabelText('Airline master')).toHaveValue('Air India'));
+  });
+
+  it('offers the same pickers in the template builder', async () => {
+    vi.stubGlobal('fetch', masterFetch(template));
+    renderWithProviders(<QuotationTemplateFormPage />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add service' }));
+    expect(screen.getByLabelText('Hotel master')).toBeInTheDocument();
+    expect(screen.getByLabelText('Room type master')).toBeDisabled();
+    expect(screen.getByLabelText('Sightseeing master')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Hotel name')).toHaveValue('Shah Palace Hotel'),
+    );
+  });
+});

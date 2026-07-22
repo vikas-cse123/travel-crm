@@ -15,6 +15,13 @@ import {
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotation, useUpdateQuotationVersion } from '@/features/quotations/quotations.api';
+import {
+  CLEARED_SERVICE_MASTERS,
+  HotelMasterFields,
+  ServiceMasterFields,
+  type HotelRowPatch,
+  type ServiceRowPatch,
+} from '@/features/quotations/MasterFields';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const defaults: QuotationVersionInput = {
@@ -87,6 +94,14 @@ export function QuotationBuilderPage() {
       })),
       services: version.services.map((row) => ({
         serviceType: row.serviceType as QuotationVersionInput['services'][number]['serviceType'],
+        // Master links are enumerated here because this mapper lists fields
+        // rather than spreading: anything omitted is silently lost on edit.
+        airlineId: row.airlineId ?? null,
+        cruiseId: row.cruiseId ?? null,
+        cruiseRoomTypeId: row.cruiseRoomTypeId ?? null,
+        vehicleId: row.vehicleId ?? null,
+        sightseeingId: row.sightseeingId ?? null,
+        addOnServiceId: row.addOnServiceId ?? null,
         name: row.name,
         description: row.description,
         dayNumber: row.dayNumber,
@@ -109,6 +124,21 @@ export function QuotationBuilderPage() {
   const markupValue = useWatch({ control: form.control, name: 'markupValue' }) ?? 0;
   const taxRate = useWatch({ control: form.control, name: 'taxRate' }) ?? 0;
   const discount = useWatch({ control: form.control, name: 'discountAmount' }) ?? 0;
+  /**
+   * Write a master picker's patch onto its row. The picker owns only the ids;
+   * the snapshot text it suggests goes through the same form fields the user
+   * can still type into afterwards.
+   */
+  const applyPatch = (path: 'hotels' | 'services', index: number, patch: object) => {
+    for (const [key, value] of Object.entries(patch))
+      form.setValue(`${path}.${index}.${key}` as 'hotels.0.hotelName', value as never, {
+        shouldDirty: true,
+      });
+  };
+  const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
+  const applyService = (index: number, patch: ServiceRowPatch) =>
+    applyPatch('services', index, patch);
+
   const estimate = useMemo(() => {
     const hotels = watchedHotels ?? [];
     const services = watchedServices ?? [];
@@ -278,6 +308,9 @@ export function QuotationBuilderPage() {
                 category: null,
                 roomType: null,
                 mealPlan: null,
+                hotelId: null,
+                hotelRoomTypeId: null,
+                hotelMealPlanId: null,
                 rooms: 1,
                 nights: 1,
                 checkInDate: null,
@@ -300,6 +333,15 @@ export function QuotationBuilderPage() {
               key={row.id}
               className="grid gap-3 rounded-lg border bg-slate-50 p-4 md:grid-cols-4"
             >
+              <HotelMasterFields
+                canCost={canCost}
+                value={{
+                  hotelId: watchedHotels?.[index]?.hotelId,
+                  hotelRoomTypeId: watchedHotels?.[index]?.hotelRoomTypeId,
+                  hotelMealPlanId: watchedHotels?.[index]?.hotelMealPlanId,
+                }}
+                onChange={(patch) => applyHotel(index, patch)}
+              />
               <input
                 aria-label="Hotel city"
                 placeholder="City"
@@ -463,6 +505,7 @@ export function QuotationBuilderPage() {
             onClick={() =>
               services.append({
                 serviceType: 'SIGHTSEEING',
+                ...CLEARED_SERVICE_MASTERS,
                 name: '',
                 description: null,
                 dayNumber: null,
@@ -485,7 +528,11 @@ export function QuotationBuilderPage() {
             <article key={row.id} className="grid gap-3 rounded-lg border p-4 md:grid-cols-4">
               <select
                 aria-label="Service type"
-                {...form.register(`services.${index}.serviceType`)}
+                {...form.register(`services.${index}.serviceType`, {
+                  // A master is only valid for its own service type, so
+                  // switching type must drop whatever was linked before.
+                  onChange: () => applyService(index, CLEARED_SERVICE_MASTERS),
+                })}
                 className={field}
               >
                 {SERVICE_TYPES.map((value) => (
@@ -494,6 +541,18 @@ export function QuotationBuilderPage() {
                   </option>
                 ))}
               </select>
+              <ServiceMasterFields
+                serviceType={watchedServices?.[index]?.serviceType ?? 'SIGHTSEEING'}
+                value={{
+                  airlineId: watchedServices?.[index]?.airlineId,
+                  cruiseId: watchedServices?.[index]?.cruiseId,
+                  cruiseRoomTypeId: watchedServices?.[index]?.cruiseRoomTypeId,
+                  vehicleId: watchedServices?.[index]?.vehicleId,
+                  sightseeingId: watchedServices?.[index]?.sightseeingId,
+                  addOnServiceId: watchedServices?.[index]?.addOnServiceId,
+                }}
+                onChange={(patch) => applyService(index, patch)}
+              />
               <input
                 aria-label="Service name"
                 placeholder="Service name"

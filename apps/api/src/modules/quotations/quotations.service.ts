@@ -21,6 +21,7 @@ import {
 } from '../queries/queries.service.js';
 import { templateInclude } from '../quotation-templates/quotation-templates.service.js';
 import { calculatePricing } from './pricing.service.js';
+import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf } from './pdf.service.js';
 import {
   quotationObjectKey,
@@ -130,20 +131,44 @@ function presentVersion(version: FullVersion, canViewCosting: boolean, customerS
       : {}),
     itinerary: version.itinerary.map(strip),
     hotels: version.hotels.map((row) => {
-      const { internalCost, ...hotel } = strip(row);
+      const { internalCost, hotelId, hotelRoomTypeId, hotelMealPlanId, ...hotel } = strip(row);
       return {
         ...hotel,
         sellingPrice: decimal(hotel.sellingPrice),
+        // Master ids are an internal editing aid. Customer-facing output
+        // (public link, PDF, email) is snapshot-only, so they are omitted
+        // there rather than nulled.
+        ...(customerSafe ? {} : { hotelId, hotelRoomTypeId, hotelMealPlanId }),
         ...(canViewCosting && !customerSafe ? { internalCost: decimal(internalCost) } : {}),
       };
     }),
     services: version.services.map((row) => {
-      const { unitCost, totalCost, ...service } = strip(row);
+      const {
+        unitCost,
+        totalCost,
+        airlineId,
+        cruiseId,
+        cruiseRoomTypeId,
+        vehicleId,
+        sightseeingId,
+        addOnServiceId,
+        ...service
+      } = strip(row);
       return {
         ...service,
         quantity: decimal(service.quantity),
         unitSellingPrice: decimal(service.unitSellingPrice),
         totalSellingPrice: decimal(service.totalSellingPrice),
+        ...(customerSafe
+          ? {}
+          : {
+              airlineId,
+              cruiseId,
+              cruiseRoomTypeId,
+              vehicleId,
+              sightseeingId,
+              addOnServiceId,
+            }),
         ...(canViewCosting && !customerSafe
           ? { unitCost: decimal(unitCost), totalCost: decimal(totalCost) }
           : {}),
@@ -221,6 +246,14 @@ function versionCreateData(input: QuotationVersionInput, companyId: string, allo
     services: normalized.services.map((row, index) => ({
       companyId,
       serviceType: row.serviceType,
+      // These six are listed explicitly because this mapper enumerates fields
+      // rather than spreading: anything omitted here is silently dropped.
+      airlineId: row.airlineId ?? null,
+      cruiseId: row.cruiseId ?? null,
+      cruiseRoomTypeId: row.cruiseRoomTypeId ?? null,
+      vehicleId: row.vehicleId ?? null,
+      sightseeingId: row.sightseeingId ?? null,
+      addOnServiceId: row.addOnServiceId ?? null,
       name: row.name,
       description: row.description,
       dayNumber: row.dayNumber,
@@ -330,6 +363,9 @@ async function createVersion(
   versionNumber: number,
   allowCosting: boolean,
 ) {
+  // Single choke point for version creation: initial version, added revision,
+  // duplication and template application all funnel through here.
+  await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
   const data = versionCreateData(input, auth.companyId, allowCosting);
   const version = await tx.quotationVersion.create({
     data: {
@@ -827,6 +863,7 @@ export const quotationsService = {
       throw new ConflictError('Finalized versions are immutable. Create a revision instead.');
     const costing = await hasCosting(auth);
     const merged = { ...fromVersion(existing), ...input } as QuotationVersionInput;
+    await validateMasterRefs(auth.companyId, merged.hotels ?? [], merged.services ?? []);
     const normalized = versionCreateData(merged, auth.companyId, costing);
     const result = await prisma.$transaction(async (tx) => {
       await tx.quotationVersion.update({ where: { id: versionId }, data: normalized.scalar });

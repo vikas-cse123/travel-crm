@@ -1347,6 +1347,9 @@ model Airline {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User    @relation("AirlineCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
+
   @@index([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
   @@index([companyId, countryCode])
@@ -1411,6 +1414,9 @@ model Sightseeing {
   createdBy   User        @relation("SightseeingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy   User?       @relation("SightseeingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
+
   @@unique([companyId, cityId, normalizedTitle])
   @@index([companyId, status, deletedAt])
   @@index([companyId, destinationId, cityId, sequence])
@@ -1452,6 +1458,9 @@ model AddOnService {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User    @relation("AddOnServiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy User?   @relation("AddOnServiceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -1501,6 +1510,9 @@ model Cruise {
   updatedBy User?            @relation("CruiseUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   roomTypes CruiseRoomType[]
 
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
+
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
   @@index([companyId, normalizedName])
@@ -1530,6 +1542,9 @@ model CruiseRoomType {
   // Cascade: a room type has no meaning without its cruise, and cruises are
   // only ever soft-archived, so this never destroys historical data.
   cruise  Cruise  @relation(fields: [cruiseId], references: [id], onDelete: Cascade)
+
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
 
   @@index([companyId, cruiseId])
   @@index([cruiseId, sortOrder])
@@ -1574,6 +1589,9 @@ model Vehicle {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User    @relation("VehicleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   updatedBy User?   @relation("VehicleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  quotationVersionServices  QuotationVersionService[]
+  quotationTemplateServices QuotationTemplateService[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -2559,28 +2577,48 @@ model QuotationTemplateHotelOption {
 }
 
 model QuotationTemplateService {
-  id           String            @id @default(uuid()) @db.Uuid
-  companyId    String            @db.Uuid
-  templateId   String            @db.Uuid
-  serviceType  ServiceType
-  name         String            @db.VarChar(200)
-  description  String?           @db.VarChar(4000)
-  dayNumber    Int?
-  city         String?           @db.VarChar(120)
-  quantity     Decimal           @default(1) @db.Decimal(10, 2)
-  internalCost Decimal?          @db.Decimal(14, 2)
-  sellingPrice Decimal?          @db.Decimal(14, 2)
-  taxCategory  String?           @db.VarChar(80)
-  notes        String?           @db.VarChar(2000)
-  sequence     Int
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  template     QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id               String            @id @default(uuid()) @db.Uuid
+  companyId        String            @db.Uuid
+  templateId       String            @db.Uuid
+  serviceType      ServiceType
+  // Mirrors QuotationVersionService so a template carries the same optional
+  // master links into the quotations it creates.
+  airlineId        String?           @db.Uuid
+  cruiseId         String?           @db.Uuid
+  cruiseRoomTypeId String?           @db.Uuid
+  vehicleId        String?           @db.Uuid
+  sightseeingId    String?           @db.Uuid
+  addOnServiceId   String?           @db.Uuid
+  name             String            @db.VarChar(200)
+  description      String?           @db.VarChar(4000)
+  dayNumber        Int?
+  city             String?           @db.VarChar(120)
+  quantity         Decimal           @default(1) @db.Decimal(10, 2)
+  internalCost     Decimal?          @db.Decimal(14, 2)
+  sellingPrice     Decimal?          @db.Decimal(14, 2)
+  taxCategory      String?           @db.VarChar(80)
+  notes            String?           @db.VarChar(2000)
+  sequence         Int
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template         QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  airline          Airline?          @relation(fields: [airlineId], references: [id], onDelete: SetNull)
+  cruise           Cruise?           @relation(fields: [cruiseId], references: [id], onDelete: SetNull)
+  cruiseRoomType   CruiseRoomType?   @relation(fields: [cruiseRoomTypeId], references: [id], onDelete: SetNull)
+  vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  sightseeing      Sightseeing?      @relation(fields: [sightseeingId], references: [id], onDelete: SetNull)
+  addOnService     AddOnService?     @relation(fields: [addOnServiceId], references: [id], onDelete: SetNull)
 
   @@unique([templateId, sequence])
   @@index([companyId, templateId])
   @@index([companyId, serviceType])
+  @@index([airlineId])
+  @@index([cruiseId])
+  @@index([cruiseRoomTypeId])
+  @@index([vehicleId])
+  @@index([sightseeingId])
+  @@index([addOnServiceId])
   @@map("quotation_template_services")
 }
 
@@ -2797,6 +2835,15 @@ model QuotationVersionService {
   companyId          String           @db.Uuid
   quotationVersionId String           @db.Uuid
   serviceType        ServiceType
+  // Optional master references (Phase 14). Snapshot columns below stay
+  // authoritative: these link a row to its catalogue entry without ever
+  // becoming the source of rendered text or price.
+  airlineId          String?          @db.Uuid
+  cruiseId           String?          @db.Uuid
+  cruiseRoomTypeId   String?          @db.Uuid
+  vehicleId          String?          @db.Uuid
+  sightseeingId      String?          @db.Uuid
+  addOnServiceId     String?          @db.Uuid
   name               String           @db.VarChar(200)
   description        String?          @db.VarChar(4000)
   dayNumber          Int?
@@ -2813,10 +2860,24 @@ model QuotationVersionService {
   updatedAt          DateTime         @updatedAt
   company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
+  // SetNull everywhere: archiving or deleting a master must never destroy or
+  // rewrite a saved quotation line.
+  airline            Airline?         @relation(fields: [airlineId], references: [id], onDelete: SetNull)
+  cruise             Cruise?          @relation(fields: [cruiseId], references: [id], onDelete: SetNull)
+  cruiseRoomType     CruiseRoomType?  @relation(fields: [cruiseRoomTypeId], references: [id], onDelete: SetNull)
+  vehicle            Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  sightseeing        Sightseeing?     @relation(fields: [sightseeingId], references: [id], onDelete: SetNull)
+  addOnService       AddOnService?    @relation(fields: [addOnServiceId], references: [id], onDelete: SetNull)
 
   @@unique([quotationVersionId, sequence])
   @@index([companyId, quotationVersionId])
   @@index([companyId, serviceType])
+  @@index([airlineId])
+  @@index([cruiseId])
+  @@index([cruiseRoomTypeId])
+  @@index([vehicleId])
+  @@index([sightseeingId])
+  @@index([addOnServiceId])
   @@map("quotation_version_services")
 }
 
