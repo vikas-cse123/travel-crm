@@ -139,6 +139,7 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.QUERIES, 'update', 'Edit travel queries'),
   available(M.QUERIES, 'delete', 'Delete travel queries'),
   available(M.QUERIES, 'assign', 'Assign travel queries to agents'),
+  available(M.QUERIES, 'export', 'Export travel queries to CSV'),
 
   available(M.FOLLOWUPS, 'view', 'View follow-ups'),
   available(M.FOLLOWUPS, 'create', 'Create follow-ups'),
@@ -301,6 +302,7 @@ export const PERMISSIONS = {
   QUERIES_UPDATE: 'queries.update',
   QUERIES_DELETE: 'queries.delete',
   QUERIES_ASSIGN: 'queries.assign',
+  QUERIES_EXPORT: 'queries.export',
 
   FOLLOWUPS_VIEW: 'followups.view',
   FOLLOWUPS_CREATE: 'followups.create',

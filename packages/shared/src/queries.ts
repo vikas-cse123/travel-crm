@@ -221,10 +221,34 @@ export const followUpCancelSchema = z.object({
   reason: z.string().trim().min(1).max(1000),
 });
 
+/**
+ * Bulk lead operations (Phase 17). Ids are de-duplicated and capped at 100 so a
+ * single request stays a bounded, atomic transaction. Every id is still
+ * re-validated against the caller's lead visibility server-side.
+ */
+const bulkQueryIds = z
+  .array(z.string().uuid())
+  .min(1)
+  .max(100)
+  .transform((ids) => [...new Set(ids)]);
+
+export const bulkAssignmentSchema = z.object({
+  queryIds: bulkQueryIds,
+  assignedToId: z.string().uuid(),
+});
+
+export const bulkStageSchema = z.object({
+  queryIds: bulkQueryIds,
+  leadStage: z.enum(LEAD_STAGES),
+  reason: optionalText(500),
+});
+
 export type QueryInput = z.infer<typeof queryInputSchema>;
 export type QueryUpdateInput = z.infer<typeof queryUpdateSchema>;
 export type FollowUpInput = z.infer<typeof followUpInputSchema>;
 export type FollowUpCompleteInput = z.infer<typeof followUpCompleteSchema>;
+export type BulkAssignmentInput = z.infer<typeof bulkAssignmentSchema>;
+export type BulkStageInput = z.infer<typeof bulkStageSchema>;
 
 export const labelForLookup = (value: string) =>
   value

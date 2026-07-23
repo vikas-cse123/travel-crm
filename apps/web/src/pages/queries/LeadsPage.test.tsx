@@ -377,6 +377,8 @@ describe('Phase 6 lead pages', () => {
               canCreateQuotation: false,
               canSendQuotation: false,
               canGenerateQuotationPdf: false,
+              canViewBookings: true,
+              canConvertBooking: false,
             },
           });
         return response(lead);
@@ -389,14 +391,344 @@ describe('Phase 6 lead pages', () => {
       { route: `/queries/${lead.id}` },
     );
     expect(await screen.findByRole('heading', { name: 'Aarav Mehta' })).toBeInTheDocument();
-    expect(await screen.findByText('Customer prefers morning flights')).toBeInTheDocument();
-    expect(await screen.findByText('Confirm hotel category')).toBeInTheDocument();
-    expect(await screen.findByText('Lead created')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'QT-2026-000001' })).toBeInTheDocument();
-    expect(screen.getByText('1 customer quotation linked to this lead.')).toBeInTheDocument();
+    // Overview is the default tab; action controls are gated off by permissions.
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByText('Reassign lead')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('New stage')).not.toBeInTheDocument();
+    // Sectioned content now lives on its own tab.
+    await userEvent.click(screen.getByRole('button', { name: 'Notes' }));
+    expect(await screen.findByText('Customer prefers morning flights')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Follow-ups' }));
+    expect(await screen.findByText('Confirm hotel category')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+    expect(await screen.findByText('Lead created')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Quotations' }));
+    expect(screen.getByRole('link', { name: 'QT-2026-000001' })).toBeInTheDocument();
+    expect(screen.getByText('1 customer quotation linked to this lead.')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 17 — enriched columns, quick actions, bulk operations and tabs
+// ---------------------------------------------------------------------------
+
+const enrichedLead = {
+  ...lead,
+  hasQuotations: true,
+  createdBy: { id: 'me', fullName: 'Owner', username: 'owner' },
+  quotationSummary: {
+    quotationId: 'quote-1',
+    quotationNumber: 'QT-2026-000001',
+    quotationStatus: 'ACCEPTED',
+    acceptedVersionId: 'ver-1',
+    latestVersionAmount: '50000.00',
+    currency: 'INR',
+    bookingId: null,
+    lastSentAt: null,
+    acceptedAt: '2026-07-22T00:00:00.000Z',
+  },
+  bookingSummary: null,
+  actions: {
+    canCreateQuotation: true,
+    canOpenQuotation: true,
+    canConvertToBooking: true,
+    canViewBooking: false,
+    canAddFollowUp: true,
+  },
+};
+
+function stubLeadList(rows: unknown[], analyticsData = analytics) {
+  const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/analytics')) return response(analyticsData);
+    if (url.includes('/lookups')) return response(lookups);
+    if (options?.method === 'POST' || url.includes('/bulk') || url.includes('/export'))
+      return response({ updatedCount: rows.length, unchangedCount: 0, results: [] });
+    return response({
+      data: rows,
+      pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 },
+    });
+  });
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}
+
+describe('Phase 17 lead list enrichment', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.assign',
+      'queries.export',
+    ]);
+  });
+
+  it('renders source, quotation, booking and created-by columns with a convert action', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    expect((await screen.findAllByText('QRY-2026-000001'))[0]).toBeInTheDocument();
+    // Column headers.
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Quotation')).toBeInTheDocument();
+    expect(screen.getByText('Booking')).toBeInTheDocument();
+    expect(screen.getByText('Created by')).toBeInTheDocument();
+    // Quotation status badge and a convert-to-booking quick action.
+    expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
+    const convert = screen.getAllByRole('link', { name: 'Convert to booking' })[0];
+    expect(convert).toHaveAttribute('href', '/quotations/quote-1/convert-to-booking');
+  });
+
+  it('shows a view-booking action and hides convert once booked', async () => {
+    stubLeadList([
+      {
+        ...enrichedLead,
+        bookingSummary: {
+          bookingId: 'book-1',
+          bookingNumber: 'BK-2026-000001',
+          bookingStatus: 'CONFIRMED',
+          operationalStatus: 'IN_PROGRESS',
+          travelStartDate: null,
+          travelEndDate: null,
+          paymentStatus: 'PARTIALLY_PAID',
+        },
+        actions: { ...enrichedLead.actions, canConvertToBooking: false, canViewBooking: true },
+      },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('QRY-2026-000001');
+    expect(screen.queryByRole('link', { name: 'Convert to booking' })).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole('link', { name: /BK-2026-000001|View booking/ }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('selects rows and performs a bulk assignment', async () => {
+    const mock = stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('QRY-2026-000001');
+    await userEvent.click(screen.getAllByLabelText('Select QRY-2026-000001')[0]!);
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Assign' }));
+    await userEvent.selectOptions(screen.getByLabelText('Bulk assignee'), 'me');
+    await userEvent.click(screen.getByRole('button', { name: 'Assign leads' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(
+          ([url, options]) =>
+            String(url).endsWith('/queries/bulk-assignment') && options?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('performs a bulk stage change', async () => {
+    const mock = stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('QRY-2026-000001');
+    await userEvent.click(screen.getAllByLabelText('Select page')[0]!);
+    await userEvent.click(screen.getByRole('button', { name: 'Change stage' }));
+    await userEvent.selectOptions(screen.getByLabelText('Bulk stage'), 'NEW_LEAD');
+    await userEvent.click(screen.getByRole('button', { name: 'Update stage' }));
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).endsWith('/queries/bulk-stage'))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it('shows the export button only with export permission', async () => {
+    stubLeadList([enrichedLead]);
+    const view = renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('QRY-2026-000001');
+    expect(screen.getByRole('button', { name: /Export CSV/ })).toBeInTheDocument();
+    view.unmount();
+    authState.permissions = new Set(['queries.view']);
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('QRY-2026-000001');
+    expect(screen.queryByRole('button', { name: /Export CSV/ })).not.toBeInTheDocument();
+    // Without assign permission there are no selection checkboxes.
+    expect(screen.queryByLabelText('Select page')).not.toBeInTheDocument();
+  });
+});
+
+describe('Phase 17 lead workspace tabs', () => {
+  const workspace = {
+    lead: enrichedLead,
+    operationalSummary: {
+      pendingFollowUpCount: 1,
+      overdueFollowUpCount: 0,
+      completedFollowUpCount: 0,
+      notesCount: 0,
+      daysSinceLastContact: null,
+      noFutureFollowUp: false,
+      requiresAttention: false,
+    },
+    indicators: [],
+    recent: { notes: [], followUps: [], timeline: [] },
+    quotations: {
+      count: 1,
+      latest: null,
+      items: [
+        {
+          id: 'quote-1',
+          quotationNumber: 'QT-2026-000001',
+          status: 'ACCEPTED',
+          currentVersionId: 'ver-1',
+          lastSentAt: null,
+          lastViewedAt: null,
+          acceptedAt: '2026-07-22T00:00:00.000Z',
+          createdAt: '2026-07-21T00:00:00.000Z',
+          booking: null,
+          versions: [
+            {
+              id: 'ver-1',
+              versionNumber: 1,
+              finalAmount: '50000',
+              currency: 'INR',
+              status: 'FINALIZED',
+            },
+          ],
+        },
+      ],
+    },
+    bookings: { count: 0, latest: null, items: [] },
+    timezone: 'Asia/Kolkata',
+    permissions: {
+      canEdit: true,
+      canAssign: true,
+      canChangeStage: true,
+      canAddNote: true,
+      canScheduleFollowUp: true,
+      canCompleteFollowUp: true,
+      canArchive: true,
+      canViewQuotations: true,
+      canCreateQuotation: true,
+      canSendQuotation: true,
+      canGenerateQuotationPdf: true,
+      canViewBookings: true,
+      canConvertBooking: true,
+    },
+  };
+
+  function stubWorkspace() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/workspace')) return response(workspace);
+        if (url.includes('/notes'))
+          return response([
+            {
+              id: 'note-1',
+              content: 'Prefers morning flights',
+              createdAt: '2026-07-21T00:00:00.000Z',
+              updatedAt: '2026-07-21T00:00:00.000Z',
+              isCustomerContact: false,
+              contactMethod: null,
+              contactedAt: null,
+              authorUser: { id: 'me', fullName: 'Owner', username: 'owner' },
+            },
+          ]);
+        if (url.includes('/follow-ups'))
+          return response([
+            {
+              id: 'fu-1',
+              scheduledAt: '2026-08-01T10:00:00.000Z',
+              status: 'PENDING',
+              effectiveStatus: 'PENDING',
+              outcomeType: null,
+              outcome: null,
+              notes: 'Confirm hotel category',
+              completionNotes: null,
+              completedAt: null,
+              cancelledAt: null,
+              cancellationReason: null,
+              createdAt: '2026-07-21T00:00:00.000Z',
+              updatedAt: '2026-07-21T00:00:00.000Z',
+              assignedTo: { id: 'me', fullName: 'Owner', username: 'owner' },
+              createdBy: { id: 'me', fullName: 'Owner', username: 'owner' },
+            },
+          ]);
+        if (url.includes('/timeline'))
+          return response({
+            data: [
+              {
+                id: 't1',
+                type: 'LEAD_CREATED',
+                title: 'Lead created',
+                description: 'Created',
+                timestamp: '2026-07-21T00:00:00.000Z',
+                actor: { id: 'me', fullName: 'Owner', username: 'owner' },
+              },
+            ],
+            pagination: {},
+          });
+        if (url.includes('/lookups')) return response(lookups);
+        return response(enrichedLead);
+      }),
+    );
+  }
+
+  const renderWorkspace = () =>
+    renderWithProviders(
+      <Routes>
+        <Route path="/queries/:queryId" element={<LeadDetailsPage />} />
+      </Routes>,
+      { route: `/queries/${enrichedLead.id}` },
+    );
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.update',
+      'queries.assign',
+      'followups.create',
+      'followups.update',
+      'followups.delete',
+    ]);
+  });
+
+  it('defaults to the Overview tab and switches between tabs', async () => {
+    stubWorkspace();
+    renderWorkspace();
+    expect(await screen.findByRole('heading', { name: 'Aarav Mehta' })).toBeInTheDocument();
+    // Overview shows the lead-actions panel.
+    expect(screen.getByText('Lead actions')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Travel & Itinerary' }));
+    expect(await screen.findByText('Travel and travellers')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Notes' }));
+    expect(await screen.findByText('Prefers morning flights')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Follow-ups' }));
+    expect(await screen.findByText('Confirm hotel category')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+    expect(await screen.findByText('Lead created')).toBeInTheDocument();
+  });
+
+  it('shows the quotations tab with a convert-to-booking action', async () => {
+    stubWorkspace();
+    renderWorkspace();
+    await screen.findByRole('heading', { name: 'Aarav Mehta' });
+    await userEvent.click(screen.getByRole('button', { name: 'Quotations' }));
+    expect(await screen.findByRole('link', { name: 'QT-2026-000001' })).toBeInTheDocument();
+    const convert = screen.getByRole('link', { name: 'Convert to booking' });
+    expect(convert).toHaveAttribute('href', '/quotations/quote-1/convert-to-booking');
+  });
+
+  it('explains the accepted-quotation rule on the Booking tab when unbooked', async () => {
+    stubWorkspace();
+    renderWorkspace();
+    await screen.findByRole('heading', { name: 'Aarav Mehta' });
+    await userEvent.click(screen.getByRole('button', { name: 'Booking' }));
+    expect(await screen.findByText(/created from an accepted quotation/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Convert to booking' })).toBeInTheDocument();
   });
 });

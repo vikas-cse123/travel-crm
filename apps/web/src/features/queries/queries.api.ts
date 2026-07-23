@@ -65,6 +65,36 @@ export interface Lead {
     departureDate: string | null;
     notes: string | null;
   }>;
+  // Phase 17 enriched list fields (present on the list endpoint; omitted by the
+  // server when the caller lacks the relevant module permission).
+  hasQuotations?: boolean;
+  quotationSummary?: {
+    quotationId: string;
+    quotationNumber: string;
+    quotationStatus: string;
+    acceptedVersionId: string | null;
+    latestVersionAmount: string | null;
+    currency: string | null;
+    bookingId: string | null;
+    lastSentAt: string | null;
+    acceptedAt: string | null;
+  } | null;
+  bookingSummary?: {
+    bookingId: string;
+    bookingNumber: string;
+    bookingStatus: string;
+    operationalStatus: string;
+    travelStartDate: string | null;
+    travelEndDate: string | null;
+    paymentStatus?: string;
+  } | null;
+  actions?: {
+    canCreateQuotation: boolean;
+    canOpenQuotation: boolean;
+    canConvertToBooking: boolean;
+    canViewBooking: boolean;
+    canAddFollowUp: boolean;
+  };
 }
 export interface UserOption {
   id: string;
@@ -304,6 +334,53 @@ export function useArchiveLead(id: string) {
     mutationFn: () => apiClient.delete<{ archived: boolean; id: string }>(`/queries/${id}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.all });
+    },
+  });
+}
+
+export interface BulkResult {
+  updatedCount: number;
+  unchangedCount: number;
+  results: Array<{ queryId: string; changed: boolean }>;
+}
+export function useBulkAssign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { queryIds: string[]; assignedToId: string }) =>
+      apiClient.post<BulkResult>('/queries/bulk-assignment', input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.all });
+    },
+  });
+}
+export function useBulkStage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { queryIds: string[]; leadStage: string; reason?: string }) =>
+      apiClient.post<BulkResult>('/queries/bulk-stage', input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.all });
+    },
+  });
+}
+/** Fetch the filtered lead CSV and trigger a browser download. */
+export function useLeadExport() {
+  return useMutation({
+    mutationFn: async (params: URLSearchParams) => {
+      const query = params.toString();
+      const csv = await apiClient.get<{ fileName: string; mimeType: string; content: string }>(
+        `/queries/export${query ? `?${query}` : ''}`,
+      );
+      const blob = new Blob([csv.content], { type: `${csv.mimeType};charset=utf-8` });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = csv.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      return csv.fileName;
     },
   });
 }

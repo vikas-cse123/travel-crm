@@ -459,3 +459,272 @@ describe('Phase 6 travel lead management', () => {
     ).toBeGreaterThanOrEqual(4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 17 — enriched list, quick actions, bulk operations and CSV export
+// ---------------------------------------------------------------------------
+
+/** A client whose role holds only the given permission keys. */
+async function restrictedClient(ownerEmail: string, keys: string[], email: string) {
+  const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: ownerEmail } });
+  const role = await db.role.create({
+    data: {
+      companyId: ownerUser.companyId,
+      name: `Restricted ${email.split('@')[0]}`,
+      description: 'Test role',
+      hierarchyLevel: 10,
+      isSystem: false,
+    },
+  });
+  for (const key of keys) {
+    const permission = await db.permission.findUniqueOrThrow({ where: { key } });
+    await db.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
+  }
+  await db.user.create({
+    data: {
+      companyId: ownerUser.companyId,
+      roleId: role.id,
+      username: email.split('@')[0]!,
+      fullName: 'Restricted User',
+      email,
+      normalizedEmail: email,
+      passwordHash: (await import('../src/utils/crypto.js')).hashPassword
+        ? await (await import('../src/utils/crypto.js')).hashPassword('Sales@2026')
+        : '',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  const client = createAuthClient(app);
+  expect(
+    (await client.post('/api/auth/login', { email, password: 'Sales@2026', rememberMe: false }))
+      .status,
+  ).toBe(200);
+  return client;
+}
+
+/** Create a lead, an accepted quotation for it, and return both. */
+async function acceptedQuotation(client: ReturnType<typeof createAuthClient>, leadId: string) {
+  const quotation = (await client.post('/api/quotations', { queryId: leadId })).body.data;
+  const version = quotation.versions[0];
+  await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+  await db.quotation.update({
+    where: { id: quotation.id },
+    data: { status: 'ACCEPTED', acceptedVersionId: version.id, acceptedAt: new Date() },
+  });
+  return { quotation, version };
+}
+
+describe('Phase 17 lead workflow parity', () => {
+  it('enriches list rows with source, creator, quotation and booking summaries', async () => {
+    const client = await owner('owner@p17.test', 'P17 Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    await acceptedQuotation(client, lead.id);
+
+    const list = await client.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.leadSource).toBe('REFERRAL');
+    expect(row.createdBy).toHaveProperty('fullName');
+    expect(row.quotationSummary).toMatchObject({ quotationStatus: 'ACCEPTED' });
+    expect(row.quotationSummary.latestVersionAmount).not.toBeUndefined();
+    // Accepted, unbooked quotation → convertible.
+    expect(row.actions).toMatchObject({
+      canCreateQuotation: true,
+      canOpenQuotation: true,
+      canConvertToBooking: true,
+      canViewBooking: false,
+    });
+    expect(row.bookingSummary).toBeNull();
+  });
+
+  it('suppresses conversion and shows the booking summary once converted', async () => {
+    const client = await owner('owner@p17b.test', 'P17b Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    const { quotation } = await acceptedQuotation(client, lead.id);
+    const booking = await client.post(`/api/quotations/${quotation.id}/convert-to-booking`, {});
+    expect(booking.status).toBe(201);
+
+    const list = await client.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.actions.canConvertToBooking).toBe(false);
+    expect(row.actions.canViewBooking).toBe(true);
+    expect(row.bookingSummary).toMatchObject({ bookingNumber: booking.body.data.bookingNumber });
+    expect(row.bookingSummary).toHaveProperty('paymentStatus'); // owner has financials
+  });
+
+  it('omits quotation and booking blocks without the module permissions', async () => {
+    const client = await owner('owner@p17c.test', 'P17c Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    await acceptedQuotation(client, lead.id);
+    // A user who can view leads but not quotations/bookings.
+    const restricted = await restrictedClient(
+      'owner@p17c.test',
+      ['queries.view'],
+      'restricted@p17c.test',
+    );
+    // Reassign the lead to the restricted user so it is visible to them.
+    const restrictedUser = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'restricted@p17c.test' },
+    });
+    await db.query.update({ where: { id: lead.id }, data: { assignedToId: restrictedUser.id } });
+
+    const list = await restricted.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.quotationSummary).toBeNull();
+    expect(row.bookingSummary).toBeNull();
+    expect(row.actions.canOpenQuotation).toBe(false);
+    expect(row.actions.canConvertToBooking).toBe(false);
+  });
+
+  it('omits booking payment status without financial permission', async () => {
+    const client = await owner('owner@p17d.test', 'P17d Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    const { quotation } = await acceptedQuotation(client, lead.id);
+    await client.post(`/api/quotations/${quotation.id}/convert-to-booking`, {});
+    const restricted = await restrictedClient(
+      'owner@p17d.test',
+      ['queries.view', 'bookings.view'],
+      'nofin@p17d.test',
+    );
+    const restrictedUser = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'nofin@p17d.test' },
+    });
+    await db.query.update({ where: { id: lead.id }, data: { assignedToId: restrictedUser.id } });
+    const list = await restricted.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.bookingSummary).not.toBeNull();
+    expect(row.bookingSummary).not.toHaveProperty('paymentStatus');
+  });
+
+  it('bulk-assigns leads, moves pending follow-ups and writes history', async () => {
+    const client = await owner('owner@p17e.test', 'P17e Travel');
+    await employee(client, 'Sales Executive', 'agent@p17e.test', 'agent-p17e');
+    const agent = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'agent@p17e.test' },
+    });
+    const a = (await client.post('/api/queries', payload('+91 90000 11111'))).body.data;
+    const b = (await client.post('/api/queries', payload('+91 90000 22222'))).body.data;
+    // A pending follow-up on lead A.
+    await client.post(`/api/queries/${a.id}/follow-ups`, {
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      reminderPriority: 'HIGH',
+    });
+
+    const result = await client.post('/api/queries/bulk-assignment', {
+      queryIds: [a.id, b.id, a.id],
+      assignedToId: agent.id,
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.data.updatedCount).toBe(2);
+    expect(await db.query.count({ where: { assignedToId: agent.id } })).toBe(2);
+    expect(await db.queryFollowUp.count({ where: { queryId: a.id, assignedToId: agent.id } })).toBe(
+      1,
+    );
+    expect(await db.queryAssignmentHistory.count({ where: { queryId: a.id } })).toBeGreaterThan(0);
+  });
+
+  it('rejects a bulk assignment with a cross-company assignee or an unauthorized lead', async () => {
+    const client = await owner('owner@p17f.test', 'P17f Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    const beta = await owner('owner@p17f-beta.test', 'P17f Beta');
+    const betaLead = (await beta.post('/api/queries', payload('+91 90000 33333'))).body.data;
+    const betaUser = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'owner@p17f-beta.test' },
+    });
+    // Cross-company assignee.
+    expect(
+      (
+        await client.post('/api/queries/bulk-assignment', {
+          queryIds: [lead.id],
+          assignedToId: betaUser.id,
+        })
+      ).status,
+    ).toBe(400);
+    // A lead the caller cannot see (belongs to beta) → all-or-nothing rejection.
+    const self = await db.user.findUniqueOrThrow({ where: { normalizedEmail: 'owner@p17f.test' } });
+    const before = (await db.query.findUniqueOrThrow({ where: { id: lead.id } })).assignedToId;
+    expect(
+      (
+        await client.post('/api/queries/bulk-assignment', {
+          queryIds: [lead.id, betaLead.id],
+          assignedToId: self.id,
+        })
+      ).status,
+    ).toBe(400);
+    // The batch is atomic: the visible lead's assignment is unchanged by the
+    // rejected call.
+    expect((await db.query.findUniqueOrThrow({ where: { id: lead.id } })).assignedToId).toBe(
+      before,
+    );
+  });
+
+  it('enforces the 100-id maximum on bulk operations', async () => {
+    const client = await owner('owner@p17g.test', 'P17g Travel');
+    const self = await db.user.findUniqueOrThrow({ where: { normalizedEmail: 'owner@p17g.test' } });
+    const ids = Array.from({ length: 101 }, () => crypto.randomUUID());
+    expect(
+      (await client.post('/api/queries/bulk-assignment', { queryIds: ids, assignedToId: self.id }))
+        .status,
+    ).toBe(400);
+  });
+
+  it('bulk-changes stage with history and rejects invalid transitions atomically', async () => {
+    const client = await owner('owner@p17h.test', 'P17h Travel');
+    const a = (await client.post('/api/queries', payload('+91 90000 44444'))).body.data;
+    const b = (await client.post('/api/queries', payload('+91 90000 55555'))).body.data;
+    // NEW_LEAD → QUALIFIED is valid for both.
+    const ok = await client.post('/api/queries/bulk-stage', {
+      queryIds: [a.id, b.id],
+      leadStage: 'QUALIFIED',
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.updatedCount).toBe(2);
+    expect(
+      await db.queryStageHistory.count({ where: { queryId: a.id, newStage: 'QUALIFIED' } }),
+    ).toBe(1);
+    // QUALIFIED → BOOKING_CONFIRMED is not a valid direct transition → rejected, atomic.
+    const bad = await client.post('/api/queries/bulk-stage', {
+      queryIds: [a.id, b.id],
+      leadStage: 'BOOKING_CONFIRMED',
+    });
+    expect(bad.status).toBe(400);
+    expect((await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage).toBe('QUALIFIED');
+  });
+
+  it('exports leads as CSV respecting filters, visibility and escaping', async () => {
+    const client = await owner('owner@p17i.test', 'P17i Travel');
+    await client.post('/api/queries', {
+      ...payload('+91 90000 66666'),
+      customerName: 'Comma, "Quote" Name',
+      leadSource: 'WEBSITE',
+    });
+    await client.post('/api/queries', { ...payload('+91 90000 77777'), leadSource: 'REFERRAL' });
+
+    const csv = await client.get('/api/queries/export?leadSource=WEBSITE');
+    expect(csv.status).toBe(200);
+    expect(csv.body.data.mimeType).toBe('text/csv');
+    expect(csv.body.data.fileName).toMatch(/^leads-\d{4}-\d{2}-\d{2}\.csv$/);
+    const content = csv.body.data.content as string;
+    expect(content.split('\n')[0]).toContain('Lead Number');
+    // Filter parity: only the WEBSITE lead is present.
+    expect(content).toContain('WEBSITE');
+    expect(content).not.toContain('REFERRAL');
+    // CSV escaping of quotes/commas.
+    expect(content).toContain('"Comma, ""Quote"" Name"');
+  });
+
+  it('isolates the CSV export by tenant and requires the export permission', async () => {
+    const alpha = await owner('owner@p17j.test', 'P17j Alpha');
+    await alpha.post('/api/queries', { ...payload('+91 90000 88888'), customerName: 'Alpha Lead' });
+    const beta = await owner('owner@p17j-beta.test', 'P17j Beta');
+    const betaCsv = await beta.get('/api/queries/export');
+    expect(betaCsv.body.data.content).not.toContain('Alpha Lead');
+    // A role without queries.export is forbidden.
+    const restricted = await restrictedClient(
+      'owner@p17j.test',
+      ['queries.view'],
+      'noexport@p17j.test',
+    );
+    expect((await restricted.get('/api/queries/export')).status).toBe(403);
+  });
+});

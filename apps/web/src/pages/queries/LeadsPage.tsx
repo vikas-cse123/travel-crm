@@ -1,7 +1,25 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowUpDown, ChevronLeft, ChevronRight, Plus, Search, UsersRound } from 'lucide-react';
+import {
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Plus,
+  Search,
+  UsersRound,
+  X,
+} from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useLeadAnalytics, useLeadLookups, useLeads } from '@/features/queries/queries.api';
+import {
+  useBulkAssign,
+  useBulkStage,
+  useLeadAnalytics,
+  useLeadExport,
+  useLeadLookups,
+  useLeads,
+  type Lead,
+} from '@/features/queries/queries.api';
 import { Button } from '@/components/ui/Button';
 import { labelForLookup } from '@interscale/shared';
 
@@ -11,12 +29,113 @@ const badge = (value: string) =>
     : value === 'BOOKING_CONFIRMED' || value === 'QUALIFIED'
       ? 'bg-emerald-50 text-emerald-700'
       : 'bg-blue-50 text-blue-700';
+
+function QuotationCell({ lead }: { lead: Lead }) {
+  const summary = lead.quotationSummary;
+  if (lead.quotationSummary === undefined) return <span className="text-slate-300">—</span>;
+  if (!summary) return <span className="text-xs text-slate-400">None</span>;
+  return (
+    <div className="text-xs">
+      <span
+        className={`rounded-full px-2 py-0.5 font-medium ${badge(summary.quotationStatus)}`}
+        title={summary.quotationNumber}
+      >
+        {labelForLookup(summary.quotationStatus)}
+      </span>
+      {summary.latestVersionAmount && (
+        <p className="mt-0.5 text-slate-500">
+          {summary.currency ?? ''} {summary.latestVersionAmount}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BookingCell({ lead }: { lead: Lead }) {
+  const summary = lead.bookingSummary;
+  if (lead.bookingSummary === undefined) return <span className="text-slate-300">—</span>;
+  if (!summary) return <span className="text-xs text-slate-400">None</span>;
+  return (
+    <div className="text-xs">
+      <Link className="font-medium text-brand-700" to={`/bookings/${summary.bookingId}`}>
+        {summary.bookingNumber}
+      </Link>
+      <p className="mt-0.5 text-slate-500">{labelForLookup(summary.bookingStatus)}</p>
+    </div>
+  );
+}
+
+/** Compact context-aware quick actions for a lead row. */
+function QuickActions({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+  const a = lead.actions;
+  const quotationId = lead.quotationSummary?.quotationId;
+  const bookingId = lead.bookingSummary?.bookingId;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium">
+      <Link className="text-brand-700" to={`/queries/${lead.id}`}>
+        View
+      </Link>
+      {canEdit && (
+        <Link className="text-slate-600" to={`/queries/${lead.id}/edit`}>
+          Edit
+        </Link>
+      )}
+      {a?.canConvertToBooking && quotationId && (
+        <Link className="text-emerald-700" to={`/quotations/${quotationId}/convert-to-booking`}>
+          Convert to booking
+        </Link>
+      )}
+      {a?.canViewBooking && bookingId && (
+        <Link className="text-emerald-700" to={`/bookings/${bookingId}`}>
+          View booking
+        </Link>
+      )}
+      {a?.canOpenQuotation && quotationId && !a.canConvertToBooking && !a.canViewBooking && (
+        <Link className="text-slate-600" to={`/quotations/${quotationId}`}>
+          View quotation
+        </Link>
+      )}
+      {a?.canCreateQuotation && !lead.hasQuotations && (
+        <Link className="text-slate-600" to={`/queries/${lead.id}/quotations/new`}>
+          Create quotation
+        </Link>
+      )}
+      {a?.canAddFollowUp && (
+        <Link className="text-slate-600" to={`/queries/${lead.id}?tab=follow-ups`}>
+          Follow-up
+        </Link>
+      )}
+    </div>
+  );
+}
+
 export function LeadsPage() {
   const { hasPermission } = useAuth();
   const [params, setParams] = useSearchParams();
   const leads = useLeads(params);
   const analytics = useLeadAnalytics();
   const { data: lookups } = useLeadLookups();
+  const bulkAssign = useBulkAssign();
+  const bulkStage = useBulkStage();
+  const exportLeads = useLeadExport();
+
+  const canAssign = hasPermission('queries.assign');
+  const canUpdate = hasPermission('queries.update');
+  const canExport = hasPermission('queries.export');
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialog, setDialog] = useState<null | 'assign' | 'stage'>(null);
+  const [assignTo, setAssignTo] = useState('');
+  const [bulkStageValue, setBulkStageValue] = useState('');
+  const [bulkReason, setBulkReason] = useState('');
+
+  // A change in filters or page invalidates the current selection.
+  const paramsKey = params.toString();
+  useEffect(() => {
+    setSelected(new Set());
+    setDialog(null);
+  }, [paramsKey]);
+
   const set = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -33,21 +152,60 @@ export function LeadsPage() {
     next.set('page', '1');
     setParams(next);
   };
-  const headers: Array<[string, string?]> = [
-    ['Lead ID', 'queryNumber'],
-    ['Customer', 'customerName'],
-    ['Itinerary'],
-    ['Travellers'],
-    ['Services'],
-    ['Travel', 'travelStartDate'],
-    ['Assigned to'],
-    ['Expected', 'expectedAmount'],
-    ['Type', 'leadType'],
-    ['Stage', 'leadStage'],
-    ['Next follow-up', 'nextFollowUpAt'],
-    ['Created', 'createdAt'],
-    ['Actions'],
-  ];
+
+  const rows = useMemo(() => leads.data?.data ?? [], [leads.data]);
+  const pageIds = useMemo(() => rows.map((lead) => lead.id), [rows]);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const toggleRow = (id: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 100) next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.size < 100 && next.add(id));
+      return next;
+    });
+
+  const closeDialog = () => {
+    setDialog(null);
+    setAssignTo('');
+    setBulkStageValue('');
+    setBulkReason('');
+  };
+  const runAssign = () => {
+    if (!assignTo) return;
+    bulkAssign.mutate(
+      { queryIds: [...selected], assignedToId: assignTo },
+      {
+        onSuccess: () => {
+          setSelected(new Set());
+          closeDialog();
+        },
+      },
+    );
+  };
+  const runStage = () => {
+    if (!bulkStageValue) return;
+    bulkStage.mutate(
+      {
+        queryIds: [...selected],
+        leadStage: bulkStageValue,
+        ...(bulkReason ? { reason: bulkReason } : {}),
+      },
+      {
+        onSuccess: () => {
+          setSelected(new Set());
+          closeDialog();
+        },
+      },
+    );
+  };
+
   const cards = analytics.data
     ? [
         ['Total Leads', analytics.data.totalLeads],
@@ -81,6 +239,25 @@ export function LeadsPage() {
         ].map((x) => [labelForLookup(x), x, analytics.data!.byLeadStage[x] ?? 0] as const),
       ]
     : [];
+
+  const headers: Array<[string, string?]> = [
+    ['Lead ID', 'queryNumber'],
+    ['Customer', 'customerName'],
+    ['Itinerary'],
+    ['Travellers'],
+    ['Source'],
+    ['Travel', 'travelStartDate'],
+    ['Assigned to'],
+    ['Type', 'leadType'],
+    ['Stage', 'leadStage'],
+    ['Next follow-up', 'nextFollowUpAt'],
+    ['Quotation'],
+    ['Booking'],
+    ['Created by'],
+    ['Created', 'createdAt'],
+    ['Actions'],
+  ];
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -88,14 +265,26 @@ export function LeadsPage() {
           <p className="text-sm text-slate-500">Home / Leads</p>
           <h1 className="text-2xl font-semibold">Leads</h1>
         </div>
-        {hasPermission('queries.create') && (
-          <Link to="/queries/new">
-            <Button>
-              <Plus className="h-4 w-4" />
-              Add Lead
+        <div className="flex gap-2">
+          {canExport && (
+            <Button
+              variant="secondary"
+              disabled={exportLeads.isPending}
+              onClick={() => exportLeads.mutate(params)}
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
             </Button>
-          </Link>
-        )}
+          )}
+          {hasPermission('queries.create') && (
+            <Link to="/queries/new">
+              <Button>
+                <Plus className="h-4 w-4" />
+                Add Lead
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
       {analytics.isLoading ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -231,6 +420,38 @@ export function LeadsPage() {
             ))}
           </div>
         </div>
+
+        {selected.size > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-3 border-b bg-brand-50 px-4 py-2.5 text-sm"
+            role="region"
+            aria-label="Bulk actions"
+          >
+            <span className="font-medium text-brand-800">{selected.size} selected</span>
+            {canAssign && (
+              <Button size="sm" variant="secondary" onClick={() => setDialog('assign')}>
+                Assign
+              </Button>
+            )}
+            {canUpdate && (
+              <Button size="sm" variant="secondary" onClick={() => setDialog('stage')}>
+                Change stage
+              </Button>
+            )}
+            <button
+              className="flex items-center gap-1 text-slate-600 hover:text-slate-900"
+              onClick={() => setSelected(new Set())}
+            >
+              <X className="h-3.5 w-3.5" /> Clear
+            </button>
+          </div>
+        )}
+        {(bulkAssign.isError || bulkStage.isError) && (
+          <div className="border-b bg-red-50 px-4 py-2 text-sm text-red-700" role="alert">
+            {(bulkAssign.error as Error)?.message ?? (bulkStage.error as Error)?.message}
+          </div>
+        )}
+
         {leads.isLoading ? (
           <div className="space-y-3 p-5" aria-label="Loading leads">
             {[1, 2, 3, 4].map((i) => (
@@ -244,7 +465,7 @@ export function LeadsPage() {
               Try again
             </Button>
           </div>
-        ) : !leads.data?.data.length ? (
+        ) : !rows.length ? (
           <div className="p-12 text-center">
             <UsersRound className="mx-auto h-10 w-10 text-slate-300" />
             <h2 className="mt-3 font-medium">No leads found</h2>
@@ -253,15 +474,26 @@ export function LeadsPage() {
         ) : (
           <>
             <div className="divide-y md:hidden">
-              {leads.data.data.map((lead) => (
+              {rows.map((lead) => (
                 <article key={lead.id} className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Link className="font-semibold text-brand-700" to={`/queries/${lead.id}`}>
-                        {lead.queryNumber}
-                      </Link>
-                      <p className="font-medium">{lead.customerName}</p>
-                      <p className="text-xs text-slate-500">{lead.phone}</p>
+                    <div className="flex items-start gap-2">
+                      {canAssign && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${lead.queryNumber}`}
+                          className="mt-1"
+                          checked={selected.has(lead.id)}
+                          onChange={() => toggleRow(lead.id)}
+                        />
+                      )}
+                      <div>
+                        <Link className="font-semibold text-brand-700" to={`/queries/${lead.id}`}>
+                          {lead.queryNumber}
+                        </Link>
+                        <p className="font-medium">{lead.customerName}</p>
+                        <p className="text-xs text-slate-500">{lead.phone}</p>
+                      </div>
                     </div>
                     <span
                       className={`rounded-full px-2 py-1 text-xs font-medium ${badge(lead.leadStage)}`}
@@ -273,7 +505,7 @@ export function LeadsPage() {
                     {lead.itinerary.map((x) => `${x.destination} (${x.nights}N)`).join(' → ')}
                   </p>
                   <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                    <span>{lead.travellerSummary}</span>
+                    <span>{labelForLookup(lead.leadSource)}</span>
                     <span>{lead.assignedTo?.fullName ?? 'Unassigned'}</span>
                     <span>
                       Travel:{' '}
@@ -288,23 +520,28 @@ export function LeadsPage() {
                         : 'None'}
                     </span>
                   </div>
-                  <div className="flex gap-3 text-sm font-medium">
-                    <Link className="text-brand-700" to={`/queries/${lead.id}`}>
-                      View
-                    </Link>
-                    {hasPermission('queries.update') && (
-                      <Link className="text-slate-600" to={`/queries/${lead.id}/edit`}>
-                        Edit
-                      </Link>
-                    )}
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    <QuotationCell lead={lead} />
+                    <BookingCell lead={lead} />
                   </div>
+                  <QuickActions lead={lead} canEdit={canUpdate} />
                 </article>
               ))}
             </div>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1150px] text-left text-sm">
+              <table className="w-full min-w-[1400px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
+                    {canAssign && (
+                      <th className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label="Select page"
+                          checked={allOnPageSelected}
+                          onChange={togglePage}
+                        />
+                      </th>
+                    )}
                     {headers.map(([label, sortBy]) => (
                       <th key={label} className="px-4 py-3">
                         {sortBy ? (
@@ -324,8 +561,18 @@ export function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {leads.data.data.map((lead) => (
+                  {rows.map((lead) => (
                     <tr key={lead.id} className="hover:bg-slate-50">
+                      {canAssign && (
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${lead.queryNumber}`}
+                            checked={selected.has(lead.id)}
+                            onChange={() => toggleRow(lead.id)}
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3 font-medium text-brand-700">
                         <Link to={`/queries/${lead.id}`}>{lead.queryNumber}</Link>
                       </td>
@@ -339,28 +586,13 @@ export function LeadsPage() {
                         </span>
                       </td>
                       <td className="max-w-44 px-4 py-3 text-xs">{lead.travellerSummary}</td>
-                      <td className="px-4 py-3 text-xs">
-                        {lead.services
-                          .slice(0, 2)
-                          .map((x) => labelForLookup(x.serviceType))
-                          .join(', ')}
-                        {lead.services.length > 2 ? ` +${lead.services.length - 2}` : ''}
-                      </td>
+                      <td className="px-4 py-3 text-xs">{labelForLookup(lead.leadSource)}</td>
                       <td className="px-4 py-3">
                         {lead.travelStartDate
                           ? new Date(lead.travelStartDate).toLocaleDateString()
                           : 'Flexible'}
                       </td>
                       <td className="px-4 py-3">{lead.assignedTo?.fullName ?? 'Unassigned'}</td>
-                      <td className="px-4 py-3">
-                        {lead.expectedAmount
-                          ? new Intl.NumberFormat(undefined, {
-                              style: 'currency',
-                              currency: lead.currency,
-                              maximumFractionDigits: 0,
-                            }).format(Number(lead.expectedAmount))
-                          : '—'}
-                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`rounded-full px-2 py-1 text-xs font-medium ${badge(lead.leadType)}`}
@@ -378,19 +610,16 @@ export function LeadsPage() {
                       <td className="px-4 py-3">
                         {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleString() : '—'}
                       </td>
+                      <td className="px-4 py-3">
+                        <QuotationCell lead={lead} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <BookingCell lead={lead} />
+                      </td>
+                      <td className="px-4 py-3 text-xs">{lead.createdBy?.fullName ?? '—'}</td>
                       <td className="px-4 py-3">{new Date(lead.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
-                        <Link className="font-medium text-brand-700" to={`/queries/${lead.id}`}>
-                          View
-                        </Link>
-                        {hasPermission('queries.update') && (
-                          <Link
-                            className="ml-3 font-medium text-slate-600"
-                            to={`/queries/${lead.id}/edit`}
-                          >
-                            Edit
-                          </Link>
-                        )}
+                        <QuickActions lead={lead} canEdit={canUpdate} />
                       </td>
                     </tr>
                   ))}
@@ -428,6 +657,72 @@ export function LeadsPage() {
           </div>
         )}
       </section>
+
+      {dialog && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={dialog === 'assign' ? 'Bulk assign leads' : 'Bulk change stage'}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">
+                {dialog === 'assign' ? 'Assign' : 'Change stage for'} {selected.size} leads
+              </h2>
+              <button aria-label="Close" onClick={closeDialog}>
+                <X className="h-4 w-4 text-slate-500" />
+              </button>
+            </div>
+            {dialog === 'assign' ? (
+              <div className="mt-4 space-y-3">
+                <select
+                  aria-label="Bulk assignee"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={assignTo}
+                  onChange={(e) => setAssignTo(e.target.value)}
+                >
+                  <option value="">Select a user</option>
+                  {lookups?.assignableUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.fullName}
+                    </option>
+                  ))}
+                </select>
+                <Button className="w-full" isLoading={bulkAssign.isPending} onClick={runAssign}>
+                  Assign leads
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <select
+                  aria-label="Bulk stage"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={bulkStageValue}
+                  onChange={(e) => setBulkStageValue(e.target.value)}
+                >
+                  <option value="">Select a stage</option>
+                  {lookups?.leadStages.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  aria-label="Bulk stage reason"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Reason (required for lost/cancelled/invalid)"
+                  value={bulkReason}
+                  onChange={(e) => setBulkReason(e.target.value)}
+                />
+                <Button className="w-full" isLoading={bulkStage.isPending} onClick={runStage}>
+                  Update stage
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

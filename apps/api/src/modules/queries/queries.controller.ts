@@ -66,6 +66,23 @@ export const queriesController = {
       'Lead assigned.',
     );
   },
+  async bulkAssignment(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await queriesService.bulkAssign(auth(req), req.body, context(req)),
+      'Leads assigned.',
+    );
+  },
+  async bulkStage(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await queriesService.bulkChangeStage(auth(req), req.body, context(req)),
+      'Lead stages updated.',
+    );
+  },
+  async export(req: Request, res: Response) {
+    sendSuccess(res, await queriesService.export(auth(req), req.query));
+  },
   async notes(req: Request, res: Response) {
     sendSuccess(res, await queriesService.notes(auth(req), req.params.queryId!));
   },

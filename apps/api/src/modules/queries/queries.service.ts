@@ -66,6 +66,128 @@ export function presentQuery(value: IncludedQuery) {
     }),
   };
 }
+
+/**
+ * List include adding the single latest linked quotation and booking so each
+ * lead row can show quotation/booking state without any per-row query. Both are
+ * bounded (`take: 1`); the presenter redacts them by the caller's permissions.
+ */
+const leadListInclude = {
+  ...include,
+  quotations: {
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: {
+      id: true,
+      quotationNumber: true,
+      status: true,
+      acceptedVersionId: true,
+      lastSentAt: true,
+      acceptedAt: true,
+      createdAt: true,
+      booking: { select: { id: true, bookingNumber: true } },
+      versions: {
+        orderBy: { versionNumber: 'desc' as const },
+        take: 1,
+        select: { finalAmount: true, currency: true },
+      },
+    },
+  },
+  bookings: {
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: {
+      id: true,
+      bookingNumber: true,
+      bookingStatus: true,
+      operationalStatus: true,
+      paymentStatus: true,
+      travelStartDate: true,
+      travelEndDate: true,
+    },
+  },
+} as const;
+type LeadListRow = Prisma.QueryGetPayload<{ include: typeof leadListInclude }>;
+
+/** Capabilities that shape which linked data and row actions a lead row exposes. */
+export interface LeadRowCaps {
+  canViewQuotations: boolean;
+  canCreateQuotation: boolean;
+  canViewBookings: boolean;
+  canViewBookingFinancials: boolean;
+  canConvertBooking: boolean;
+  canScheduleFollowUp: boolean;
+}
+
+/** A quotation is convertible to a booking only when accepted and not yet booked. */
+export function conversionEligible(quotation: {
+  status: string;
+  acceptedVersionId: string | null;
+  booking: { id: string } | null;
+}) {
+  return (
+    quotation.status === 'ACCEPTED' && Boolean(quotation.acceptedVersionId) && !quotation.booking
+  );
+}
+
+/**
+ * Enrich a lead row with a redacted quotation/booking summary and context-aware
+ * action flags. Quotation and booking blocks are omitted (not nulled) when the
+ * caller lacks the relevant module permission; booking `paymentStatus` is only
+ * present with booking financial permission.
+ */
+export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
+  const { quotations, bookings, ...rest } = value;
+  const base = presentQuery(rest as IncludedQuery);
+  const terminal = terminalStages.includes(value.leadStage);
+  const latestQuotation = quotations[0] ?? null;
+  const latestBooking = bookings[0] ?? null;
+  const eligible = latestQuotation ? conversionEligible(latestQuotation) : false;
+
+  const quotationSummary =
+    caps.canViewQuotations && latestQuotation
+      ? {
+          quotationId: latestQuotation.id,
+          quotationNumber: latestQuotation.quotationNumber,
+          quotationStatus: latestQuotation.status,
+          acceptedVersionId: latestQuotation.acceptedVersionId,
+          latestVersionAmount: latestQuotation.versions[0]?.finalAmount?.toFixed(2) ?? null,
+          currency: latestQuotation.versions[0]?.currency ?? null,
+          bookingId: latestQuotation.booking?.id ?? null,
+          lastSentAt: latestQuotation.lastSentAt,
+          acceptedAt: latestQuotation.acceptedAt,
+        }
+      : null;
+
+  const bookingSummary =
+    caps.canViewBookings && latestBooking
+      ? {
+          bookingId: latestBooking.id,
+          bookingNumber: latestBooking.bookingNumber,
+          bookingStatus: latestBooking.bookingStatus,
+          operationalStatus: latestBooking.operationalStatus,
+          travelStartDate: latestBooking.travelStartDate,
+          travelEndDate: latestBooking.travelEndDate,
+          ...(caps.canViewBookingFinancials ? { paymentStatus: latestBooking.paymentStatus } : {}),
+        }
+      : null;
+
+  return {
+    ...base,
+    hasQuotations: caps.canViewQuotations ? quotations.length > 0 : undefined,
+    quotationSummary,
+    bookingSummary,
+    actions: {
+      canCreateQuotation: caps.canCreateQuotation && !terminal,
+      canOpenQuotation: caps.canViewQuotations && Boolean(latestQuotation),
+      canConvertToBooking: caps.canConvertBooking && eligible && !latestBooking,
+      canViewBooking: caps.canViewBookings && Boolean(latestBooking),
+      canAddFollowUp: caps.canScheduleFollowUp && !terminal,
+    },
+  };
+}
 const noteSelect = {
   id: true,
   content: true,
@@ -147,6 +269,85 @@ export async function visibleWhere(auth: AuthContext, extra: Prisma.QueryWhereIn
     ...(await visibility(auth)),
     ...extra,
   } satisfies Prisma.QueryWhereInput;
+}
+
+/** Resolve the caller's lead-row capabilities in one permission lookup. */
+export async function leadRowCaps(auth: AuthContext): Promise<LeadRowCaps> {
+  const permissions = await permissionsService.resolveForUser(auth.userId);
+  return {
+    canViewQuotations: permissions.includes(PERMISSIONS.QUOTATIONS_VIEW),
+    canCreateQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_CREATE),
+    canViewBookings: permissions.includes(PERMISSIONS.BOOKINGS_VIEW),
+    canViewBookingFinancials: permissions.includes(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS),
+    canConvertBooking: permissions.includes(PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION),
+    canScheduleFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_CREATE),
+  };
+}
+
+/**
+ * Build the visibility-scoped lead-list where clause from query parameters.
+ * Shared by `list` and `export` so both honour identical filters, search and
+ * tenant/visibility rules.
+ */
+export async function buildLeadListWhere(auth: AuthContext, q: Record<string, unknown>) {
+  const str = (key: string) => (typeof q[key] === 'string' ? (q[key] as string) : undefined);
+  const date = (key: string) =>
+    q[key] instanceof Date
+      ? (q[key] as Date)
+      : typeof q[key] === 'string'
+        ? new Date(q[key] as string)
+        : undefined;
+  const dateRange = (from: string, to: string) => {
+    const start = date(from);
+    const rawEnd = date(to);
+    const end = rawEnd ? new Date(rawEnd) : undefined;
+    if (end) end.setUTCHours(23, 59, 59, 999);
+    return start || end
+      ? { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) }
+      : undefined;
+  };
+  const search = str('search');
+  return visibleWhere(auth, {
+    ...(search
+      ? {
+          OR: [
+            { queryNumber: { contains: search, mode: 'insensitive' } },
+            { customerName: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+            { alternatePhone: { contains: search } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { departureCity: { contains: search, mode: 'insensitive' } },
+            { itinerary: { some: { destination: { contains: search, mode: 'insensitive' } } } },
+          ],
+        }
+      : {}),
+    ...(str('leadStage') ? { leadStage: str('leadStage') as LeadStage } : {}),
+    ...(str('leadType') ? { leadType: str('leadType') as Prisma.EnumLeadTypeFilter } : {}),
+    ...(str('leadSource') ? { leadSource: str('leadSource') as Prisma.EnumLeadSourceFilter } : {}),
+    ...(str('priority') ? { priority: str('priority') as Prisma.EnumQueryPriorityFilter } : {}),
+    ...(str('assignedToId') ? { assignedToId: str('assignedToId') } : {}),
+    ...(str('createdById') ? { createdById: str('createdById') } : {}),
+    ...(str('destination')
+      ? {
+          itinerary: {
+            some: { destination: { contains: str('destination'), mode: 'insensitive' } },
+          },
+        }
+      : {}),
+    ...(str('serviceType')
+      ? { services: { some: { serviceType: str('serviceType') as Prisma.EnumServiceTypeFilter } } }
+      : {}),
+    ...(typeof q.quotationRequired === 'boolean' ? { quotationRequired: q.quotationRequired } : {}),
+    ...(dateRange('travelFrom', 'travelTo')
+      ? { travelStartDate: dateRange('travelFrom', 'travelTo') }
+      : {}),
+    ...(dateRange('followUpFrom', 'followUpTo')
+      ? { nextFollowUpAt: dateRange('followUpFrom', 'followUpTo') }
+      : {}),
+    ...(dateRange('createdFrom', 'createdTo')
+      ? { createdAt: dateRange('createdFrom', 'createdTo') }
+      : {}),
+  } as Prisma.QueryWhereInput);
 }
 export async function getVisible(auth: AuthContext, id: string) {
   const query = await prisma.query.findFirst({ where: await visibleWhere(auth, { id }), include });
@@ -309,75 +510,16 @@ export async function assertCanManageFollowUp(auth: AuthContext, assignedToId: s
 export const queriesService = {
   async list(auth: AuthContext, q: Record<string, unknown>) {
     const p = resolvePagination(q as { page?: number; pageSize?: number });
-    const str = (key: string) => (typeof q[key] === 'string' ? (q[key] as string) : undefined);
-    const date = (key: string) =>
-      q[key] instanceof Date ? q[key] : typeof q[key] === 'string' ? new Date(q[key]) : undefined;
-    const dateRange = (from: string, to: string) => {
-      const start = date(from);
-      const rawEnd = date(to);
-      const end = rawEnd ? new Date(rawEnd) : undefined;
-      if (end) end.setUTCHours(23, 59, 59, 999);
-      return start || end
-        ? {
-            ...(start ? { gte: start } : {}),
-            ...(end ? { lte: end } : {}),
-          }
-        : undefined;
-    };
-    const search = str('search');
-    const where = await visibleWhere(auth, {
-      ...(search
-        ? {
-            OR: [
-              { queryNumber: { contains: search, mode: 'insensitive' } },
-              { customerName: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search } },
-              { alternatePhone: { contains: search } },
-              { email: { contains: search, mode: 'insensitive' } },
-              { departureCity: { contains: search, mode: 'insensitive' } },
-              { itinerary: { some: { destination: { contains: search, mode: 'insensitive' } } } },
-            ],
-          }
-        : {}),
-      ...(str('leadStage') ? { leadStage: str('leadStage') as LeadStage } : {}),
-      ...(str('leadType') ? { leadType: str('leadType') as Prisma.EnumLeadTypeFilter } : {}),
-      ...(str('leadSource')
-        ? { leadSource: str('leadSource') as Prisma.EnumLeadSourceFilter }
-        : {}),
-      ...(str('priority') ? { priority: str('priority') as Prisma.EnumQueryPriorityFilter } : {}),
-      ...(str('assignedToId') ? { assignedToId: str('assignedToId') } : {}),
-      ...(str('createdById') ? { createdById: str('createdById') } : {}),
-      ...(str('destination')
-        ? {
-            itinerary: {
-              some: { destination: { contains: str('destination'), mode: 'insensitive' } },
-            },
-          }
-        : {}),
-      ...(str('serviceType')
-        ? {
-            services: { some: { serviceType: str('serviceType') as Prisma.EnumServiceTypeFilter } },
-          }
-        : {}),
-      ...(typeof q.quotationRequired === 'boolean'
-        ? { quotationRequired: q.quotationRequired }
-        : {}),
-      ...(dateRange('travelFrom', 'travelTo')
-        ? { travelStartDate: dateRange('travelFrom', 'travelTo') }
-        : {}),
-      ...(dateRange('followUpFrom', 'followUpTo')
-        ? { nextFollowUpAt: dateRange('followUpFrom', 'followUpTo') }
-        : {}),
-      ...(dateRange('createdFrom', 'createdTo')
-        ? { createdAt: dateRange('createdFrom', 'createdTo') }
-        : {}),
-    } as Prisma.QueryWhereInput);
-    const sortBy = str('sortBy') ?? 'createdAt';
-    const sortOrder = (str('sortOrder') ?? 'desc') as Prisma.SortOrder;
+    const where = await buildLeadListWhere(auth, q);
+    const sortBy = typeof q.sortBy === 'string' ? q.sortBy : 'createdAt';
+    const sortOrder = (typeof q.sortOrder === 'string' ? q.sortOrder : 'desc') as Prisma.SortOrder;
+    // Resolve the caller's permissions once so the enriched rows can be redacted
+    // without any per-row work.
+    const caps = await leadRowCaps(auth);
     const [data, total] = await prisma.$transaction([
       prisma.query.findMany({
         where,
-        include,
+        include: leadListInclude,
         skip: (p.page - 1) * p.pageSize,
         take: p.pageSize,
         orderBy: { [sortBy]: sortOrder },
@@ -385,7 +527,7 @@ export const queriesService = {
       prisma.query.count({ where }),
     ]);
     return {
-      data: data.map(presentQuery),
+      data: data.map((row) => presentLeadRow(row, caps)),
       pagination: { ...p, total, totalPages: total ? Math.ceil(total / p.pageSize) : 0 },
     };
   },
@@ -881,6 +1023,231 @@ export const queriesService = {
     });
     return presentQuery(await getVisible(auth, id));
   },
+
+  /**
+   * Bulk-assign visible leads to one active user. All-or-nothing: if any id is
+   * not visible or the assignee is invalid the whole batch is rejected, so a
+   * caller never learns whether an unauthorized id exists. Pending follow-ups
+   * always move to the new assignee, exactly as single assignment can, and each
+   * changed lead gets an assignment-history row.
+   */
+  async bulkAssign(
+    auth: AuthContext,
+    input: { queryIds: string[]; assignedToId: string },
+    context: RequestContext,
+  ) {
+    await assertAssignable(auth, input.assignedToId);
+    // Validate every id is visible before mutating anything.
+    const visible = await prisma.query.findMany({
+      where: await visibleWhere(auth, { id: { in: input.queryIds } }),
+      select: { id: true, assignedToId: true },
+    });
+    if (visible.length !== input.queryIds.length)
+      throw new ValidationError('One or more selected leads are not available.');
+    const toChange = visible.filter((row) => row.assignedToId !== input.assignedToId);
+    await prisma.$transaction(async (tx) => {
+      for (const row of toChange) {
+        await tx.query.update({
+          where: { id: row.id },
+          data: { assignedToId: input.assignedToId },
+        });
+        await tx.queryAssignmentHistory.create({
+          data: {
+            companyId: auth.companyId,
+            queryId: row.id,
+            previousAssigneeId: row.assignedToId,
+            newAssigneeId: input.assignedToId,
+            assignedById: auth.userId,
+          },
+        });
+        await tx.queryFollowUp.updateMany({
+          where: {
+            companyId: auth.companyId,
+            queryId: row.id,
+            status: 'PENDING',
+            deletedAt: null,
+          },
+          data: { assignedToId: input.assignedToId },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'QUERY_ASSIGNED', row.id, context, {
+            previousAssigneeId: row.assignedToId,
+            newAssigneeId: input.assignedToId,
+            bulk: true,
+          }),
+        });
+      }
+    });
+    reminderProcessor.scheduleEvent(auth.companyId, ['LEAD_STAGE']);
+    return {
+      updatedCount: toChange.length,
+      unchangedCount: visible.length - toChange.length,
+      results: visible.map((row) => ({
+        queryId: row.id,
+        changed: row.assignedToId !== input.assignedToId,
+      })),
+    };
+  },
+
+  /**
+   * Bulk stage change. Every lead must satisfy the same transition rules as a
+   * single change (visibility, transitionMap, terminal protection, required
+   * reason); if any is ineligible the batch is rejected atomically without
+   * forcing an invalid transition or bypassing the accepted-quotation booking
+   * rule (BOOKING_CONFIRMED is not a bulk-selectable transition here).
+   */
+  async bulkChangeStage(
+    auth: AuthContext,
+    input: { queryIds: string[]; leadStage: LeadStage; reason?: string | null },
+    context: RequestContext,
+  ) {
+    const { role } = await caller(auth);
+    const isPrivileged = role.name === ROLE_NAME.OWNER || role.name === ROLE_NAME.MANAGER;
+    const visible = await prisma.query.findMany({
+      where: await visibleWhere(auth, { id: { in: input.queryIds } }),
+      select: { id: true, leadStage: true },
+    });
+    if (visible.length !== input.queryIds.length)
+      throw new ValidationError('One or more selected leads are not available.');
+    if (input.leadStage === 'LOST' && !input.reason)
+      throw new ValidationError('A reason is required to mark leads lost.');
+    if ((input.leadStage === 'CANCELLED' || input.leadStage === 'INVALID') && !input.reason)
+      throw new ValidationError('A reason is required for this stage.');
+    // Validate every transition up front so the batch is all-or-nothing.
+    for (const row of visible) {
+      if (row.leadStage === input.leadStage) continue;
+      if (terminalStages.includes(row.leadStage) && !isPrivileged)
+        throw new ForbiddenError('Only an Owner or Manager can reopen a terminal lead.');
+      if (
+        !terminalStages.includes(row.leadStage) &&
+        !transitionMap[row.leadStage].includes(input.leadStage)
+      )
+        throw new ValidationError(
+          `One or more leads cannot move to ${input.leadStage} from their current stage.`,
+        );
+    }
+    const toChange = visible.filter((row) => row.leadStage !== input.leadStage);
+    await prisma.$transaction(async (tx) => {
+      for (const row of toChange) {
+        await tx.query.update({
+          where: { id: row.id },
+          data: {
+            leadStage: input.leadStage,
+            lostReason: input.leadStage === 'LOST' ? (input.reason ?? null) : null,
+            convertedAt: input.leadStage === 'BOOKING_CONFIRMED' ? new Date() : null,
+          },
+        });
+        await tx.queryStageHistory.create({
+          data: {
+            companyId: auth.companyId,
+            queryId: row.id,
+            previousStage: row.leadStage,
+            newStage: input.leadStage,
+            changedById: auth.userId,
+            reason: input.reason ?? null,
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'QUERY_STAGE_CHANGED', row.id, context, {
+            previousStage: row.leadStage,
+            newStage: input.leadStage,
+            reason: input.reason,
+            bulk: true,
+          }),
+        });
+      }
+    });
+    reminderProcessor.scheduleEvent(auth.companyId, ['LEAD_STAGE']);
+    return {
+      updatedCount: toChange.length,
+      unchangedCount: visible.length - toChange.length,
+      results: visible.map((row) => ({
+        queryId: row.id,
+        changed: row.leadStage !== input.leadStage,
+      })),
+    };
+  },
+
+  /**
+   * CSV export of the filtered, visibility-scoped lead list. Reuses the same
+   * where-builder as `list`; internal supplier costing notes are never exported
+   * and booking payment status is omitted without booking financial permission.
+   */
+  async export(auth: AuthContext, q: Record<string, unknown>) {
+    const caps = await leadRowCaps(auth);
+    const where = await buildLeadListWhere(auth, q);
+    const rows = await prisma.query.findMany({
+      where,
+      include: leadListInclude,
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+    const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const day = (value: Date | null | undefined) =>
+      value ? new Date(value).toISOString().slice(0, 10) : '';
+    const headers = [
+      'Lead Number',
+      'Customer Name',
+      'Phone',
+      'Alternate Phone',
+      'Email',
+      'Lead Source',
+      'Lead Type',
+      'Lead Stage',
+      'Priority',
+      'Destination',
+      'Travel Start',
+      'Travel End',
+      'Adults',
+      'Children With Bed',
+      'Children Without Bed',
+      'Infants',
+      'Assigned To',
+      'Created By',
+      'Next Follow-up',
+      'Latest Quotation Status',
+      'Booking Number',
+      'Booking Status',
+      'Created At',
+    ];
+    const lines = rows.map((row) => {
+      const quotation = caps.canViewQuotations ? (row.quotations[0] ?? null) : null;
+      const booking = caps.canViewBookings ? (row.bookings[0] ?? null) : null;
+      return [
+        row.queryNumber,
+        row.customerName,
+        row.phone,
+        row.alternatePhone,
+        row.email,
+        row.leadSource,
+        row.leadType,
+        row.leadStage,
+        row.priority,
+        row.itinerary.map((entry) => entry.destination).join(' > '),
+        day(row.travelStartDate),
+        day(row.travelEndDate),
+        row.adults,
+        row.childrenWithBed,
+        row.childrenWithoutBed,
+        row.infants,
+        row.assignedTo?.fullName,
+        row.createdBy?.fullName,
+        row.nextFollowUpAt ? new Date(row.nextFollowUpAt).toISOString() : '',
+        quotation?.status ?? '',
+        booking?.bookingNumber ?? '',
+        booking?.bookingStatus ?? '',
+        new Date(row.createdAt).toISOString(),
+      ]
+        .map(quote)
+        .join(',');
+    });
+    return {
+      fileName: `leads-${new Date().toISOString().slice(0, 10)}.csv`,
+      mimeType: 'text/csv',
+      content: [headers.map(quote).join(','), ...lines].join('\n'),
+    };
+  },
+
   async analytics(auth: AuthContext) {
     const where = await visibleWhere(auth);
     const now = new Date();

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { LeadSource, LeadStage, LeadType, QueryPriority, ServiceType } from '@prisma/client';
 import {
   assignmentInputSchema,
+  bulkAssignmentSchema,
+  bulkStageSchema,
   followUpCancelSchema,
   followUpCompleteSchema,
   followUpInputSchema,
@@ -97,6 +99,25 @@ router.post(
   requirePermission(PERMISSIONS.QUERIES_CREATE),
   validateRequest({ body: queryInputSchema }),
   asyncHandler(queriesController.create),
+);
+// Registered before the /:queryId routes so these fixed paths are not captured.
+router.get(
+  '/export',
+  requirePermission(PERMISSIONS.QUERIES_EXPORT),
+  validateRequest({ query: list }),
+  asyncHandler(queriesController.export),
+);
+router.post(
+  '/bulk-assignment',
+  requirePermission(PERMISSIONS.QUERIES_ASSIGN),
+  validateRequest({ body: bulkAssignmentSchema }),
+  asyncHandler(queriesController.bulkAssignment),
+);
+router.post(
+  '/bulk-stage',
+  requirePermission(PERMISSIONS.QUERIES_UPDATE),
+  validateRequest({ body: bulkStageSchema }),
+  asyncHandler(queriesController.bulkStage),
 );
 router.get(
   '/:queryId/workspace',
