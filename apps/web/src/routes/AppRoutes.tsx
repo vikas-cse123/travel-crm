@@ -109,7 +109,14 @@ export function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route
+            path="/dashboard"
+            element={
+              <PermissionRoute permission={PERMISSIONS.DASHBOARD_VIEW}>
+                <DashboardPage />
+              </PermissionRoute>
+            }
+          />
           {/* Retained from Phase 1 for infrastructure checks. */}
           <Route path="/system-status" element={<SystemStatusPage />} />
           <Route

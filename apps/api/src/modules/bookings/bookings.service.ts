@@ -137,7 +137,7 @@ const decimal = (value: Prisma.Decimal | null | undefined) => value?.toFixed(2) 
 const hasPermission = (auth: AuthContext, permission: string) =>
   permissionsService.userHasPermission(auth.userId, permission);
 
-async function financialAccess(auth: AuthContext) {
+export async function financialAccess(auth: AuthContext) {
   return hasPermission(auth, PERMISSIONS.BOOKINGS_VIEW_FINANCIALS);
 }
 
@@ -160,6 +160,15 @@ async function visibleWhere(auth: AuthContext, extra: Prisma.BookingWhereInput =
     ...(await bookingVisibility(auth)),
     ...extra,
   } satisfies Prisma.BookingWhereInput;
+}
+
+/**
+ * Booking visibility filter reused by the dashboard module (Phase 16) so its
+ * booking metrics respect the exact same tenant + assignment rules as the
+ * bookings list, without the dashboard duplicating the visibility logic.
+ */
+export async function bookingVisibleWhere(auth: AuthContext, extra: Prisma.BookingWhereInput = {}) {
+  return visibleWhere(auth, extra);
 }
 
 async function getBooking(auth: AuthContext, bookingId: string) {

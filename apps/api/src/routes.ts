@@ -20,6 +20,7 @@ import { reminderRulesRoutes } from './modules/reminders/reminder-rules.routes.j
 import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
 import { notificationPreferencesRoutes } from './modules/notifications/notification-preferences.routes.js';
 import { mastersRoutes } from './modules/masters/masters.routes.js';
+import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -49,5 +50,6 @@ router.use('/reminder-rules', reminderRulesRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/notification-preferences', notificationPreferencesRoutes);
 router.use('/masters', mastersRoutes);
+router.use('/dashboard', dashboardRoutes);
 
 export { router as apiRoutes };
