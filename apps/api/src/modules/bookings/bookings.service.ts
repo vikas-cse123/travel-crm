@@ -11,12 +11,17 @@ import {
   type BookingCostInput,
   type BookingDocumentUpload,
   type BookingEmailInput,
+  type BookingFinancialsInput,
   type BookingItineraryInput,
   type BookingManualInput,
   type BookingNoteInput,
   type BookingPaymentInput,
   type BookingPaymentScheduleInput,
+  type BookingRefundInput,
+  type BookingRefundReversal,
+  type BookingServiceCommercialInput,
   type BookingServiceInput,
+  type CreatePayableFromBookingInput,
   type VendorBookingLink,
   type BookingUpdate,
   type QuotationConversionInput,
@@ -53,13 +58,19 @@ import {
 import { emailService } from '../../services/email/email.service.js';
 import { renderBookingConfirmationPdf } from './booking-pdf.service.js';
 import {
+  renderBookingInvoicePdf,
+  renderBookingTaxInvoicePdf,
+  renderBookingVoucherPdf,
+} from './booking-invoice.service.js';
+import {
   bookingAudit,
   nextBookingNumber,
   recalculateBookingFinancials,
   type RequestContext,
 } from './booking.utils.js';
+import { validateServiceMasterRefs } from './booking-master-refs.service.js';
 import { localDayBounds } from '../../utils/timezone.js';
-import { recalculateVendor } from '../vendors/vendors.service.js';
+import { createPayableForBooking, recalculateVendor } from '../vendors/vendors.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
@@ -79,6 +90,14 @@ const bookingInclude = {
   payments: {
     orderBy: { createdAt: 'desc' as const },
     include: { recordedBy: { select: userSelect }, reversedBy: { select: userSelect } },
+  },
+  refunds: {
+    orderBy: { createdAt: 'desc' as const },
+    include: {
+      recordedBy: { select: userSelect },
+      reversedBy: { select: userSelect },
+      bookingPayment: { select: { id: true, paymentNumber: true } },
+    },
   },
   costs: {
     where: { deletedAt: null },
@@ -256,12 +275,21 @@ function presentBooking(booking: FullBooking, canViewFinancials: boolean) {
     companyId,
     deletedAt,
     totalSellingAmount,
+    gstAmount,
+    tcsAmount,
+    totalPayable,
     totalCustomerPaid,
+    totalRefunded,
+    netRevenue,
     totalCustomerOutstanding,
     totalCost,
+    totalVendorPayable,
+    totalVendorOutstanding,
     grossProfit,
+    netProfit,
     profitMarginPercentage,
     costs,
+    refunds,
     ...value
   } = booking;
   void companyId;
@@ -278,13 +306,27 @@ function presentBooking(booking: FullBooking, canViewFinancials: boolean) {
       bookingId: _bookingId,
       internalCostSnapshot,
       customerSellingAmount,
+      cancellationCharge,
+      refundedAmount,
       ...service
     }) => ({
+      // Master links are operational, not financial, so they stay visible to
+      // any internal viewer; they mark a row as master-linked in the UI.
       ...service,
+      masterLinked: Boolean(
+        service.hotelId ||
+        service.airlineId ||
+        service.cruiseId ||
+        service.vehicleId ||
+        service.sightseeingId ||
+        service.addOnServiceId,
+      ),
       ...(canViewFinancials
         ? {
             customerSellingAmount: decimal(customerSellingAmount),
             internalCostSnapshot: decimal(internalCostSnapshot),
+            cancellationCharge: decimal(cancellationCharge),
+            refundedAmount: decimal(refundedAmount),
           }
         : {}),
     }),
@@ -311,14 +353,26 @@ function presentBooking(booking: FullBooking, canViewFinancials: boolean) {
     ...(canViewFinancials
       ? {
           totalSellingAmount: decimal(totalSellingAmount),
+          gstAmount: decimal(gstAmount),
+          tcsAmount: decimal(tcsAmount),
+          totalPayable: decimal(totalPayable),
           totalCustomerPaid: decimal(totalCustomerPaid),
+          totalRefunded: decimal(totalRefunded),
+          netRevenue: decimal(netRevenue),
           totalCustomerOutstanding: decimal(totalCustomerOutstanding),
           totalCost: decimal(totalCost),
+          totalVendorPayable: decimal(totalVendorPayable),
+          totalVendorOutstanding: decimal(totalVendorOutstanding),
           grossProfit: decimal(grossProfit),
+          netProfit: decimal(netProfit),
           profitMarginPercentage: profitMarginPercentage.toFixed(4),
           costs: costs.map(({ companyId: _companyId, bookingId: _bookingId, ...cost }) => ({
             ...cost,
             amount: decimal(cost.amount),
+          })),
+          refunds: refunds.map(({ companyId: _companyId, bookingId: _bookingId, ...refund }) => ({
+            ...refund,
+            amount: decimal(refund.amount),
           })),
         }
       : {}),
@@ -359,6 +413,170 @@ function compact(value: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
 
+/**
+ * Convert a "YYYY-MM" month token into a half-open [gte, lt) date range. Used
+ * for the booking-month and travel-month filters; the frontend sends a month,
+ * the server turns it into a plain date range rather than storing month columns.
+ * Returns undefined for a malformed token so a bad filter is simply ignored.
+ */
+function monthRange(month: unknown): { gte: Date; lt: Date } | undefined {
+  if (typeof month !== 'string') return undefined;
+  const match = /^(\d{4})-(\d{2})$/.exec(month.trim());
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (monthIndex < 0 || monthIndex > 11) return undefined;
+  return {
+    gte: new Date(Date.UTC(year, monthIndex, 1)),
+    lt: new Date(Date.UTC(monthIndex === 11 ? year + 1 : year, (monthIndex + 1) % 12, 1)),
+  };
+}
+
+/**
+ * Persist a generated booking PDF to private storage as a BookingDocument,
+ * reusing an existing AVAILABLE document of the same type when its object still
+ * exists (mirrors the confirmation-PDF flow). Shared by the invoice, tax-invoice
+ * and voucher generators so all four documents behave identically.
+ */
+async function persistBookingDocument(
+  auth: AuthContext,
+  bookingId: string,
+  existingDocuments: FullBooking['documents'],
+  options: {
+    documentType: 'INVOICE' | 'OTHER';
+    kind: string;
+    visibility: 'INTERNAL' | 'CUSTOMER_VISIBLE';
+    action:
+      'BOOKING_INVOICE_GENERATED' | 'BOOKING_TAX_INVOICE_GENERATED' | 'BOOKING_VOUCHER_GENERATED';
+    metaKey: string;
+    pdf: Buffer;
+    bookingNumber: string;
+    context: RequestContext;
+    force: boolean;
+  },
+) {
+  const existing = !options.force
+    ? existingDocuments.find(
+        (row) =>
+          row.documentType === options.documentType &&
+          row.fileName.includes(options.kind) &&
+          row.uploadStatus === 'AVAILABLE',
+      )
+    : undefined;
+  if (existing && (await storageService.headObject(existing.objectKey))) {
+    const { objectKey: _objectKey, bucket: _bucket, companyId: _companyId, ...safe } = existing;
+    return { ...safe, reused: true };
+  }
+  if (existing)
+    await prisma.bookingDocument.update({
+      where: { id: existing.id },
+      data: { uploadStatus: 'FAILED' },
+    });
+  const checksum = createHash('sha256').update(options.pdf).digest('hex');
+  const documentId = randomUUID();
+  const fileName = sanitizeFileName(`${options.bookingNumber}-${options.kind}.pdf`);
+  const objectKey = bookingObjectKey({
+    companyId: auth.companyId,
+    bookingId,
+    documentId,
+    fileName,
+  });
+  await storageService.putObject({
+    key: objectKey,
+    body: options.pdf,
+    contentType: 'application/pdf',
+    checksum,
+  });
+  const document = await prisma.$transaction(async (tx) => {
+    const row = await tx.bookingDocument.create({
+      data: {
+        id: documentId,
+        companyId: auth.companyId,
+        bookingId,
+        documentType: options.documentType,
+        storageProvider: storageService.provider,
+        bucket: storageService.bucket,
+        objectKey,
+        fileName,
+        originalFileName: fileName,
+        mimeType: 'application/pdf',
+        fileSize: options.pdf.length,
+        checksum,
+        uploadStatus: 'AVAILABLE',
+        visibility: options.visibility,
+        uploadedById: auth.userId,
+      },
+    });
+    await tx.activityLog.create({
+      data: bookingAudit(auth, options.action, 'BookingDocument', documentId, options.context, {
+        bookingId,
+      }),
+    });
+    return row;
+  });
+  const { objectKey: _objectKey, bucket: _bucket, companyId: _companyId, ...safe } = document;
+  return { ...safe, reused: false };
+}
+
+/** Company header/billing block for the customer-facing PDFs. */
+async function invoiceCompany(companyId: string) {
+  const company = await prisma.company.findUniqueOrThrow({
+    where: { id: companyId },
+    select: {
+      name: true,
+      email: true,
+      phone: true,
+      website: true,
+      address: true,
+      primaryColor: true,
+    },
+  });
+  // The company profile carries no statutory tax registration, so none is
+  // printed rather than inventing a GSTIN.
+  return { ...company, taxRegistrationNumber: null };
+}
+
+/**
+ * Map a booking to the customer-safe shape the PDF renderers accept. Only
+ * customer-facing figures are carried; internal cost, vendor cost, vendor
+ * payables, profit, margin, internal notes and master ids are all omitted.
+ */
+function invoiceBooking(booking: FullBooking) {
+  return {
+    bookingNumber: booking.bookingNumber,
+    customerName: booking.customerName,
+    customerEmail: booking.customerEmail,
+    customerPhone: booking.customerPhone,
+    destinationSummary: booking.destinationSummary,
+    travelStartDate: booking.travelStartDate,
+    travelEndDate: booking.travelEndDate,
+    currency: booking.currency,
+    totalSellingAmount: decimal(booking.totalSellingAmount),
+    gstAmount: decimal(booking.gstAmount),
+    tcsAmount: decimal(booking.tcsAmount),
+    totalPayable: decimal(booking.totalPayable),
+    totalCustomerPaid: decimal(booking.totalCustomerPaid),
+    totalCustomerOutstanding: decimal(booking.totalCustomerOutstanding),
+    travellers: booking.travellers.map((t) => ({
+      title: t.title,
+      firstName: t.firstName,
+      middleName: t.middleName,
+      lastName: t.lastName,
+    })),
+    services: booking.services.map((s) => ({
+      name: s.name,
+      serviceType: s.serviceType,
+      city: s.city,
+      startDate: s.startDate,
+      endDate: s.endDate,
+      confirmationStatus: s.confirmationStatus,
+      confirmationNumber: s.confirmationNumber,
+      supplierReference: s.supplierReference,
+      customerSellingAmount: decimal(s.customerSellingAmount),
+    })),
+  };
+}
+
 export const bookingsService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
     await refreshVisibleOverdueBookings(auth);
@@ -390,20 +608,31 @@ export const bookingsService = {
       ...(typeof query.destination === 'string'
         ? { destinationSummary: { contains: query.destination, mode: 'insensitive' } }
         : {}),
-      ...(query.travelFrom || query.travelTo
+      // Travel date: explicit range and/or a travel-month token (TravelEnfield
+      // "Travel Month"). A month token expands to a half-open range.
+      ...(query.travelFrom || query.travelTo || monthRange(query.travelMonth)
         ? {
-            travelStartDate: {
-              ...(query.travelFrom ? { gte: new Date(String(query.travelFrom)) } : {}),
-              ...(query.travelTo ? { lte: new Date(String(query.travelTo)) } : {}),
-            },
+            travelStartDate: (() => {
+              const m = monthRange(query.travelMonth);
+              return {
+                ...(query.travelFrom ? { gte: new Date(String(query.travelFrom)) } : {}),
+                ...(query.travelTo ? { lte: new Date(String(query.travelTo)) } : {}),
+                ...(m ? { gte: m.gte, lt: m.lt } : {}),
+              };
+            })(),
           }
         : {}),
-      ...(query.createdFrom || query.createdTo
+      // Booking date derives from createdAt: explicit range and/or booking-month.
+      ...(query.createdFrom || query.createdTo || monthRange(query.bookingMonth)
         ? {
-            createdAt: {
-              ...(query.createdFrom ? { gte: new Date(String(query.createdFrom)) } : {}),
-              ...(query.createdTo ? { lte: new Date(String(query.createdTo)) } : {}),
-            },
+            createdAt: (() => {
+              const m = monthRange(query.bookingMonth);
+              return {
+                ...(query.createdFrom ? { gte: new Date(String(query.createdFrom)) } : {}),
+                ...(query.createdTo ? { lte: new Date(String(query.createdTo)) } : {}),
+                ...(m ? { gte: m.gte, lt: m.lt } : {}),
+              };
+            })(),
           }
         : {}),
       ...(query.paymentDueFrom || query.paymentDueTo
@@ -533,10 +762,18 @@ export const bookingsService = {
               where,
               _sum: {
                 totalSellingAmount: true,
+                gstAmount: true,
+                tcsAmount: true,
+                totalPayable: true,
                 totalCustomerPaid: true,
+                totalRefunded: true,
+                netRevenue: true,
                 totalCustomerOutstanding: true,
                 totalCost: true,
+                totalVendorPayable: true,
+                totalVendorOutstanding: true,
                 grossProfit: true,
+                netProfit: true,
               },
             })
           : Promise.resolve(null),
@@ -547,7 +784,9 @@ export const bookingsService = {
     const byPayment = Object.fromEntries(
       payments.map((row) => [row.paymentStatus, row._count._all]),
     );
-    const selling = financial?._sum.totalSellingAmount ?? currency(0);
+    // Margin denominator is total payable (customer amount + taxes), matching
+    // the per-booking margin so the dashboard and detail agree.
+    const payable = financial?._sum.totalPayable ?? currency(0);
     const gross = financial?._sum.grossProfit ?? currency(0);
     return {
       totalBookings: total,
@@ -561,19 +800,31 @@ export const bookingsService = {
       partiallyPaidBookings: byPayment.PARTIALLY_PAID ?? 0,
       fullyPaidBookings: byPayment.PAID ?? 0,
       overdueCustomerPayments: byPayment.OVERDUE ?? 0,
+      refundPendingBookings: byPayment.REFUND_PENDING ?? 0,
+      refundedBookings: (byPayment.REFUNDED ?? 0) + (byPayment.PARTIALLY_REFUNDED ?? 0),
       bookingsDepartingNext7Days: upcoming,
       bookingsWithMissingTravellerDocuments: missingDocuments,
       servicesAwaitingConfirmation: servicesPending,
       ...(financial
         ? {
-            totalBookingValue: decimal(financial._sum.totalSellingAmount),
+            totalCustomerAmount: decimal(financial._sum.totalSellingAmount),
+            totalGst: decimal(financial._sum.gstAmount),
+            totalTcs: decimal(financial._sum.tcsAmount),
+            totalPayable: decimal(financial._sum.totalPayable),
             totalCustomerPaymentsReceived: decimal(financial._sum.totalCustomerPaid),
+            totalRefunded: decimal(financial._sum.totalRefunded),
+            netRevenue: decimal(financial._sum.netRevenue),
             totalCustomerOutstanding: decimal(financial._sum.totalCustomerOutstanding),
             totalRecordedCosts: decimal(financial._sum.totalCost),
+            totalVendorPayable: decimal(financial._sum.totalVendorPayable),
+            totalVendorOutstanding: decimal(financial._sum.totalVendorOutstanding),
             grossProfit: decimal(financial._sum.grossProfit),
-            profitMarginPercentage: selling.isZero()
+            netProfit: decimal(financial._sum.netProfit),
+            // Kept under the previous key so existing consumers do not break.
+            totalBookingValue: decimal(financial._sum.totalSellingAmount),
+            profitMarginPercentage: payable.isZero()
               ? '0.0000'
-              : gross.dividedBy(selling).times(100).toFixed(4),
+              : gross.dividedBy(payable).times(100).toFixed(4),
           }
         : {}),
     };
@@ -645,6 +896,10 @@ export const bookingsService = {
           infants: quotation.infants,
           currency: version.currency,
           totalSellingAmount: version.finalAmount,
+          gstAmount: input.gstAmount ?? 0,
+          tcsAmount: input.tcsAmount ?? 0,
+          // These are recomputed by recalculateBookingFinancials below; the
+          // initial values keep the row self-consistent before that runs.
           totalCustomerOutstanding: version.finalAmount,
           grossProfit: version.finalAmount,
           bookedById: auth.userId,
@@ -662,6 +917,12 @@ export const bookingsService = {
           companyId: auth.companyId,
           bookingId: booking.id,
           serviceType: 'HOTEL',
+          // Phase-14 master links carried across so the booking keeps the same
+          // structured references the quotation had. Snapshot fields below stay
+          // authoritative; the links are never used to re-derive display values.
+          hotelId: hotel.hotelId,
+          hotelRoomTypeId: hotel.hotelRoomTypeId,
+          hotelMealPlanId: hotel.hotelMealPlanId,
           name: hotel.hotelName,
           description:
             [hotel.category, hotel.roomType, hotel.mealPlan].filter(Boolean).join(' • ') || null,
@@ -679,6 +940,12 @@ export const bookingsService = {
           companyId: auth.companyId,
           bookingId: booking.id,
           serviceType: service.serviceType,
+          airlineId: service.airlineId,
+          cruiseId: service.cruiseId,
+          cruiseRoomTypeId: service.cruiseRoomTypeId,
+          vehicleId: service.vehicleId,
+          sightseeingId: service.sightseeingId,
+          addOnServiceId: service.addOnServiceId,
           name: service.name,
           description: service.description,
           city: service.city,
@@ -799,6 +1066,8 @@ export const bookingsService = {
       customerId = customer.id;
     }
     await assertAssignable(auth, input.assignedToId);
+    // Tenant-scope and compatibility of any master references on the services.
+    await validateServiceMasterRefs(auth.companyId, input.services);
     const canViewFinancials = await financialAccess(auth);
     const created = await prisma.$transaction(async (tx) => {
       const bookingNumber = await nextBookingNumber(tx, auth.companyId, 'booking');
@@ -821,6 +1090,9 @@ export const bookingsService = {
           infants: input.infants,
           currency: input.currency,
           totalSellingAmount: input.totalSellingAmount,
+          // GST/TCS are only accepted from a financial user; otherwise ignored.
+          gstAmount: canViewFinancials ? (input.gstAmount ?? 0) : 0,
+          tcsAmount: canViewFinancials ? (input.tcsAmount ?? 0) : 0,
           totalCustomerOutstanding: input.totalSellingAmount,
           grossProfit: input.totalSellingAmount,
           bookedById: auth.userId,
@@ -835,7 +1107,10 @@ export const bookingsService = {
             (row) =>
               compact({
                 ...row,
+                // Financial snapshots are zeroed for non-financial creators.
                 internalCostSnapshot: canViewFinancials ? row.internalCostSnapshot : 0,
+                cancellationCharge: canViewFinancials ? row.cancellationCharge : 0,
+                refundedAmount: canViewFinancials ? row.refundedAmount : 0,
                 companyId: auth.companyId,
                 bookingId: booking.id,
               }) as Prisma.BookingServiceCreateManyInput,
@@ -1226,12 +1501,15 @@ export const bookingsService = {
   ) {
     const booking = await getBooking(auth, bookingId);
     await assertOperationallyMutable(booking);
+    await validateServiceMasterRefs(auth.companyId, [input]);
     const canManageCosts = await hasPermission(auth, PERMISSIONS.BOOKINGS_MANAGE_COSTS);
     const created = await prisma.$transaction(async (tx) => {
       const service = await tx.bookingService.create({
         data: compact({
           ...input,
           internalCostSnapshot: canManageCosts ? input.internalCostSnapshot : 0,
+          cancellationCharge: canManageCosts ? input.cancellationCharge : 0,
+          refundedAmount: canManageCosts ? input.refundedAmount : 0,
           companyId: auth.companyId,
           bookingId,
         }) as Prisma.BookingServiceUncheckedCreateInput,
@@ -1257,12 +1535,36 @@ export const bookingsService = {
   ) {
     const booking = await getBooking(auth, bookingId);
     await assertOperationallyMutable(booking);
-    if (!booking.services.some((row) => row.id === serviceId))
-      throw new NotFoundError('Booking service not found.');
+    const existing = booking.services.find((row) => row.id === serviceId);
+    if (!existing) throw new NotFoundError('Booking service not found.');
+    // Validate any master references against the effective service type: the one
+    // in the update if present, otherwise the row's current type.
+    const masterKeys = [
+      'hotelId',
+      'hotelRoomTypeId',
+      'hotelMealPlanId',
+      'airlineId',
+      'cruiseId',
+      'cruiseRoomTypeId',
+      'vehicleId',
+      'sightseeingId',
+      'addOnServiceId',
+    ] as const;
+    if (masterKeys.some((key) => key in input)) {
+      await validateServiceMasterRefs(auth.companyId, [
+        {
+          serviceType: input.serviceType ?? existing.serviceType,
+          ...Object.fromEntries(
+            masterKeys.map((key) => [key, key in input ? input[key] : existing[key]]),
+          ),
+        },
+      ]);
+    }
     const canManageCosts = await hasPermission(auth, PERMISSIONS.BOOKINGS_MANAGE_COSTS);
+    const financialKeys = new Set(['internalCostSnapshot', 'cancellationCharge', 'refundedAmount']);
     const data = canManageCosts
       ? input
-      : Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'internalCostSnapshot'));
+      : Object.fromEntries(Object.entries(input).filter(([key]) => !financialKeys.has(key)));
     await prisma.$transaction([
       prisma.bookingService.update({
         where: { id: serviceId },
@@ -2297,6 +2599,285 @@ export const bookingsService = {
     });
     const { objectKey: _objectKey, bucket: _bucket, companyId: _companyId, ...safe } = document;
     return { ...safe, reused: false };
+  },
+
+  // -------------------------------------------------------------------------
+  // Phase 15 — commercial financials, refunds, supplier payable, PDFs
+  // -------------------------------------------------------------------------
+
+  /** Set booking GST/TCS explicitly; requires financial permission. */
+  async updateFinancials(
+    auth: AuthContext,
+    bookingId: string,
+    input: BookingFinancialsInput,
+    context: RequestContext,
+  ) {
+    const booking = await getBooking(auth, bookingId);
+    await assertOperationallyMutable(booking);
+    if (!(await financialAccess(auth)))
+      throw new ForbiddenError('Financial access is required to set GST and TCS.');
+    await prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          ...(input.gstAmount !== undefined ? { gstAmount: input.gstAmount } : {}),
+          ...(input.tcsAmount !== undefined ? { tcsAmount: input.tcsAmount } : {}),
+        },
+      });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
+      await tx.activityLog.create({
+        data: bookingAudit(auth, 'BOOKING_UPDATED', 'Booking', bookingId, context, {
+          bookingId,
+          changed: Object.keys(input),
+        }),
+      });
+    });
+    return this.details(auth, bookingId);
+  },
+
+  /**
+   * Record a service-level cancellation charge and/or refunded allocation. These
+   * are operational snapshots for the services table; the authoritative customer
+   * refund ledger remains BookingRefund. refundedAmount may not exceed the
+   * service's own selling amount.
+   */
+  async updateServiceCommercial(
+    auth: AuthContext,
+    bookingId: string,
+    serviceId: string,
+    input: BookingServiceCommercialInput,
+    context: RequestContext,
+  ) {
+    const booking = await getBooking(auth, bookingId);
+    if (!(await hasPermission(auth, PERMISSIONS.BOOKINGS_MANAGE_COSTS)))
+      throw new ForbiddenError('Financial access is required to record cancellation or refunds.');
+    const service = booking.services.find((row) => row.id === serviceId);
+    if (!service) throw new NotFoundError('Booking service not found.');
+    if (
+      input.refundedAmount !== undefined &&
+      new Prisma.Decimal(input.refundedAmount).greaterThan(service.customerSellingAmount)
+    )
+      throw new ValidationError('Refunded amount cannot exceed the service selling amount.');
+    await prisma.$transaction([
+      prisma.bookingService.update({
+        where: { id: serviceId },
+        data: compact({
+          cancellationCharge: input.cancellationCharge,
+          refundedAmount: input.refundedAmount,
+        }) as Prisma.BookingServiceUncheckedUpdateInput,
+      }),
+      prisma.activityLog.create({
+        data: bookingAudit(
+          auth,
+          'BOOKING_SERVICE_CANCELLATION_UPDATED',
+          'BookingService',
+          serviceId,
+          context,
+          { bookingId },
+        ),
+      }),
+    ]);
+    return (await this.details(auth, bookingId)).services.find((row) => row.id === serviceId);
+  },
+
+  async refunds(auth: AuthContext, bookingId: string) {
+    await getBooking(auth, bookingId);
+    if (!(await financialAccess(auth)))
+      throw new ForbiddenError('Financial access is required to view refunds.');
+    const rows = await prisma.bookingRefund.findMany({
+      where: { companyId: auth.companyId, bookingId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        recordedBy: { select: userSelect },
+        reversedBy: { select: userSelect },
+        bookingPayment: { select: { id: true, paymentNumber: true } },
+      },
+    });
+    return rows.map(({ companyId: _companyId, ...row }) => ({
+      ...row,
+      amount: decimal(row.amount),
+    }));
+  },
+
+  /**
+   * Record a customer refund. A refund can never exceed the net amount still
+   * eligible (received/cleared payments minus refunds already processed), so a
+   * booking can never refund more than the customer actually paid.
+   */
+  async createRefund(
+    auth: AuthContext,
+    bookingId: string,
+    input: BookingRefundInput,
+    context: RequestContext,
+  ) {
+    const booking = await getBooking(auth, bookingId);
+    const refundAmount = currency(input.amount);
+    // Eligible = gross non-reversed received/cleared receipts − already-processed
+    // refunds. Uses live booking rollups which the recalculation keeps current.
+    const paid = new Prisma.Decimal(booking.totalCustomerPaid);
+    const alreadyRefunded = new Prisma.Decimal(booking.totalRefunded);
+    const eligible = Prisma.Decimal.max(new Prisma.Decimal(0), paid.minus(alreadyRefunded));
+    if (refundAmount.greaterThan(eligible))
+      throw new ValidationError('Refund exceeds the amount eligible for refund.');
+    if (input.bookingPaymentId) {
+      const payment = booking.payments.find((row) => row.id === input.bookingPaymentId);
+      if (!payment)
+        throw new ValidationError('The linked payment does not belong to this booking.');
+    }
+    await prisma.$transaction(async (tx) => {
+      const refundNumber = await nextBookingNumber(tx, auth.companyId, 'refund');
+      const refund = await tx.bookingRefund.create({
+        data: {
+          companyId: auth.companyId,
+          bookingId,
+          bookingPaymentId: input.bookingPaymentId ?? null,
+          refundNumber,
+          amount: refundAmount,
+          currency: input.currency,
+          refundMethod: input.refundMethod,
+          status: 'PROCESSED',
+          reason: input.reason,
+          processedAt: input.processedAt,
+          notes: input.notes ?? null,
+          recordedById: auth.userId,
+        },
+      });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
+      await tx.activityLog.create({
+        data: bookingAudit(auth, 'BOOKING_REFUND_PROCESSED', 'BookingRefund', refund.id, context, {
+          bookingId,
+          refundNumber,
+        }),
+      });
+    });
+    return this.details(auth, bookingId);
+  },
+
+  /** Reverse a processed refund. History is retained; the row is never deleted. */
+  async reverseRefund(
+    auth: AuthContext,
+    bookingId: string,
+    refundId: string,
+    input: BookingRefundReversal,
+    context: RequestContext,
+  ) {
+    await getBooking(auth, bookingId);
+    const refund = await prisma.bookingRefund.findFirst({
+      where: { id: refundId, companyId: auth.companyId, bookingId },
+    });
+    if (!refund) throw new NotFoundError('Refund not found.');
+    if (refund.status === 'REVERSED') throw new ConflictError('This refund is already reversed.');
+    await prisma.$transaction(async (tx) => {
+      await tx.bookingRefund.update({
+        where: { id: refundId },
+        data: {
+          status: 'REVERSED',
+          reversedAt: new Date(),
+          reversedById: auth.userId,
+          reversalReason: input.reason,
+        },
+      });
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
+      await tx.activityLog.create({
+        data: bookingAudit(auth, 'BOOKING_REFUND_REVERSED', 'BookingRefund', refundId, context, {
+          bookingId,
+        }),
+      });
+    });
+    return this.details(auth, bookingId);
+  },
+
+  /** Create a supplier payable from a booking service or cost (one click). */
+  async createSupplierPayable(
+    auth: AuthContext,
+    bookingId: string,
+    input: CreatePayableFromBookingInput,
+    context: RequestContext,
+  ) {
+    const booking = await getBooking(auth, bookingId);
+    if (!(await hasPermission(auth, PERMISSIONS.VENDORS_MANAGE_PAYABLES)))
+      throw new ForbiddenError('Vendor payable permission is required.');
+    // Confine the referenced rows to this booking before delegating.
+    if (input.bookingServiceId && !booking.services.some((r) => r.id === input.bookingServiceId))
+      throw new ValidationError('The booking service does not belong to this booking.');
+    if (input.bookingCostId && !booking.costs.some((r) => r.id === input.bookingCostId))
+      throw new ValidationError('The booking cost does not belong to this booking.');
+    const payable = await createPayableForBooking(auth, input, context);
+    await prisma.$transaction(async (tx) => {
+      await recalculateBookingFinancials(tx, auth.companyId, bookingId);
+      await tx.activityLog.create({
+        data: bookingAudit(
+          auth,
+          'BOOKING_SUPPLIER_PAYABLE_CREATED',
+          'VendorPayable',
+          payable.id,
+          context,
+          { bookingId, vendorId: payable.vendorId },
+        ),
+      });
+    });
+    return payable;
+  },
+
+  async generateInvoicePdf(auth: AuthContext, bookingId: string, context: RequestContext) {
+    const booking = await getBooking(auth, bookingId);
+    if (!(await hasPermission(auth, PERMISSIONS.BOOKINGS_EXPORT)))
+      throw new ForbiddenError('Export permission is required.');
+    const company = await invoiceCompany(auth.companyId);
+    const pdf = await renderBookingInvoicePdf({ company, booking: invoiceBooking(booking) });
+    return persistBookingDocument(auth, bookingId, booking.documents, {
+      documentType: 'INVOICE',
+      kind: 'invoice',
+      visibility: 'CUSTOMER_VISIBLE',
+      action: 'BOOKING_INVOICE_GENERATED',
+      metaKey: 'invoice',
+      pdf,
+      bookingNumber: booking.bookingNumber,
+      context,
+      force: false,
+    });
+  },
+
+  async generateTaxInvoicePdf(auth: AuthContext, bookingId: string, context: RequestContext) {
+    const booking = await getBooking(auth, bookingId);
+    if (!(await hasPermission(auth, PERMISSIONS.BOOKINGS_EXPORT)))
+      throw new ForbiddenError('Export permission is required.');
+    const company = await invoiceCompany(auth.companyId);
+    const pdf = await renderBookingTaxInvoicePdf({
+      company,
+      booking: invoiceBooking(booking),
+    });
+    return persistBookingDocument(auth, bookingId, booking.documents, {
+      documentType: 'INVOICE',
+      kind: 'tax-invoice',
+      visibility: 'CUSTOMER_VISIBLE',
+      action: 'BOOKING_TAX_INVOICE_GENERATED',
+      metaKey: 'tax-invoice',
+      pdf,
+      bookingNumber: booking.bookingNumber,
+      context,
+      force: false,
+    });
+  },
+
+  async generateVoucherPdf(auth: AuthContext, bookingId: string, context: RequestContext) {
+    const booking = await getBooking(auth, bookingId);
+    if (!(await hasPermission(auth, PERMISSIONS.BOOKINGS_EXPORT)))
+      throw new ForbiddenError('Export permission is required.');
+    const company = await invoiceCompany(auth.companyId);
+    // Voucher is customer-safe: no financial figures at all.
+    const pdf = await renderBookingVoucherPdf({ company, booking: invoiceBooking(booking) });
+    return persistBookingDocument(auth, bookingId, booking.documents, {
+      documentType: 'OTHER',
+      kind: 'voucher',
+      visibility: 'CUSTOMER_VISIBLE',
+      action: 'BOOKING_VOUCHER_GENERATED',
+      metaKey: 'voucher',
+      pdf,
+      bookingNumber: booking.bookingNumber,
+      context,
+      force: false,
+    });
   },
 
   async sendEmail(

@@ -413,6 +413,13 @@ enum PaymentRecordStatus {
   REFUNDED
 }
 
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  REVERSED
+  FAILED
+}
+
 enum BookingCostStatus {
   ESTIMATED
   PAYABLE
@@ -734,6 +741,13 @@ enum ActivityAction {
   BOOKING_CONFIRMATION_SENT
   BOOKING_PAYMENT_REMINDER_SENT
   BOOKING_NOTE_CREATED
+  BOOKING_REFUND_PROCESSED
+  BOOKING_REFUND_REVERSED
+  BOOKING_INVOICE_GENERATED
+  BOOKING_TAX_INVOICE_GENERATED
+  BOOKING_VOUCHER_GENERATED
+  BOOKING_SERVICE_CANCELLATION_UPDATED
+  BOOKING_SUPPLIER_PAYABLE_CREATED
   CUSTOMER_CREATED
   CUSTOMER_UPDATED
   CUSTOMER_ARCHIVED
@@ -957,6 +971,7 @@ model Company {
   vehicles                     Vehicle[]
   sightseeings                 Sightseeing[]
   addOnServices                AddOnService[]
+  bookingRefunds               BookingRefund[]
 
   @@index([status])
   @@index([createdAt])
@@ -1051,6 +1066,8 @@ model User {
   bookingSchedulesCreated     BookingPaymentSchedule[]   @relation("BookingScheduleCreatedBy")
   bookingPaymentsRecorded     BookingPayment[]           @relation("BookingPaymentRecordedBy")
   bookingPaymentsReversed     BookingPayment[]           @relation("BookingPaymentReversedBy")
+  bookingRefundsRecorded      BookingRefund[]            @relation("BookingRefundRecordedBy")
+  bookingRefundsReversed      BookingRefund[]            @relation("BookingRefundReversedBy")
   bookingCostsRecorded        BookingCost[]              @relation("BookingCostRecordedBy")
   bookingDocumentsUploaded    BookingDocument[]          @relation("BookingDocumentUploadedBy")
   bookingNotesAuthored        BookingNote[]              @relation("BookingNoteAuthor")
@@ -1244,6 +1261,7 @@ model Hotel {
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
+  bookingServices          BookingService[]
 
   @@index([companyId, cityId, normalizedName])
   @@index([companyId, destinationId])
@@ -1282,6 +1300,7 @@ model HotelRoomType {
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
+  bookingServices          BookingService[]
 
   @@index([companyId, hotelId])
   @@index([hotelId, sortOrder])
@@ -1310,6 +1329,7 @@ model HotelMealPlan {
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
+  bookingServices          BookingService[]
 
   @@index([companyId, hotelId])
   @@index([hotelId, sortOrder])
@@ -1349,6 +1369,7 @@ model Airline {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@index([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -1416,6 +1437,7 @@ model Sightseeing {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@unique([companyId, cityId, normalizedTitle])
   @@index([companyId, status, deletedAt])
@@ -1461,6 +1483,7 @@ model AddOnService {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -1512,6 +1535,7 @@ model Cruise {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -1545,6 +1569,7 @@ model CruiseRoomType {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@index([companyId, cruiseId])
   @@index([cruiseId, sortOrder])
@@ -1592,6 +1617,7 @@ model Vehicle {
 
   quotationVersionServices  QuotationVersionService[]
   quotationTemplateServices QuotationTemplateService[]
+  bookingServices           BookingService[]
 
   @@unique([companyId, normalizedName])
   @@index([companyId, status, deletedAt])
@@ -3309,6 +3335,7 @@ model BookingCounter {
   year         Int
   bookingValue Int     @default(0)
   paymentValue Int     @default(0)
+  refundValue  Int     @default(0)
   company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@id([companyId, year])
@@ -3339,10 +3366,18 @@ model Booking {
   operationalStatus        OperationalStatus    @default(NOT_STARTED)
   paymentStatus            BookingPaymentStatus @default(UNPAID)
   totalSellingAmount       Decimal              @default(0) @db.Decimal(14, 2)
+  gstAmount                Decimal              @default(0) @db.Decimal(14, 2)
+  tcsAmount                Decimal              @default(0) @db.Decimal(14, 2)
+  totalPayable             Decimal              @default(0) @db.Decimal(14, 2)
   totalCustomerPaid        Decimal              @default(0) @db.Decimal(14, 2)
+  totalRefunded            Decimal              @default(0) @db.Decimal(14, 2)
+  netRevenue               Decimal              @default(0) @db.Decimal(14, 2)
   totalCustomerOutstanding Decimal              @default(0) @db.Decimal(14, 2)
   totalCost                Decimal              @default(0) @db.Decimal(14, 2)
+  totalVendorPayable       Decimal              @default(0) @db.Decimal(14, 2)
+  totalVendorOutstanding   Decimal              @default(0) @db.Decimal(14, 2)
   grossProfit              Decimal              @default(0) @db.Decimal(14, 2)
+  netProfit                Decimal              @default(0) @db.Decimal(14, 2)
   profitMarginPercentage   Decimal              @default(0) @db.Decimal(8, 4)
   bookedById               String               @db.Uuid
   assignedToId             String?              @db.Uuid
@@ -3371,6 +3406,7 @@ model Booking {
   itinerary              BookingItineraryDay[]
   paymentSchedules       BookingPaymentSchedule[]
   payments               BookingPayment[]
+  refunds                BookingRefund[]
   costs                  BookingCost[]
   documents              BookingDocument[]
   notes                  BookingNote[]
@@ -3439,6 +3475,18 @@ model BookingService {
   bookingId                  String                    @db.Uuid
   vendorId                   String?                   @db.Uuid
   vendorServiceId            String?                   @db.Uuid
+  // Phase-15 travel-master references, mirroring QuotationVersionService so the
+  // links a quotation carried survive conversion. All optional; the snapshot
+  // columns below remain the authoritative rendered values.
+  hotelId                    String?                   @db.Uuid
+  hotelRoomTypeId            String?                   @db.Uuid
+  hotelMealPlanId            String?                   @db.Uuid
+  airlineId                  String?                   @db.Uuid
+  cruiseId                   String?                   @db.Uuid
+  cruiseRoomTypeId           String?                   @db.Uuid
+  vehicleId                  String?                   @db.Uuid
+  sightseeingId              String?                   @db.Uuid
+  addOnServiceId             String?                   @db.Uuid
   serviceType                ServiceType
   name                       String                    @db.VarChar(200)
   description                String?                   @db.VarChar(4000)
@@ -3455,6 +3503,8 @@ model BookingService {
   supplierConfirmationNumber String?                   @db.VarChar(255)
   customerSellingAmount      Decimal                   @default(0) @db.Decimal(14, 2)
   internalCostSnapshot       Decimal                   @default(0) @db.Decimal(14, 2)
+  cancellationCharge         Decimal                   @default(0) @db.Decimal(14, 2)
+  refundedAmount             Decimal                   @default(0) @db.Decimal(14, 2)
   paymentDueAt               DateTime?
   cancellationDeadline       DateTime?
   notes                      String?                   @db.VarChar(2000)
@@ -3467,6 +3517,15 @@ model BookingService {
   booking        Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   vendor         Vendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   vendorService  VendorService?    @relation(fields: [vendorServiceId], references: [id], onDelete: SetNull)
+  hotel          Hotel?            @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  hotelRoomType  HotelRoomType?    @relation(fields: [hotelRoomTypeId], references: [id], onDelete: SetNull)
+  hotelMealPlan  HotelMealPlan?    @relation(fields: [hotelMealPlanId], references: [id], onDelete: SetNull)
+  airline        Airline?          @relation(fields: [airlineId], references: [id], onDelete: SetNull)
+  cruise         Cruise?           @relation(fields: [cruiseId], references: [id], onDelete: SetNull)
+  cruiseRoomType CruiseRoomType?   @relation(fields: [cruiseRoomTypeId], references: [id], onDelete: SetNull)
+  vehicle        Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  sightseeing    Sightseeing?      @relation(fields: [sightseeingId], references: [id], onDelete: SetNull)
+  addOnService   AddOnService?     @relation(fields: [addOnServiceId], references: [id], onDelete: SetNull)
   costs          BookingCost[]
   documents      BookingDocument[]
   vendorPayables VendorPayable[]
@@ -3476,6 +3535,15 @@ model BookingService {
   @@index([companyId, bookingId, deletedAt])
   @@index([companyId, confirmationStatus])
   @@index([companyId, vendorId, deletedAt])
+  @@index([hotelId])
+  @@index([hotelRoomTypeId])
+  @@index([hotelMealPlanId])
+  @@index([airlineId])
+  @@index([cruiseId])
+  @@index([cruiseRoomTypeId])
+  @@index([vehicleId])
+  @@index([sightseeingId])
+  @@index([addOnServiceId])
   @@map("booking_services")
 }
 
@@ -3556,11 +3624,44 @@ model BookingPayment {
   recordedBy      User                    @relation("BookingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   reversedBy      User?                   @relation("BookingPaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
   documents       BookingDocument[]
+  refunds         BookingRefund[]
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, bookingId, createdAt])
   @@index([companyId, paymentScheduleId])
   @@map("booking_payments")
+}
+
+model BookingRefund {
+  id               String        @id @default(uuid()) @db.Uuid
+  companyId        String        @db.Uuid
+  bookingId        String        @db.Uuid
+  bookingPaymentId String?       @db.Uuid
+  refundNumber     String        @db.VarChar(24)
+  amount           Decimal       @db.Decimal(14, 2)
+  currency         String        @db.VarChar(3)
+  refundMethod     PaymentMethod
+  status           RefundStatus  @default(PROCESSED)
+  reason           String        @db.VarChar(2000)
+  processedAt      DateTime
+  notes            String?       @db.VarChar(2000)
+  recordedById     String        @db.Uuid
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  reversedAt       DateTime?
+  reversedById     String?       @db.Uuid
+  reversalReason   String?       @db.VarChar(2000)
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking        Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingPayment BookingPayment? @relation(fields: [bookingPaymentId], references: [id], onDelete: SetNull)
+  recordedBy     User            @relation("BookingRefundRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  reversedBy     User?           @relation("BookingRefundReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, refundNumber])
+  @@index([companyId, bookingId, createdAt])
+  @@index([companyId, status])
+  @@map("booking_refunds")
 }
 
 model BookingCost {

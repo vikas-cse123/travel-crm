@@ -48,7 +48,25 @@ export interface BookingService {
   supplierConfirmationNumber: string | null;
   customerSellingAmount: string;
   internalCostSnapshot?: string;
+  cancellationCharge?: string;
+  refundedAmount?: string;
+  masterLinked?: boolean;
   sequence: number;
+}
+export interface BookingRefund {
+  id: string;
+  refundNumber: string;
+  amount: string | null;
+  currency: string;
+  refundMethod: string;
+  status: string;
+  reason: string;
+  processedAt: string;
+  reversedAt: string | null;
+  reversalReason: string | null;
+  recordedBy: PersonRef;
+  reversedBy: PersonRef | null;
+  bookingPayment: { id: string; paymentNumber: string } | null;
 }
 export interface BookingSchedule {
   id: string;
@@ -135,10 +153,18 @@ export interface Booking {
   updatedAt: string;
   attentionIndicators: string[];
   totalSellingAmount?: string;
+  gstAmount?: string;
+  tcsAmount?: string;
+  totalPayable?: string;
   totalCustomerPaid?: string;
+  totalRefunded?: string;
+  netRevenue?: string;
   totalCustomerOutstanding?: string;
   totalCost?: string;
+  totalVendorPayable?: string;
+  totalVendorOutstanding?: string;
   grossProfit?: string;
+  netProfit?: string;
   profitMarginPercentage?: string;
   travellers: BookingTraveller[];
   services: BookingService[];
@@ -152,6 +178,7 @@ export interface Booking {
   }>;
   paymentSchedules: BookingSchedule[];
   payments: BookingPayment[];
+  refunds?: BookingRefund[];
   costs?: BookingCost[];
   documents: BookingDocument[];
   notes: BookingNote[];
@@ -185,11 +212,23 @@ export interface BookingAnalytics {
   bookingsDepartingNext7Days: number;
   bookingsWithMissingTravellerDocuments: number;
   servicesAwaitingConfirmation: number;
+  refundPendingBookings?: number;
+  refundedBookings?: number;
   totalCustomerOutstanding?: string;
   totalBookingValue?: string;
+  totalCustomerAmount?: string;
+  totalGst?: string;
+  totalTcs?: string;
+  totalPayable?: string;
   totalCustomerPaymentsReceived?: string;
+  totalRefunded?: string;
+  netRevenue?: string;
   totalRecordedCosts?: string;
+  totalVendorPayable?: string;
+  totalVendorOutstanding?: string;
   grossProfit?: string;
+  netProfit?: string;
+  profitMarginPercentage?: string;
 }
 
 export const bookingKeys = {

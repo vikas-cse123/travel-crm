@@ -1,5 +1,17 @@
 import { useState } from 'react';
-import { ArrowLeft, Download, FilePlus2, Mail, Plane, Plus, Receipt, UserPlus } from 'lucide-react';
+import {
+  ArrowLeft,
+  Download,
+  FilePlus2,
+  FileText,
+  Mail,
+  Plane,
+  Plus,
+  Receipt,
+  Ticket,
+  Undo2,
+  UserPlus,
+} from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import {
   BOOKING_COST_CATEGORIES,
@@ -33,6 +45,7 @@ const tabs = [
   'Services',
   'Itinerary',
   'Payments',
+  'Refunds',
   'Costs',
   'Documents',
   'Notes',
@@ -81,6 +94,9 @@ export function BookingWorkspacePage() {
   const canTravel = hasPermission(PERMISSIONS.BOOKINGS_MANAGE_TRAVELLERS);
   const canDocs = hasPermission(PERMISSIONS.BOOKINGS_MANAGE_DOCUMENTS);
   const canUpdate = hasPermission(PERMISSIONS.BOOKINGS_UPDATE);
+  const canRefund = hasPermission(PERMISSIONS.BOOKINGS_MANAGE_REFUNDS);
+  const canExport = hasPermission(PERMISSIONS.BOOKINGS_EXPORT);
+  const canPayable = hasPermission(PERMISSIONS.VENDORS_MANAGE_PAYABLES);
   const terminal = ['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(booking.bookingStatus);
   const totalTravellers =
     booking.adults + booking.childrenWithBed + booking.childrenWithoutBed + booking.infants;
@@ -135,6 +151,40 @@ export function BookingWorkspacePage() {
               Upload document
             </Button>
           )}
+          {canRefund && !terminal && (
+            <Button variant="secondary" onClick={() => setTab('Refunds')}>
+              <Undo2 className="h-4 w-4" />
+              Process refund
+            </Button>
+          )}
+          {canExport && (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => mutate('generate-invoice', {})}
+                disabled={action.isPending}
+              >
+                <FileText className="h-4 w-4" />
+                Invoice
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => mutate('generate-tax-invoice', {})}
+                disabled={action.isPending}
+              >
+                <FileText className="h-4 w-4" />
+                Tax invoice
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => mutate('generate-voucher', {})}
+                disabled={action.isPending}
+              >
+                <Ticket className="h-4 w-4" />
+                Voucher
+              </Button>
+            </>
+          )}
           {hasPermission(PERMISSIONS.BOOKINGS_CHANGE_STATUS) && (
             <Button onClick={() => setTab('Overview')}>Change status</Button>
           )}
@@ -180,7 +230,7 @@ export function BookingWorkspacePage() {
         aria-label="Booking workspace sections"
       >
         {tabs
-          .filter((name) => name !== 'Costs' || canFinance)
+          .filter((name) => (name !== 'Costs' && name !== 'Refunds') || canFinance)
           .map((name) => (
             <button
               key={name}
@@ -266,16 +316,26 @@ export function BookingWorkspacePage() {
           </section>
           {canFinance && (
             <section className="rounded-xl border bg-slate-950 p-5 text-white lg:col-span-3">
-              <h2 className="font-semibold">Financial summary</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                {[
-                  ['Selling', booking.totalSellingAmount],
-                  ['Paid', booking.totalCustomerPaid],
-                  ['Outstanding', booking.totalCustomerOutstanding],
-                  ['Total cost', booking.totalCost],
-                  ['Gross profit', booking.grossProfit],
-                  ['Margin', `${booking.profitMarginPercentage ?? '0'}%`],
-                ].map(([label, value]) => (
+              <h2 className="font-semibold">Commercial summary</h2>
+              <div className="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-7">
+                {(
+                  [
+                    ['Customer amount', booking.totalSellingAmount],
+                    ['GST', booking.gstAmount],
+                    ['TCS', booking.tcsAmount],
+                    ['Total payable', booking.totalPayable],
+                    ['Paid', booking.totalCustomerPaid],
+                    ['Refunded', booking.totalRefunded],
+                    ['Net received', booking.netRevenue],
+                    ['Due', booking.totalCustomerOutstanding],
+                    ['Total cost', booking.totalCost],
+                    ['Vendor payable', booking.totalVendorPayable],
+                    ['Vendor outstanding', booking.totalVendorOutstanding],
+                    ['Gross profit', booking.grossProfit],
+                    ['Net profit', booking.netProfit],
+                    ['Margin', `${booking.profitMarginPercentage ?? '0'}%`],
+                  ] as Array<[string, string | undefined]>
+                ).map(([label, value]) => (
                   <div key={label}>
                     <p className="text-xs uppercase text-slate-400">{label}</p>
                     <p className="mt-1 text-lg font-semibold">
@@ -284,6 +344,49 @@ export function BookingWorkspacePage() {
                   </div>
                 ))}
               </div>
+              {canFinance && !terminal && (
+                <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/10 pt-4">
+                  <Field label="GST amount">
+                    <input
+                      aria-label="GST amount"
+                      className={`${input} text-slate-900`}
+                      type="number"
+                      step="0.01"
+                      defaultValue={booking.gstAmount ?? ''}
+                      onChange={(event) => set('gstAmount', event.target.value)}
+                    />
+                  </Field>
+                  <Field label="TCS amount">
+                    <input
+                      aria-label="TCS amount"
+                      className={`${input} text-slate-900`}
+                      type="number"
+                      step="0.01"
+                      defaultValue={booking.tcsAmount ?? ''}
+                      onChange={(event) => set('tcsAmount', event.target.value)}
+                    />
+                  </Field>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      mutate(
+                        'financials',
+                        {
+                          ...(form.gstAmount !== undefined
+                            ? { gstAmount: Number(form.gstAmount) }
+                            : {}),
+                          ...(form.tcsAmount !== undefined
+                            ? { tcsAmount: Number(form.tcsAmount) }
+                            : {}),
+                        },
+                        'patch',
+                      )
+                    }
+                  >
+                    Save taxes
+                  </Button>
+                </div>
+              )}
             </section>
           )}
         </div>
@@ -427,7 +530,10 @@ export function BookingWorkspacePage() {
                   <th>Status</th>
                   <th>Confirmation</th>
                   <th>Supplier</th>
-                  {canFinance && <th>Cost snapshot</th>}
+                  <th>Reference</th>
+                  {canFinance && <th>Vendor cost</th>}
+                  {canFinance && <th>Cancellation</th>}
+                  {canFinance && <th>Refunded</th>}
                   {canUpdate && <th>Action</th>}
                 </tr>
               </thead>
@@ -435,7 +541,17 @@ export function BookingWorkspacePage() {
                 {booking.services.map((service) => (
                   <tr key={service.id}>
                     <td className="py-3">
-                      <strong>{service.name}</strong>
+                      <span className="flex items-center gap-1.5">
+                        <strong>{service.name}</strong>
+                        {service.masterLinked && (
+                          <span
+                            title="Linked to a travel master"
+                            className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700"
+                          >
+                            Master
+                          </span>
+                        )}
+                      </span>
                       <p className="text-xs text-slate-500">
                         {labelForLookup(service.serviceType)}
                       </p>
@@ -449,7 +565,14 @@ export function BookingWorkspacePage() {
                         <p className="text-xs text-slate-500">{service.vendorServiceSnapshot}</p>
                       )}
                     </td>
+                    <td>{service.supplierReference ?? '—'}</td>
                     {canFinance && <td>{money(service.internalCostSnapshot, booking.currency)}</td>}
+                    {canFinance && (
+                      <td>{money(service.cancellationCharge ?? '0', booking.currency)}</td>
+                    )}
+                    {canFinance && (
+                      <td>{money(service.refundedAmount ?? '0', booking.currency)}</td>
+                    )}
                     {canUpdate && (
                       <td className="min-w-64">
                         <div className="flex flex-wrap gap-2">
@@ -545,7 +668,69 @@ export function BookingWorkspacePage() {
                               </Button>
                             </>
                           )}
+                          {canPayable && service.vendorId && !terminal && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                mutate('supplier-payables', {
+                                  bookingServiceId: service.id,
+                                  ...(canFinance && service.internalCostSnapshot
+                                    ? { originalAmount: Number(service.internalCostSnapshot) }
+                                    : {}),
+                                })
+                              }
+                            >
+                              Create payable
+                            </Button>
+                          )}
+                          {canCost && !terminal && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                mutate(
+                                  `services/${service.id}/commercial`,
+                                  {
+                                    cancellationCharge: Number(
+                                      form[`cancel-${service.id}`] ??
+                                        service.cancellationCharge ??
+                                        0,
+                                    ),
+                                    refundedAmount: Number(
+                                      form[`refund-${service.id}`] ?? service.refundedAmount ?? 0,
+                                    ),
+                                  },
+                                  'patch',
+                                )
+                              }
+                            >
+                              Save charges
+                            </Button>
+                          )}
                         </div>
+                        {canCost && !terminal && (
+                          <div className="mt-1 flex gap-1">
+                            <input
+                              aria-label={`Cancellation charge for ${service.name}`}
+                              className="w-24 rounded border px-2 py-1 text-xs"
+                              type="number"
+                              step="0.01"
+                              placeholder="Cancel"
+                              defaultValue={service.cancellationCharge ?? ''}
+                              onChange={(event) => set(`cancel-${service.id}`, event.target.value)}
+                            />
+                            <input
+                              aria-label={`Refunded amount for ${service.name}`}
+                              className="w-24 rounded border px-2 py-1 text-xs"
+                              type="number"
+                              step="0.01"
+                              placeholder="Refund"
+                              defaultValue={service.refundedAmount ?? ''}
+                              onChange={(event) => set(`refund-${service.id}`, event.target.value)}
+                            />
+                          </div>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -775,6 +960,156 @@ export function BookingWorkspacePage() {
               )}
             </section>
           </div>
+        </div>
+      )}
+
+      {tab === 'Refunds' && canFinance && (
+        <div className="grid gap-5 lg:grid-cols-3">
+          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+            <h2 className="font-semibold">Customer refunds</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Refunds reduce net revenue. Reversing a refund restores it; history is never deleted.
+            </p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-[720px] w-full text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2">Refund</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                    <th>Processed</th>
+                    <th>Recorded by</th>
+                    {canRefund && <th>Action</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {(booking.refunds ?? []).map((refund) => (
+                    <tr key={refund.id}>
+                      <td className="py-3 font-medium">{refund.refundNumber}</td>
+                      <td>{money(refund.amount ?? '0', refund.currency)}</td>
+                      <td>{labelForLookup(refund.refundMethod)}</td>
+                      <td>{labelForLookup(refund.status)}</td>
+                      <td className="max-w-[200px] truncate" title={refund.reason}>
+                        {refund.reason}
+                      </td>
+                      <td>{new Date(refund.processedAt).toLocaleDateString()}</td>
+                      <td>{refund.recordedBy.fullName}</td>
+                      {canRefund && (
+                        <td>
+                          {refund.status === 'PROCESSED' ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                if (window.confirm(`Reverse refund ${refund.refundNumber}?`))
+                                  mutate(`refunds/${refund.id}/reverse`, {
+                                    reason: 'Reversed from booking workspace',
+                                  });
+                              }}
+                            >
+                              Reverse
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              {labelForLookup(refund.status)}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {!(booking.refunds ?? []).length && (
+                    <tr>
+                      <td colSpan={8} className="py-6 text-center text-slate-500">
+                        No refunds recorded.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          {canRefund && !terminal && (
+            <section className="rounded-xl border bg-white p-5">
+              <h2 className="font-semibold">Process refund</h2>
+              <div className="mt-4 space-y-3">
+                <Field label="Amount">
+                  <input
+                    aria-label="Refund amount"
+                    className={input}
+                    type="number"
+                    step="0.01"
+                    value={form.refundAmount ?? ''}
+                    onChange={(event) => set('refundAmount', event.target.value)}
+                  />
+                </Field>
+                <Field label="Method">
+                  <select
+                    aria-label="Refund method"
+                    className={input}
+                    value={form.refundMethod ?? 'BANK_TRANSFER'}
+                    onChange={(event) => set('refundMethod', event.target.value)}
+                  >
+                    {PAYMENT_METHODS.map((method) => (
+                      <option key={method} value={method}>
+                        {labelForLookup(method)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Linked payment (optional)">
+                  <select
+                    aria-label="Refund source payment"
+                    className={input}
+                    value={form.refundPaymentId ?? ''}
+                    onChange={(event) => set('refundPaymentId', event.target.value)}
+                  >
+                    <option value="">Not linked</option>
+                    {booking.payments
+                      .filter((payment) => !payment.reversedAt)
+                      .map((payment) => (
+                        <option key={payment.id} value={payment.id}>
+                          {payment.paymentNumber} · {money(payment.amount, booking.currency)}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Field label="Reason">
+                  <input
+                    aria-label="Refund reason"
+                    className={input}
+                    value={form.refundReason ?? ''}
+                    onChange={(event) => set('refundReason', event.target.value)}
+                  />
+                </Field>
+                <Field label="Processed date">
+                  <input
+                    aria-label="Refund processed date"
+                    className={input}
+                    type="date"
+                    value={form.refundDate ?? ''}
+                    onChange={(event) => set('refundDate', event.target.value)}
+                  />
+                </Field>
+                <Button
+                  onClick={() =>
+                    mutate('refunds', {
+                      amount: Number(form.refundAmount ?? 0),
+                      currency: booking.currency,
+                      refundMethod: form.refundMethod ?? 'BANK_TRANSFER',
+                      reason: form.refundReason ?? '',
+                      processedAt: form.refundDate || new Date().toISOString().slice(0, 10),
+                      ...(form.refundPaymentId ? { bookingPaymentId: form.refundPaymentId } : {}),
+                    })
+                  }
+                >
+                  Record refund
+                </Button>
+              </div>
+            </section>
+          )}
         </div>
       )}
 

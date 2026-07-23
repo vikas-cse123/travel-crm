@@ -77,6 +77,44 @@ export function BookingsPage() {
           </article>
         ))}
       </section>
+      {canViewFinancials && (
+        <section aria-label="Commercial summary" className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {(
+              [
+                ['Customer amount', money(analytics.data?.totalCustomerAmount)],
+                ['Net revenue', money(analytics.data?.netRevenue)],
+                ['Total refunds', money(analytics.data?.totalRefunded)],
+                ['Net profit', money(analytics.data?.netProfit)],
+                ['Gross profit', money(analytics.data?.grossProfit)],
+                ['Margin', `${analytics.data?.profitMarginPercentage ?? '0'}%`],
+              ] as Array<[string, string]>
+            ).map(([label, value]) => (
+              <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+                <p className="text-lg font-semibold">{value}</p>
+                <p className="text-xs text-slate-500">{label}</p>
+              </article>
+            ))}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {(
+              [
+                ['Total payable', money(analytics.data?.totalPayable)],
+                ['GST', money(analytics.data?.totalGst)],
+                ['TCS', money(analytics.data?.totalTcs)],
+                ['Vendor costs', money(analytics.data?.totalVendorPayable)],
+                ['Vendor outstanding', money(analytics.data?.totalVendorOutstanding)],
+                ['Payments received', money(analytics.data?.totalCustomerPaymentsReceived)],
+              ] as Array<[string, string]>
+            ).map(([label, value]) => (
+              <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+                <p className="text-lg font-semibold">{value}</p>
+                <p className="text-xs text-slate-500">{label}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="rounded-xl border bg-white shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-2 xl:grid-cols-6">
           <label className="relative md:col-span-2">
@@ -129,20 +167,26 @@ export function BookingsPage() {
             value={params.get('destination') ?? ''}
             onChange={(event) => update('destination', event.target.value)}
           />
-          <input
-            aria-label="Travel from"
-            className={field}
-            type="date"
-            value={params.get('travelFrom') ?? ''}
-            onChange={(event) => update('travelFrom', event.target.value)}
-          />
-          <input
-            aria-label="Travel to"
-            className={field}
-            type="date"
-            value={params.get('travelTo') ?? ''}
-            onChange={(event) => update('travelTo', event.target.value)}
-          />
+          <label className="flex flex-col text-xs text-slate-500">
+            Booking month
+            <input
+              aria-label="Booking month"
+              className={field}
+              type="month"
+              value={params.get('bookingMonth') ?? ''}
+              onChange={(event) => update('bookingMonth', event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col text-xs text-slate-500">
+            Travel month
+            <input
+              aria-label="Travel month"
+              className={field}
+              type="month"
+              value={params.get('travelMonth') ?? ''}
+              onChange={(event) => update('travelMonth', event.target.value)}
+            />
+          </label>
           {params.size > 0 && (
             <Button variant="ghost" onClick={() => setParams(new URLSearchParams())}>
               Clear filters
@@ -175,13 +219,27 @@ export function BookingsPage() {
                     'Booking status',
                     'Operations',
                     'Payment',
-                    'Selling',
+                    'Customer amount',
+                    'GST',
+                    'TCS',
+                    'Total payable',
                     'Paid',
                     'Outstanding',
+                    'Net profit',
+                    'Margin',
                     'Created',
                   ].map((header) =>
                     !canViewFinancials &&
-                    ['Selling', 'Paid', 'Outstanding'].includes(header) ? null : (
+                    [
+                      'Customer amount',
+                      'GST',
+                      'TCS',
+                      'Total payable',
+                      'Paid',
+                      'Outstanding',
+                      'Net profit',
+                      'Margin',
+                    ].includes(header) ? null : (
                       <th className="px-4 py-3" key={header}>
                         {header}
                       </th>
@@ -228,10 +286,17 @@ export function BookingsPage() {
                     {canViewFinancials && (
                       <>
                         <td className="px-4 py-4">{money(booking.totalSellingAmount)}</td>
+                        <td className="px-4 py-4">{money(booking.gstAmount)}</td>
+                        <td className="px-4 py-4">{money(booking.tcsAmount)}</td>
+                        <td className="px-4 py-4 font-medium">{money(booking.totalPayable)}</td>
                         <td className="px-4 py-4">{money(booking.totalCustomerPaid)}</td>
                         <td className="px-4 py-4 font-semibold text-amber-700">
                           {money(booking.totalCustomerOutstanding)}
                         </td>
+                        <td className="px-4 py-4 font-semibold text-emerald-700">
+                          {money(booking.netProfit)}
+                        </td>
+                        <td className="px-4 py-4">{booking.profitMarginPercentage ?? '0'}%</td>
                       </>
                     )}
                     <td className="px-4 py-4">

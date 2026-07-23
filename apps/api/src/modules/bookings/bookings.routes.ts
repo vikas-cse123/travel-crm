@@ -25,6 +25,11 @@ import {
   bookingServiceInputSchema,
   bookingServiceStatusSchema,
   bookingServiceUpdateSchema,
+  bookingServiceCommercialSchema,
+  bookingFinancialsSchema,
+  bookingRefundInputSchema,
+  bookingRefundReversalSchema,
+  createPayableFromBookingSchema,
   vendorBookingLinkSchema,
   bookingStatusInputSchema,
   bookingUpdateSchema,
@@ -54,6 +59,14 @@ const listSchema = z.object({
   travelTo: z.coerce.date().optional(),
   createdFrom: z.coerce.date().optional(),
   createdTo: z.coerce.date().optional(),
+  bookingMonth: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
+  travelMonth: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
   paymentDueFrom: z.coerce.date().optional(),
   paymentDueTo: z.coerce.date().optional(),
   amountMin: z.coerce.number().min(0).optional(),
@@ -372,6 +385,62 @@ router.get(
   requirePermission(PERMISSIONS.BOOKINGS_VIEW),
   validateRequest({ params: bookingId }),
   asyncHandler(c.emailHistory),
+);
+
+// --- Phase 15: commercial financials, refunds, supplier payable, PDFs -------
+router.patch(
+  '/:bookingId/financials',
+  requirePermission(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS),
+  validateRequest({ params: bookingId, body: bookingFinancialsSchema }),
+  asyncHandler(c.updateFinancials),
+);
+router.patch(
+  '/:bookingId/services/:serviceId/commercial',
+  requirePermission(PERMISSIONS.BOOKINGS_MANAGE_COSTS),
+  validateRequest({ params: childId('serviceId'), body: bookingServiceCommercialSchema }),
+  asyncHandler(c.updateServiceCommercial),
+);
+router.get(
+  '/:bookingId/refunds',
+  requirePermission(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS),
+  validateRequest({ params: bookingId }),
+  asyncHandler(c.refunds),
+);
+router.post(
+  '/:bookingId/refunds',
+  requirePermission(PERMISSIONS.BOOKINGS_MANAGE_REFUNDS),
+  validateRequest({ params: bookingId, body: bookingRefundInputSchema }),
+  asyncHandler(c.createRefund),
+);
+router.post(
+  '/:bookingId/refunds/:refundId/reverse',
+  requirePermission(PERMISSIONS.BOOKINGS_MANAGE_REFUNDS),
+  validateRequest({ params: childId('refundId'), body: bookingRefundReversalSchema }),
+  asyncHandler(c.reverseRefund),
+);
+router.post(
+  '/:bookingId/supplier-payables',
+  requirePermission(PERMISSIONS.VENDORS_MANAGE_PAYABLES),
+  validateRequest({ params: bookingId, body: createPayableFromBookingSchema }),
+  asyncHandler(c.createSupplierPayable),
+);
+router.post(
+  '/:bookingId/generate-invoice',
+  requirePermission(PERMISSIONS.BOOKINGS_EXPORT),
+  validateRequest({ params: bookingId }),
+  asyncHandler(c.generateInvoice),
+);
+router.post(
+  '/:bookingId/generate-tax-invoice',
+  requirePermission(PERMISSIONS.BOOKINGS_EXPORT),
+  validateRequest({ params: bookingId }),
+  asyncHandler(c.generateTaxInvoice),
+);
+router.post(
+  '/:bookingId/generate-voucher',
+  requirePermission(PERMISSIONS.BOOKINGS_EXPORT),
+  validateRequest({ params: bookingId }),
+  asyncHandler(c.generateVoucher),
 );
 
 export { router as bookingsRoutes };

@@ -138,6 +138,12 @@ const currency = z
   .length(3)
   .transform((value) => value.toUpperCase());
 
+/** Optional link to a travel master; always optional and nullable (Phase 15). */
+const optionalMasterId = z.string().uuid().nullable().optional();
+
+export const REFUND_STATUSES = ['PENDING', 'PROCESSED', 'REVERSED', 'FAILED'] as const;
+export type RefundStatusValue = (typeof REFUND_STATUSES)[number];
+
 export const bookingItineraryInputSchema = z.object({
   dayNumber: z.coerce.number().int().min(1).max(500),
   date: optionalDate,
@@ -152,6 +158,17 @@ export const bookingItineraryInputSchema = z.object({
 export const bookingServiceInputSchema = z
   .object({
     serviceType: z.enum(SERVICE_TYPES),
+    // Travel-master references (Phase 15). Optional; each is only valid for its
+    // matching service type, enforced server-side against the tenant's masters.
+    hotelId: optionalMasterId,
+    hotelRoomTypeId: optionalMasterId,
+    hotelMealPlanId: optionalMasterId,
+    airlineId: optionalMasterId,
+    cruiseId: optionalMasterId,
+    cruiseRoomTypeId: optionalMasterId,
+    vehicleId: optionalMasterId,
+    sightseeingId: optionalMasterId,
+    addOnServiceId: optionalMasterId,
     name: z.string().trim().min(1).max(200),
     description: optionalText(4000),
     city: optionalText(120),
@@ -164,6 +181,8 @@ export const bookingServiceInputSchema = z
     supplierReference: optionalText(255),
     customerSellingAmount: money.default(0),
     internalCostSnapshot: money.default(0),
+    cancellationCharge: money.default(0),
+    refundedAmount: money.default(0),
     paymentDueAt: optionalDate,
     cancellationDeadline: optionalDate,
     notes: optionalText(2000),
@@ -173,6 +192,14 @@ export const bookingServiceInputSchema = z
     path: ['endDate'],
     message: 'Service end date must be on or after the start date.',
   });
+
+/** Service-level commercial edit: cancellation charge and refunded allocation. */
+export const bookingServiceCommercialSchema = z
+  .object({
+    cancellationCharge: money.optional(),
+    refundedAmount: money.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'At least one field must be supplied.');
 
 export const bookingPaymentScheduleInputSchema = z.object({
   installmentNumber: z.coerce.number().int().min(1).max(100),
@@ -199,6 +226,8 @@ export const bookingManualInputSchema = z
     infants: z.coerce.number().int().min(0).max(100).default(0),
     currency: currency.default('INR'),
     totalSellingAmount: money,
+    gstAmount: money.optional(),
+    tcsAmount: money.optional(),
     assignedToId: z.string().uuid().nullable().optional(),
     manualCreationReason: z.string().trim().min(3).max(2000),
     internalNotes: optionalText(4000),
@@ -218,8 +247,49 @@ export const quotationConversionInputSchema = z.object({
   quotationVersionId: z.string().uuid().optional(),
   assignedToId: z.string().uuid().nullable().optional(),
   initialOperationalNotes: optionalText(4000),
+  gstAmount: money.optional(),
+  tcsAmount: money.optional(),
   paymentSchedule: z.array(bookingPaymentScheduleInputSchema).max(100).default([]),
 });
+
+/** Explicit GST/TCS entry on an existing booking (permission-gated). */
+export const bookingFinancialsSchema = z
+  .object({
+    gstAmount: money.optional(),
+    tcsAmount: money.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'At least one field must be supplied.');
+
+/** Record a customer refund. Amount is validated against eligibility server-side. */
+export const bookingRefundInputSchema = z.object({
+  bookingPaymentId: z.string().uuid().nullable().optional(),
+  amount: positiveMoney,
+  currency: currency.default('INR'),
+  refundMethod: z.enum(PAYMENT_METHODS),
+  reason: z.string().trim().min(3).max(2000),
+  processedAt: z.coerce.date(),
+  notes: optionalText(2000),
+});
+
+export const bookingRefundReversalSchema = z.object({
+  reason: z.string().trim().min(3).max(2000),
+});
+
+/** Create a vendor payable directly from a booking service or cost. */
+export const createPayableFromBookingSchema = z
+  .object({
+    bookingServiceId: z.string().uuid().nullable().optional(),
+    bookingCostId: z.string().uuid().nullable().optional(),
+    description: z.string().trim().min(2).max(1000).optional(),
+    originalAmount: positiveMoney.optional(),
+    dueDate: z.coerce.date().nullable().optional(),
+    supplierInvoiceNumber: optionalText(160),
+    supplierInvoiceDate: z.coerce.date().nullable().optional(),
+    notes: optionalText(2000),
+  })
+  .refine((value) => value.bookingServiceId || value.bookingCostId, {
+    message: 'Provide a booking service or a booking cost to bill.',
+  });
 
 export const bookingUpdateSchema = z
   .object({
@@ -367,3 +437,8 @@ export type BookingCostInput = z.infer<typeof bookingCostInputSchema>;
 export type BookingDocumentUpload = z.infer<typeof bookingDocumentUploadSchema>;
 export type BookingNoteInput = z.infer<typeof bookingNoteInputSchema>;
 export type BookingEmailInput = z.infer<typeof bookingEmailInputSchema>;
+export type BookingFinancialsInput = z.infer<typeof bookingFinancialsSchema>;
+export type BookingRefundInput = z.infer<typeof bookingRefundInputSchema>;
+export type BookingRefundReversal = z.infer<typeof bookingRefundReversalSchema>;
+export type BookingServiceCommercialInput = z.infer<typeof bookingServiceCommercialSchema>;
+export type CreatePayableFromBookingInput = z.infer<typeof createPayableFromBookingSchema>;

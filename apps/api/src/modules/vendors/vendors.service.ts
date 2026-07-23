@@ -17,6 +17,7 @@ import {
   type VendorRateInput,
   type VendorServiceInput,
   type VendorUpdateInput,
+  type CreatePayableFromBookingInput,
 } from '@interscale/shared';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { env } from '../../config/env.js';
@@ -1774,3 +1775,76 @@ export const vendorsService = {
     };
   },
 };
+
+/**
+ * Create a supplier payable directly from a booking service or cost (Phase 15).
+ *
+ * This is a thin convenience over vendorsService.createPayable: it resolves the
+ * vendor and a sensible default amount/description from the booking record, then
+ * delegates so all existing payable business logic (numbering, status roll-up,
+ * vendor recalculation, activity log) runs exactly once. Duplicate protection
+ * relies on VendorPayable.bookingCostId being unique — a second payable for the
+ * same cost is rejected with a clear message rather than a raw constraint error.
+ */
+export async function createPayableForBooking(
+  auth: AuthContext,
+  input: CreatePayableFromBookingInput,
+  context: RequestContext,
+) {
+  let vendorId: string | null = null;
+  let bookingId: string;
+  let defaultAmount: number | null = null;
+  let defaultDescription = '';
+  let currencyCode = 'INR';
+  const bookingServiceId = input.bookingServiceId ?? null;
+  const bookingCostId = input.bookingCostId ?? null;
+
+  if (bookingCostId) {
+    const cost = await prisma.bookingCost.findFirst({
+      where: { id: bookingCostId, companyId: auth.companyId, deletedAt: null },
+      include: { booking: { select: { currency: true } }, bookingService: true },
+    });
+    if (!cost) throw new ValidationError('Booking cost not found in this company.');
+    if (await prisma.vendorPayable.findFirst({ where: { bookingCostId, deletedAt: null } }))
+      throw new ConflictError('A supplier payable already exists for this booking cost.');
+    bookingId = cost.bookingId;
+    vendorId = cost.vendorId ?? cost.bookingService?.vendorId ?? null;
+    defaultAmount = Number(cost.amount);
+    defaultDescription = cost.description;
+    currencyCode = cost.currency || cost.booking.currency;
+  } else if (bookingServiceId) {
+    const service = await prisma.bookingService.findFirst({
+      where: { id: bookingServiceId, companyId: auth.companyId, deletedAt: null },
+      include: { booking: { select: { currency: true } } },
+    });
+    if (!service) throw new ValidationError('Booking service not found in this company.');
+    bookingId = service.bookingId;
+    vendorId = service.vendorId;
+    defaultAmount = Number(service.internalCostSnapshot);
+    defaultDescription = service.name;
+    currencyCode = service.booking.currency;
+  } else {
+    throw new ValidationError('Provide a booking service or a booking cost to bill.');
+  }
+
+  if (!vendorId)
+    throw new ValidationError('Assign a vendor to the service before creating a payable.');
+
+  const originalAmount = input.originalAmount ?? defaultAmount ?? 0;
+  if (!(originalAmount > 0))
+    throw new ValidationError('A payable amount greater than zero is required.');
+
+  const payableInput: VendorPayableInput = {
+    bookingId,
+    bookingServiceId,
+    bookingCostId,
+    description: input.description ?? defaultDescription,
+    currency: currencyCode,
+    originalAmount,
+    dueDate: input.dueDate ?? null,
+    supplierInvoiceNumber: input.supplierInvoiceNumber ?? null,
+    supplierInvoiceDate: input.supplierInvoiceDate ?? null,
+    notes: input.notes ?? null,
+  };
+  return vendorsService.createPayable(auth, vendorId, payableInput, context);
+}

@@ -430,3 +430,288 @@ describe('Phase 9 booking pages', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 15 — commercial metrics, refunds, master links and supplier documents
+// ---------------------------------------------------------------------------
+
+const commercialBooking = {
+  ...booking,
+  gstAmount: '2500.00',
+  tcsAmount: '500.00',
+  totalPayable: '53000.00',
+  totalRefunded: '5000.00',
+  netRevenue: '15000.00',
+  totalVendorPayable: '18000.00',
+  totalVendorOutstanding: '18000.00',
+  netProfit: '10000.00',
+  services: [
+    {
+      ...booking.services[0],
+      masterLinked: true,
+      supplierReference: 'SUP-99',
+      vendorId: 'vendor-1',
+      cancellationCharge: '1000.00',
+      refundedAmount: '2000.00',
+    },
+  ],
+  refunds: [
+    {
+      id: 'refund-1',
+      refundNumber: 'REF-2026-000001',
+      amount: '5000.00',
+      currency: 'INR',
+      refundMethod: 'BANK_TRANSFER',
+      status: 'PROCESSED',
+      reason: 'Partial cancellation',
+      processedAt: '2026-09-10',
+      reversedAt: null,
+      reversalReason: null,
+      recordedBy: person,
+      reversedBy: null,
+      bookingPayment: { id: 'payment-1', paymentNumber: 'PAY-2026-000001' },
+    },
+  ],
+};
+const commercialAnalytics = {
+  ...analytics,
+  totalCustomerAmount: '50000.00',
+  totalGst: '2500.00',
+  totalTcs: '500.00',
+  totalPayable: '53000.00',
+  totalCustomerPaymentsReceived: '20000.00',
+  totalRefunded: '5000.00',
+  netRevenue: '15000.00',
+  totalRecordedCosts: '25000.00',
+  totalVendorPayable: '18000.00',
+  totalVendorOutstanding: '18000.00',
+  grossProfit: '28000.00',
+  netProfit: '10000.00',
+  profitMarginPercentage: '52.8300',
+};
+
+function stubBooking(fixture: unknown = commercialBooking) {
+  const mock = vi.fn(async (request: RequestInfo | URL, options?: RequestInit) =>
+    options?.method && options.method !== 'GET'
+      ? response(fixture)
+      : String(request).includes('/vendors')
+        ? response(page([]))
+        : String(request).includes('/timeline')
+          ? response({ data: [], pagination: {} })
+          : response(fixture),
+  );
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}
+
+const FINANCIAL = [
+  'bookings.view',
+  'bookings.update',
+  'bookings.view_financials',
+  'bookings.manage_payments',
+  'bookings.manage_costs',
+  'bookings.manage_refunds',
+  'bookings.export',
+  'bookings.change_status',
+  'vendors.view',
+  'vendors.manage_payables',
+];
+
+describe('Phase 15 booking commercial UI', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.permissions = new Set(FINANCIAL);
+  });
+
+  it('renders commercial tiles and columns for a financial user', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) =>
+        String(request).includes('/analytics')
+          ? response(commercialAnalytics)
+          : response(page([commercialBooking])),
+      ),
+    );
+    renderWithProviders(<BookingsPage />);
+    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
+    // Commercial summary tiles.
+    expect(screen.getByText('Net revenue')).toBeInTheDocument();
+    expect(screen.getAllByText('Net profit').length).toBeGreaterThan(0);
+    expect(screen.getByText('Total refunds')).toBeInTheDocument();
+    // Commercial columns (also appear as tiles → assert at least one).
+    expect(screen.getAllByText('Total payable').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('GST').length).toBeGreaterThan(0);
+  });
+
+  it('hides commercial tiles and columns without financial permission', async () => {
+    auth.permissions = new Set(['bookings.view']);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) =>
+        String(request).includes('/analytics')
+          ? response(commercialAnalytics)
+          : response(
+              page([{ ...commercialBooking, netProfit: undefined, totalPayable: undefined }]),
+            ),
+      ),
+    );
+    renderWithProviders(<BookingsPage />);
+    await screen.findByText('BK-2026-000001');
+    expect(screen.queryByText('Net profit')).not.toBeInTheDocument();
+    expect(screen.queryAllByText('Total payable')).toHaveLength(0);
+  });
+
+  it('sends booking-month and travel-month filters to the API', async () => {
+    const fetchMock = vi.fn(async (request: RequestInfo | URL) =>
+      String(request).includes('/analytics')
+        ? response(commercialAnalytics)
+        : response(page([commercialBooking])),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<BookingsPage />);
+    await screen.findByText('BK-2026-000001');
+    const bookingMonth = screen.getByLabelText('Booking month');
+    await userEvent.type(bookingMonth, '2026-07');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes('bookingMonth=2026-07')),
+      ).toBe(true),
+    );
+    const travelMonth = screen.getByLabelText('Travel month');
+    await userEvent.type(travelMonth, '2026-10');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes('travelMonth=2026-10')),
+      ).toBe(true),
+    );
+  });
+
+  it('shows the commercial summary and saves GST/TCS from the Overview tab', async () => {
+    const fetchMock = stubBooking();
+    renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    await screen.findByText(/Bookings \/ BK-2026-000001/);
+    expect(screen.getByText('Commercial summary')).toBeInTheDocument();
+    expect(screen.getByText('Net profit')).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText('GST amount'));
+    await userEvent.type(screen.getByLabelText('GST amount'), '3000');
+    await userEvent.click(screen.getByRole('button', { name: 'Save taxes' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, options]) => String(url).endsWith('/financials') && options?.method === 'PATCH',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('shows master badge, cancellation/refund columns and a create-payable action on Services', async () => {
+    const fetchMock = stubBooking();
+    renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    await screen.findByText(/Bookings \/ BK-2026-000001/);
+    await userEvent.click(screen.getByRole('button', { name: 'Services' }));
+    expect(screen.getByText('Master')).toBeInTheDocument();
+    expect(screen.getByText('Cancellation')).toBeInTheDocument();
+    expect(screen.getByText('Refunded')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create payable' }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/supplier-payables'))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it('processes and reverses a refund from the Refunds tab', async () => {
+    const fetchMock = stubBooking();
+    renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    await screen.findByText(/Bookings \/ BK-2026-000001/);
+    await userEvent.click(screen.getByRole('button', { name: 'Refunds' }));
+    expect(screen.getByText('REF-2026-000001')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Refund amount'), '5000');
+    await userEvent.type(screen.getByLabelText('Refund reason'), 'Customer cancelled');
+    await userEvent.click(screen.getByRole('button', { name: 'Record refund' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, options]) => String(url).endsWith('/refunds') && options?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Reverse' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).endsWith('/refunds/refund-1/reverse')),
+      ).toBe(true),
+    );
+  });
+
+  it('exposes Invoice, Tax invoice and Voucher actions and hides them without export permission', async () => {
+    const fetchMock = stubBooking();
+    const view = renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    await screen.findByText(/Bookings \/ BK-2026-000001/);
+    await userEvent.click(screen.getByRole('button', { name: 'Invoice' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Tax invoice' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Voucher' }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-invoice'))).toBe(
+        true,
+      );
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-tax-invoice')),
+      ).toBe(true);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-voucher'))).toBe(
+        true,
+      );
+    });
+    view.unmount();
+    auth.permissions = new Set(['bookings.view', 'bookings.view_financials']);
+    stubBooking();
+    renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    await screen.findByText(/Bookings \/ BK-2026-000001/);
+    expect(screen.queryByRole('button', { name: 'Invoice' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Voucher' })).not.toBeInTheDocument();
+  });
+
+  it('renders an old booking with no commercial fields without crashing', async () => {
+    stubBooking({
+      ...booking,
+      services: [{ ...booking.services[0], masterLinked: false }],
+      refunds: [],
+    });
+    renderWithProviders(
+      <Routes>
+        <Route path="/bookings/:bookingId" element={<BookingWorkspacePage />} />
+      </Routes>,
+      { route: `/bookings/${booking.id}` },
+    );
+    expect(await screen.findByText(/Bookings \/ BK-2026-000001/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Services' }));
+    expect(screen.getByText('Harbour Hotel')).toBeInTheDocument();
+    expect(screen.queryByText('Master')).not.toBeInTheDocument();
+  });
+});

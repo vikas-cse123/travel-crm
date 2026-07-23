@@ -375,4 +375,70 @@ export const bookingsController = {
     ),
   emailHistory: async (req: Request, res: Response) =>
     sendSuccess(res, await bookingsService.emailHistory(auth(req), id(req))),
+
+  // --- Phase 15 -----------------------------------------------------------
+  updateFinancials: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.updateFinancials(auth(req), id(req), req.body, context(req)),
+      'Booking taxes updated.',
+    ),
+  updateServiceCommercial: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.updateServiceCommercial(
+        auth(req),
+        id(req),
+        req.params.serviceId!,
+        req.body,
+        context(req),
+      ),
+      'Service commercial details updated.',
+    ),
+  refunds: async (req: Request, res: Response) =>
+    sendSuccess(res, await bookingsService.refunds(auth(req), id(req))),
+  createRefund: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.createRefund(auth(req), id(req), req.body, context(req)),
+      'Refund recorded.',
+      201,
+    ),
+  reverseRefund: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.reverseRefund(
+        auth(req),
+        id(req),
+        req.params.refundId!,
+        req.body,
+        context(req),
+      ),
+      'Refund reversed.',
+    ),
+  createSupplierPayable: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.createSupplierPayable(auth(req), id(req), req.body, context(req)),
+      'Supplier payable created.',
+      201,
+    ),
+  generateInvoice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.generateInvoicePdf(auth(req), id(req), context(req)),
+      'Invoice ready.',
+    ),
+  generateTaxInvoice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.generateTaxInvoicePdf(auth(req), id(req), context(req)),
+      'Tax invoice ready.',
+    ),
+  generateVoucher: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.generateVoucherPdf(auth(req), id(req), context(req)),
+      'Booking voucher ready.',
+    ),
 };
