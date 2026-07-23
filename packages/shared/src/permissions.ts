@@ -265,7 +265,9 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_ADD_ON_SERVICES, 'update', 'Edit add-on services and change status'),
   available(M.MASTER_ADD_ON_SERVICES, 'delete', 'Archive add-on services'),
 
-  planned(M.REPORTS, 'view', 'View reports'),
+  available(M.REPORTS, 'view', 'View reports and export report CSVs'),
+  // Scheduled/emailed report delivery is deliberately out of scope for now.
+  planned(M.REPORTS, 'schedule', 'Schedule and email reports'),
 ] as const;
 
 /** Named constants for the permissions usable today. */
@@ -427,6 +429,8 @@ export const PERMISSIONS = {
   MASTER_ADD_ON_SERVICES_CREATE: 'masters.add_on_services.create',
   MASTER_ADD_ON_SERVICES_UPDATE: 'masters.add_on_services.update',
   MASTER_ADD_ON_SERVICES_DELETE: 'masters.add_on_services.delete',
+
+  REPORTS_VIEW: 'reports.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

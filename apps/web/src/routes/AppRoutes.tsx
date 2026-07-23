@@ -14,6 +14,7 @@ import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
+import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { SystemStatusPage } from '@/pages/SystemStatusPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { UsersPage } from '@/pages/users/UsersPage';
@@ -123,6 +124,14 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.SETTINGS_VIEW}>
                 <SettingsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <PermissionRoute permission={PERMISSIONS.REPORTS_VIEW}>
+                <ReportsPage />
               </PermissionRoute>
             }
           />

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { downloadCsv, type CsvPayload } from '@/lib/downloadCsv';
 import type { ContactMethodValue, QueryInput, QueryUpdateInput } from '@interscale/shared';
 
 export interface Lead {
@@ -368,19 +369,8 @@ export function useLeadExport() {
   return useMutation({
     mutationFn: async (params: URLSearchParams) => {
       const query = params.toString();
-      const csv = await apiClient.get<{ fileName: string; mimeType: string; content: string }>(
-        `/queries/export${query ? `?${query}` : ''}`,
-      );
-      const blob = new Blob([csv.content], { type: `${csv.mimeType};charset=utf-8` });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = csv.fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      return csv.fileName;
+      const csv = await apiClient.get<CsvPayload>(`/queries/export${query ? `?${query}` : ''}`);
+      return downloadCsv(csv);
     },
   });
 }

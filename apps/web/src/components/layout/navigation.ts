@@ -227,7 +227,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permission: PERMISSIONS.ACTIVITY_LOGS_VIEW,
     group: 'Users',
   },
-  { label: 'Reports', to: '/reports', icon: BarChart3, available: false },
+  {
+    label: 'Reports',
+    to: '/reports',
+    icon: BarChart3,
+    available: true,
+    permission: PERMISSIONS.REPORTS_VIEW,
+  },
   {
     label: 'Settings',
     to: '/settings',
