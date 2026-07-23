@@ -465,11 +465,18 @@ async function persistBookingDocument(
     force: boolean;
   },
 ) {
+  // Each generated PDF has a deterministic, kind-specific file name
+  // (e.g. "<booking>-invoice.pdf" vs "<booking>-tax-invoice.pdf"). We match a
+  // reusable document by its EXACT file name so the invoice and tax-invoice
+  // variants stay distinct even though they share BookingDocumentType.INVOICE.
+  // A substring match on the kind would wrongly treat "-tax-invoice" as an
+  // "-invoice", suppressing or reusing the wrong document.
+  const fileName = sanitizeFileName(`${options.bookingNumber}-${options.kind}.pdf`);
   const existing = !options.force
     ? existingDocuments.find(
         (row) =>
           row.documentType === options.documentType &&
-          row.fileName.includes(options.kind) &&
+          row.fileName === fileName &&
           row.uploadStatus === 'AVAILABLE',
       )
     : undefined;
@@ -484,7 +491,6 @@ async function persistBookingDocument(
     });
   const checksum = createHash('sha256').update(options.pdf).digest('hex');
   const documentId = randomUUID();
-  const fileName = sanitizeFileName(`${options.bookingNumber}-${options.kind}.pdf`);
   const objectKey = bookingObjectKey({
     companyId: auth.companyId,
     bookingId,

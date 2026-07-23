@@ -1236,6 +1236,123 @@ describe('Phase 15 supplier payables, analytics, filters and documents', () => {
   });
 });
 
+describe('Phase 18 invoice / tax-invoice document separation (regression)', () => {
+  // A booking with one service is enough to render every customer-facing PDF.
+  const bookingWithService = async (client: ReturnType<typeof createAuthClient>) =>
+    (
+      await client.post('/api/bookings', {
+        ...manualPayload(),
+        totalSellingAmount: 50000,
+        gstAmount: 2500,
+        tcsAmount: 500,
+        services: [
+          {
+            serviceType: 'HOTEL',
+            name: 'Seaside Hotel',
+            customerSellingAmount: 50000,
+            internalCostSnapshot: 30000,
+            supplierReference: 'SUP-123',
+            sequence: 1,
+          },
+        ],
+      })
+    ).body.data;
+
+  const availableInvoiceDocs = (bookingId: string) =>
+    db.bookingDocument.findMany({
+      where: { bookingId, documentType: 'INVOICE', uploadStatus: 'AVAILABLE' },
+    });
+
+  it('keeps both variants when the tax invoice is generated before the invoice', async () => {
+    const client = await owner('owner@invsep-a.test', 'Invoice Sep A');
+    const booking = await bookingWithService(client);
+
+    const tax = await client.post(`/api/bookings/${booking.id}/generate-tax-invoice`, {});
+    expect(tax.body.data.reused).toBe(false);
+    // The invoice must be created fresh, not reuse the tax invoice.
+    const invoice = await client.post(`/api/bookings/${booking.id}/generate-invoice`, {});
+    expect(invoice.status).toBe(200);
+    expect(invoice.body.data.reused).toBe(false);
+    expect(invoice.body.data.id).not.toBe(tax.body.data.id);
+
+    const docs = await availableInvoiceDocs(booking.id);
+    expect(docs).toHaveLength(2);
+    const names = docs.map((d) => d.fileName);
+    expect(names.some((n) => /-invoice\.pdf$/.test(n) && !/-tax-invoice\.pdf$/.test(n))).toBe(true);
+    expect(names.some((n) => /-tax-invoice\.pdf$/.test(n))).toBe(true);
+    // No two generated documents collide on a file name.
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it('keeps both variants when the invoice is generated before the tax invoice', async () => {
+    const client = await owner('owner@invsep-b.test', 'Invoice Sep B');
+    const booking = await bookingWithService(client);
+
+    const invoice = await client.post(`/api/bookings/${booking.id}/generate-invoice`, {});
+    expect(invoice.body.data.reused).toBe(false);
+    const tax = await client.post(`/api/bookings/${booking.id}/generate-tax-invoice`, {});
+    expect(tax.body.data.reused).toBe(false);
+    expect(tax.body.data.id).not.toBe(invoice.body.data.id);
+
+    const docs = await availableInvoiceDocs(booking.id);
+    expect(docs).toHaveLength(2);
+    expect(new Set(docs.map((d) => d.fileName)).size).toBe(2);
+  });
+
+  it('regenerating one variant reuses only that variant and never the other', async () => {
+    const client = await owner('owner@invsep-c.test', 'Invoice Sep C');
+    const booking = await bookingWithService(client);
+
+    const invoice = await client.post(`/api/bookings/${booking.id}/generate-invoice`, {});
+    const tax = await client.post(`/api/bookings/${booking.id}/generate-tax-invoice`, {});
+
+    // Regenerating the invoice reuses the invoice, leaving the tax invoice alone.
+    const invoiceAgain = await client.post(`/api/bookings/${booking.id}/generate-invoice`, {});
+    expect(invoiceAgain.body.data.reused).toBe(true);
+    expect(invoiceAgain.body.data.id).toBe(invoice.body.data.id);
+    expect(invoiceAgain.body.data.id).not.toBe(tax.body.data.id);
+
+    // Regenerating the tax invoice reuses the tax invoice, leaving the invoice alone.
+    const taxAgain = await client.post(`/api/bookings/${booking.id}/generate-tax-invoice`, {});
+    expect(taxAgain.body.data.reused).toBe(true);
+    expect(taxAgain.body.data.id).toBe(tax.body.data.id);
+    expect(taxAgain.body.data.id).not.toBe(invoice.body.data.id);
+
+    // Exactly one of each survives — no duplicates, no ambiguity.
+    const docs = await availableInvoiceDocs(booking.id);
+    expect(docs).toHaveLength(2);
+    expect(new Set(docs.map((d) => d.id))).toEqual(
+      new Set([invoice.body.data.id, tax.body.data.id]),
+    );
+  });
+
+  it('keeps the voucher and confirmation separate from both invoice variants', async () => {
+    const client = await owner('owner@invsep-d.test', 'Invoice Sep D');
+    const booking = await bookingWithService(client);
+
+    await client.post(`/api/bookings/${booking.id}/generate-invoice`, {});
+    await client.post(`/api/bookings/${booking.id}/generate-tax-invoice`, {});
+    const voucher = await client.post(`/api/bookings/${booking.id}/generate-voucher`, {});
+    expect(voucher.body.data.documentType).toBe('OTHER');
+    const confirmation = await client.post(`/api/bookings/${booking.id}/generate-confirmation`, {});
+    expect(confirmation.status).toBe(200);
+    expect(confirmation.body.data.documentType).toBe('BOOKING_CONFIRMATION');
+
+    const docs = await db.bookingDocument.findMany({
+      where: { bookingId: booking.id, uploadStatus: 'AVAILABLE' },
+    });
+    // invoice + tax invoice (INVOICE) + voucher (OTHER) + confirmation = 4 distinct documents.
+    expect(docs).toHaveLength(4);
+    expect(docs.map((d) => d.documentType).sort()).toEqual([
+      'BOOKING_CONFIRMATION',
+      'INVOICE',
+      'INVOICE',
+      'OTHER',
+    ]);
+    expect(new Set(docs.map((d) => d.fileName)).size).toBe(4);
+  });
+});
+
 describe('Phase 15 financial redaction and activity logs', () => {
   it('omits all new financial fields from a non-financial role', async () => {
     const client = await owner('owner@redact15.test', 'Redact Fifteen');
