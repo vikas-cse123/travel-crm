@@ -28,3 +28,4 @@ export * from './vendors.js';
 export * from './countries.js';
 export * from './masters.js';
 export * from './dashboard.js';
+export * from './settings.js';

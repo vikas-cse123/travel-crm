@@ -1,10 +1,12 @@
 import PDFDocument from 'pdfkit';
+import { drawHeaderLogo } from '../../services/pdf/company-branding.js';
 
 /**
  * Customer-facing booking documents (Phase 15): invoice, tax invoice and
  * voucher. None of them ever include internal cost, vendor cost, vendor payable,
- * net profit, margin, internal notes, private master ids or bank details — those
- * are stripped by the caller before the data reaches these renderers.
+ * net profit, margin, internal notes or private master ids. Bank details, when
+ * shown on the Invoice and Tax Invoice, are masked to the last four digits; the
+ * encrypted full account number is never decrypted for a customer document.
  *
  * Tax labels are shown, but no statutory registration number is invented: a
  * GSTIN/tax id is printed only when the company actually has one on file.
@@ -24,6 +26,16 @@ export interface InvoiceCompany {
   primaryColor: string;
   /** Optional statutory tax registration; only printed when present. */
   taxRegistrationNumber?: string | null;
+  /** Confirmed logo bytes; drawn in the header when present. */
+  logo?: Buffer | null;
+  /** Masked company bank summary; printed on Invoice and Tax Invoice only. */
+  bank?: {
+    accountHolderName: string;
+    bankName: string;
+    branchName: string | null;
+    ifscCode: string | null;
+    accountNumberMasked: string;
+  } | null;
 }
 
 export interface InvoiceService {
@@ -72,6 +84,7 @@ function newDoc(company: InvoiceCompany, title: string, subtitle: string) {
   });
   const color = /^#[0-9a-f]{6}$/i.test(company.primaryColor) ? company.primaryColor : '#2563eb';
   doc.rect(0, 0, 595, 108).fill(color);
+  drawHeaderLogo(doc, company.logo ?? null, { x: 427, y: 30, width: 120, height: 48 });
   doc.fillColor('#fff').font('Helvetica-Bold').fontSize(22).text(company.name, 48, 35);
   doc
     .font('Helvetica')
@@ -132,6 +145,19 @@ function servicesBlock(
   });
 }
 
+/** Masked company bank summary for the Invoice and Tax Invoice only. */
+function bankBlock(doc: PDFKit.PDFDocument, heading: (v: string) => void, company: InvoiceCompany) {
+  if (!company.bank) return;
+  heading('Payment / bank details');
+  doc.text(`Account holder: ${company.bank.accountHolderName}`);
+  doc.text(
+    [company.bank.bankName, company.bank.branchName].filter(Boolean).join(' • ') ||
+      company.bank.bankName,
+  );
+  if (company.bank.ifscCode) doc.text(`IFSC: ${company.bank.ifscCode}`);
+  doc.text(`Account: ${company.bank.accountNumberMasked}`);
+}
+
 /** Customer Invoice: amounts due, no taxes breakdown, no internal figures. */
 export async function renderBookingInvoicePdf(input: {
   company: InvoiceCompany;
@@ -144,6 +170,7 @@ export async function renderBookingInvoicePdf(input: {
   doc.text(`Customer amount: ${amount(input.booking.currency, input.booking.totalSellingAmount)}`);
   doc.text(`Paid: ${amount(input.booking.currency, input.booking.totalCustomerPaid)}`);
   doc.text(`Due: ${amount(input.booking.currency, input.booking.totalCustomerOutstanding)}`);
+  bankBlock(doc, heading, input.company);
   heading('Agency contact');
   doc.text(
     [input.company.address, input.company.phone, input.company.email].filter(Boolean).join(' • '),
@@ -178,6 +205,7 @@ export async function renderBookingTaxInvoicePdf(input: {
   doc.font('Helvetica');
   doc.text(`Paid: ${amount(input.booking.currency, input.booking.totalCustomerPaid)}`);
   doc.text(`Due: ${amount(input.booking.currency, input.booking.totalCustomerOutstanding)}`);
+  bankBlock(doc, heading, input.company);
   return finish();
 }
 

@@ -86,6 +86,21 @@ export class S3StorageService implements StorageService {
     }
   }
 
+  async getObject(key: string): Promise<Buffer | null> {
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const bytes = await result.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+        ?.httpStatusCode;
+      if (status === 404) return null;
+      throw error;
+    }
+  }
+
   async deleteObject(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }

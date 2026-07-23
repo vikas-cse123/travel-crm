@@ -21,6 +21,7 @@ import { notificationsRoutes } from './modules/notifications/notifications.route
 import { notificationPreferencesRoutes } from './modules/notifications/notification-preferences.routes.js';
 import { mastersRoutes } from './modules/masters/masters.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
+import { settingsRoutes } from './modules/settings/settings.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -51,5 +52,6 @@ router.use('/notifications', notificationsRoutes);
 router.use('/notification-preferences', notificationPreferencesRoutes);
 router.use('/masters', mastersRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/settings', settingsRoutes);
 
 export { router as apiRoutes };

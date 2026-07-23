@@ -160,7 +160,7 @@ describe('Phase 16 dashboard analytics', () => {
       enquiryCount: number;
     }>;
     expect(destinations[0]).toMatchObject({ enquiryCount: 2 });
-    expect(destinations[0].destination.toLowerCase()).toBe('goa');
+    expect(destinations[0]!.destination.toLowerCase()).toBe('goa');
     expect(destinations.find((d) => d.destination === 'Dubai')!.enquiryCount).toBe(1);
   });
 

@@ -29,7 +29,18 @@ const AUTH_USER_SELECT = {
   failedLoginAttempts: true,
   lockedUntil: true,
   deletedAt: true,
-  company: { select: { id: true, name: true, slug: true, status: true } },
+  company: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      primaryColor: true,
+      timezone: true,
+      defaultCurrency: true,
+      logoConfirmedAt: true,
+    },
+  },
   role: { select: { id: true, name: true, hierarchyLevel: true } },
 } satisfies Prisma.UserSelect;
 

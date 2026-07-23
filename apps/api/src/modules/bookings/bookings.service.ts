@@ -57,6 +57,7 @@ import {
 } from '../../services/storage/storage.service.js';
 import { emailService } from '../../services/email/email.service.js';
 import { renderBookingConfirmationPdf } from './booking-pdf.service.js';
+import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import {
   renderBookingInvoicePdf,
   renderBookingTaxInvoicePdf,
@@ -527,22 +528,24 @@ async function persistBookingDocument(
   return { ...safe, reused: false };
 }
 
-/** Company header/billing block for the customer-facing PDFs. */
+/**
+ * Company header/billing block for the customer-facing PDFs. Phase 18 wires the
+ * real tax registration, confirmed logo and masked bank summary; invoices show
+ * the bank block, so bank details are loaded here (masked, never decrypted).
+ */
 async function invoiceCompany(companyId: string) {
-  const company = await prisma.company.findUniqueOrThrow({
-    where: { id: companyId },
-    select: {
-      name: true,
-      email: true,
-      phone: true,
-      website: true,
-      address: true,
-      primaryColor: true,
-    },
-  });
-  // The company profile carries no statutory tax registration, so none is
-  // printed rather than inventing a GSTIN.
-  return { ...company, taxRegistrationNumber: null };
+  const branding = await loadCompanyBranding(companyId, { includeBank: true });
+  return {
+    name: branding.name,
+    email: branding.email,
+    phone: branding.phone,
+    website: branding.website,
+    address: branding.address,
+    primaryColor: branding.primaryColor,
+    taxRegistrationNumber: branding.taxRegistrationNumber,
+    logo: branding.logo,
+    bank: branding.bank,
+  };
 }
 
 /**
@@ -1078,6 +1081,12 @@ export const bookingsService = {
     // Tenant-scope and compatibility of any master references on the services.
     await validateServiceMasterRefs(auth.companyId, input.services);
     const canViewFinancials = await financialAccess(auth);
+    // Manual bookings prefill the company default booking terms; converted
+    // bookings keep the quotation's terms as the authoritative source.
+    const companyDefaults = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { defaultBookingTerms: true },
+    });
     const created = await prisma.$transaction(async (tx) => {
       const bookingNumber = await nextBookingNumber(tx, auth.companyId, 'booking');
       const booking = await tx.booking.create({
@@ -1108,6 +1117,9 @@ export const bookingsService = {
           assignedToId: input.assignedToId ?? auth.userId,
           manualCreationReason: input.manualCreationReason,
           internalNotes: input.internalNotes ?? null,
+          sourceTerms: companyDefaults.defaultBookingTerms
+            ? [companyDefaults.defaultBookingTerms]
+            : undefined,
         },
       });
       if (input.services.length)
@@ -2547,17 +2559,17 @@ export const bookingsService = {
         where: { id: existing.id },
         data: { uploadStatus: 'FAILED' },
       });
-    const company = await prisma.company.findUniqueOrThrow({
-      where: { id: auth.companyId },
-      select: {
-        name: true,
-        email: true,
-        phone: true,
-        website: true,
-        address: true,
-        primaryColor: true,
-      },
-    });
+    // Confirmation is customer-facing branding only (no bank details).
+    const branding = await loadCompanyBranding(auth.companyId);
+    const company = {
+      name: branding.name,
+      email: branding.email,
+      phone: branding.phone,
+      website: branding.website,
+      address: branding.address,
+      primaryColor: branding.primaryColor,
+      logo: branding.logo,
+    };
     const pdf = await renderBookingConfirmationPdf({ company, booking });
     const checksum = createHash('sha256').update(pdf).digest('hex');
     const documentId = randomUUID();

@@ -228,7 +228,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Users',
   },
   { label: 'Reports', to: '/reports', icon: BarChart3, available: false },
-  { label: 'Settings', to: '/settings', icon: Settings, available: false },
+  {
+    label: 'Settings',
+    to: '/settings',
+    icon: Settings,
+    available: true,
+    permission: PERMISSIONS.SETTINGS_VIEW,
+  },
 ] as const;
 
 /** Initials for the avatar, e.g. "Priya Nair" → "PN". */

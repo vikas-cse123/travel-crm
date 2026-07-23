@@ -154,6 +154,11 @@ export interface AuthCompany {
   id: string;
   name: string;
   slug: string;
+  /** Non-sensitive branding for the app shell (Phase 18). */
+  primaryColor?: string;
+  timezone?: string;
+  defaultCurrency?: string;
+  hasLogo?: boolean;
 }
 
 export interface AuthRole {

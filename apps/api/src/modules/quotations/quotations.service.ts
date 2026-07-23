@@ -23,6 +23,7 @@ import { templateInclude } from '../quotation-templates/quotation-templates.serv
 import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf } from './pdf.service.js';
+import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import {
   quotationObjectKey,
   sanitizeFileName,
@@ -515,6 +516,15 @@ export const quotationsService = {
   async create(auth: AuthContext, input: QuotationInput, context: RequestContext) {
     const lead = await getVisibleLead(auth, input.queryId);
     const costing = await hasCosting(auth);
+    // Company default quotation terms are used only when neither the request nor
+    // a source template supplies terms; existing quotations are never changed.
+    const companyDefaults = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { defaultQuotationTerms: true },
+    });
+    const defaultTermRows = companyDefaults.defaultQuotationTerms
+      ? [{ content: companyDefaults.defaultQuotationTerms, sequence: 1 }]
+      : [];
     let source: QuotationVersionInput | undefined;
     if (input.templateId) {
       const template = await prisma.quotationTemplate.findFirst({
@@ -673,7 +683,7 @@ export const quotationsService = {
         })),
       inclusions: input.version?.inclusions ?? source?.inclusions ?? [],
       exclusions: input.version?.exclusions ?? source?.exclusions ?? [],
-      terms: input.version?.terms ?? source?.terms ?? [],
+      terms: input.version?.terms ?? source?.terms ?? defaultTermRows,
     };
     const created = await prisma.$transaction(async (tx) => {
       const quotationNumber = await nextCompanyNumber(tx, auth.companyId, 'quotation');
@@ -991,17 +1001,17 @@ export const quotationsService = {
         data: { status: 'FAILED' },
       });
     }
-    const company = await prisma.company.findUniqueOrThrow({
-      where: { id: auth.companyId },
-      select: {
-        name: true,
-        email: true,
-        phone: true,
-        website: true,
-        address: true,
-        primaryColor: true,
-      },
-    });
+    // Customer-facing branding only (logo + colour + contact); no bank details.
+    const branding = await loadCompanyBranding(auth.companyId);
+    const company = {
+      name: branding.name,
+      email: branding.email,
+      phone: branding.phone,
+      website: branding.website,
+      address: branding.address,
+      primaryColor: branding.primaryColor,
+      logo: branding.logo,
+    };
     const pdf = await renderQuotationPdf({ company, quotation, version });
     const checksum = createHash('sha256').update(pdf).digest('hex');
     const documentId = crypto.randomUUID();

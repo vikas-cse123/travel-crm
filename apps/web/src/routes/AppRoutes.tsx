@@ -13,6 +13,7 @@ import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { SystemStatusPage } from '@/pages/SystemStatusPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { UsersPage } from '@/pages/users/UsersPage';
@@ -114,6 +115,14 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.DASHBOARD_VIEW}>
                 <DashboardPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <PermissionRoute permission={PERMISSIONS.SETTINGS_VIEW}>
+                <SettingsPage />
               </PermissionRoute>
             }
           />

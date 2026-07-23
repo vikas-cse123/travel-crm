@@ -23,5 +23,7 @@ export interface StorageService {
   ): Promise<string>;
   createDownloadUrl(key: string, fileName: string, expiresInSeconds?: number): Promise<string>;
   headObject(key: string): Promise<StoredObjectMetadata | null>;
+  /** Read an object's bytes, or null if it does not exist. Used for PDF logos. */
+  getObject(key: string): Promise<Buffer | null>;
   deleteObject(key: string): Promise<void>;
 }

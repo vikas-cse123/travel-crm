@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
+import { hashPassword } from '../src/utils/crypto.js';
 
 let app: Express;
 let db: PrismaClient;
@@ -488,9 +489,7 @@ async function restrictedClient(ownerEmail: string, keys: string[], email: strin
       fullName: 'Restricted User',
       email,
       normalizedEmail: email,
-      passwordHash: (await import('../src/utils/crypto.js')).hashPassword
-        ? await (await import('../src/utils/crypto.js')).hashPassword('Sales@2026')
-        : '',
+      passwordHash: await hashPassword('Sales@2026'),
       status: 'ACTIVE',
       emailVerifiedAt: new Date(),
     },

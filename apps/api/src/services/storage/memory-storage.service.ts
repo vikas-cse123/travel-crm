@@ -31,6 +31,10 @@ export class MemoryStorageService implements StorageService {
     return { size: value.size, contentType: value.contentType, checksum: value.checksum };
   }
 
+  async getObject(key: string): Promise<Buffer | null> {
+    return this.objects.get(key)?.body ?? null;
+  }
+
   async deleteObject(key: string): Promise<void> {
     this.objects.delete(key);
   }

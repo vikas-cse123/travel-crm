@@ -108,6 +108,14 @@ export function createAuthClient(app: Express, initial: CookieJar = { raw: [] })
       return body === undefined ? req.send() : req.send(body as string | object);
     },
 
+    async put(path: string, body?: unknown) {
+      let req = request(app).put(path).set('Origin', TEST_ORIGIN);
+      const cookies = cookieHeader(jar);
+      if (cookies) req = req.set('Cookie', cookies);
+      if (jar.csrf) req = req.set('X-CSRF-Token', jar.csrf);
+      return body === undefined ? req.send() : req.send(body as string | object);
+    },
+
     async delete(path: string) {
       let req = request(app).delete(path).set('Origin', TEST_ORIGIN);
       const cookies = cookieHeader(jar);

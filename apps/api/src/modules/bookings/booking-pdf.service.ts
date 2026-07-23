@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import { drawHeaderLogo } from '../../services/pdf/company-branding.js';
 
 const date = (value: Date | null | undefined) =>
   value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(value) : '—';
@@ -11,6 +12,7 @@ export async function renderBookingConfirmationPdf(input: {
     website: string | null;
     address: string | null;
     primaryColor: string;
+    logo?: Buffer | null;
   };
   booking: {
     bookingNumber: string;
@@ -65,6 +67,7 @@ export async function renderBookingConfirmationPdf(input: {
     doc.moveDown(0.3).fillColor('#0f172a').font('Helvetica').fontSize(10);
   };
   doc.rect(0, 0, 595, 108).fill(color);
+  drawHeaderLogo(doc, input.company.logo ?? null, { x: 427, y: 30, width: 120, height: 48 });
   doc.fillColor('#fff').font('Helvetica-Bold').fontSize(22).text(input.company.name, 48, 35);
   doc
     .font('Helvetica')

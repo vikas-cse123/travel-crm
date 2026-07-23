@@ -72,7 +72,16 @@ async function toAuthenticatedUser(user: AuthUser): Promise<AuthenticatedUser> {
     emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     mustChangePassword: user.mustChangePassword,
-    company: { id: user.company.id, name: user.company.name, slug: user.company.slug },
+    company: {
+      id: user.company.id,
+      name: user.company.name,
+      slug: user.company.slug,
+      // Non-sensitive branding for the app shell; tax/bank stay in Settings.
+      primaryColor: user.company.primaryColor,
+      timezone: user.company.timezone,
+      defaultCurrency: user.company.defaultCurrency,
+      hasLogo: Boolean(user.company.logoConfirmedAt),
+    },
     role: { id: user.role.id, name: user.role.name, hierarchyLevel: user.role.hierarchyLevel },
     permissions,
   };

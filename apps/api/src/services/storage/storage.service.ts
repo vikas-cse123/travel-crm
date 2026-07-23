@@ -99,6 +99,15 @@ export function airlineLogoObjectKey(input: {
   return `companies/${input.companyId}/masters/airlines/${input.airlineId}/logos/${input.imageId}/${sanitizeFileName(input.fileName)}`;
 }
 
+/** Private, tenant-scoped key for the company branding logo (Phase 18). */
+export function companyLogoObjectKey(input: {
+  companyId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/branding/logo/${input.imageId}-${sanitizeFileName(input.fileName)}`;
+}
+
 export function cruiseImageObjectKey(input: {
   companyId: string;
   cruiseId: string;

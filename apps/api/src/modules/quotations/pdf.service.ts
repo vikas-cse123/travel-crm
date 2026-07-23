@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import { drawHeaderLogo } from '../../services/pdf/company-branding.js';
 
 const safe = (value: unknown) => String(value ?? '—');
 const date = (value: Date | string | null | undefined) =>
@@ -12,6 +13,7 @@ export async function renderQuotationPdf(input: {
     website: string | null;
     address: string | null;
     primaryColor: string;
+    logo?: Buffer | null;
   };
   quotation: {
     quotationNumber: string;
@@ -93,6 +95,7 @@ export async function renderQuotationPdf(input: {
   const bullets = (rows: Array<{ content: string }>) =>
     rows.forEach((row) => doc.text(`• ${row.content}`, { indent: 10 }));
   doc.rect(0, 0, 595, 110).fill(color);
+  drawHeaderLogo(doc, input.company.logo ?? null, { x: 427, y: 32, width: 120, height: 50 });
   doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(22).text(input.company.name, 48, 38);
   doc
     .font('Helvetica')

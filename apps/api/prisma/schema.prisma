@@ -654,6 +654,14 @@ enum HotelMealPlanType {
 
 enum ActivityAction {
   COMPANY_REGISTERED
+  COMPANY_PROFILE_UPDATED
+  COMPANY_BRANDING_UPDATED
+  COMPANY_LOGO_UPDATED
+  COMPANY_LOGO_REMOVED
+  COMPANY_TAX_SETTINGS_UPDATED
+  COMPANY_PREFERENCES_UPDATED
+  COMPANY_DEFAULT_TERMS_UPDATED
+  COMPANY_BANK_ACCOUNT_UPDATED
   EMAIL_OTP_SENT
   EMAIL_VERIFIED
   LOGIN_SUCCESS
@@ -874,21 +882,37 @@ enum ActivityAction {
 
 /// A travel agency. The tenant boundary for every other table.
 model Company {
-  id            String        @id @default(uuid()) @db.Uuid
-  name          String        @db.VarChar(120)
+  id                    String           @id @default(uuid()) @db.Uuid
+  name                  String           @db.VarChar(120)
   /// URL-safe identifier derived from the name. Globally unique.
-  slug          String        @unique @db.VarChar(140)
-  email         String        @db.VarChar(255)
-  phone         String?       @db.VarChar(32)
-  website       String?       @db.VarChar(255)
-  address       String?       @db.VarChar(1000)
-  primaryColor  String        @default("#2563eb") @db.VarChar(7)
-  logoObjectKey String?       @db.VarChar(1000)
-  status        CompanyStatus @default(ACTIVE)
-  timezone      String        @default("Asia/Kolkata") @db.VarChar(64)
+  slug                  String           @unique @db.VarChar(140)
+  email                 String           @db.VarChar(255)
+  phone                 String?          @db.VarChar(32)
+  website               String?          @db.VarChar(255)
+  address               String?          @db.VarChar(1000)
+  primaryColor          String           @default("#2563eb") @db.VarChar(7)
+  // Confirmed company logo (Phase 18). Metadata columns mirror the master-image
+  // pattern; pendingLogoObjectKey holds an unconfirmed upload so replacing a
+  // logo never loses the current one until the new upload is confirmed.
+  logoObjectKey         String?          @db.VarChar(1000)
+  pendingLogoObjectKey  String?          @db.VarChar(1000)
+  logoBucket            String?          @db.VarChar(255)
+  logoStorageProvider   StorageProvider?
+  logoMimeType          String?          @db.VarChar(120)
+  logoFileSize          Int?
+  logoConfirmedAt       DateTime?
+  status                CompanyStatus    @default(ACTIVE)
+  timezone              String           @default("Asia/Kolkata") @db.VarChar(64)
+  // Company-level settings (Phase 18). All additive; existing rows keep defaults.
+  taxRegistrationNumber String?          @db.VarChar(40)
+  defaultCurrency       String           @default("INR") @db.VarChar(3)
+  defaultQuotationTerms String?          @db.Text
+  defaultBookingTerms   String?          @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  bankAccount CompanyBankAccount?
 
   users                        User[]
   roles                        Role[]
@@ -976,6 +1000,31 @@ model Company {
   @@index([status])
   @@index([createdAt])
   @@map("companies")
+}
+
+/// The company's own bank account for customer invoices (Phase 18). One per
+/// company. The account number is encrypted at rest with the shared encryption
+/// service; only the last four digits are ever returned or printed.
+model CompanyBankAccount {
+  id                     String   @id @default(uuid()) @db.Uuid
+  companyId              String   @unique @db.Uuid
+  accountHolderName      String   @db.VarChar(200)
+  bankName               String   @db.VarChar(200)
+  branchName             String?  @db.VarChar(200)
+  accountNumberEncrypted String   @db.Text
+  accountNumberLast4     String   @db.VarChar(4)
+  encryptionKeyVersion   String   @db.VarChar(30)
+  ifscCode               String?  @db.VarChar(20)
+  swiftCode              String?  @db.VarChar(20)
+  accountType            String?  @db.VarChar(40)
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("company_bank_accounts")
 }
 
 // ---------------------------------------------------------------------------
