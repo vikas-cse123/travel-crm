@@ -528,7 +528,7 @@ describe('Phase 19 reports tabs', () => {
     stub();
     renderWithProviders(<ReportsPage />);
     await openTab('Bookings');
-    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
+    expect((await screen.findAllByText('BK-2026-000001')).length).toBeGreaterThan(0);
     expect(screen.getByRole('columnheader', { name: 'Customer Amount' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Net Profit' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Margin' })).toBeInTheDocument();
@@ -545,7 +545,7 @@ describe('Phase 19 reports tabs', () => {
     });
     renderWithProviders(<ReportsPage />);
     await openTab('Bookings');
-    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
+    expect((await screen.findAllByText('BK-2026-000001')).length).toBeGreaterThan(0);
     for (const column of ['Customer Amount', 'Net Profit', 'Margin', 'Outstanding'])
       expect(screen.queryByRole('columnheader', { name: column })).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Booked By' })).toBeInTheDocument();
@@ -678,7 +678,7 @@ describe('Phase 19 reports exports, paging and states', () => {
     );
 
     await openTab('Bookings');
-    await screen.findByText('BK-2026-000001');
+    await screen.findAllByText('BK-2026-000001');
     await userEvent.click(screen.getByRole('button', { name: /Sort:/ }));
     await waitFor(() =>
       expect(mock.mock.calls.some(([url]) => String(url).includes('sortDir=asc'))).toBe(true),

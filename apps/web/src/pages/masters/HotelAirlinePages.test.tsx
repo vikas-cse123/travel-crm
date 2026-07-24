@@ -163,6 +163,8 @@ describe('Phase 13B master pages', () => {
       'Vehicles',
       'Sightseeing',
       'Add-On Services',
+      'Visa Types',
+      'Testimonials',
     ]);
   });
 

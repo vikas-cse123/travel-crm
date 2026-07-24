@@ -258,8 +258,8 @@ describe('Phase 8 quotation pages', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<QuotationsPage />);
-    expect(await screen.findByText('QT-2026-000001')).toBeInTheDocument();
-    expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
+    expect((await screen.findAllByText('QT-2026-000001')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Aarav Mehta').length).toBeGreaterThan(0);
     expect(screen.getByText('50%')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search quotations'), 'Aarav');
     await userEvent.selectOptions(screen.getByLabelText('Quotation status'), 'SENT');

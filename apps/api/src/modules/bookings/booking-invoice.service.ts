@@ -85,11 +85,21 @@ function newDoc(company: InvoiceCompany, title: string, subtitle: string) {
   const color = /^#[0-9a-f]{6}$/i.test(company.primaryColor) ? company.primaryColor : '#2563eb';
   doc.rect(0, 0, 595, 108).fill(color);
   drawHeaderLogo(doc, company.logo ?? null, { x: 427, y: 30, width: 120, height: 48 });
-  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(22).text(company.name, 48, 35);
+  // Constrain the header text to the band left of the logo and clip with an
+  // ellipsis so a very long company name can never overflow into the title.
+  doc
+    .fillColor('#fff')
+    .font('Helvetica-Bold')
+    .fontSize(22)
+    .text(company.name, 48, 35, { width: 360, height: 44, ellipsis: true });
   doc
     .font('Helvetica')
     .fontSize(9)
-    .text([company.email, company.phone, company.website].filter(Boolean).join(' • '), 48, 70);
+    .text([company.email, company.phone, company.website].filter(Boolean).join(' • '), 48, 82, {
+      width: 360,
+      height: 20,
+      ellipsis: true,
+    });
   doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text(title, 48, 138);
   doc.font('Helvetica').fontSize(10).fillColor('#475569').text(subtitle);
   const heading = (value: string) => {

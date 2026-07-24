@@ -8,6 +8,8 @@ import { cruisesService } from './cruises.service.js';
 import { vehiclesService } from './vehicles.service.js';
 import { sightseeingService } from './sightseeing.service.js';
 import { addOnServicesService } from './add-on-services.service.js';
+import { visaTypesService } from './visa-types.service.js';
+import { testimonialsService } from './testimonials.service.js';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
@@ -527,5 +529,105 @@ export const addOnServicesController = {
       res,
       await addOnServicesService.archive(auth(req), req.params.addOnServiceId!, context(req)),
       'Add-on service archived.',
+    ),
+};
+
+export const visaTypesController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await visaTypesService.list(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await visaTypesService.details(auth(req), req.params.visaTypeId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await visaTypesService.create(auth(req), req.body, context(req)),
+      'Visa type created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await visaTypesService.update(auth(req), req.params.visaTypeId!, req.body, context(req)),
+      'Visa type updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await visaTypesService.status(
+        auth(req),
+        req.params.visaTypeId!,
+        req.body.status,
+        context(req),
+      ),
+      'Visa type status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await visaTypesService.archive(auth(req), req.params.visaTypeId!, context(req)),
+      'Visa type archived.',
+    ),
+};
+
+export const testimonialsController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await testimonialsService.list(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await testimonialsService.details(auth(req), req.params.testimonialId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.create(auth(req), req.body, context(req)),
+      'Testimonial created.',
+      201,
+    ),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.update(
+        auth(req),
+        req.params.testimonialId!,
+        req.body,
+        context(req),
+      ),
+      'Testimonial updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.status(
+        auth(req),
+        req.params.testimonialId!,
+        req.body.status,
+        context(req),
+      ),
+      'Testimonial status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.archive(auth(req), req.params.testimonialId!, context(req)),
+      'Testimonial archived.',
+    ),
+  imageUpload: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.createImageUpload(auth(req), req.params.testimonialId!, req.body),
+      'Testimonial image upload authorized.',
+      201,
+    ),
+  imageConfirm: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.confirmImage(auth(req), req.params.testimonialId!, context(req)),
+      'Testimonial image confirmed.',
+    ),
+  imageDownload: async (req: Request, res: Response) =>
+    sendSuccess(res, await testimonialsService.imageDownload(auth(req), req.params.testimonialId!)),
+  imageDelete: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.deleteImage(auth(req), req.params.testimonialId!, context(req)),
+      'Testimonial image deleted.',
     ),
 };

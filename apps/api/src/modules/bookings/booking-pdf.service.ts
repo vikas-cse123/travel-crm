@@ -68,14 +68,20 @@ export async function renderBookingConfirmationPdf(input: {
   };
   doc.rect(0, 0, 595, 108).fill(color);
   drawHeaderLogo(doc, input.company.logo ?? null, { x: 427, y: 30, width: 120, height: 48 });
-  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(22).text(input.company.name, 48, 35);
+  // Clip an overlong company name to the header band so it cannot overflow.
+  doc
+    .fillColor('#fff')
+    .font('Helvetica-Bold')
+    .fontSize(22)
+    .text(input.company.name, 48, 35, { width: 360, height: 44, ellipsis: true });
   doc
     .font('Helvetica')
     .fontSize(9)
     .text(
       [input.company.email, input.company.phone, input.company.website].filter(Boolean).join(' • '),
       48,
-      70,
+      82,
+      { width: 360, height: 20, ellipsis: true },
     );
   doc
     .fillColor('#0f172a')

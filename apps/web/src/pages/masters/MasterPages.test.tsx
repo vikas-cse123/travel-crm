@@ -95,6 +95,8 @@ describe('Phase 13A master pages', () => {
       ['Vehicles', true],
       ['Sightseeing', true],
       ['Add-On Services', true],
+      ['Visa Types', true],
+      ['Testimonials', true],
     ]);
   });
 

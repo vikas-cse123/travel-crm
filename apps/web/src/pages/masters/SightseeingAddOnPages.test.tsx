@@ -133,6 +133,8 @@ describe('Phase 13D master pages', () => {
       'Vehicles',
       'Sightseeing',
       'Add-On Services',
+      'Visa Types',
+      'Testimonials',
     ]);
     expect(masters?.children?.find((item) => item.label === 'Sightseeing')?.to).toBe(
       '/masters/sightseeing',

@@ -569,7 +569,7 @@ export function ReportsPage() {
           )}
           {bookings.data?.rows?.length ? (
             <div className="rounded-xl border bg-white shadow-sm">
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto md:block">
                 <table className="min-w-full divide-y">
                   <thead className="bg-slate-50">
                     <tr>
@@ -607,6 +607,31 @@ export function ReportsPage() {
                   </tbody>
                 </table>
               </div>
+              <ul className="divide-y md:hidden">
+                {bookings.data.rows.map((row) => (
+                  <li key={row.bookingId} className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-semibold text-slate-800">{row.bookingNumber}</span>
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                        {row.bookingStatus}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{row.customerName}</p>
+                    {bookings.data?.includesFinancials && (
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                        <span className="text-amber-700">
+                          Outstanding <strong>{money(row.outstandingAmount)}</strong>
+                        </span>
+                        <span className="text-emerald-700">
+                          Net profit <strong>{money(row.netProfit)}</strong>
+                        </span>
+                        <span>Margin {row.marginPercentage ?? '—'}</span>
+                      </div>
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">Booked by {row.bookedBy ?? '—'}</p>
+                  </li>
+                ))}
+              </ul>
               <Pager
                 page={bookings.data.pagination?.page ?? 1}
                 totalPages={bookings.data.pagination?.totalPages ?? 1}

@@ -33,6 +33,8 @@ export const PERMISSION_MODULE = {
   MASTER_VEHICLES: 'masters.vehicles',
   MASTER_SIGHTSEEING: 'masters.sightseeing',
   MASTER_ADD_ON_SERVICES: 'masters.add_on_services',
+  MASTER_VISA_TYPES: 'masters.visa_types',
+  MASTER_TESTIMONIALS: 'masters.testimonials',
   REPORTS: 'reports',
 } as const;
 
@@ -65,6 +67,8 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   'masters.vehicles': 'Masters — Vehicles',
   'masters.sightseeing': 'Masters — Sightseeing',
   'masters.add_on_services': 'Masters — Add-On Services',
+  'masters.visa_types': 'Masters — Visa Types',
+  'masters.testimonials': 'Masters — Testimonials',
   reports: 'Reports',
 };
 
@@ -264,6 +268,15 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_ADD_ON_SERVICES, 'create', 'Create add-on services'),
   available(M.MASTER_ADD_ON_SERVICES, 'update', 'Edit add-on services and change status'),
   available(M.MASTER_ADD_ON_SERVICES, 'delete', 'Archive add-on services'),
+  available(M.MASTER_VISA_TYPES, 'view', 'View active visa types'),
+  available(M.MASTER_VISA_TYPES, 'create', 'Create visa types'),
+  available(M.MASTER_VISA_TYPES, 'update', 'Edit visa types and change status'),
+  available(M.MASTER_VISA_TYPES, 'delete', 'Archive visa types'),
+  available(M.MASTER_TESTIMONIALS, 'view', 'View active testimonials'),
+  available(M.MASTER_TESTIMONIALS, 'create', 'Create testimonials'),
+  available(M.MASTER_TESTIMONIALS, 'update', 'Edit testimonials and change status'),
+  available(M.MASTER_TESTIMONIALS, 'delete', 'Archive testimonials'),
+  available(M.MASTER_TESTIMONIALS, 'manage_media', 'Manage testimonial images'),
 
   available(M.REPORTS, 'view', 'View reports and export report CSVs'),
   // Scheduled/emailed report delivery is deliberately out of scope for now.
@@ -429,6 +442,15 @@ export const PERMISSIONS = {
   MASTER_ADD_ON_SERVICES_CREATE: 'masters.add_on_services.create',
   MASTER_ADD_ON_SERVICES_UPDATE: 'masters.add_on_services.update',
   MASTER_ADD_ON_SERVICES_DELETE: 'masters.add_on_services.delete',
+  MASTER_VISA_TYPES_VIEW: 'masters.visa_types.view',
+  MASTER_VISA_TYPES_CREATE: 'masters.visa_types.create',
+  MASTER_VISA_TYPES_UPDATE: 'masters.visa_types.update',
+  MASTER_VISA_TYPES_DELETE: 'masters.visa_types.delete',
+  MASTER_TESTIMONIALS_VIEW: 'masters.testimonials.view',
+  MASTER_TESTIMONIALS_CREATE: 'masters.testimonials.create',
+  MASTER_TESTIMONIALS_UPDATE: 'masters.testimonials.update',
+  MASTER_TESTIMONIALS_DELETE: 'masters.testimonials.delete',
+  MASTER_TESTIMONIALS_MANAGE_MEDIA: 'masters.testimonials.manage_media',
 
   REPORTS_VIEW: 'reports.view',
 } as const;

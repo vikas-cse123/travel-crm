@@ -96,7 +96,12 @@ export async function renderQuotationPdf(input: {
     rows.forEach((row) => doc.text(`• ${row.content}`, { indent: 10 }));
   doc.rect(0, 0, 595, 110).fill(color);
   drawHeaderLogo(doc, input.company.logo ?? null, { x: 427, y: 32, width: 120, height: 50 });
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(22).text(input.company.name, 48, 38);
+  // Clip an overlong company name to the header band so it cannot overflow.
+  doc
+    .fillColor('#ffffff')
+    .font('Helvetica-Bold')
+    .fontSize(22)
+    .text(input.company.name, 48, 38, { width: 360, height: 44, ellipsis: true });
   doc
     .font('Helvetica')
     .fontSize(9)
@@ -105,7 +110,8 @@ export async function renderQuotationPdf(input: {
         .filter(Boolean)
         .join('  •  '),
       48,
-      72,
+      86,
+      { width: 360, height: 18, ellipsis: true },
     );
   doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(20).text(input.version.title, 48, 140);
   doc

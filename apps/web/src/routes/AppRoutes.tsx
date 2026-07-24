@@ -79,6 +79,12 @@ import { SightseeingFormPage } from '@/pages/masters/SightseeingFormPage';
 import { AddOnServicesPage } from '@/pages/masters/AddOnServicesPage';
 import { AddOnServiceDetailsPage } from '@/pages/masters/AddOnServiceDetailsPage';
 import { AddOnServiceFormPage } from '@/pages/masters/AddOnServiceFormPage';
+import { VisaTypesPage } from '@/pages/masters/VisaTypesPage';
+import { VisaTypeDetailsPage } from '@/pages/masters/VisaTypeDetailsPage';
+import { VisaTypeFormPage } from '@/pages/masters/VisaTypeFormPage';
+import { TestimonialsPage } from '@/pages/masters/TestimonialsPage';
+import { TestimonialDetailsPage } from '@/pages/masters/TestimonialDetailsPage';
+import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
 
 /**
  * Route table.
@@ -747,6 +753,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE}>
                 <AddOnServiceFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/visa-types"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VISA_TYPES_VIEW}>
+                <VisaTypesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/visa-types/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VISA_TYPES_CREATE}>
+                <VisaTypeFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/visa-types/:visaTypeId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VISA_TYPES_VIEW}>
+                <VisaTypeDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/visa-types/:visaTypeId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_VISA_TYPES_UPDATE}>
+                <VisaTypeFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/testimonials"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_TESTIMONIALS_VIEW}>
+                <TestimonialsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/testimonials/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_TESTIMONIALS_CREATE}>
+                <TestimonialFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/testimonials/:testimonialId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_TESTIMONIALS_VIEW}>
+                <TestimonialDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/testimonials/:testimonialId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_TESTIMONIALS_UPDATE}>
+                <TestimonialFormPage />
               </PermissionRoute>
             }
           />

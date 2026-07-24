@@ -34,6 +34,11 @@ import {
   sightseeingUpdateSchema,
   addOnServiceInputSchema,
   addOnServiceUpdateSchema,
+  visaTypeInputSchema,
+  visaTypeUpdateSchema,
+  testimonialInputSchema,
+  testimonialUpdateSchema,
+  testimonialImageUploadSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
@@ -48,6 +53,8 @@ import {
   vehiclesController as vehicles,
   sightseeingController as sightseeing,
   addOnServicesController as addOnServices,
+  visaTypesController as visaTypes,
+  testimonialsController as testimonials,
 } from './masters.controller.js';
 
 const router = Router();
@@ -57,6 +64,8 @@ const cruiseId = z.object({ cruiseId: z.string().uuid() });
 const vehicleId = z.object({ vehicleId: z.string().uuid() });
 const sightseeingId = z.object({ sightseeingId: z.string().uuid() });
 const addOnServiceId = z.object({ addOnServiceId: z.string().uuid() });
+const visaTypeId = z.object({ visaTypeId: z.string().uuid() });
+const testimonialId = z.object({ testimonialId: z.string().uuid() });
 const destinationCityId = destinationId.extend({ cityId: z.string().uuid() });
 const bool = z.enum(['true', 'false']).transform((value) => value === 'true');
 const commonList = {
@@ -733,6 +742,127 @@ router.delete(
   requirePermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_DELETE),
   validateRequest({ params: addOnServiceId }),
   asyncHandler(addOnServices.archive),
+);
+
+// ---------------------------------------------------------------------------
+// Visa Types
+// ---------------------------------------------------------------------------
+const visaTypeList = z.object({
+  page: commonList.page,
+  pageSize: commonList.pageSize,
+  search: commonList.search,
+  status: commonList.status,
+  sortOrder: commonList.sortOrder,
+  destinationId: z.string().uuid().optional(),
+  sortBy: z.enum(['name', 'createdAt', 'updatedAt']).optional(),
+});
+router.get(
+  '/visa-types',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_VIEW),
+  validateRequest({ query: visaTypeList }),
+  asyncHandler(visaTypes.list),
+);
+router.post(
+  '/visa-types',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_CREATE),
+  validateRequest({ body: visaTypeInputSchema }),
+  asyncHandler(visaTypes.create),
+);
+router.get(
+  '/visa-types/:visaTypeId',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_VIEW),
+  validateRequest({ params: visaTypeId }),
+  asyncHandler(visaTypes.details),
+);
+router.patch(
+  '/visa-types/:visaTypeId',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_UPDATE),
+  validateRequest({ params: visaTypeId, body: visaTypeUpdateSchema }),
+  asyncHandler(visaTypes.update),
+);
+router.patch(
+  '/visa-types/:visaTypeId/status',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_UPDATE),
+  validateRequest({ params: visaTypeId, body: masterStatusSchema }),
+  asyncHandler(visaTypes.status),
+);
+router.delete(
+  '/visa-types/:visaTypeId',
+  requirePermission(PERMISSIONS.MASTER_VISA_TYPES_DELETE),
+  validateRequest({ params: visaTypeId }),
+  asyncHandler(visaTypes.archive),
+);
+
+// ---------------------------------------------------------------------------
+// Testimonials
+// ---------------------------------------------------------------------------
+const testimonialList = z.object({
+  page: commonList.page,
+  pageSize: commonList.pageSize,
+  search: commonList.search,
+  status: commonList.status,
+  sortOrder: commonList.sortOrder,
+  sortBy: z.enum(['clientName', 'createdAt', 'updatedAt']).optional(),
+});
+router.get(
+  '/testimonials',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_VIEW),
+  validateRequest({ query: testimonialList }),
+  asyncHandler(testimonials.list),
+);
+router.post(
+  '/testimonials',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_CREATE),
+  validateRequest({ body: testimonialInputSchema }),
+  asyncHandler(testimonials.create),
+);
+router.get(
+  '/testimonials/:testimonialId',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_VIEW),
+  validateRequest({ params: testimonialId }),
+  asyncHandler(testimonials.details),
+);
+router.patch(
+  '/testimonials/:testimonialId',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_UPDATE),
+  validateRequest({ params: testimonialId, body: testimonialUpdateSchema }),
+  asyncHandler(testimonials.update),
+);
+router.patch(
+  '/testimonials/:testimonialId/status',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_UPDATE),
+  validateRequest({ params: testimonialId, body: masterStatusSchema }),
+  asyncHandler(testimonials.status),
+);
+router.delete(
+  '/testimonials/:testimonialId',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_DELETE),
+  validateRequest({ params: testimonialId }),
+  asyncHandler(testimonials.archive),
+);
+router.post(
+  '/testimonials/:testimonialId/image/upload',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
+  validateRequest({ params: testimonialId, body: testimonialImageUploadSchema }),
+  asyncHandler(testimonials.imageUpload),
+);
+router.post(
+  '/testimonials/:testimonialId/image/confirm',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
+  validateRequest({ params: testimonialId }),
+  asyncHandler(testimonials.imageConfirm),
+);
+router.get(
+  '/testimonials/:testimonialId/image/download-url',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_VIEW),
+  validateRequest({ params: testimonialId }),
+  asyncHandler(testimonials.imageDownload),
+);
+router.delete(
+  '/testimonials/:testimonialId/image',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
+  validateRequest({ params: testimonialId }),
+  asyncHandler(testimonials.imageDelete),
 );
 
 export { router as mastersRoutes };

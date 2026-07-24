@@ -1011,64 +1011,121 @@ consumer of the database, where RLS would be defence in depth.
 
 ---
 
+## Version 1 status
+
+Version 1 is **feature-complete**. Every module below is implemented, backed by
+backend + frontend tests, and passes typecheck, lint, format and a production
+build.
+
+**Completed modules**
+
+- **Authentication** — signup, email OTP verification, login/logout, forgot &
+  reset password, sessions, CSRF, account lockout, rate limiting.
+- **Users / Roles / Permissions** — CRUD, status transitions, role hierarchy,
+  permission templates, permission-aware navigation and guards, activity logs.
+- **Leads** — queries, lead workspace, notes, timeline, stage progression,
+  bulk operations, CSV export.
+- **Reminders & Notifications** — personal & booking reminders, notification
+  settings, automation rules, scheduled advisory-locked worker.
+- **Quotations** — templates, immutable quotations & versions, customer-safe
+  PDF, email, public accept/reject links, optional master references.
+- **Bookings** — conversion & manual creation, travellers, services, itinerary,
+  payment schedules, customer payments & reversals, refunds, booking costs,
+  profit, documents.
+- **Customers** — profiles, duplicate detection, relationship history, tags,
+  notes/communications, documents.
+- **Vendors** — vendors, services, rates, payables, payments, documents, bank
+  details, analytics.
+- **Masters** — Cities, Destinations, Hotels, Airlines, Cruises, Vehicles,
+  Sightseeing, Add-On Services, **Visa Types**, **Testimonials**.
+- **Dashboard** — analytics & operations workspace.
+- **Reports** — analytics reports and permission-aware CSV exports.
+- **Company Settings** — branding (logo, primary colour), tax/GSTIN, bank
+  details, document numbering.
+- **Documents** — Quotation PDF, Booking Confirmation, Invoice, Tax Invoice,
+  Voucher — branded, redaction-safe, long-content hardened.
+- **Production hardening** — env validation, health/readiness endpoints,
+  advisory-locked worker, structured logging, container images, CI, runbooks.
+
+### Version 1 boundary — out of scope
+
+Intentionally **not** part of Version 1:
+
+- Subscription / billing pages
+- Learning / LMS
+- Email Configuration page
+- WhatsApp Settings page
+- Multi-region deployment
+- Redis / shared rate limiting (single instance only for now)
+- Full monitoring-vendor integration (documented hooks only)
+- Antivirus / magic-byte upload scanning
+- Automated supplier-invoice ingestion, withholding-tax accounting and external
+  payment gateways / refund collection
+
+### Production-ready code vs deployed infrastructure
+
+The **code** is production-ready and the deployment tooling (Dockerfiles, CI,
+runbooks under `docs/production/`) is prepared. **Actual cloud infrastructure
+has not been provisioned or deployed** — provisioning managed PostgreSQL, S3,
+SES, secrets, DNS/TLS and the container platform is a deployment task, not a
+code task. See `docs/production/DEPLOYMENT.md` and `GO_LIVE_CHECKLIST.md`.
+
 ## Known limitations
 
-These are deliberate boundaries after Phase 13A:
-
-- Automated supplier invoice ingestion/reconciliation, withholding-tax
-  accounting, external payment gateways/refund collection, WhatsApp,
-  telecalling and the final cross-module analytics dashboard are not implemented.
 - Vendor export currently produces the permission-filtered first 100 matching
   records. Large asynchronous exports are deferred.
-- Direct attachment upload with the in-memory development provider is not a
-  browser transport; configure S3/a compatible endpoint for manual upload
-  verification. Generated PDFs still work with the memory provider.
+- Browser upload of private media (destination/hotel/testimonial images,
+  document attachments) needs a real S3/compatible endpoint; the in-memory dev
+  provider has no browser PUT transport. Generated PDFs still work in-memory.
 - Direct S3 uploads validate declared MIME, extension, size and confirmed object
-  metadata, but do not yet run antivirus or magic-byte scanning.
-- Leads, quotation templates, quotations and bookings retain their existing
-  free-text destination/city fields. Structured master selectors and optional
-  foreign keys are deferred to a dedicated compatibility phase; no automatic
-  backfill is attempted.
-- Destination image browser upload cannot complete with the in-memory provider;
-  configure private S3 or a compatible endpoint for live PUT verification.
-- Delivery status reflects the synchronous SMTP provider result. Bounce/webhook
+  metadata, but do not run antivirus or magic-byte scanning.
+- Leads, quotation templates, quotations and bookings retain their free-text
+  destination/city fields alongside the optional master references added in
+  Phase 14; no automatic backfill of historical rows is attempted.
+- Testimonials store an `isVisible` flag, but it is configuration only — they
+  are **not** yet published to quotation PDFs or public web pages.
+- Email delivery status reflects the synchronous SMTP result. Bounce/webhook
   reconciliation remains provider-specific future work.
-- Reminder processing is an explicit CLI worker and must be scheduled by the
-  deployment platform; there is intentionally no in-process timer or Redis queue.
-- Company logo storage fields and PDF rendering hooks exist, but a dedicated
-  branding-settings upload UI is not part of this phase.
-- **No Row-Level Security** — see [Why not Row-Level Security](#why-not-row-level-security).
+- Reminder processing is an explicit CLI worker scheduled by the deployment
+  platform (advisory-locked against overlap); there is no in-process timer or
+  Redis queue.
+- **No Row-Level Security** — see [Why not Row-Level Security](#why-not-row-level-security);
+  tenant isolation is enforced in the application layer.
 - **Soft-deleted rows keep unique identifiers** until an explicit anonymisation
   workflow is introduced.
 - **Node 20+ required.** Vite 7 does not support Node 18 (which is EOL).
-- **Prisma deprecation warning.** `package.json#prisma` warns that it moves to
-  `prisma.config.ts` in Prisma 7. Deferred deliberately: adopting the config
-  file changes `.env` loading semantics, which is better handled alongside the
-  Phase 2 schema work.
 - **An `esbuild` override is pinned** in the root `package.json` to keep
-  `npm audit` at zero vulnerabilities. Revisit when `tsup` ships a newer
-  esbuild.
+  `npm audit` clean. Revisit when `tsup` ships a newer esbuild.
 
 ---
 
 ## Roadmap
 
-| Phase | Scope                                                                    | Status  |
-| ----- | ------------------------------------------------------------------------ | ------- |
-| **1** | Monorepo, toolchain, Tailwind, env validation, Docker, Prisma, health API | ✅ Done |
-| **2** | Multi-tenant schema, constraints, tenant repositories, migration, seed    | ✅ Done |
-| **3** | Registration, email OTP, login, logout, sessions, CSRF, password reset, shell | ✅ Done |
-| **4** | User management: list, CRUD, status transitions, admin password reset     | ✅ Done |
-| **5** | Roles, permission keys, templates, guards and permission-aware sidebar    | ✅ Done |
-| **6** | Travel lead/query management, analytics and filtering                    | ✅ Done |
-| **7** | Lead workspace, notes, follow-ups, timeline and reminders                 | ✅ Done |
-| **8** | Quotation templates, immutable quotations, PDF, email, public links, S3    | ✅ Done |
-| **9** | Booking conversion, travellers, payments, costs, documents and operations | ✅ Done |
-| **10** | Customer profiles, duplicate detection and relationship history          | ✅ Done |
-| **11** | Vendors, supplier contracts and supplier ledger foundations              | ✅ Done |
-| **12** | Reminders, booking reminders, notifications and automation rules          | ✅ Done |
-| **13A** | Cities and destinations masters                                          | ✅ Done |
-| 13B    | Hotels and airlines masters                                              | Recommended next |
+| Phase   | Scope                                                                         | Status  |
+| ------- | ----------------------------------------------------------------------------- | ------- |
+| **1**   | Monorepo, toolchain, Tailwind, env validation, Docker, Prisma, health API     | ✅ Done |
+| **2**   | Multi-tenant schema, constraints, tenant repositories, migration, seed         | ✅ Done |
+| **3**   | Registration, email OTP, login, logout, sessions, CSRF, password reset, shell  | ✅ Done |
+| **4**   | User management: list, CRUD, status transitions, admin password reset          | ✅ Done |
+| **5**   | Roles, permission keys, templates, guards and permission-aware sidebar         | ✅ Done |
+| **6**   | Travel lead/query management, analytics and filtering                          | ✅ Done |
+| **7**   | Lead workspace, notes, follow-ups, timeline and reminders                      | ✅ Done |
+| **8**   | Quotation templates, immutable quotations, PDF, email, public links, S3         | ✅ Done |
+| **9**   | Booking conversion, travellers, payments, costs, documents and operations      | ✅ Done |
+| **10**  | Customer profiles, duplicate detection and relationship history               | ✅ Done |
+| **11**  | Vendors, supplier contracts and supplier ledger foundations                   | ✅ Done |
+| **12**  | Reminders, booking reminders, notifications and automation rules               | ✅ Done |
+| **13A** | Cities and destinations masters                                               | ✅ Done |
+| **13B** | Hotels and airlines masters                                                   | ✅ Done |
+| **13C** | Cruises and vehicles masters                                                  | ✅ Done |
+| **13D** | Sightseeing and add-on-services masters                                       | ✅ Done |
+| **14**  | Quotation master references                                                   | ✅ Done |
+| **15**  | Booking commercials, refunds and supplier operations parity                   | ✅ Done |
+| **17**  | Lead workflow parity and bulk operations                                      | ✅ Done |
+| **18**  | Company settings, branding and document configuration                         | ✅ Done |
+| **19**  | Dashboard, analytics reports and CSV exports                                  | ✅ Done |
+| **20**  | Production hardening, containers, CI and runbooks                             | ✅ Done |
+| **21**  | Visa Types & Testimonials masters, mobile polish, PDF hardening (Version 1)   | ✅ Done |
 
 ---
 

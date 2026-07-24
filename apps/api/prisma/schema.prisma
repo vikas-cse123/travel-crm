@@ -874,6 +874,19 @@ enum ActivityAction {
   ADD_ON_SERVICE_STATUS_CHANGED
   ADD_ON_SERVICE_ARCHIVED
   ADD_ON_SERVICE_RESTORED
+  VISA_TYPE_CREATED
+  VISA_TYPE_UPDATED
+  VISA_TYPE_STATUS_CHANGED
+  VISA_TYPE_ARCHIVED
+  VISA_TYPE_RESTORED
+  TESTIMONIAL_CREATED
+  TESTIMONIAL_UPDATED
+  TESTIMONIAL_STATUS_CHANGED
+  TESTIMONIAL_ARCHIVED
+  TESTIMONIAL_RESTORED
+  TESTIMONIAL_IMAGE_UPLOADED
+  TESTIMONIAL_IMAGE_REPLACED
+  TESTIMONIAL_IMAGE_DELETED
 }
 
 // ---------------------------------------------------------------------------
@@ -991,6 +1004,9 @@ model Company {
   hotelMealPlans               HotelMealPlan[]
   airlines                     Airline[]
   cruises                      Cruise[]
+  visaTypes                    VisaType[]
+  visaTypeSections             VisaTypeSection[]
+  testimonials                 Testimonial[]
   cruiseRoomTypes              CruiseRoomType[]
   vehicles                     Vehicle[]
   sightseeings                 Sightseeing[]
@@ -1151,6 +1167,10 @@ model User {
   sightseeingsUpdated         Sightseeing[]              @relation("SightseeingUpdatedBy")
   addOnServicesCreated        AddOnService[]             @relation("AddOnServiceCreatedBy")
   addOnServicesUpdated        AddOnService[]             @relation("AddOnServiceUpdatedBy")
+  visaTypesCreated            VisaType[]                 @relation("VisaTypeCreatedBy")
+  visaTypesUpdated            VisaType[]                 @relation("VisaTypeUpdatedBy")
+  testimonialsCreated         Testimonial[]              @relation("TestimonialCreatedBy")
+  testimonialsUpdated         Testimonial[]              @relation("TestimonialUpdatedBy")
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1227,6 +1247,7 @@ model Destination {
   cities       DestinationCity[]
   hotels       Hotel[]
   sightseeings Sightseeing[]
+  visaTypes    VisaType[]
 
   @@index([companyId, countryCode, normalizedName])
   @@index([companyId, destinationType, status, deletedAt])
@@ -1540,6 +1561,105 @@ model AddOnService {
   @@index([createdById])
   @@index([updatedById])
   @@map("add_on_services")
+}
+
+/// A reusable visa type tied to one destination, with an arbitrary number of
+/// ordered rich-text sections (Overview, Visa Fees, Documents Required…). The
+/// reference form exposes destination, name, an active toggle and the repeatable
+/// sections — nothing else. Not linked to leads/quotations/bookings.
+model VisaType {
+  id             String @id @default(uuid()) @db.Uuid
+  companyId      String @db.Uuid
+  destinationId  String @db.Uuid
+  name           String @db.VarChar(200)
+  /// Lower-cased name backing case-insensitive search and the unique index.
+  normalizedName String @db.VarChar(200)
+
+  status      MasterStatus @default(ACTIVE)
+  createdById String       @db.Uuid
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Restrict: a destination still used by a visa type cannot be removed.
+  destination Destination       @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  createdBy   User              @relation("VisaTypeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy   User?             @relation("VisaTypeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  sections    VisaTypeSection[]
+
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, destinationId])
+  @@index([companyId, normalizedName])
+  @@index([destinationId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("visa_types")
+}
+
+/// One ordered rich-text section within a visa type.
+model VisaTypeSection {
+  id         String @id @default(uuid()) @db.Uuid
+  companyId  String @db.Uuid
+  visaTypeId String @db.Uuid
+  title      String @db.VarChar(200)
+  /// Sanitized rich-text HTML.
+  content    String @db.Text
+  sequence   Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  visaType VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, visaTypeId])
+  @@index([visaTypeId, sequence])
+  @@map("visa_type_sections")
+}
+
+/// A customer testimonial/review. `destinationName` is deliberately free text
+/// (the reference form is a plain input, not a destination selector). `isVisible`
+/// is stored configuration only in this phase — no PDF/web publishing is wired.
+model Testimonial {
+  id              String  @id @default(uuid()) @db.Uuid
+  companyId       String  @db.Uuid
+  /// Optional — blank means an anonymous testimonial.
+  clientName      String? @db.VarChar(160)
+  destinationName String  @db.VarChar(200)
+  description     String  @db.Text
+  /// Marketing visibility flag (show on PDF quotations / web links). Stored only.
+  isVisible       Boolean @default(true)
+
+  imageStorageProvider  StorageProvider?
+  imageBucket           String?          @db.VarChar(255)
+  imageObjectKey        String?          @db.VarChar(1000)
+  imageFileName         String?          @db.VarChar(255)
+  imageMimeType         String?          @db.VarChar(120)
+  imageFileSize         Int?
+  imageConfirmedAt      DateTime?
+  pendingImageObjectKey String?          @db.VarChar(1000)
+  pendingImageFileName  String?          @db.VarChar(255)
+  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageFileSize  Int?
+
+  status      MasterStatus @default(ACTIVE)
+  createdById String       @db.Uuid
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("TestimonialCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User?   @relation("TestimonialUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, createdAt])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("testimonials")
 }
 
 /// A cruise product offered to travellers, with its sellable room types.

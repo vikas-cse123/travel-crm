@@ -366,6 +366,55 @@ export const addOnServiceUpdateSchema = addOnServiceBaseSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 
+// ---------------------------------------------------------------------------
+// Visa Types
+// ---------------------------------------------------------------------------
+
+/** One ordered rich-text section (title + HTML body) within a visa type. */
+export const visaTypeSectionSchema = z.object({
+  title: z.string().trim().min(1, 'Section title is required.').max(200),
+  content: z.string().max(50_000).default(''),
+});
+
+const visaTypeBaseSchema = z.object({
+  destinationId: z.string().uuid('Select a destination.'),
+  name: z.string().trim().min(2, 'Visa type name is required.').max(200),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+  sections: z.array(visaTypeSectionSchema).max(50).default([]),
+});
+
+export const visaTypeInputSchema = visaTypeBaseSchema;
+export const visaTypeUpdateSchema = visaTypeBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+// ---------------------------------------------------------------------------
+// Testimonials
+// ---------------------------------------------------------------------------
+
+export const TESTIMONIAL_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+const testimonialBaseSchema = z.object({
+  // Optional — blank means an anonymous testimonial.
+  clientName: z.string().trim().max(160).nullable().optional(),
+  destinationName: z.string().trim().min(1, 'Destination name is required.').max(200),
+  description: z.string().trim().min(1, 'Testimonial description is required.').max(10_000),
+  // Marketing visibility flag; stored configuration only in this release.
+  isVisible: z.boolean().default(true),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const testimonialInputSchema = testimonialBaseSchema;
+export const testimonialUpdateSchema = testimonialBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const testimonialImageUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(TESTIMONIAL_IMAGE_MIME_TYPES),
+  fileSize: z.coerce.number().int().positive(),
+});
+
 export const destinationCityAddSchema = z.object({ cityId: z.string().uuid() });
 export const destinationCityReorderSchema = z.object({
   cityIds: z.array(z.string().uuid()).min(1).max(100),
@@ -401,3 +450,9 @@ export type SightseeingImageUploadInput = z.infer<typeof sightseeingImageUploadS
 export type SightseeingReorderInput = z.infer<typeof sightseeingReorderSchema>;
 export type AddOnServiceInput = z.infer<typeof addOnServiceInputSchema>;
 export type AddOnServiceUpdateInput = z.infer<typeof addOnServiceUpdateSchema>;
+export type VisaTypeSectionInput = z.infer<typeof visaTypeSectionSchema>;
+export type VisaTypeInput = z.infer<typeof visaTypeInputSchema>;
+export type VisaTypeUpdateInput = z.infer<typeof visaTypeUpdateSchema>;
+export type TestimonialInput = z.infer<typeof testimonialInputSchema>;
+export type TestimonialUpdateInput = z.infer<typeof testimonialUpdateSchema>;
+export type TestimonialImageUploadInput = z.infer<typeof testimonialImageUploadSchema>;

@@ -205,32 +205,21 @@ export function BookingsPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-[1250px] w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  {[
-                    'Booking',
-                    'Customer',
-                    'Destination',
-                    'Travel dates',
-                    'Travellers',
-                    'Assigned',
-                    'Booking status',
-                    'Operations',
-                    'Payment',
-                    'Customer amount',
-                    'GST',
-                    'TCS',
-                    'Total payable',
-                    'Paid',
-                    'Outstanding',
-                    'Net profit',
-                    'Margin',
-                    'Created',
-                  ].map((header) =>
-                    !canViewFinancials &&
-                    [
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-[1250px] w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    {[
+                      'Booking',
+                      'Customer',
+                      'Destination',
+                      'Travel dates',
+                      'Travellers',
+                      'Assigned',
+                      'Booking status',
+                      'Operations',
+                      'Payment',
                       'Customer amount',
                       'GST',
                       'TCS',
@@ -239,74 +228,135 @@ export function BookingsPage() {
                       'Outstanding',
                       'Net profit',
                       'Margin',
-                    ].includes(header) ? null : (
-                      <th className="px-4 py-3" key={header}>
-                        {header}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {list.data.data.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-4">
-                      <Link className="font-semibold text-brand-700" to={`/bookings/${booking.id}`}>
-                        {booking.bookingNumber}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-4">
-                      <strong>{booking.customerName}</strong>
-                      <p className="text-xs text-slate-500">{booking.customerPhone}</p>
-                    </td>
-                    <td className="px-4 py-4">{booking.destinationSummary}</td>
-                    <td className="px-4 py-4">
-                      {booking.travelStartDate
-                        ? new Date(booking.travelStartDate).toLocaleDateString()
-                        : 'Open'}{' '}
-                      –{' '}
-                      {booking.travelEndDate
-                        ? new Date(booking.travelEndDate).toLocaleDateString()
-                        : 'Open'}
-                    </td>
-                    <td className="px-4 py-4">
-                      {booking.adults +
-                        booking.childrenWithBed +
-                        booking.childrenWithoutBed +
-                        booking.infants}
-                    </td>
-                    <td className="px-4 py-4">{booking.assignedTo?.fullName ?? 'Unassigned'}</td>
-                    <td className="px-4 py-4">
-                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                        {labelForLookup(booking.bookingStatus)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">{labelForLookup(booking.operationalStatus)}</td>
-                    <td className="px-4 py-4">{labelForLookup(booking.paymentStatus)}</td>
-                    {canViewFinancials && (
-                      <>
-                        <td className="px-4 py-4">{money(booking.totalSellingAmount)}</td>
-                        <td className="px-4 py-4">{money(booking.gstAmount)}</td>
-                        <td className="px-4 py-4">{money(booking.tcsAmount)}</td>
-                        <td className="px-4 py-4 font-medium">{money(booking.totalPayable)}</td>
-                        <td className="px-4 py-4">{money(booking.totalCustomerPaid)}</td>
-                        <td className="px-4 py-4 font-semibold text-amber-700">
-                          {money(booking.totalCustomerOutstanding)}
-                        </td>
-                        <td className="px-4 py-4 font-semibold text-emerald-700">
-                          {money(booking.netProfit)}
-                        </td>
-                        <td className="px-4 py-4">{booking.profitMarginPercentage ?? '0'}%</td>
-                      </>
+                      'Created',
+                    ].map((header) =>
+                      !canViewFinancials &&
+                      [
+                        'Customer amount',
+                        'GST',
+                        'TCS',
+                        'Total payable',
+                        'Paid',
+                        'Outstanding',
+                        'Net profit',
+                        'Margin',
+                      ].includes(header) ? null : (
+                        <th className="px-4 py-3" key={header}>
+                          {header}
+                        </th>
+                      ),
                     )}
-                    <td className="px-4 py-4">
-                      {new Date(booking.createdAt).toLocaleDateString()}
-                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y">
+                  {list.data.data.map((booking) => (
+                    <tr key={booking.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-4">
+                        <Link
+                          className="font-semibold text-brand-700"
+                          to={`/bookings/${booking.id}`}
+                        >
+                          {booking.bookingNumber}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-4">
+                        <strong>{booking.customerName}</strong>
+                        <p className="text-xs text-slate-500">{booking.customerPhone}</p>
+                      </td>
+                      <td className="px-4 py-4">{booking.destinationSummary}</td>
+                      <td className="px-4 py-4">
+                        {booking.travelStartDate
+                          ? new Date(booking.travelStartDate).toLocaleDateString()
+                          : 'Open'}{' '}
+                        –{' '}
+                        {booking.travelEndDate
+                          ? new Date(booking.travelEndDate).toLocaleDateString()
+                          : 'Open'}
+                      </td>
+                      <td className="px-4 py-4">
+                        {booking.adults +
+                          booking.childrenWithBed +
+                          booking.childrenWithoutBed +
+                          booking.infants}
+                      </td>
+                      <td className="px-4 py-4">{booking.assignedTo?.fullName ?? 'Unassigned'}</td>
+                      <td className="px-4 py-4">
+                        <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                          {labelForLookup(booking.bookingStatus)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">{labelForLookup(booking.operationalStatus)}</td>
+                      <td className="px-4 py-4">{labelForLookup(booking.paymentStatus)}</td>
+                      {canViewFinancials && (
+                        <>
+                          <td className="px-4 py-4">{money(booking.totalSellingAmount)}</td>
+                          <td className="px-4 py-4">{money(booking.gstAmount)}</td>
+                          <td className="px-4 py-4">{money(booking.tcsAmount)}</td>
+                          <td className="px-4 py-4 font-medium">{money(booking.totalPayable)}</td>
+                          <td className="px-4 py-4">{money(booking.totalCustomerPaid)}</td>
+                          <td className="px-4 py-4 font-semibold text-amber-700">
+                            {money(booking.totalCustomerOutstanding)}
+                          </td>
+                          <td className="px-4 py-4 font-semibold text-emerald-700">
+                            {money(booking.netProfit)}
+                          </td>
+                          <td className="px-4 py-4">{booking.profitMarginPercentage ?? '0'}%</td>
+                        </>
+                      )}
+                      <td className="px-4 py-4">
+                        {new Date(booking.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ul className="divide-y md:hidden">
+              {list.data.data.map((booking) => (
+                <li key={booking.id} className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link className="font-semibold text-brand-700" to={`/bookings/${booking.id}`}>
+                      {booking.bookingNumber}
+                    </Link>
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                      {labelForLookup(booking.bookingStatus)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-slate-800">{booking.customerName}</p>
+                  <p className="text-xs text-slate-500">{booking.destinationSummary}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {booking.travelStartDate
+                      ? new Date(booking.travelStartDate).toLocaleDateString()
+                      : 'Open'}{' '}
+                    –{' '}
+                    {booking.travelEndDate
+                      ? new Date(booking.travelEndDate).toLocaleDateString()
+                      : 'Open'}{' '}
+                    · {labelForLookup(booking.paymentStatus)}
+                  </p>
+                  {canViewFinancials && (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                      <span>
+                        Payable <strong>{money(booking.totalPayable)}</strong>
+                      </span>
+                      <span className="text-amber-700">
+                        Outstanding <strong>{money(booking.totalCustomerOutstanding)}</strong>
+                      </span>
+                      <span className="text-emerald-700">
+                        Net profit <strong>{money(booking.netProfit)}</strong>
+                      </span>
+                    </div>
+                  )}
+                  <Link
+                    className="mt-2 inline-block text-sm font-medium text-brand-700"
+                    to={`/bookings/${booking.id}`}
+                  >
+                    Open booking →
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         {list.data && list.data.pagination.totalPages > 1 && (
           <div className="flex items-center justify-between border-t p-4 text-sm">

@@ -14,6 +14,11 @@ import type {
   SightseeingUpdateInput,
   AddOnServiceInput,
   AddOnServiceUpdateInput,
+  VisaTypeInput,
+  VisaTypeUpdateInput,
+  TestimonialInput,
+  TestimonialUpdateInput,
+  TestimonialImageUploadInput,
   CityInput,
   CityUpdateInput,
   CountryReference,
@@ -889,4 +894,160 @@ export function useRestoreAddOnService() {
       apiClient.patch<AddOnService>(`/masters/add-on-services/${id}/status`, { status: 'ACTIVE' }),
     onSuccess: (_, id) => invalidateAddOnService(client, id),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Visa Types
+// ---------------------------------------------------------------------------
+
+export interface VisaTypeSection {
+  id: string;
+  visaTypeId: string;
+  title: string;
+  content: string;
+  sequence: number;
+}
+export interface VisaType {
+  id: string;
+  destinationId: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  destination: { id: string; name: string; countryCode?: string; countryName?: string };
+  sections: VisaTypeSection[];
+  _count: { sections: number };
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+const visaTypeKeys = {
+  all: ['masters', 'visa-types'] as const,
+  one: (id: string) => ['masters', 'visa-types', id] as const,
+};
+export function useVisaTypes(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...visaTypeKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<VisaType>>(`/masters/visa-types${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useVisaType(id?: string) {
+  return useQuery({
+    queryKey: visaTypeKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<VisaType>(`/masters/visa-types/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateVisaType = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: visaTypeKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: visaTypeKeys.one(id) });
+};
+export function useCreateVisaType() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: VisaTypeInput) => apiClient.post<VisaType>('/masters/visa-types', input),
+    onSuccess: () => invalidateVisaType(client),
+  });
+}
+export function useUpdateVisaType(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: VisaTypeUpdateInput) =>
+      apiClient.patch<VisaType>(`/masters/visa-types/${id}`, input),
+    onSuccess: () => invalidateVisaType(client, id),
+  });
+}
+export function useArchiveVisaType() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<VisaType>(`/masters/visa-types/${id}`),
+    onSuccess: (_, id) => invalidateVisaType(client, id),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Testimonials
+// ---------------------------------------------------------------------------
+
+export interface Testimonial {
+  id: string;
+  clientName: string | null;
+  destinationName: string;
+  description: string;
+  isVisible: boolean;
+  status: string;
+  hasImage: boolean;
+  imageFileName: string | null;
+  imageMimeType: string | null;
+  imageConfirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+const testimonialKeys = {
+  all: ['masters', 'testimonials'] as const,
+  one: (id: string) => ['masters', 'testimonials', id] as const,
+};
+export function useTestimonials(params = new URLSearchParams()) {
+  const query = params.toString();
+  return useQuery({
+    queryKey: [...testimonialKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Testimonial>>(`/masters/testimonials${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useTestimonial(id?: string) {
+  return useQuery({
+    queryKey: testimonialKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Testimonial>(`/masters/testimonials/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateTestimonial = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: testimonialKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: testimonialKeys.one(id) });
+};
+export function useCreateTestimonial() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TestimonialInput) =>
+      apiClient.post<Testimonial>('/masters/testimonials', input),
+    onSuccess: () => invalidateTestimonial(client),
+  });
+}
+export function useUpdateTestimonial(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TestimonialUpdateInput) =>
+      apiClient.patch<Testimonial>(`/masters/testimonials/${id}`, input),
+    onSuccess: () => invalidateTestimonial(client, id),
+  });
+}
+export function useArchiveTestimonial() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Testimonial>(`/masters/testimonials/${id}`),
+    onSuccess: (_, id) => invalidateTestimonial(client, id),
+  });
+}
+export async function approveTestimonialImage(id: string, input: TestimonialImageUploadInput) {
+  return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
+    `/masters/testimonials/${id}/image/upload`,
+    input,
+  );
+}
+export async function confirmTestimonialImage(id: string) {
+  return apiClient.post<Testimonial>(`/masters/testimonials/${id}/image/confirm`);
+}
+export async function testimonialImageUrl(id: string) {
+  return apiClient.get<{ url: string; expiresInSeconds: number }>(
+    `/masters/testimonials/${id}/image/download-url`,
+  );
+}
+export async function deleteTestimonialImage(id: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/testimonials/${id}/image`);
 }

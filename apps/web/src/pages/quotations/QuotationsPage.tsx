@@ -99,88 +99,131 @@ export function QuotationsPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  {[
-                    'Quotation',
-                    'Lead / customer',
-                    'Destination',
-                    'Version',
-                    'Final amount',
-                    'Status',
-                    'Created by',
-                    'Last sent',
-                    'Last viewed',
-                    'Valid until',
-                    'Created',
-                  ].map((value) => (
-                    <th key={value} className="px-4 py-3">
-                      {value}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {list.data.data.map((quotation) => {
-                  const version = quotation.versions[0];
-                  return (
-                    <tr key={quotation.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-4">
-                        <Link
-                          className="font-semibold text-brand-700"
-                          to={`/quotations/${quotation.id}`}
-                        >
-                          {quotation.quotationNumber}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Link className="text-brand-700" to={`/queries/${quotation.query.id}`}>
-                          {quotation.query.queryNumber}
-                        </Link>
-                        <p>{quotation.customerName}</p>
-                      </td>
-                      <td className="px-4 py-4">{quotation.destinationSummary}</td>
-                      <td className="px-4 py-4">v{version?.versionNumber ?? '—'}</td>
-                      <td className="px-4 py-4 font-semibold">
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-[1100px] w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    {[
+                      'Quotation',
+                      'Lead / customer',
+                      'Destination',
+                      'Version',
+                      'Final amount',
+                      'Status',
+                      'Created by',
+                      'Last sent',
+                      'Last viewed',
+                      'Valid until',
+                      'Created',
+                    ].map((value) => (
+                      <th key={value} className="px-4 py-3">
+                        {value}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {list.data.data.map((quotation) => {
+                    const version = quotation.versions[0];
+                    return (
+                      <tr key={quotation.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-4">
+                          <Link
+                            className="font-semibold text-brand-700"
+                            to={`/quotations/${quotation.id}`}
+                          >
+                            {quotation.quotationNumber}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-4">
+                          <Link className="text-brand-700" to={`/queries/${quotation.query.id}`}>
+                            {quotation.query.queryNumber}
+                          </Link>
+                          <p>{quotation.customerName}</p>
+                        </td>
+                        <td className="px-4 py-4">{quotation.destinationSummary}</td>
+                        <td className="px-4 py-4">v{version?.versionNumber ?? '—'}</td>
+                        <td className="px-4 py-4 font-semibold">
+                          {version
+                            ? new Intl.NumberFormat('en-IN', {
+                                style: 'currency',
+                                currency: version.currency,
+                              }).format(Number(version.finalAmount))
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                            {labelForLookup(quotation.status)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">{quotation.createdBy.fullName}</td>
+                        <td className="px-4 py-4">
+                          {quotation.lastSentAt
+                            ? new Date(quotation.lastSentAt).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4">
+                          {quotation.lastViewedAt
+                            ? new Date(quotation.lastViewedAt).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4">
+                          {quotation.validUntil
+                            ? new Date(quotation.validUntil).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4">
+                          {new Date(quotation.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <ul className="divide-y md:hidden">
+              {list.data.data.map((quotation) => {
+                const version = quotation.versions[0];
+                return (
+                  <li key={quotation.id} className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        className="font-semibold text-brand-700"
+                        to={`/quotations/${quotation.id}`}
+                      >
+                        {quotation.quotationNumber}
+                      </Link>
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {labelForLookup(quotation.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
+                      {quotation.customerName}
+                    </p>
+                    <p className="text-xs text-slate-500">{quotation.destinationSummary}</p>
+                    <p className="mt-1 text-sm">
+                      v{version?.versionNumber ?? '—'} ·{' '}
+                      <span className="font-semibold">
                         {version
                           ? new Intl.NumberFormat('en-IN', {
                               style: 'currency',
                               currency: version.currency,
                             }).format(Number(version.finalAmount))
                           : '—'}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                          {labelForLookup(quotation.status)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">{quotation.createdBy.fullName}</td>
-                      <td className="px-4 py-4">
-                        {quotation.lastSentAt
-                          ? new Date(quotation.lastSentAt).toLocaleDateString()
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-4">
-                        {quotation.lastViewedAt
-                          ? new Date(quotation.lastViewedAt).toLocaleDateString()
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-4">
-                        {quotation.validUntil
-                          ? new Date(quotation.validUntil).toLocaleDateString()
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-4">
-                        {new Date(quotation.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                    </p>
+                    <Link
+                      className="mt-2 inline-block text-sm font-medium text-brand-700"
+                      to={`/quotations/${quotation.id}`}
+                    >
+                      Open quotation →
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </section>
     </div>

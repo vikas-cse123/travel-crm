@@ -223,8 +223,8 @@ describe('Phase 9 booking pages', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<BookingsPage />);
-    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
-    expect(screen.getByText('Ravi Kumar')).toBeInTheDocument();
+    expect((await screen.findAllByText('BK-2026-000001')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ravi Kumar').length).toBeGreaterThan(0);
     expect(screen.getAllByText('₹30,000').length).toBeGreaterThan(0);
     await userEvent.type(screen.getByLabelText('Search bookings'), 'Ravi');
     await userEvent.selectOptions(screen.getByLabelText('Booking status'), 'CONFIRMED');
@@ -266,7 +266,7 @@ describe('Phase 9 booking pages', () => {
       ),
     );
     renderWithProviders(<BookingsPage />);
-    await screen.findByText('BK-2026-000001');
+    await screen.findAllByText('BK-2026-000001');
     expect(screen.queryByText('Selling')).not.toBeInTheDocument();
     expect(screen.queryByText('Outstanding')).not.toBeInTheDocument();
   });
@@ -533,7 +533,7 @@ describe('Phase 15 booking commercial UI', () => {
       ),
     );
     renderWithProviders(<BookingsPage />);
-    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
+    expect((await screen.findAllByText('BK-2026-000001')).length).toBeGreaterThan(0);
     // Commercial summary tiles.
     expect(screen.getByText('Net revenue')).toBeInTheDocument();
     expect(screen.getAllByText('Net profit').length).toBeGreaterThan(0);
@@ -556,7 +556,7 @@ describe('Phase 15 booking commercial UI', () => {
       ),
     );
     renderWithProviders(<BookingsPage />);
-    await screen.findByText('BK-2026-000001');
+    await screen.findAllByText('BK-2026-000001');
     expect(screen.queryByText('Net profit')).not.toBeInTheDocument();
     expect(screen.queryAllByText('Total payable')).toHaveLength(0);
   });
@@ -569,7 +569,7 @@ describe('Phase 15 booking commercial UI', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<BookingsPage />);
-    await screen.findByText('BK-2026-000001');
+    await screen.findAllByText('BK-2026-000001');
     const bookingMonth = screen.getByLabelText('Booking month');
     await userEvent.type(bookingMonth, '2026-07');
     await waitFor(() =>
