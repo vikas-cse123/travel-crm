@@ -1123,9 +1123,12 @@ export const bookingsService = {
           assignedToId: input.assignedToId ?? auth.userId,
           manualCreationReason: input.manualCreationReason,
           internalNotes: input.internalNotes ?? null,
-          sourceTerms: companyDefaults.defaultBookingTerms
-            ? [companyDefaults.defaultBookingTerms]
-            : undefined,
+          // Omit the key entirely when there is no default (identical to passing
+          // undefined); keeps the JSON input type valid under
+          // exactOptionalPropertyTypes without changing behaviour.
+          ...(companyDefaults.defaultBookingTerms
+            ? { sourceTerms: [companyDefaults.defaultBookingTerms] }
+            : {}),
         },
       });
       if (input.services.length)

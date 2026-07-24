@@ -104,7 +104,13 @@ export function drawHeaderLogo(
 ): boolean {
   if (!logo) return false;
   try {
-    doc.image(logo, box.x, box.y, { fit: [box.width, box.height], align: 'right', valign: 'top' });
+    // @types/pdfkit (0.17.6) omits the runtime-valid 'top' valign; cast to keep
+    // the header logo top-aligned without changing behaviour.
+    doc.image(logo, box.x, box.y, {
+      fit: [box.width, box.height],
+      align: 'right',
+      valign: 'top',
+    } as unknown as PDFKit.Mixins.ImageOption);
     return true;
   } catch {
     return false;

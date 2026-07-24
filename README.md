@@ -479,6 +479,37 @@ workspace symlink resolution.
 
 ---
 
+## Production deployment
+
+The API, web SPA and reminder worker deploy as three independent units.
+Container images and full runbooks live in `docs/production/`:
+
+```bash
+# Build production images (from the repo root)
+docker build -f apps/api/Dockerfile -t interscale-api .
+docker build -f apps/web/Dockerfile --build-arg VITE_API_URL=https://api.example.com -t interscale-web .
+
+# Local production-style composition (managed PostgreSQL preferred in real prod)
+docker compose -f docker-compose.production.example.yml --env-file .env.production.local up --build
+
+# Post-deploy smoke test (health, readiness, optional login round-trip)
+API_BASE_URL=https://api.example.com npm run smoke:prod
+```
+
+- [`docs/production/DEPLOYMENT.md`](docs/production/DEPLOYMENT.md) — services, env, migration, deploy order
+- [`docs/production/ROLLBACK.md`](docs/production/ROLLBACK.md) — forward-only migrations, restore vs code rollback
+- [`docs/production/BACKUP_AND_RESTORE.md`](docs/production/BACKUP_AND_RESTORE.md) — backups, PITR, restore drill
+- [`docs/production/SECURITY_CHECKLIST.md`](docs/production/SECURITY_CHECKLIST.md)
+- [`docs/production/GO_LIVE_CHECKLIST.md`](docs/production/GO_LIVE_CHECKLIST.md)
+- [`docs/production/AWS_INFRASTRUCTURE.md`](docs/production/AWS_INFRASTRUCTURE.md) — reference cloud topology
+- [`docs/production/MONITORING.md`](docs/production/MONITORING.md) — alerts, log aggregation, rate-limit scaling
+
+Migrations run as a **separate** step (`prisma migrate deploy`), never on API
+start. The reminder worker (`node apps/api/dist/process-reminders.js`) needs an
+external scheduler; overlapping runs are guarded by a PostgreSQL advisory lock.
+
+---
+
 ## API overview
 
 All routes are mounted under `/api`. Every response uses one envelope.

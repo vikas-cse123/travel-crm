@@ -141,23 +141,109 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 /**
- * Parse and validate process.env. On failure, print every problem at once and
- * exit — a half-configured server is worse than one that refuses to start.
+ * The outcome of validating a raw environment source. Kept pure (no process
+ * exit, no logging) so it can be unit-tested against fabricated production
+ * configurations without tearing down the test runner.
+ */
+export type EnvEvaluation =
+  { success: true; value: Env; errors: [] } | { success: false; value: null; errors: string[] };
+
+const isHttps = (url: string): boolean => url.startsWith('https://');
+
+/**
+ * Validate an environment source and collect every problem, rather than
+ * throwing on the first. Returns the parsed value on success. This is the
+ * single source of truth for both boot-time validation and the env tests.
+ */
+export function evaluateEnv(source: NodeJS.ProcessEnv): EnvEvaluation {
+  const parsed = envSchema.safeParse(source);
+  if (!parsed.success) {
+    const errors = parsed.error.issues.map(
+      (issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`,
+    );
+    return { success: false, value: null, errors };
+  }
+
+  const value = parsed.data;
+  const errors: string[] = [];
+
+  // The in-memory provider must never be reachable outside the test runner.
+  if (value.EMAIL_PROVIDER === 'memory' && value.NODE_ENV !== 'test') {
+    errors.push('EMAIL_PROVIDER=memory is only valid when NODE_ENV=test.');
+  }
+
+  if (value.DATA_ENCRYPTION_KEY) {
+    const bytes = Buffer.from(value.DATA_ENCRYPTION_KEY, 'base64');
+    if (bytes.length !== 32) {
+      errors.push('DATA_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
+    }
+  }
+
+  // Production-only hardening: refuse to boot with insecure or placeholder config.
+  if (value.NODE_ENV === 'production') {
+    if (value.SESSION_SECRET.includes('change_me') || value.TOKEN_PEPPER.includes('change_me')) {
+      errors.push(
+        'SESSION_SECRET / TOKEN_PEPPER still contain the example placeholder. Refusing to start in production.',
+      );
+    }
+    if (!isHttps(value.WEB_URL)) errors.push('WEB_URL must use https:// in production.');
+    if (!isHttps(value.API_URL)) errors.push('API_URL must use https:// in production.');
+
+    if (value.EMAIL_PROVIDER !== 'smtp') {
+      // `console` prints OTPs to the log; `memory` silently discards mail.
+      errors.push(
+        `EMAIL_PROVIDER="${value.EMAIL_PROVIDER}" is not permitted in production. Use "smtp".`,
+      );
+    } else {
+      if (!value.SMTP_HOST) errors.push('SMTP_HOST is required when EMAIL_PROVIDER=smtp.');
+      if (!value.SMTP_PORT) errors.push('SMTP_PORT is required in production.');
+      if (!value.SMTP_USER) errors.push('SMTP_USER is required in production.');
+      if (!value.SMTP_PASSWORD) errors.push('SMTP_PASSWORD is required in production.');
+    }
+    if (/\.local(\b|>|$)/i.test(value.EMAIL_FROM)) {
+      errors.push('EMAIL_FROM must use a real, deliverable domain (not a ".local" placeholder).');
+    }
+
+    if (value.STORAGE_PROVIDER !== 's3' || !value.AWS_S3_BUCKET) {
+      errors.push('Production requires STORAGE_PROVIDER=s3 and AWS_S3_BUCKET.');
+    }
+    if (!value.AWS_REGION) errors.push('AWS_REGION is required in production.');
+    // Either the IAM/default credential chain is intended (neither static key
+    // set) or a complete static pair is supplied. A half-set pair is a misconfig.
+    const hasKeyId = Boolean(value.AWS_ACCESS_KEY_ID);
+    const hasKeySecret = Boolean(value.AWS_SECRET_ACCESS_KEY);
+    if (hasKeyId !== hasKeySecret) {
+      errors.push(
+        'Set BOTH AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or NEITHER (to use an IAM role / default credential chain).',
+      );
+    }
+
+    if (!value.DATA_ENCRYPTION_KEY) {
+      errors.push('DATA_ENCRYPTION_KEY is required in production for passport protection.');
+    }
+    if (!value.DATA_ENCRYPTION_KEY_VERSION) {
+      errors.push('DATA_ENCRYPTION_KEY_VERSION is required in production.');
+    }
+  }
+
+  if (errors.length) return { success: false, value: null, errors };
+  return { success: true, value, errors: [] };
+}
+
+/**
+ * Boot-time validation. On failure, print every problem at once and exit — a
+ * half-configured server is worse than one that refuses to start.
  */
 function loadEnv(): Env {
-  const parsed = envSchema.safeParse(process.env);
+  const result = evaluateEnv(process.env);
 
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-
+  if (!result.success) {
     console.error(
       [
         '',
         '✖ Invalid environment configuration. The API cannot start.',
         '',
-        issues,
+        ...result.errors.map((message) => `  - ${message}`),
         '',
         '  Fix: copy .env.example to .env at the repository root and fill in the values.',
         '    cp .env.example .env',
@@ -167,58 +253,7 @@ function loadEnv(): Env {
     process.exit(1);
   }
 
-  const value = parsed.data;
-
-  // Production-only hardening: refuse to boot with the shipped placeholders.
-  if (value.NODE_ENV === 'production') {
-    if (value.SESSION_SECRET.includes('change_me') || value.TOKEN_PEPPER.includes('change_me')) {
-      console.error(
-        '✖ SESSION_SECRET / TOKEN_PEPPER still contain the example placeholder. Refusing to start in production.',
-      );
-      process.exit(1);
-    }
-    if (value.EMAIL_PROVIDER !== 'smtp') {
-      // `console` prints OTPs to the log; `memory` silently discards mail.
-      // Either one in production is a security or delivery incident.
-      console.error(
-        `✖ EMAIL_PROVIDER="${value.EMAIL_PROVIDER}" is not permitted in production. Use "smtp".`,
-      );
-      process.exit(1);
-    }
-    if (value.SMTP_HOST === undefined || value.SMTP_HOST === '') {
-      console.error('✖ SMTP_HOST is required when EMAIL_PROVIDER=smtp in production.');
-      process.exit(1);
-    }
-    if (value.STORAGE_PROVIDER !== 's3' || !value.AWS_S3_BUCKET) {
-      console.error('✖ Production requires STORAGE_PROVIDER=s3 and AWS_S3_BUCKET.');
-      process.exit(1);
-    }
-    if (!value.DATA_ENCRYPTION_KEY) {
-      console.error('✖ DATA_ENCRYPTION_KEY is required in production for passport protection.');
-      process.exit(1);
-    }
-  }
-
-  // The in-memory provider must never be reachable outside the test runner.
-  if (value.EMAIL_PROVIDER === 'memory' && value.NODE_ENV !== 'test') {
-    console.error('✖ EMAIL_PROVIDER=memory is only valid when NODE_ENV=test.');
-    process.exit(1);
-  }
-
-  if (value.STORAGE_PROVIDER === 'memory' && value.NODE_ENV === 'production') {
-    console.error('✖ STORAGE_PROVIDER=memory is not permitted in production.');
-    process.exit(1);
-  }
-
-  if (value.DATA_ENCRYPTION_KEY) {
-    const bytes = Buffer.from(value.DATA_ENCRYPTION_KEY, 'base64');
-    if (bytes.length !== 32) {
-      console.error('✖ DATA_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
-      process.exit(1);
-    }
-  }
-
-  return value;
+  return result.value;
 }
 
 export const env = loadEnv();

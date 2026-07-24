@@ -1,0 +1,142 @@
+# ---------------------------------------------------------------------------
+# EXAMPLE production-style composition — NOT the local dev file.
+#
+# The real local dev stack is `docker-compose.yml` (PostgreSQL only); keep using
+# it for development. This file demonstrates how the API, web and reminder
+# worker images fit together and how migrations run as a discrete step.
+#
+# In real production, prefer MANAGED PostgreSQL (RDS/Aurora/Cloud SQL) over the
+# `postgres` service below, and run these containers on a managed platform
+# (ECS Fargate, App Runner, Fly, Render, ...). This file is for a local
+# production simulation and as a reference topology.
+#
+# Usage (local simulation):
+#   cp .env.example .env.production.local   # then fill in REAL, non-committed values
+#   docker compose -f docker-compose.production.example.yml --env-file .env.production.local up --build
+#   # run migrations once (separate step, never on every API start):
+#   docker compose -f docker-compose.production.example.yml --env-file .env.production.local run --rm migrate
+#
+# No real passwords or secrets are committed here — everything comes from the
+# environment / --env-file.
+# ---------------------------------------------------------------------------
+
+name: interscale-crm-production-example
+
+services:
+  # Demonstration database only. Use managed PostgreSQL in real production and
+  # delete this service (point DATABASE_URL at the managed instance instead).
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - interscale_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # One-shot migration runner. Uses the API builder stage (it has the Prisma CLI
+  # and schema). Run it as a discrete deploy step BEFORE rolling the API.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: builder
+    command: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      API_URL: ${API_URL:?set API_URL}
+      WEB_URL: ${WEB_URL:?set WEB_URL}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+      TOKEN_PEPPER: ${TOKEN_PEPPER:?set TOKEN_PEPPER}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?set DATA_ENCRYPTION_KEY}
+      DATA_ENCRYPTION_KEY_VERSION: ${DATA_ENCRYPTION_KEY_VERSION:-v1}
+      EMAIL_PROVIDER: smtp
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:?set SMTP_PORT}
+      SMTP_USER: ${SMTP_USER:?set SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?set SMTP_PASSWORD}
+      STORAGE_PROVIDER: s3
+      AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:?set AWS_S3_BUCKET}
+      # Omit static keys when running on a host with an IAM role.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    ports:
+      - '${API_PUBLIC_PORT:-4000}:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the static bundle at build time — must be the PUBLIC https
+        # API URL in real production.
+        VITE_API_URL: ${VITE_API_URL:?set VITE_API_URL}
+    restart: unless-stopped
+    ports:
+      - '${WEB_PUBLIC_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_started
+
+  # Reminder worker. Runs the compiled one-shot job and exits; an EXTERNAL
+  # scheduler must invoke it periodically (EventBridge Scheduler, cron, k8s
+  # CronJob). It is safe to overlap — a PostgreSQL advisory lock ensures only one
+  # run processes at a time. Enable with: `--profile worker`.
+  reminder-worker:
+    profiles: ['worker']
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: node apps/api/dist/process-reminders.js
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+      TOKEN_PEPPER: ${TOKEN_PEPPER:?set TOKEN_PEPPER}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?set DATA_ENCRYPTION_KEY}
+      EMAIL_PROVIDER: smtp
+      EMAIL_FROM: ${EMAIL_FROM:?set EMAIL_FROM}
+      SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:?set SMTP_PORT}
+      SMTP_USER: ${SMTP_USER:?set SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?set SMTP_PASSWORD}
+      STORAGE_PROVIDER: s3
+      AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:?set AWS_S3_BUCKET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+volumes:
+  interscale_prod_pgdata:
+    name: interscale_crm_production_example_pgdata

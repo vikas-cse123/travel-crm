@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, typecheck, lint and test
+    runs-on: ubuntu-latest
+
+    # A throwaway PostgreSQL for the integration test suite. The test harness
+    # creates and migrates a dedicated "<db>_test" database at runtime.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: interscale_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d interscale_crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    # Safe, non-secret values. These are CI test credentials only and must never
+    # match a real deployment. NODE_ENV=test keeps production guards dormant.
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/interscale_crm
+      SESSION_SECRET: ci_session_secret_value_at_least_32_chars
+      TOKEN_PEPPER: ci_token_pepper_value_at_least_32_characters
+      STORAGE_PROVIDER: memory
+      EMAIL_PROVIDER: memory
+      WEB_URL: http://localhost:5173
+      API_URL: http://localhost:4000
+      VITE_API_URL: http://localhost:4000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Apply migrations to a clean database
+        # Validates that migrations apply forward-only on a fresh database.
+        # DATABASE_URL comes from the job env above.
+        run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: API tests
+        run: npm run test:api
+
+      - name: Web tests
+        run: npm run test:web
+
+      - name: Production build
+        run: npm run build

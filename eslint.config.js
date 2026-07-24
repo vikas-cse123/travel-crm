@@ -51,6 +51,14 @@ export default tseslint.config(
     },
   },
 
+  // Standalone Node scripts (ESM utilities, e.g. the production smoke test)
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node, fetch: 'readonly', AbortController: 'readonly' },
+    },
+  },
+
   // Frontend: browser globals + React rules
   {
     files: ['apps/web/**/*.{ts,tsx}'],

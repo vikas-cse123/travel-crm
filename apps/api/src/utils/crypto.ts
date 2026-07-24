@@ -1,13 +1,14 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
+  createHmac,
   randomInt,
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
 import argon2 from 'argon2';
 import { OTP_LENGTH } from '@interscale/shared';
+import { env } from '../config/env.js';
 
 /**
  * Password hashing and token digests.
@@ -44,9 +45,23 @@ export async function verifyPassword(hash: string, plaintext: string): Promise<b
   }
 }
 
-/** Hash a high-entropy token for storage. Only the digest is persisted. */
+/**
+ * Keyed digest of a high-entropy application token for storage.
+ *
+ * Uses HMAC-SHA256 with `TOKEN_PEPPER` rather than a bare SHA-256 so a leaked
+ * token-hash table cannot be matched offline without also holding the pepper —
+ * relevant for the lower-entropy numeric OTP in particular. Every write and
+ * read of a token hash flows through this one function, so the peppering is
+ * symmetric: session, OTP, password-reset, email-verification and public
+ * quotation tokens all stay consistent.
+ *
+ * Only high-entropy random tokens (and the OTP) belong here. Passwords must use
+ * `hashPassword` (Argon2id). Rotating `TOKEN_PEPPER` invalidates every existing
+ * hash, so all active sessions, pending OTPs and reset/public links stop
+ * verifying — treat a rotation as a full token reset.
+ */
 export function hashToken(rawToken: string): string {
-  return createHash('sha256').update(rawToken).digest('hex');
+  return createHmac('sha256', env.TOKEN_PEPPER).update(rawToken).digest('hex');
 }
 
 /** A URL-safe, cryptographically random token for sessions and reset links. */

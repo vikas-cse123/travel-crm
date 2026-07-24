@@ -1,0 +1,21 @@
+# Keep the build context small and secret-free. Dependencies and build outputs
+# are produced inside the image; local copies must never leak in.
+**/node_modules
+**/dist
+.git
+.github
+.gitignore
+
+# Secrets: never copy real environment files into an image or context.
+.env
+.env.*
+
+# Local-only and heavy assets not needed to build or run the apps.
+references
+docs
+*.log
+.DS_Store
+.vscode
+.idea
+coverage
+**/.vite

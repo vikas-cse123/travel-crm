@@ -1,0 +1,51 @@
+name: Security
+
+# Lightweight, non-blocking dependency and secret hygiene. This workflow reports
+# findings but is intentionally not a merge gate, so unrelated upstream advisory
+# noise cannot block feature work. Promote steps to required checks once the
+# dependency surface is stable.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  npm-audit:
+    name: npm audit (report only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Audit (high and above, non-blocking)
+        run: npm audit --audit-level=high || true
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Review dependency changes on this PR
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: critical
+
+  secret-scan-guidance:
+    name: Secret scanning guidance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reminder
+        run: |
+          echo "Enable GitHub secret scanning + push protection in repo settings:"
+          echo "  Settings > Code security and analysis > Secret scanning."
+          echo "Never commit .env, private keys, SMTP or AWS credentials."
+          echo "Rotate any secret that reaches git history."

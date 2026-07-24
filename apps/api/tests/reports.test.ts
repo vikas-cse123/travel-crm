@@ -153,7 +153,9 @@ async function seedPayable(
 }
 
 const q = (params: Record<string, string | number> = {}) =>
-  new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
+  new URLSearchParams(
+    Object.entries(params).map(([k, v]) => [k, String(v)] as [string, string]),
+  ).toString();
 
 // ---------------------------------------------------------------------------
 
