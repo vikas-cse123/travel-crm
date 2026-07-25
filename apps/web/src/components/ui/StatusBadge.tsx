@@ -2,12 +2,16 @@ import { cn } from '@/utils/cn';
 
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
+// Tonal badges in wacrm's language: a soft same-family wash, a readable
+// foreground, and a hairline inset ring. Alpha-composed off each hue so the
+// business meaning (green = good, amber = attention, red = problem) survives
+// in both light and dark.
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  success: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  warning: 'bg-amber-50 text-amber-800 ring-amber-600/20',
-  danger: 'bg-red-50 text-red-700 ring-red-600/20',
-  neutral: 'bg-slate-100 text-slate-700 ring-slate-500/20',
-  info: 'bg-brand-50 text-brand-700 ring-brand-600/20',
+  success: 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/25',
+  warning: 'bg-amber-500/15 text-amber-700 ring-amber-500/25',
+  danger: 'bg-destructive/10 text-destructive ring-destructive/25',
+  neutral: 'bg-muted text-muted-foreground ring-border',
+  info: 'bg-primary/10 text-primary ring-primary/25',
 };
 
 interface StatusBadgeProps {

@@ -5,16 +5,23 @@ interface CardProps {
   className?: string;
 }
 
+// wacrm surface language: rounded-xl card token with a restrained border and
+// soft shadow. Header/body keep the existing API so no caller changes.
 export function Card({ children, className }: CardProps) {
   return (
-    <div className={cn('rounded-xl border border-slate-200 bg-white shadow-card', className)}>
+    <div
+      className={cn(
+        'rounded-xl border border-border bg-card text-card-foreground shadow-card',
+        className,
+      )}
+    >
       {children}
     </div>
   );
 }
 
 export function CardHeader({ children, className }: CardProps) {
-  return <div className={cn('border-b border-slate-200 px-5 py-4', className)}>{children}</div>;
+  return <div className={cn('border-b border-border px-5 py-4', className)}>{children}</div>;
 }
 
 export function CardBody({ children, className }: CardProps) {

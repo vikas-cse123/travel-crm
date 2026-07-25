@@ -2,17 +2,402 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+ * wacrm visual-parity design tokens.
+ *
+ * Every colour is stored as bare OKLCH channel components ("L C H") so the
+ * Tailwind config can wrap them as `oklch(var(--x) / <alpha-value>)` and every
+ * opacity modifier (bg-primary/10, ring-ring/50, hover:bg-muted/50) keeps
+ * working. Two token layers:
+ *
+ *   1. SEMANTIC tokens (background / card / primary / muted / border …) — the
+ *      new component vocabulary. New primitives and the shell use these.
+ *   2. LEGACY RAMPS (slate / brand / red / emerald / amber / blue / cyan /
+ *      violet / orange / rose) — the numeric utility scales the existing pages
+ *      already use. They are redefined here so `text-slate-600`, `bg-card`
+ *      (the replacement for bg-white), `bg-red-50 text-red-700`, etc. all flip
+ *      automatically between light and dark instead of being light-only.
+ *
+ * Light values live on :root; `.dark` overrides both layers. The neutral hue
+ * is ~260 throughout to match wacrm's cool-grey character.
+ * ==========================================================================*/
+
 @layer base {
+  :root {
+    --radius: 0.625rem;
+
+    /* ---- semantic (light) ---- */
+    --background: 0.99 0.002 260;
+    --foreground: 0.21 0.01 260;
+    --card: 1 0 0;
+    --card-2: 0.985 0.002 260;
+    --card-foreground: 0.21 0.01 260;
+    --popover: 1 0 0;
+    --popover-foreground: 0.21 0.01 260;
+    --primary: 0.546 0.215 262.9;
+    --primary-foreground: 0.985 0 0;
+    --primary-hover: 0.488 0.217 264.4;
+    --secondary: 0.967 0.003 260;
+    --secondary-foreground: 0.25 0.01 260;
+    --muted: 0.967 0.003 260;
+    --muted-foreground: 0.52 0.015 260;
+    --accent: 0.96 0.004 260;
+    --accent-foreground: 0.25 0.01 260;
+    --destructive: 0.577 0.245 27.3;
+    --destructive-foreground: 0.985 0 0;
+    --success: 0.596 0.145 163.2;
+    --success-foreground: 0.985 0 0;
+    --warning: 0.769 0.188 70.1;
+    --warning-foreground: 0.21 0.01 260;
+    --info: 0.546 0.215 262.9;
+    --info-foreground: 0.985 0 0;
+    --border: 0.922 0.004 260;
+    --input: 0.922 0.004 260;
+    --ring: 0.546 0.215 262.9;
+
+    /* Intentionally dark "statement" surface (pricing summaries, code blocks).
+     * Fixed to the same value in both modes so it stays dark with light text
+     * everywhere, instead of inverting under the neutral ramp. */
+    --panel: 0.17 0.012 260;
+    --panel-foreground: 0.985 0 0;
+
+    --sidebar: 0.985 0.002 260;
+    --sidebar-foreground: 0.21 0.01 260;
+    --sidebar-accent: 0.96 0.004 260;
+    --sidebar-accent-foreground: 0.25 0.01 260;
+    --sidebar-border: 0.922 0.004 260;
+    --sidebar-primary: 0.546 0.215 262.9;
+    --sidebar-primary-foreground: 0.985 0 0;
+    --sidebar-ring: 0.546 0.215 262.9;
+
+    --chart-1: 0.546 0.215 262.9;
+    --chart-2: 0.596 0.145 163.2;
+    --chart-3: 0.769 0.188 70.1;
+    --chart-4: 0.606 0.25 292.7;
+    --chart-5: 0.645 0.246 16.4;
+
+    /* ---- legacy ramp: slate (neutral, light) ---- */
+    --slate-50: 0.984 0.003 247.9;
+    --slate-100: 0.968 0.007 247.9;
+    --slate-200: 0.929 0.013 255.5;
+    --slate-300: 0.869 0.022 252.9;
+    --slate-400: 0.704 0.04 256.8;
+    --slate-500: 0.554 0.046 257.4;
+    --slate-600: 0.446 0.043 257.3;
+    --slate-700: 0.372 0.044 257.3;
+    --slate-800: 0.279 0.041 260;
+    --slate-900: 0.208 0.042 265.8;
+    --slate-950: 0.129 0.042 264.7;
+
+    /* ---- legacy ramp: brand (blue accent, light) ---- */
+    --brand-50: 0.97 0.014 254;
+    --brand-100: 0.932 0.032 255;
+    --brand-200: 0.882 0.059 254;
+    --brand-300: 0.809 0.105 252;
+    --brand-400: 0.707 0.165 254;
+    --brand-500: 0.623 0.198 259;
+    --brand-600: 0.546 0.215 262.9;
+    --brand-700: 0.488 0.217 264.4;
+    --brand-800: 0.424 0.181 265.6;
+    --brand-900: 0.379 0.138 265.5;
+
+    /* ---- legacy ramp: red (light) ---- */
+    --red-50: 0.971 0.013 17.4;
+    --red-100: 0.936 0.032 17.7;
+    --red-200: 0.885 0.062 18.3;
+    --red-300: 0.808 0.114 19.6;
+    --red-400: 0.704 0.191 22.2;
+    --red-500: 0.637 0.237 25.3;
+    --red-600: 0.577 0.245 27.3;
+    --red-700: 0.505 0.213 27.5;
+    --red-800: 0.444 0.177 26.9;
+    --red-900: 0.396 0.141 25.7;
+
+    /* ---- legacy ramp: emerald (light) ---- */
+    --emerald-50: 0.979 0.021 166;
+    --emerald-100: 0.95 0.052 163;
+    --emerald-200: 0.905 0.093 164;
+    --emerald-300: 0.845 0.143 164;
+    --emerald-400: 0.765 0.177 163;
+    --emerald-500: 0.696 0.17 162.5;
+    --emerald-600: 0.596 0.145 163.2;
+    --emerald-700: 0.508 0.118 165.6;
+    --emerald-800: 0.432 0.095 166.9;
+    --emerald-900: 0.378 0.077 168.9;
+
+    /* ---- legacy ramp: amber (light) ---- */
+    --amber-50: 0.987 0.022 95;
+    --amber-100: 0.962 0.059 95;
+    --amber-200: 0.924 0.12 95;
+    --amber-300: 0.879 0.169 91.6;
+    --amber-400: 0.837 0.194 84.4;
+    --amber-500: 0.769 0.188 70.1;
+    --amber-600: 0.666 0.179 58.3;
+    --amber-700: 0.555 0.163 48.9;
+    --amber-800: 0.473 0.137 46.2;
+    --amber-900: 0.414 0.112 45.9;
+
+    /* ---- legacy ramp: blue (light) ---- */
+    --blue-50: 0.97 0.014 254.6;
+    --blue-100: 0.932 0.032 255.6;
+    --blue-200: 0.882 0.059 254.1;
+    --blue-300: 0.809 0.105 251.8;
+    --blue-400: 0.707 0.165 254.6;
+    --blue-500: 0.623 0.214 259.8;
+    --blue-600: 0.546 0.245 262.9;
+    --blue-700: 0.488 0.243 264.4;
+    --blue-800: 0.424 0.199 265.6;
+    --blue-900: 0.379 0.146 265.5;
+
+    /* ---- legacy ramp: cyan (light) ---- */
+    --cyan-50: 0.984 0.019 200.9;
+    --cyan-100: 0.956 0.045 203.4;
+    --cyan-200: 0.917 0.08 205;
+    --cyan-300: 0.865 0.127 207.1;
+    --cyan-400: 0.789 0.154 211.5;
+    --cyan-500: 0.715 0.143 215.2;
+    --cyan-600: 0.609 0.126 221.7;
+    --cyan-700: 0.52 0.105 223.1;
+    --cyan-800: 0.45 0.085 224.3;
+    --cyan-900: 0.398 0.07 227.4;
+
+    /* ---- legacy ramp: violet (light) ---- */
+    --violet-50: 0.969 0.016 293.8;
+    --violet-100: 0.943 0.029 294.6;
+    --violet-200: 0.894 0.057 293.3;
+    --violet-300: 0.811 0.111 293.6;
+    --violet-400: 0.702 0.183 293.5;
+    --violet-500: 0.606 0.25 292.7;
+    --violet-600: 0.541 0.281 293;
+    --violet-700: 0.491 0.27 292.6;
+    --violet-800: 0.432 0.232 292.8;
+    --violet-900: 0.38 0.189 293.7;
+
+    /* ---- legacy ramp: orange (light) ---- */
+    --orange-50: 0.98 0.016 73.7;
+    --orange-100: 0.954 0.038 75.2;
+    --orange-200: 0.901 0.076 70.7;
+    --orange-300: 0.837 0.128 66.3;
+    --orange-400: 0.75 0.183 55.9;
+    --orange-500: 0.705 0.213 47.6;
+    --orange-600: 0.646 0.222 41.1;
+    --orange-700: 0.553 0.195 38.4;
+    --orange-800: 0.47 0.157 37.3;
+    --orange-900: 0.408 0.123 38.2;
+
+    /* ---- legacy ramp: rose (light) ---- */
+    --rose-50: 0.969 0.015 12.4;
+    --rose-100: 0.941 0.03 12.6;
+    --rose-200: 0.892 0.058 10;
+    --rose-300: 0.81 0.117 11.6;
+    --rose-400: 0.712 0.194 13.4;
+    --rose-500: 0.645 0.246 16.4;
+    --rose-600: 0.586 0.253 17.6;
+    --rose-700: 0.514 0.222 16.9;
+    --rose-800: 0.455 0.188 13.7;
+    --rose-900: 0.41 0.159 10.3;
+  }
+
+  .dark {
+    /* ---- semantic (dark) ---- */
+    --background: 0.13 0.01 260;
+    --foreground: 0.985 0 0;
+    --card: 0.18 0.01 260;
+    --card-2: 0.205 0.01 260;
+    --card-foreground: 0.985 0 0;
+    --popover: 0.18 0.01 260;
+    --popover-foreground: 0.985 0 0;
+    --primary: 0.62 0.2 259;
+    --primary-foreground: 0.985 0 0;
+    --primary-hover: 0.68 0.18 259;
+    --secondary: 0.22 0.01 260;
+    --secondary-foreground: 0.985 0 0;
+    --muted: 0.22 0.01 260;
+    --muted-foreground: 0.708 0.01 260;
+    --accent: 0.24 0.01 260;
+    --accent-foreground: 0.985 0 0;
+    --destructive: 0.62 0.23 25;
+    --destructive-foreground: 0.985 0 0;
+    --success: 0.68 0.15 162;
+    --success-foreground: 0.13 0.01 260;
+    --warning: 0.8 0.16 75;
+    --warning-foreground: 0.13 0.01 260;
+    --info: 0.62 0.2 259;
+    --info-foreground: 0.985 0 0;
+    --border: 0.28 0.01 260;
+    --input: 0.3 0.01 260;
+    --ring: 0.62 0.2 259;
+
+    /* Stays dark in dark mode too (matches the light-mode value's intent). */
+    --panel: 0.17 0.012 260;
+    --panel-foreground: 0.985 0 0;
+
+    --sidebar: 0.16 0.01 260;
+    --sidebar-foreground: 0.985 0 0;
+    --sidebar-accent: 0.22 0.01 260;
+    --sidebar-accent-foreground: 0.985 0 0;
+    --sidebar-border: 0.28 0.01 260;
+    --sidebar-primary: 0.62 0.2 259;
+    --sidebar-primary-foreground: 0.985 0 0;
+    --sidebar-ring: 0.62 0.2 259;
+
+    --chart-1: 0.62 0.2 259;
+    --chart-2: 0.68 0.15 162;
+    --chart-3: 0.8 0.16 75;
+    --chart-4: 0.68 0.25 293;
+    --chart-5: 0.67 0.23 16;
+
+    /* ---- legacy ramp: slate (neutral, dark — inverted) ---- */
+    --slate-50: 0.185 0.008 260;
+    --slate-100: 0.215 0.008 260;
+    --slate-200: 0.278 0.009 260;
+    --slate-300: 0.322 0.009 260;
+    --slate-400: 0.55 0.012 260;
+    --slate-500: 0.646 0.01 260;
+    --slate-600: 0.72 0.01 260;
+    --slate-700: 0.808 0.008 260;
+    --slate-800: 0.9 0.005 260;
+    --slate-900: 0.955 0.003 260;
+    --slate-950: 0.985 0 0;
+
+    /* ---- legacy ramp: brand (blue accent, dark) ---- */
+    --brand-50: 0.27 0.06 262;
+    --brand-100: 0.31 0.08 262;
+    --brand-200: 0.37 0.11 262;
+    --brand-300: 0.46 0.14 262;
+    --brand-400: 0.58 0.17 260;
+    --brand-500: 0.66 0.18 258;
+    --brand-600: 0.62 0.2 259;
+    --brand-700: 0.75 0.15 256;
+    --brand-800: 0.83 0.11 255;
+    --brand-900: 0.88 0.08 254;
+
+    /* ---- legacy ramp: red (dark) ---- */
+    --red-50: 0.28 0.09 25;
+    --red-100: 0.32 0.11 25;
+    --red-200: 0.38 0.14 25;
+    --red-300: 0.47 0.17 25;
+    --red-400: 0.6 0.2 25;
+    --red-500: 0.67 0.22 25;
+    --red-600: 0.63 0.24 27;
+    --red-700: 0.75 0.17 22;
+    --red-800: 0.83 0.12 20;
+    --red-900: 0.88 0.09 18;
+
+    /* ---- legacy ramp: emerald (dark) ---- */
+    --emerald-50: 0.26 0.06 165;
+    --emerald-100: 0.3 0.08 165;
+    --emerald-200: 0.36 0.1 165;
+    --emerald-300: 0.45 0.12 164;
+    --emerald-400: 0.58 0.14 163;
+    --emerald-500: 0.68 0.15 162;
+    --emerald-600: 0.62 0.15 163;
+    --emerald-700: 0.75 0.13 165;
+    --emerald-800: 0.83 0.1 167;
+    --emerald-900: 0.88 0.08 168;
+
+    /* ---- legacy ramp: amber (dark) ---- */
+    --amber-50: 0.28 0.06 70;
+    --amber-100: 0.33 0.08 70;
+    --amber-200: 0.4 0.1 65;
+    --amber-300: 0.5 0.13 62;
+    --amber-400: 0.63 0.15 60;
+    --amber-500: 0.76 0.17 70;
+    --amber-600: 0.8 0.16 75;
+    --amber-700: 0.85 0.14 82;
+    --amber-800: 0.89 0.11 88;
+    --amber-900: 0.92 0.08 92;
+
+    /* ---- legacy ramp: blue (dark) ---- */
+    --blue-50: 0.27 0.06 262;
+    --blue-100: 0.31 0.08 262;
+    --blue-200: 0.37 0.11 262;
+    --blue-300: 0.46 0.14 262;
+    --blue-400: 0.58 0.18 260;
+    --blue-500: 0.66 0.2 259;
+    --blue-600: 0.62 0.22 260;
+    --blue-700: 0.75 0.16 257;
+    --blue-800: 0.83 0.12 255;
+    --blue-900: 0.88 0.09 254;
+
+    /* ---- legacy ramp: cyan (dark) ---- */
+    --cyan-50: 0.26 0.05 220;
+    --cyan-100: 0.3 0.07 220;
+    --cyan-200: 0.36 0.09 218;
+    --cyan-300: 0.45 0.11 215;
+    --cyan-400: 0.58 0.13 213;
+    --cyan-500: 0.7 0.14 213;
+    --cyan-600: 0.64 0.13 218;
+    --cyan-700: 0.76 0.11 216;
+    --cyan-800: 0.83 0.08 220;
+    --cyan-900: 0.88 0.06 224;
+
+    /* ---- legacy ramp: violet (dark) ---- */
+    --violet-50: 0.28 0.07 293;
+    --violet-100: 0.32 0.09 293;
+    --violet-200: 0.38 0.12 293;
+    --violet-300: 0.47 0.16 293;
+    --violet-400: 0.6 0.22 293;
+    --violet-500: 0.68 0.25 293;
+    --violet-600: 0.62 0.26 293;
+    --violet-700: 0.76 0.18 293;
+    --violet-800: 0.83 0.14 293;
+    --violet-900: 0.88 0.1 293;
+
+    /* ---- legacy ramp: orange (dark) ---- */
+    --orange-50: 0.28 0.06 55;
+    --orange-100: 0.33 0.08 52;
+    --orange-200: 0.4 0.11 48;
+    --orange-300: 0.5 0.14 45;
+    --orange-400: 0.63 0.17 45;
+    --orange-500: 0.72 0.19 47;
+    --orange-600: 0.78 0.18 50;
+    --orange-700: 0.83 0.15 55;
+    --orange-800: 0.88 0.11 62;
+    --orange-900: 0.91 0.08 68;
+
+    /* ---- legacy ramp: rose (dark) ---- */
+    --rose-50: 0.28 0.09 15;
+    --rose-100: 0.32 0.11 15;
+    --rose-200: 0.38 0.14 15;
+    --rose-300: 0.47 0.17 15;
+    --rose-400: 0.6 0.2 15;
+    --rose-500: 0.67 0.23 16;
+    --rose-600: 0.62 0.25 17;
+    --rose-700: 0.75 0.17 14;
+    --rose-800: 0.83 0.13 12;
+    --rose-900: 0.88 0.1 10;
+  }
+
+  /* Default border colour, matching wacrm's base layer. Sets colour only,
+   * never border-width, so it is inert unless an element opts into a border. */
+  * {
+    border-color: oklch(var(--border) / 1);
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
+    @apply font-sans;
   }
 
   body {
-    @apply bg-canvas text-slate-900;
+    @apply bg-background text-foreground;
   }
 
-  /* Visible focus everywhere is a hard accessibility requirement. */
+  /* Visible focus everywhere remains a hard accessibility requirement. */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Respect users who ask for less motion. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }

@@ -3,10 +3,15 @@ import { cn } from '@/utils/cn';
 
 type Tone = 'error' | 'success' | 'info';
 
+// Tonal inline messages: a soft colour wash + a readable foreground of the
+// same family, tokenised so each stays accessible in light and dark.
 const TONES: Record<Tone, { classes: string; Icon: typeof Info }> = {
-  error: { classes: 'bg-red-50 text-red-800 border-red-200', Icon: AlertCircle },
-  success: { classes: 'bg-emerald-50 text-emerald-800 border-emerald-200', Icon: CheckCircle2 },
-  info: { classes: 'bg-brand-50 text-brand-800 border-brand-200', Icon: Info },
+  error: { classes: 'bg-destructive/10 text-destructive border-destructive/20', Icon: AlertCircle },
+  success: {
+    classes: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
+    Icon: CheckCircle2,
+  },
+  info: { classes: 'bg-primary/10 text-primary border-primary/20', Icon: Info },
 };
 
 interface AlertProps {

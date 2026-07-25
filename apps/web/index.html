@@ -8,6 +8,32 @@
       content="Interscale Travel CRM — multi-tenant CRM for travel agencies."
     />
     <title>Interscale Travel CRM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!--
+      Apply the saved appearance before first paint so there is no flash of the
+      wrong theme. Mirrors ThemeProvider's storage key and "system" fallback;
+      kept dependency-free so it can run as a single inline script.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('interscale-theme');
+          var isDark =
+            stored === 'dark' ||
+            ((stored === 'system' || stored === null) &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          root.classList.toggle('dark', isDark);
+          root.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
