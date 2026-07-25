@@ -20,7 +20,7 @@ import { FollowUpOutcomeBadge } from '@/features/follow-ups/FollowUpOutcomeBadge
 import { FollowUpStatusBadge } from '@/features/follow-ups/FollowUpStatusBadge';
 import { useLeadLookups } from '@/features/queries/queries.api';
 
-const fieldClass = 'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm';
+const fieldClass = 'h-10 w-full rounded-lg border border-slate-300 bg-card px-3 text-sm';
 const quickTabs = [
   ['due_today', 'Due Today'],
   ['overdue', 'Overdue'],
@@ -125,14 +125,14 @@ export function FollowUpsPage() {
             · {timezone}
           </p>
         </div>
-        <div className="rounded-lg bg-white px-3 py-2 text-sm shadow-sm">
+        <div className="rounded-lg bg-card px-3 py-2 text-sm shadow-sm">
           Completion rate <strong>{metrics?.completionRate ?? 0}%</strong>
         </div>
       </header>
 
       <section aria-label="Follow-up summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {cards.map(([label, value, tone, Icon]) => (
-          <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+          <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
             <Icon className={`h-5 w-5 ${tone}`} />
             <p className="mt-3 text-2xl font-semibold">{analytics.isLoading ? '—' : value}</p>
             <p className="mt-1 text-xs text-slate-500">{label}</p>
@@ -140,7 +140,7 @@ export function FollowUpsPage() {
         ))}
       </section>
 
-      <section className="rounded-xl border bg-white shadow-sm">
+      <section className="rounded-xl border bg-card shadow-sm">
         <div className="flex gap-1 overflow-x-auto border-b p-2" aria-label="Quick filters">
           {quickTabs.map(([value, label]) => (
             <button
@@ -459,12 +459,12 @@ export function FollowUpsPage() {
 
       {active && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-label={`${active.action} follow-up`}
         >
-          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+          <div className="w-full max-w-lg rounded-xl bg-card p-5 shadow-xl">
             <div className="flex justify-between">
               <div>
                 <h2 className="text-lg font-semibold">{labelForLookup(active.action)} follow-up</h2>

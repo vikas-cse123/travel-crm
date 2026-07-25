@@ -10,7 +10,7 @@ import {
   useCreateBooking,
 } from '@/features/bookings/bookings.api';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label className="space-y-1 text-sm">
     <span className="font-medium text-slate-700">{label}</span>
@@ -42,15 +42,15 @@ export function NewBookingPage() {
     },
   });
   if (quotationId) {
-    if (quotation.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+    if (quotation.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
     if (!quotation.data)
-      return <div className="rounded-xl bg-white p-12 text-center">Quotation unavailable.</div>;
+      return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
     const q = quotation.data;
     const accepted = q.versions.find((version) => version.id === q.acceptedVersionId);
     return (
       <div className="mx-auto max-w-4xl space-y-5">
         <header className="flex items-center gap-3">
-          <Link to={`/quotations/${q.id}`} className="rounded-lg p-2 hover:bg-white">
+          <Link to={`/quotations/${q.id}`} className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -68,7 +68,7 @@ export function NewBookingPage() {
             booking.
           </p>
         </section>
-        <section className="grid gap-4 rounded-xl border bg-white p-6 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 rounded-xl border bg-card p-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
             ['Customer', q.customerName],
             ['Destination', q.destinationSummary],
@@ -98,7 +98,7 @@ export function NewBookingPage() {
             Only an accepted quotation with an immutable accepted version can be converted.
           </div>
         ) : (
-          <section className="rounded-xl border bg-white p-6">
+          <section className="rounded-xl border bg-card p-6">
             <h2 className="font-semibold">Operational setup</h2>
             <p className="mt-1 text-sm text-slate-500">
               You can add travellers, payment installments and supplier confirmations in the booking
@@ -143,7 +143,7 @@ export function NewBookingPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <header className="flex items-center gap-3">
-        <Link to="/bookings" className="rounded-lg p-2 hover:bg-white">
+        <Link to="/bookings" className="rounded-lg p-2 hover:bg-card">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
@@ -155,7 +155,7 @@ export function NewBookingPage() {
         </div>
       </header>
       <form className="space-y-5" onSubmit={handleSubmit(submit)}>
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-card p-6">
           <h2 className="font-semibold">Customer and source lead</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Customer name">
@@ -172,7 +172,7 @@ export function NewBookingPage() {
             </Field>
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-card p-6">
           <h2 className="font-semibold">Travel details</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <Field label="Destination">
@@ -204,7 +204,7 @@ export function NewBookingPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-card p-6">
           <h2 className="font-semibold">Commercial and assignment</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <Field label="Currency">

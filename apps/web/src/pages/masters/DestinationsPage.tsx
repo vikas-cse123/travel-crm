@@ -48,7 +48,7 @@ export function DestinationsPage() {
           ) : undefined
         }
       />
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_220px_180px_180px]">
           <label className="relative">
             <span className="sr-only">Search destinations</span>
@@ -118,7 +118,7 @@ export function DestinationsPage() {
           <>
             <div className="hidden overflow-x-auto md:block">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-900 text-xs uppercase tracking-wide text-white">
+                <thead className="bg-muted text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   <tr>
                     {[
                       'Destination',

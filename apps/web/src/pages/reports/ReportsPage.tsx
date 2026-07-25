@@ -29,7 +29,7 @@ const money = (value: string | undefined | null) =>
     ? '—'
     : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value));
 
-const tile = 'rounded-xl border bg-white p-4 shadow-sm';
+const tile = 'rounded-xl border bg-card p-4 shadow-sm';
 const cell = 'whitespace-nowrap px-3 py-2 text-sm text-slate-700';
 const head = 'whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500';
 
@@ -65,7 +65,7 @@ function Kpi({ label, value }: { label: string; value: string | number }) {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border bg-white shadow-sm">
+    <section className="rounded-xl border bg-card shadow-sm">
       <header className="border-b px-4 py-3 text-sm font-semibold text-slate-800">{title}</header>
       <div className="p-4">{children}</div>
     </section>
@@ -248,7 +248,7 @@ export function ReportsPage() {
             Period
             <select
               aria-label="Report period"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
               value={period}
               onChange={(event) => setPeriod(event.target.value as DashboardPeriod)}
             >
@@ -266,7 +266,7 @@ export function ReportsPage() {
                 <input
                   aria-label="Custom from date"
                   type="date"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
                   value={from}
                   onChange={(event) => setFrom(event.target.value)}
                 />
@@ -276,7 +276,7 @@ export function ReportsPage() {
                 <input
                   aria-label="Custom to date"
                   type="date"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
                   value={to}
                   onChange={(event) => setTo(event.target.value)}
                 />
@@ -299,7 +299,7 @@ export function ReportsPage() {
           : ''}
       </p>
 
-      <nav className="flex flex-wrap gap-1 rounded-xl border bg-white p-1 shadow-sm">
+      <nav className="flex flex-wrap gap-1 rounded-xl border bg-card p-1 shadow-sm">
         {visibleTabs.map((key) => (
           <button
             key={key}
@@ -490,7 +490,7 @@ export function ReportsPage() {
             </div>
           )}
           {quotations.data?.rows?.length ? (
-            <div className="rounded-xl border bg-white shadow-sm">
+            <div className="rounded-xl border bg-card shadow-sm">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y">
                   <thead className="bg-slate-50">
@@ -568,7 +568,7 @@ export function ReportsPage() {
             </div>
           )}
           {bookings.data?.rows?.length ? (
-            <div className="rounded-xl border bg-white shadow-sm">
+            <div className="rounded-xl border bg-card shadow-sm">
               <div className="hidden overflow-x-auto md:block">
                 <table className="min-w-full divide-y">
                   <thead className="bg-slate-50">
@@ -667,7 +667,7 @@ export function ReportsPage() {
             </div>
           )}
           {payments.data?.rows?.length ? (
-            <div className="rounded-xl border bg-white shadow-sm">
+            <div className="rounded-xl border bg-card shadow-sm">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y">
                   <thead className="bg-slate-50">
@@ -736,7 +736,7 @@ export function ReportsPage() {
             </div>
           )}
           {payables.data?.rows?.length ? (
-            <div className="rounded-xl border bg-white shadow-sm">
+            <div className="rounded-xl border bg-card shadow-sm">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y">
                   <thead className="bg-slate-50">

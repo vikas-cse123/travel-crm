@@ -143,7 +143,7 @@ export function OtpInput({
           onPaste={handlePaste}
           onFocus={(event) => event.target.select()}
           className={cn(
-            'h-12 w-11 rounded-lg border bg-white text-center text-lg font-semibold text-slate-900 shadow-sm sm:h-14 sm:w-12 sm:text-xl',
+            'h-12 w-11 rounded-lg border bg-card text-center text-lg font-semibold text-slate-900 shadow-sm sm:h-14 sm:w-12 sm:text-xl',
             'disabled:cursor-not-allowed disabled:bg-slate-50',
             hasError
               ? 'border-red-400 focus:border-red-500'

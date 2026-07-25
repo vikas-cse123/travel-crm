@@ -11,7 +11,7 @@ export function EditUserPage() {
   if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-slate-100" />;
   if (query.isError || !query.data)
     return (
-      <div className="rounded-xl border bg-white p-10 text-center">
+      <div className="rounded-xl border bg-card p-10 text-center">
         <h1 className="font-semibold">User unavailable</h1>
         <p className="text-sm text-slate-500">This user was not found or you do not have access.</p>
       </div>

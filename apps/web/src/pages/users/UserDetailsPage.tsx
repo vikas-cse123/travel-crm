@@ -22,7 +22,7 @@ export function UserDetailsPage() {
     );
   if (query.isError || !query.data)
     return (
-      <div className="rounded-xl border bg-white p-12 text-center">
+      <div className="rounded-xl border bg-card p-12 text-center">
         <h1 className="text-lg font-semibold">User not found</h1>
         <p className="text-sm text-slate-500">
           The account does not exist in your company or is unavailable.

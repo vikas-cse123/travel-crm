@@ -16,7 +16,7 @@ export function ActivityLogsPage() {
         <p className="text-sm text-slate-500">Users / Activity Logs</p>
         <h1 className="text-2xl font-semibold">Activity Logs</h1>
       </header>
-      <section className="rounded-xl border bg-white">
+      <section className="rounded-xl border bg-card">
         <div className="grid gap-3 border-b p-4 md:grid-cols-4">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-2.5 h-4 w-4" />
@@ -118,7 +118,7 @@ export function ActivityLogsPage() {
                     <td>
                       <details>
                         <summary className="cursor-pointer text-brand-700">View</summary>
-                        <pre className="mt-2 max-w-sm overflow-auto rounded bg-slate-900 p-3 text-xs text-white">
+                        <pre className="mt-2 max-w-sm overflow-auto rounded bg-panel p-3 text-xs text-panel-foreground">
                           {JSON.stringify(e.metadata, null, 2)}
                         </pre>
                       </details>

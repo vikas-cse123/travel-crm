@@ -44,7 +44,7 @@ export function VendorServicesPage() {
       ) : services.isError ? (
         <div className="rounded-xl bg-red-50 p-5 text-red-700">Could not load vendor services.</div>
       ) : !services.data?.length ? (
-        <section className="rounded-xl border bg-white p-10 text-center">
+        <section className="rounded-xl border bg-card p-10 text-center">
           <p className="font-medium">No structured services yet.</p>
           <p className="text-sm text-slate-500">
             Add hotel rates, transport routes, airline fares, DMC packages or another supplier
@@ -54,7 +54,7 @@ export function VendorServicesPage() {
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {services.data.map((service) => (
-            <article key={service.id} className="rounded-xl border bg-white p-5 shadow-sm">
+            <article key={service.id} className="rounded-xl border bg-card p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <span className="rounded-full bg-brand-50 px-2 py-1 text-xs text-brand-700">

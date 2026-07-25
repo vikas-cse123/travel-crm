@@ -36,7 +36,7 @@ export function UsersPage() {
           </Link>
         )}
       </div>
-      <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-4">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />

@@ -139,7 +139,7 @@ export function VehicleFormPage() {
           </div>
         )}
 
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
             Vehicle Information
           </h2>
@@ -258,7 +258,7 @@ export function VehicleFormPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Button variant="secondary" onClick={() => navigate('/masters/vehicles')}>
             <X className="h-4 w-4" /> Cancel
           </Button>

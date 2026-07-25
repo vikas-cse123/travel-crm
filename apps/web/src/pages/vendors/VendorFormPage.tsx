@@ -85,7 +85,7 @@ const initial: Values = {
   rating: '',
   createAnyway: false,
 };
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const clean = (value: string) => value || null;
 
 export function VendorFormPage() {
@@ -206,7 +206,7 @@ export function VendorFormPage() {
                 <a
                   key={match.id}
                   href={`/vendors/${match.id}`}
-                  className="rounded-lg border bg-white p-3 text-sm"
+                  className="rounded-lg border bg-card p-3 text-sm"
                 >
                   <span className="font-semibold">{match.name}</span>
                   <p className="text-xs text-slate-500">
@@ -226,7 +226,7 @@ export function VendorFormPage() {
             )}
           </section>
         ) : null}
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <section className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="font-semibold">Vendor information</h2>
           <div className="mt-4 grid gap-5 md:grid-cols-2">
             <div className="space-y-4">
@@ -340,7 +340,7 @@ export function VendorFormPage() {
             </div>
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <section className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="font-semibold">Contract, compliance and ownership</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <label className="text-sm">

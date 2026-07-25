@@ -151,7 +151,7 @@ export function ReminderFormPage() {
         }
       />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <form onSubmit={submit} className="space-y-5 rounded-xl border bg-white p-5 shadow-sm">
+        <form onSubmit={submit} className="space-y-5 rounded-xl border bg-card p-5 shadow-sm">
           {error && (
             <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
               {error}
@@ -321,7 +321,7 @@ export function ReminderFormPage() {
             <li>Snooze only when the next action genuinely moves.</li>
           </ul>
           {reminder.data?.reminderRule && (
-            <p className="mt-4 rounded-lg bg-white/70 p-3 text-xs text-blue-700">
+            <p className="mt-4 rounded-lg bg-card/70 p-3 text-xs text-blue-700">
               Automated by {reminder.data.reminderRule.name}
             </p>
           )}

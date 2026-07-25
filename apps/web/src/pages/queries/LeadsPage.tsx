@@ -289,20 +289,20 @@ export function LeadsPage() {
       {analytics.isLoading ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-xl bg-white" />
+            <div key={i} className="h-20 animate-pulse rounded-xl bg-card" />
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           {cards.map(([title, value]) => (
-            <div key={title} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={title} className="rounded-xl border border-slate-200 bg-card p-4 shadow-sm">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{title}</p>
               <p className="mt-1 text-2xl font-semibold">{value}</p>
             </div>
           ))}
         </div>
       )}
-      <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-xl border border-slate-200 bg-card shadow-sm">
         <div className="space-y-3 border-b p-4">
           <div className="grid gap-3 md:grid-cols-4">
             <label className="relative md:col-span-2">
@@ -660,12 +660,12 @@ export function LeadsPage() {
 
       {dialog && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-label={dialog === 'assign' ? 'Bulk assign leads' : 'Bulk change stage'}
         >
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg">
+          <div className="w-full max-w-md rounded-xl bg-card p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">
                 {dialog === 'assign' ? 'Assign' : 'Change stage for'} {selected.size} leads

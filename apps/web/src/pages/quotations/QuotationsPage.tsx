@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotations } from '@/features/quotations/quotations.api';
 
-const field = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm';
+const field = 'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm';
 const statuses = ['DRAFT', 'SENT', 'VIEWED', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const;
 export function QuotationsPage() {
   const { hasPermission } = useAuth();
@@ -40,23 +40,23 @@ export function QuotationsPage() {
       </header>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
         {statuses.map((status) => (
-          <article key={status} className="rounded-xl border bg-white p-4">
+          <article key={status} className="rounded-xl border bg-card p-4">
             <p className="text-2xl font-semibold">{metrics?.byStatus[status] ?? 0}</p>
             <p className="text-xs text-slate-500">{labelForLookup(status)}</p>
           </article>
         ))}
-        <article className="rounded-xl border bg-white p-4">
+        <article className="rounded-xl border bg-card p-4">
           <p className="text-xl font-semibold">
             ₹{Number(metrics?.totalQuotedValue ?? 0).toLocaleString('en-IN')}
           </p>
           <p className="text-xs text-slate-500">Quoted value</p>
         </article>
-        <article className="rounded-xl border bg-white p-4">
+        <article className="rounded-xl border bg-card p-4">
           <p className="text-2xl font-semibold">{metrics?.acceptanceRate ?? 0}%</p>
           <p className="text-xs text-slate-500">Acceptance</p>
         </article>
       </section>
-      <section className="rounded-xl border bg-white shadow-sm">
+      <section className="rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-4">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />

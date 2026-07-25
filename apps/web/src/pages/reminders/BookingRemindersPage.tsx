@@ -34,7 +34,7 @@ export function BookingRemindersPage() {
           { label: 'Completed', value: analytics.data?.completed ?? 0, tone: 'green' },
         ]}
       />
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
+      <section className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="relative sm:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -61,7 +61,7 @@ export function BookingRemindersPage() {
         </div>
       </section>
       {list.isPending ? (
-        <div className="rounded-xl border bg-white p-10 text-center text-sm text-slate-500">
+        <div className="rounded-xl border bg-card p-10 text-center text-sm text-slate-500">
           Loading booking reminders…
         </div>
       ) : !list.data?.data.length ? (
@@ -75,7 +75,7 @@ export function BookingRemindersPage() {
             const booking = row.linkedEntity;
             const travelDate = row.reminderType === 'BOOKING_TRAVEL' ? new Date(row.dueAt) : null;
             return (
-              <article key={row.id} className="rounded-xl border bg-white p-5 shadow-sm">
+              <article key={row.id} className="rounded-xl border bg-card p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap gap-2">

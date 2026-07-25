@@ -15,7 +15,7 @@ import {
 } from '@/features/settings/settings.api';
 
 const input = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
-const card = 'rounded-xl border bg-white p-5 shadow-sm space-y-4';
+const card = 'rounded-xl border bg-card p-5 shadow-sm space-y-4';
 
 const TABS = [
   ['profile', 'Company Profile'],
@@ -530,10 +530,10 @@ export function SettingsPage() {
   const settings = useSettings();
   const [tab, setTab] = useState<TabKey>('profile');
 
-  if (settings.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (settings.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (settings.isError || !settings.data)
     return (
-      <div role="alert" className="rounded-xl bg-white p-12 text-center text-red-700">
+      <div role="alert" className="rounded-xl bg-card p-12 text-center text-red-700">
         Settings could not be loaded.
       </div>
     );
@@ -547,7 +547,7 @@ export function SettingsPage() {
         <h1 className="text-2xl font-semibold">Company Settings</h1>
       </div>
       <nav
-        className="flex gap-1 overflow-x-auto rounded-xl border bg-white p-1"
+        className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
         aria-label="Settings sections"
       >
         {TABS.map(([key, label]) => (

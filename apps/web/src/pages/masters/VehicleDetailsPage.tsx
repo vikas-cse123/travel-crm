@@ -44,7 +44,7 @@ export function VehicleDetailsPage() {
   if (vehicle.isPending) return <LoadingCard />;
   if (vehicle.isError)
     return (
-      <div role="alert" className="rounded-xl border bg-white p-8 text-center text-red-700">
+      <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
         This vehicle could not be loaded.
       </div>
     );
@@ -101,7 +101,7 @@ export function VehicleDetailsPage() {
         </div>
       </header>
 
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
           Vehicle Information
         </h2>

@@ -19,7 +19,7 @@ export function UserActionMenu({ user }: { user: ManagedUser }) {
       >
         <MoreHorizontal className="h-4 w-4" />
       </summary>
-      <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border bg-white p-1 text-sm shadow-lg">
+      <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border bg-card p-1 text-sm shadow-lg">
         <Link className="block rounded px-3 py-2 hover:bg-slate-50" to={`/users/${user.id}`}>
           View
         </Link>

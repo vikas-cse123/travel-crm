@@ -68,7 +68,7 @@ export function SystemStatusPage() {
         />
       </div>
 
-      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-card">
+      <section className="mt-8 rounded-xl border border-slate-200 bg-card p-5 shadow-card">
         <h2 className="text-sm font-semibold text-slate-900">Next phase</h2>
         <p className="mt-1 text-sm text-slate-600">
           Phase 2 defines the multi-tenant Prisma schema — companies, users, roles, permissions,

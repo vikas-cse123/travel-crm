@@ -51,7 +51,7 @@ export function AirlineDetailsPage() {
           </div>
         }
       />
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center gap-4 border-b p-5">
           <div className="flex h-20 w-28 items-center justify-center rounded-lg border bg-slate-50">
             {logoUrl ? (

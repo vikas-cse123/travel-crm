@@ -30,7 +30,7 @@ export function AddOnServiceDetailsPage() {
   if (record.isPending) return <LoadingCard />;
   if (record.isError)
     return (
-      <div role="alert" className="rounded-xl border bg-white p-8 text-center text-red-700">
+      <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
         This add-on service could not be loaded.
       </div>
     );
@@ -78,7 +78,7 @@ export function AddOnServiceDetailsPage() {
         </div>
       </header>
 
-      <section className="mx-auto w-full max-w-3xl overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="mx-auto w-full max-w-3xl overflow-hidden rounded-xl border bg-card shadow-sm">
         <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
           Service Information
         </h2>

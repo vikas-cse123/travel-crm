@@ -61,7 +61,7 @@ export function DestinationDetailsPage() {
         }
       />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           {imageUrl ? (
             <img src={imageUrl} alt={value.name} className="h-64 w-full object-cover" />
           ) : (
@@ -120,7 +120,7 @@ export function DestinationDetailsPage() {
             </dl>
           </div>
         </section>
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <div className="overflow-x-auto border-b bg-slate-50">
             <div role="tablist" className="flex min-w-max">
               {tabs.map(([key, label]) => (
@@ -129,7 +129,7 @@ export function DestinationDetailsPage() {
                   role="tab"
                   aria-selected={tab === key}
                   onClick={() => setTab(key)}
-                  className={`border-b-2 px-4 py-4 text-sm font-medium ${tab === key ? 'border-brand-600 bg-white text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                  className={`border-b-2 px-4 py-4 text-sm font-medium ${tab === key ? 'border-brand-600 bg-card text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                 >
                   {label}
                 </button>

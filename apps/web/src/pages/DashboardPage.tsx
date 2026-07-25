@@ -33,7 +33,7 @@ const money = (value: string | undefined) =>
     ? '—'
     : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value));
 
-const tile = 'rounded-xl border bg-white p-4 shadow-sm';
+const tile = 'rounded-xl border bg-card p-4 shadow-sm';
 
 function Kpi({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
   return (
@@ -57,7 +57,7 @@ function Panel({
 }) {
   if (!section) return null;
   return (
-    <section className="rounded-xl border bg-white shadow-sm">
+    <section className="rounded-xl border bg-card shadow-sm">
       <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
           <Icon className="h-4 w-4 text-brand-600" />
@@ -120,7 +120,7 @@ export function DashboardPage() {
             Period
             <select
               aria-label="Dashboard period"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
               value={period}
               onChange={(event) => setPeriod(event.target.value as DashboardPeriod)}
             >
@@ -138,7 +138,7 @@ export function DashboardPage() {
                 <input
                   aria-label="Custom from date"
                   type="date"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
                   value={from}
                   onChange={(event) => setFrom(event.target.value)}
                 />
@@ -148,7 +148,7 @@ export function DashboardPage() {
                 <input
                   aria-label="Custom to date"
                   type="date"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
                   value={to}
                   onChange={(event) => setTo(event.target.value)}
                 />
@@ -169,7 +169,7 @@ export function DashboardPage() {
         </div>
       </header>
 
-      <nav className="flex gap-1 rounded-xl border bg-white p-1" aria-label="Dashboard sections">
+      <nav className="flex gap-1 rounded-xl border bg-card p-1" aria-label="Dashboard sections">
         {(['analytics', 'operations'] as const).map((name) => (
           <button
             key={name}
@@ -186,9 +186,9 @@ export function DashboardPage() {
       {tab === 'analytics' && (
         <div className="space-y-5">
           {analytics.isLoading ? (
-            <div className="h-64 animate-pulse rounded-xl bg-white" />
+            <div className="h-64 animate-pulse rounded-xl bg-card" />
           ) : analytics.isError ? (
-            <div role="alert" className="rounded-xl border bg-white p-8 text-center text-red-700">
+            <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
               The dashboard analytics could not be loaded.
             </div>
           ) : (
@@ -232,7 +232,7 @@ export function DashboardPage() {
 
               <div className="grid gap-5 lg:grid-cols-2">
                 {caps?.canViewLeads && (
-                  <section className="rounded-xl border bg-white p-5 shadow-sm">
+                  <section className="rounded-xl border bg-card p-5 shadow-sm">
                     <h2 className="font-semibold">Lead sources</h2>
                     <div className="mt-4 flex items-center gap-6">
                       <DonutChart
@@ -254,7 +254,7 @@ export function DashboardPage() {
                   </section>
                 )}
                 {caps?.canViewLeads && (
-                  <section className="rounded-xl border bg-white p-5 shadow-sm">
+                  <section className="rounded-xl border bg-card p-5 shadow-sm">
                     <h2 className="font-semibold">Top destination enquiries</h2>
                     <div className="mt-4">
                       <HorizontalBarChart
@@ -270,7 +270,7 @@ export function DashboardPage() {
 
               <div className="grid gap-5 lg:grid-cols-2">
                 {caps?.canViewLeads && (
-                  <section className="rounded-xl border bg-white shadow-sm">
+                  <section className="rounded-xl border bg-card shadow-sm">
                     <h2 className="border-b px-4 py-3 font-semibold">
                       Top performers — conversion rate
                     </h2>
@@ -315,7 +315,7 @@ export function DashboardPage() {
                   </section>
                 )}
                 {showFinancials && (
-                  <section className="rounded-xl border bg-white shadow-sm">
+                  <section className="rounded-xl border bg-card shadow-sm">
                     <h2 className="border-b px-4 py-3 font-semibold">
                       Top performers — profit earned
                     </h2>
@@ -367,9 +367,9 @@ export function DashboardPage() {
       {tab === 'operations' && (
         <div className="space-y-5">
           {operations.isLoading ? (
-            <div className="h-64 animate-pulse rounded-xl bg-white" />
+            <div className="h-64 animate-pulse rounded-xl bg-card" />
           ) : operations.isError ? (
-            <div role="alert" className="rounded-xl border bg-white p-8 text-center text-red-700">
+            <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
               The operations lists could not be loaded.
             </div>
           ) : (

@@ -128,7 +128,7 @@ export function SightseeingPage() {
         }
       />
 
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_200px_200px_150px]">
           <label className="relative">
             <span className="sr-only">Search sightseeing</span>
@@ -402,7 +402,7 @@ export function SightseeingPage() {
       </section>
 
       {stats && (
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
             Summary Statistics
           </h2>

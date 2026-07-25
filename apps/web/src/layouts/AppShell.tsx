@@ -23,7 +23,7 @@ export function AppShell() {
   const breadcrumbs = useBreadcrumbs();
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="min-h-screen bg-background">
       <Sidebar
         collapsed={collapsed}
         mobileOpen={mobileOpen}
@@ -38,7 +38,7 @@ export function AppShell() {
           breadcrumbs={breadcrumbs}
         />
 
-        <main className="p-4 sm:p-6">
+        <main className="mx-auto w-full max-w-[1440px] p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

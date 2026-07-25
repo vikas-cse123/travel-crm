@@ -30,7 +30,7 @@ export function RolesPage() {
           </Link>
         )}
       </header>
-      <div className="rounded-xl border bg-white">
+      <div className="rounded-xl border bg-card">
         <div className="flex gap-3 border-b p-4">
           <label className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4" />

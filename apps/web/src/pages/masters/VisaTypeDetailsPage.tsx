@@ -38,7 +38,7 @@ export function VisaTypeDetailsPage() {
           </div>
         }
       />
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex flex-wrap items-center gap-3 border-b p-5">
           <h2 className="text-2xl font-semibold">{value.name}</h2>
           <StatusBadge value={value.status} />
@@ -66,7 +66,7 @@ export function VisaTypeDetailsPage() {
       <section className="space-y-4">
         {value.sections.length ? (
           value.sections.map((section) => (
-            <div key={section.id} className="overflow-hidden rounded-xl border bg-white shadow-sm">
+            <div key={section.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
               <div className="border-b bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
                 {section.title}
               </div>
@@ -76,7 +76,7 @@ export function VisaTypeDetailsPage() {
             </div>
           ))
         ) : (
-          <div className="rounded-xl border bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+          <div className="rounded-xl border bg-card p-8 text-center text-sm text-slate-500 shadow-sm">
             No sections added.
           </div>
         )}

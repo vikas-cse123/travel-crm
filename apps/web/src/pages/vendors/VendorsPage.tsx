@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useVendorAnalytics, useVendors } from '@/features/vendors/vendors.api';
 
-const field = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm';
+const field = 'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm';
 const currency = (value?: string) =>
   value === undefined
     ? 'Restricted'
@@ -97,7 +97,7 @@ export function VendorsPage() {
 
       <section aria-label="Vendor summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {summary.map(([label, value, Icon]) => (
-          <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+          <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-2xl font-semibold">{value}</p>
@@ -108,7 +108,7 @@ export function VendorsPage() {
           </article>
         ))}
       </section>
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
+      <section className="rounded-xl border bg-card p-4 shadow-sm">
         <h2 className="font-semibold">Vendor distribution</h2>
         <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
           {distribution.map(([label, value]) => (
@@ -120,7 +120,7 @@ export function VendorsPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-3 xl:grid-cols-7">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />

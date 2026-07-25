@@ -91,7 +91,7 @@ const textOrNull = (value: string): string | null => value.trim() || null;
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
       <div className="border-b bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
         {title}
       </div>
@@ -483,7 +483,7 @@ export function HotelFormPage() {
           </Card>
         )}
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Link to={hotelId ? `/masters/hotels/${hotelId}` : '/masters/hotels'}>
             <Button variant="secondary">Cancel</Button>
           </Link>

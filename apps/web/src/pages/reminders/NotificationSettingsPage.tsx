@@ -46,7 +46,7 @@ function Toggle({
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span className="relative h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-brand-600 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5" />
+      <span className="relative h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-brand-600 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-card after:transition peer-checked:after:translate-x-5" />
     </label>
   );
 }
@@ -82,7 +82,7 @@ function RulesPanel() {
         </Button>
       </div>
       {rules.isPending ? (
-        <div className="rounded-xl border bg-white p-8 text-center text-sm text-slate-500">
+        <div className="rounded-xl border bg-card p-8 text-center text-sm text-slate-500">
           Loading automation rules…
         </div>
       ) : rules.isError ? (
@@ -106,7 +106,7 @@ function RulesPanel() {
               </h3>
               <div className="grid gap-3 lg:grid-cols-2">
                 {rows.map((rule) => (
-                  <article key={rule.id} className="rounded-xl border bg-white p-4 shadow-sm">
+                  <article key={rule.id} className="rounded-xl border bg-card p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h4 className="font-semibold text-slate-900">{rule.name}</h4>
@@ -212,7 +212,7 @@ export function NotificationSettingsPage() {
           recorded separately, and email failure never rolls back reminder creation.
         </p>
       </div>
-      <section className="rounded-xl border bg-white shadow-sm">
+      <section className="rounded-xl border bg-card shadow-sm">
         <div className="border-b p-5">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <BellRing className="h-5 w-5 text-brand-600" />
@@ -294,7 +294,7 @@ export function NotificationSettingsPage() {
       {hasPermission(PERMISSIONS.REMINDERS_MANAGE_RULES) ? (
         <RulesPanel />
       ) : (
-        <div className="rounded-xl border bg-white p-5">
+        <div className="rounded-xl border bg-card p-5">
           <div className="flex items-center gap-2 font-semibold">
             <Settings2 className="h-5 w-5" />
             Automation rules

@@ -163,7 +163,7 @@ export function CruiseFormPage() {
         )}
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
               Cruise Information
             </h2>
@@ -221,7 +221,7 @@ export function CruiseFormPage() {
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-2">
               <h2 className="text-sm font-semibold text-slate-800">Room Types</h2>
               <Button
@@ -298,7 +298,7 @@ export function CruiseFormPage() {
           </section>
         </div>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Button variant="secondary" onClick={() => navigate('/masters/cruises')}>
             <X className="h-4 w-4" /> Cancel
           </Button>

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotationTemplates, useTemplateAction } from '@/features/quotations/quotations.api';
 
-const field = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm';
+const field = 'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm';
 export function QuotationTemplatesPage() {
   const { hasPermission } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -41,7 +41,7 @@ export function QuotationTemplatesPage() {
           </Link>
         )}
       </header>
-      <section className="rounded-xl border bg-white shadow-sm">
+      <section className="rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-4">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />

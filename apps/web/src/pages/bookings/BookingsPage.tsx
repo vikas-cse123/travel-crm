@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useBookingAnalytics, useBookings } from '@/features/bookings/bookings.api';
 
-const field = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm';
+const field = 'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm';
 const money = (value: string | undefined) =>
   value === undefined
     ? 'Restricted'
@@ -71,7 +71,7 @@ export function BookingsPage() {
       </header>
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map(([label, value]) => (
-          <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+          <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-2xl font-semibold">{value}</p>
             <p className="text-xs text-slate-500">{label}</p>
           </article>
@@ -90,7 +90,7 @@ export function BookingsPage() {
                 ['Margin', `${analytics.data?.profitMarginPercentage ?? '0'}%`],
               ] as Array<[string, string]>
             ).map(([label, value]) => (
-              <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+              <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
                 <p className="text-lg font-semibold">{value}</p>
                 <p className="text-xs text-slate-500">{label}</p>
               </article>
@@ -107,7 +107,7 @@ export function BookingsPage() {
                 ['Payments received', money(analytics.data?.totalCustomerPaymentsReceived)],
               ] as Array<[string, string]>
             ).map(([label, value]) => (
-              <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+              <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
                 <p className="text-lg font-semibold">{value}</p>
                 <p className="text-xs text-slate-500">{label}</p>
               </article>
@@ -115,7 +115,7 @@ export function BookingsPage() {
           </div>
         </section>
       )}
-      <section className="rounded-xl border bg-white shadow-sm">
+      <section className="rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-2 xl:grid-cols-6">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />

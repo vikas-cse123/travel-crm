@@ -197,7 +197,7 @@ export function QuotationTemplateFormPage() {
         <div className="flex items-center gap-3">
           <Link
             to={templateId ? `/quotation-templates/${templateId}` : '/quotation-templates'}
-            className="rounded-lg p-2 hover:bg-white"
+            className="rounded-lg p-2 hover:bg-card"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
@@ -216,7 +216,7 @@ export function QuotationTemplateFormPage() {
       {save.isError && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{save.error.message}</p>
       )}
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="font-semibold">1. Basic information</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <FormField label="Template name" required error={form.formState.errors.name?.message}>
@@ -267,7 +267,7 @@ export function QuotationTemplateFormPage() {
           </FormField>
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="font-semibold">2. Base pricing</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {(
@@ -294,7 +294,7 @@ export function QuotationTemplateFormPage() {
           ))}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">3. Hotel options</h2>
           <Button
@@ -406,7 +406,7 @@ export function QuotationTemplateFormPage() {
           ))}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">4. Day-wise itinerary</h2>
           <Button
@@ -493,7 +493,7 @@ export function QuotationTemplateFormPage() {
           ))}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">5. Services and activities</h2>
           <Button
@@ -625,7 +625,7 @@ export function QuotationTemplateFormPage() {
             ['8. Terms and conditions', terms, 'terms'],
           ] as const
         ).map(([title, array, name]) => (
-          <section key={name} className="rounded-xl border bg-white p-5">
+          <section key={name} className="rounded-xl border bg-card p-5">
             <div className="flex justify-between">
               <h2 className="font-semibold">{title}</h2>
               <Button

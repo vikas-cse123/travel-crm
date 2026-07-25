@@ -92,10 +92,10 @@ export function LeadDetailsPage() {
   const [editingFollowUpId, setEditingFollowUpId] = useState<string | null>(null);
   const [editingFollowUpAt, setEditingFollowUpAt] = useState('');
   const [editingFollowUpNotes, setEditingFollowUpNotes] = useState('');
-  if (workspace.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (workspace.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (workspace.isError || !workspace.data)
     return (
-      <div className="rounded-xl bg-white p-12 text-center">
+      <div className="rounded-xl bg-card p-12 text-center">
         <h1 className="text-xl font-semibold">Lead unavailable</h1>
         <p className="mt-2 text-slate-500">It may not exist or is outside your visibility scope.</p>
         <Link className="mt-4 inline-block text-brand-700" to="/queries">
@@ -121,13 +121,13 @@ export function LeadDetailsPage() {
     (item) => item.status === 'ACCEPTED' && !item.booking,
   );
 
-  const card = 'rounded-xl border bg-white p-5 shadow-sm';
+  const card = 'rounded-xl border bg-card p-5 shadow-sm';
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/queries" className="rounded-lg p-2 hover:bg-white">
+          <Link to="/queries" className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -170,7 +170,7 @@ export function LeadDetailsPage() {
       </div>
 
       <nav
-        className="flex gap-1 overflow-x-auto rounded-xl border bg-white p-1"
+        className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
         aria-label="Lead sections"
       >
         {TABS.map(([key, label]) => (
@@ -195,7 +195,7 @@ export function LeadDetailsPage() {
                 {workspace.data.indicators.map((indicator) => (
                   <span
                     key={indicator}
-                    className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-800"
+                    className="rounded-full bg-card px-2.5 py-1 text-xs font-medium text-amber-800"
                   >
                     {labelForLookup(indicator)}
                   </span>
@@ -210,7 +210,7 @@ export function LeadDetailsPage() {
               ['Completed', workspace.data.operationalSummary.completedFollowUpCount],
               ['Notes', workspace.data.operationalSummary.notesCount],
             ].map(([label, value]) => (
-              <article key={label} className="rounded-xl border bg-white p-4 shadow-sm">
+              <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
                 <p className="text-2xl font-semibold">{value}</p>
                 <p className="text-xs text-slate-500">{label}</p>
               </article>
@@ -498,7 +498,7 @@ export function LeadDetailsPage() {
       {tab === 'booking' &&
         (allowed.canViewBookings ? (
           workspace.data.bookings.count > 0 ? (
-            <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
+            <section className="rounded-xl border border-emerald-200 bg-card p-5 shadow-sm">
               <div>
                 <h2 className="font-semibold text-emerald-900">Linked booking</h2>
                 <p className="mt-1 text-sm text-slate-500">

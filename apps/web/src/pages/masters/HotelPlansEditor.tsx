@@ -91,7 +91,7 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [] }: Props) {
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b bg-slate-50 px-5 py-3">
         <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
         {canUpdate && (

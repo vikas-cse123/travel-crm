@@ -23,7 +23,7 @@ import {
   type ServiceRowPatch,
 } from '@/features/quotations/MasterFields';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const defaults: QuotationVersionInput = {
   title: '',
   introduction: null,
@@ -160,12 +160,12 @@ export function QuotationBuilderPage() {
     const tax = (preTax * Number(taxRate)) / 100;
     return { cost, selling, markup, tax, final: preTax + tax, margin: preTax - cost };
   }, [watchedHotels, watchedServices, markupMode, markupValue, taxRate, discount]);
-  if (quotation.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (quotation.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!quotation.data || !version)
-    return <div className="rounded-xl bg-white p-12 text-center">Draft version unavailable.</div>;
+    return <div className="rounded-xl bg-card p-12 text-center">Draft version unavailable.</div>;
   if (version.status !== 'DRAFT')
     return (
-      <div className="rounded-xl bg-white p-12 text-center">
+      <div className="rounded-xl bg-card p-12 text-center">
         Finalized versions are immutable. Create a revision to edit.
       </div>
     );
@@ -194,7 +194,7 @@ export function QuotationBuilderPage() {
     },
     name: 'inclusions' | 'exclusions' | 'terms',
   ) => (
-    <section className="rounded-xl border bg-white p-5">
+    <section className="rounded-xl border bg-card p-5">
       <div className="flex justify-between">
         <h2 className="font-semibold">{title}</h2>
         <Button
@@ -226,7 +226,7 @@ export function QuotationBuilderPage() {
     <form className="space-y-5" onSubmit={submit}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to={`/quotations/${quotationId}`} className="rounded-lg p-2 hover:bg-white">
+          <Link to={`/quotations/${quotationId}`} className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -244,7 +244,7 @@ export function QuotationBuilderPage() {
       {save.isError && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{save.error.message}</p>
       )}
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="font-semibold">1. Customer and travel summary</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <label className="text-sm font-medium">
@@ -295,7 +295,7 @@ export function QuotationBuilderPage() {
           </label>
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex justify-between">
           <h2 className="font-semibold">2. Hotels</h2>
           <Button
@@ -410,7 +410,7 @@ export function QuotationBuilderPage() {
           ))}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex justify-between">
           <h2 className="font-semibold">3. Day-wise itinerary</h2>
           <Button
@@ -494,7 +494,7 @@ export function QuotationBuilderPage() {
           ))}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex justify-between">
           <h2 className="font-semibold">
             4. Flights, transfers, sightseeing, visa, meals and other services
@@ -617,7 +617,7 @@ export function QuotationBuilderPage() {
         {textSection('7. Terms', terms, 'terms')}
       </div>
       <section className="grid gap-5 lg:grid-cols-3">
-        <div className="rounded-xl border bg-white p-5 lg:col-span-2">
+        <div className="rounded-xl border bg-card p-5 lg:col-span-2">
           <h2 className="font-semibold">8. Pricing and commercials</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm font-medium">
@@ -679,8 +679,8 @@ export function QuotationBuilderPage() {
             )}
           </div>
         </div>
-        <aside className="rounded-xl bg-slate-950 p-5 text-white">
-          <p className="text-sm text-slate-300">Live estimate</p>
+        <aside className="rounded-xl bg-panel p-5 text-panel-foreground">
+          <p className="text-sm text-panel-foreground/70">Live estimate</p>
           <dl className="mt-4 space-y-2 text-sm">
             <div className="flex justify-between">
               <dt>Selling subtotal</dt>
@@ -696,11 +696,11 @@ export function QuotationBuilderPage() {
             </div>
             {canCost && (
               <>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-panel-foreground/70">
                   <dt>Internal cost</dt>
                   <dd>{estimate.cost.toFixed(2)}</dd>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-panel-foreground/70">
                   <dt>Margin</dt>
                   <dd>{estimate.margin.toFixed(2)}</dd>
                 </div>
@@ -712,8 +712,7 @@ export function QuotationBuilderPage() {
             <p className="text-3xl font-semibold">
               {form.watch('currency')} {estimate.final.toFixed(2)}
             </p>
-            <p className="mt-2 text-xs text-slate-400">
-              The server recalculates and rounds every total authoritatively.
+            <p className="mt-2 text-xs text-panel-foreground/60">              The server recalculates and rounds every total authoritatively.
             </p>
           </div>
         </aside>

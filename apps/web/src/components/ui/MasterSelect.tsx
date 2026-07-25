@@ -78,7 +78,7 @@ export function MasterSelect({
         disabled={disabled || loading}
         value={display}
         onChange={(event) => commit(event.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-8 text-sm disabled:bg-slate-100"
+        className="w-full rounded-lg border border-slate-300 bg-card py-2 pl-3 pr-8 text-sm disabled:bg-slate-100"
       />
       <datalist id={listId}>
         {options.map((option) => (

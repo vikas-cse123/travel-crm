@@ -98,7 +98,7 @@ export function AddOnServiceFormPage() {
           </div>
         )}
 
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
             Service Information
           </h2>

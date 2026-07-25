@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useLeads } from '@/features/queries/queries.api';
 import { useCreateQuotation, useQuotationTemplates } from '@/features/quotations/quotations.api';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function NewQuotationPage() {
   const { queryId: routeQueryId } = useParams();
   const [params] = useSearchParams();
@@ -32,7 +32,7 @@ export function NewQuotationPage() {
       <header className="flex items-center gap-3">
         <Link
           to={routeQueryId ? `/queries/${routeQueryId}` : '/quotations'}
-          className="rounded-lg p-2 hover:bg-white"
+          className="rounded-lg p-2 hover:bg-card"
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
@@ -41,7 +41,7 @@ export function NewQuotationPage() {
           <h1 className="text-2xl font-semibold">Create quotation</h1>
         </div>
       </header>
-      <section className="rounded-xl border bg-white p-6 shadow-sm">
+      <section className="rounded-xl border bg-card p-6 shadow-sm">
         <h2 className="font-semibold">Choose the lead and starting point</h2>
         <p className="mt-1 text-sm text-slate-500">
           Customer and traveller details are copied safely. Templates become independent snapshots.

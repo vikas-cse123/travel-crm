@@ -89,7 +89,7 @@ export function VisaTypeFormPage() {
             {mutation.error.message}
           </div>
         )}
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <div className="border-b bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-4 text-lg font-semibold text-white">
             Visa Type Information
           </div>
@@ -127,7 +127,7 @@ export function VisaTypeFormPage() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b bg-slate-50 px-5 py-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-700">Visa Sections</h3>
@@ -201,7 +201,7 @@ export function VisaTypeFormPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Link to={visaTypeId ? `/masters/visa-types/${visaTypeId}` : '/masters/visa-types'}>
             <Button variant="secondary">Cancel</Button>
           </Link>

@@ -144,7 +144,7 @@ export function TestimonialFormPage() {
             {imageError || mutation.error?.message}
           </div>
         )}
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <div className="border-b bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-4 text-lg font-semibold text-white">
             Testimonial Information
           </div>

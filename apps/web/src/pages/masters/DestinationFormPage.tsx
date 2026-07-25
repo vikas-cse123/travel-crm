@@ -185,7 +185,7 @@ export function DestinationFormPage() {
           </div>
         )}
         <div className="grid gap-5 xl:grid-cols-2">
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <div className="border-b bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-4 text-lg font-semibold text-white">
               Destination Information
             </div>
@@ -375,7 +375,7 @@ export function DestinationFormPage() {
               )}
             </div>
           </section>
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <div className="border-b px-5 py-4 text-lg font-semibold">Policies & Terms</div>
             <div className="space-y-5 p-5">
               {(
@@ -411,7 +411,7 @@ export function DestinationFormPage() {
             </div>
           </section>
         </div>
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Link
             to={destinationId ? `/masters/destinations/${destinationId}` : '/masters/destinations'}
           >

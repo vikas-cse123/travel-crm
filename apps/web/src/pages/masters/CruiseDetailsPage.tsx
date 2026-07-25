@@ -46,7 +46,7 @@ export function CruiseDetailsPage() {
   if (cruise.isPending) return <LoadingCard />;
   if (cruise.isError)
     return (
-      <div role="alert" className="rounded-xl border bg-white p-8 text-center text-red-700">
+      <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
         This cruise could not be loaded.
       </div>
     );
@@ -100,7 +100,7 @@ export function CruiseDetailsPage() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
             Cruise Information
           </h2>
@@ -142,7 +142,7 @@ export function CruiseDetailsPage() {
         </section>
 
         <div className="space-y-4">
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-2.5">
               <h2 className="text-sm font-semibold text-slate-800">Room Types</h2>
               <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
@@ -173,7 +173,7 @@ export function CruiseDetailsPage() {
             )}
           </section>
 
-          <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
               Quick Stats
             </h2>

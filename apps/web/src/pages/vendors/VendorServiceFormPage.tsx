@@ -51,7 +51,7 @@ const initial: Values = {
   status: 'ACTIVE',
   notes: '',
 };
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function VendorServiceFormPage() {
   const { vendorId = '', serviceId } = useParams();
   const navigate = useNavigate();
@@ -154,7 +154,7 @@ export function VendorServiceFormPage() {
           Structured service data is copied into booking snapshots when selected.
         </p>
       </header>
-      <form className="rounded-xl border bg-white p-5 shadow-sm" onSubmit={handleSubmit(submit)}>
+      <form className="rounded-xl border bg-card p-5 shadow-sm" onSubmit={handleSubmit(submit)}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm">
             Service type
@@ -275,7 +275,7 @@ export function VendorServiceFormPage() {
         </div>
       </form>
       {serviceId && (
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <section className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="font-semibold">Rate management</h2>
           <p className="text-sm text-slate-500">
             Existing bookings keep their original snapshots when rates change.

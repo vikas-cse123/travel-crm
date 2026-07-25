@@ -47,7 +47,7 @@ export function CityDetailsPage() {
           </div>
         }
       />
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="border-b px-5 py-4">
           <h2 className="font-semibold">City Information</h2>
         </div>

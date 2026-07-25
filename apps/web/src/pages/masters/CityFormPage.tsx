@@ -71,7 +71,7 @@ export function CityFormPage() {
       />
       <form
         onSubmit={form.handleSubmit(submit)}
-        className="overflow-hidden rounded-xl border bg-white shadow-sm"
+        className="overflow-hidden rounded-xl border bg-card shadow-sm"
       >
         <div className="border-b bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-4 text-lg font-semibold text-white">
           City Information

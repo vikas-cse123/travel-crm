@@ -9,9 +9,9 @@ export function QuotationTemplateDetailsPage() {
   const { templateId = '' } = useParams();
   const { hasPermission } = useAuth();
   const template = useQuotationTemplate(templateId, true);
-  if (template.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (template.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!template.data)
-    return <div className="rounded-xl bg-white p-12 text-center">Template unavailable.</div>;
+    return <div className="rounded-xl bg-card p-12 text-center">Template unavailable.</div>;
   const t = template.data;
   const money = (value: string | null | undefined) =>
     value
@@ -23,7 +23,7 @@ export function QuotationTemplateDetailsPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/quotation-templates" className="rounded-lg p-2 hover:bg-white">
+          <Link to="/quotation-templates" className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -84,13 +84,13 @@ export function QuotationTemplateDetailsPage() {
           ['Child without bed', t.childWithoutBedBasePrice],
           ['Infant', t.infantBasePrice],
         ].map(([label, value]) => (
-          <article key={label} className="rounded-xl border bg-white p-4 text-center">
+          <article key={label} className="rounded-xl border bg-card p-4 text-center">
             <p className="text-xs uppercase text-slate-500">{label}</p>
             <p className="mt-2 text-xl font-semibold text-brand-700">{money(value)}</p>
           </article>
         ))}
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 font-semibold">
           <Route className="h-5 w-5 text-brand-600" />
           Itinerary route
@@ -107,7 +107,7 @@ export function QuotationTemplateDetailsPage() {
         </div>
       </section>
       <div className="grid gap-5 xl:grid-cols-2">
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <h2 className="font-semibold">Accommodation options</h2>
           <div className="mt-4 divide-y">
             {t.hotels.map((hotel) => (
@@ -122,7 +122,7 @@ export function QuotationTemplateDetailsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <h2 className="flex items-center gap-2 font-semibold">
             <Sparkles className="h-5 w-5 text-violet-600" />
             Sightseeing and services
@@ -147,7 +147,7 @@ export function QuotationTemplateDetailsPage() {
           ['Exclusions', t.exclusions],
           ['Terms', t.terms],
         ].map(([label, rows]) => (
-          <section key={label as string} className="rounded-xl border bg-white p-5">
+          <section key={label as string} className="rounded-xl border bg-card p-5">
             <h2 className="font-semibold">{label as string}</h2>
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
               {(rows as typeof t.inclusions).map((row) => (

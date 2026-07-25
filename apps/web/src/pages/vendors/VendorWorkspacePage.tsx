@@ -45,8 +45,8 @@ const tabs: Tab[] = [
   'notes',
   'timeline',
 ];
-const card = 'rounded-xl border bg-white p-5 shadow-sm';
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const card = 'rounded-xl border bg-card p-5 shadow-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const money = (value?: string) =>
   value === undefined
     ? 'Restricted'
@@ -135,7 +135,7 @@ export function VendorWorkspacePage() {
   };
   return (
     <div className="space-y-5">
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="bg-gradient-to-r from-slate-950 to-brand-900 p-6 text-white">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">

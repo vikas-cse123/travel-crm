@@ -22,7 +22,7 @@ import {
   useSendQuotation,
 } from '@/features/quotations/quotations.api';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function QuotationDetailsPage() {
   const { quotationId = '' } = useParams();
   const { hasPermission } = useAuth();
@@ -35,9 +35,9 @@ export function QuotationDetailsPage() {
   const [includePublicLink, setIncludePublicLink] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
-    return <div className="rounded-xl bg-white p-12 text-center">Quotation unavailable.</div>;
+    return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
   const q = query.data;
   const current = q.versions.find((version) => version.id === q.currentVersionId) ?? q.versions[0];
   const money = (value: string, currency: string) =>
@@ -59,7 +59,7 @@ export function QuotationDetailsPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/quotations" className="rounded-lg p-2 hover:bg-white">
+          <Link to="/quotations" className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -136,13 +136,13 @@ export function QuotationDetailsPage() {
           ['Last sent', q.lastSentAt ? new Date(q.lastSentAt).toLocaleString() : 'Never'],
           ['Last viewed', q.lastViewedAt ? new Date(q.lastViewedAt).toLocaleString() : 'Never'],
         ].map(([label, value]) => (
-          <article key={label} className="rounded-xl border bg-white p-4">
+          <article key={label} className="rounded-xl border bg-card p-4">
             <p className="text-xs uppercase text-slate-500">{label}</p>
             <p className="mt-2 font-semibold">{value}</p>
           </article>
         ))}
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <div className="flex flex-wrap justify-between gap-3">
           <div>
             <h2 className="font-semibold">Customer and travel</h2>
@@ -210,7 +210,7 @@ export function QuotationDetailsPage() {
         </dl>
       </section>
       {current && (
-        <section className="rounded-xl border bg-white p-6">
+        <section className="rounded-xl border bg-card p-6">
           <div className="border-b pb-5">
             <p className="text-sm text-brand-700">
               Customer preview · Version {current.versionNumber}
@@ -263,13 +263,13 @@ export function QuotationDetailsPage() {
               </div>
             ))}
           </div>
-          <div className="mt-6 rounded-xl bg-slate-950 p-5 text-white">
-            <p className="text-sm text-slate-300">Final quotation amount</p>
+          <div className="mt-6 rounded-xl bg-panel p-5 text-panel-foreground">
+            <p className="text-sm text-panel-foreground/70">Final quotation amount</p>
             <p className="mt-1 text-3xl font-semibold">
               {money(current.finalAmount, current.currency)}
             </p>
             {current.marginAmount && (
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-panel-foreground/60">
                 Internal margin: {money(current.marginAmount, current.currency)} ·{' '}
                 {current.marginPercentage}%
               </p>
@@ -278,7 +278,7 @@ export function QuotationDetailsPage() {
         </section>
       )}
       <div className="grid gap-5 lg:grid-cols-3">
-        <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+        <section className="rounded-xl border bg-card p-5 lg:col-span-2">
           <h2 className="font-semibold">Version history</h2>
           <div className="mt-3 divide-y">
             {q.versions.map((version) => (
@@ -312,7 +312,7 @@ export function QuotationDetailsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <h2 className="font-semibold">Documents</h2>
           {hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
             <label className="mt-3 block cursor-pointer rounded-lg border border-dashed p-3 text-center text-sm text-slate-600">
@@ -374,7 +374,7 @@ export function QuotationDetailsPage() {
           </div>
         </section>
       </div>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 font-semibold">
           <Mail className="h-4 w-4" />
           Email history
@@ -400,7 +400,7 @@ export function QuotationDetailsPage() {
           )}
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-xl border bg-card p-5">
         <h2 className="font-semibold">Activity timeline</h2>
         <div className="mt-3 space-y-3">
           {q.activityTimeline?.length ? (
@@ -419,11 +419,11 @@ export function QuotationDetailsPage() {
         </div>
       </section>
       {sendOpen && current && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+            className="w-full max-w-lg rounded-xl bg-card p-6 shadow-xl"
           >
             <h2 className="text-lg font-semibold">Send finalized quotation</h2>
             <p className="mt-1 text-sm text-slate-500">

@@ -122,9 +122,9 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
     {children}
   </label>
 );
-const inputClass = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const inputClass = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <section className="rounded-xl border border-slate-200 bg-card p-5 shadow-sm">
     <h2 className="mb-4 text-base font-semibold text-slate-900">{title}</h2>
     {children}
   </section>
@@ -265,7 +265,7 @@ export function LeadForm({
                 <button
                   type="button"
                   key={m.id}
-                  className="mr-3 mt-2 rounded-md bg-white px-3 py-2 text-left shadow-sm"
+                  className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
                   onClick={() => {
                     // The explicit "Use details" action is the confirmation;
                     // matches never overwrite the form automatically.
@@ -291,7 +291,7 @@ export function LeadForm({
                 {customerMatches.data.map((match) => (
                   <label
                     key={match.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-white px-3 py-2 shadow-sm"
+                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-card px-3 py-2 shadow-sm"
                   >
                     <input type="radio" value={match.id} {...register('customerId')} />
                     <span>
@@ -601,7 +601,7 @@ export function LeadForm({
           </div>
         </Section>
       )}
-      <div className="sticky bottom-4 flex justify-end rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur">
+      <div className="sticky bottom-4 flex justify-end rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur">
         <Button type="submit" isLoading={saving} disabled={services.length === 0}>
           {lead ? 'Save changes' : 'Create lead'}
         </Button>

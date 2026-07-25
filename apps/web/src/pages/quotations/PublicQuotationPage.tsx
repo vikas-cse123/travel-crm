@@ -69,7 +69,7 @@ export function PublicQuotationPage() {
   if (error)
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-        <div className="max-w-md rounded-xl bg-white p-8 text-center shadow">
+        <div className="max-w-md rounded-xl bg-card p-8 text-center shadow">
           <XCircle className="mx-auto h-10 w-10 text-red-600" />
           <h1 className="mt-3 text-xl font-semibold">Quotation unavailable</h1>
           <p className="mt-2 text-slate-500">{error}</p>
@@ -130,7 +130,7 @@ export function PublicQuotationPage() {
         </div>
       </header>
       <div className="mx-auto -mt-3 max-w-5xl space-y-5 px-4">
-        <section className="rounded-2xl bg-white p-6 shadow-lg">
+        <section className="rounded-2xl bg-card p-6 shadow-lg">
           <p className="text-sm font-medium" style={{ color }}>
             Travel proposal for {q.customerName}
           </p>
@@ -162,7 +162,7 @@ export function PublicQuotationPage() {
           </div>
         </section>
         <div className="grid gap-5 lg:grid-cols-2">
-          <section className="rounded-xl bg-white p-5 shadow-sm">
+          <section className="rounded-xl bg-card p-5 shadow-sm">
             <h2 className="font-semibold">Hotels</h2>
             <div className="mt-3 space-y-3">
               {v.hotels.map((hotel) => (
@@ -177,7 +177,7 @@ export function PublicQuotationPage() {
               ))}
             </div>
           </section>
-          <section className="rounded-xl bg-white p-5 shadow-sm">
+          <section className="rounded-xl bg-card p-5 shadow-sm">
             <h2 className="font-semibold">Services and experiences</h2>
             <div className="mt-3 space-y-3">
               {v.services.map((service) => (
@@ -189,7 +189,7 @@ export function PublicQuotationPage() {
             </div>
           </section>
         </div>
-        <section className="rounded-xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl bg-card p-5 shadow-sm">
           <h2 className="font-semibold">Day-wise itinerary</h2>
           <div className="mt-4 space-y-5">
             {v.itinerary.map((day) => (
@@ -216,7 +216,7 @@ export function PublicQuotationPage() {
             ['Exclusions', v.exclusions],
             ['Terms', v.terms],
           ].map(([label, rows]) => (
-            <section key={label as string} className="rounded-xl bg-white p-5 shadow-sm">
+            <section key={label as string} className="rounded-xl bg-card p-5 shadow-sm">
               <h2 className="font-semibold">{label as string}</h2>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {(rows as typeof v.inclusions).map((row) => (
@@ -226,12 +226,12 @@ export function PublicQuotationPage() {
             </section>
           ))}
         </div>
-        <section className="rounded-2xl bg-slate-950 p-6 text-white shadow-lg">
+        <section className="rounded-2xl bg-panel p-6 text-panel-foreground shadow-lg">
           <div className="flex flex-wrap items-center justify-between gap-5">
             <div>
-              <p className="text-sm text-slate-300">Final quotation amount</p>
+              <p className="text-sm text-panel-foreground/70">Final quotation amount</p>
               <p className="mt-1 text-4xl font-semibold">{money}</p>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-sm text-panel-foreground/60">
                 Valid until{' '}
                 {q.validUntil ? new Date(q.validUntil).toLocaleDateString() : 'as advised'}
               </p>
@@ -260,13 +260,13 @@ export function PublicQuotationPage() {
             </div>
           </div>
           {result && (
-            <p className="mt-5 rounded-lg bg-emerald-900/50 p-4 text-emerald-100">{result}</p>
+            <p className="mt-5 rounded-lg bg-emerald-500/20 p-4 text-panel-foreground">{result}</p>
           )}
         </section>
       </div>
       {decision && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-xl bg-white p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-xl bg-card p-6">
             <h2 className="text-lg font-semibold">
               {decision === 'accept' ? 'Accept quotation' : 'Reject quotation'}
             </h2>

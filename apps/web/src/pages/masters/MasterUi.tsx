@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 
 export const fieldClass =
-  'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+  'mt-1 w-full rounded-lg border border-slate-300 bg-card px-3 py-2.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
 export function Breadcrumbs({ current }: { current: string }) {
   return (
@@ -121,11 +121,11 @@ export function RichTextEditor({
   return (
     <label className="block text-sm font-medium text-slate-700">
       {label}
-      <div className="mt-1 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
+      <div className="mt-1 overflow-hidden rounded-lg border border-slate-300 bg-card focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
         <div className="flex gap-1 border-b bg-slate-50 p-1.5">
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-white"
+            className="rounded p-1.5 hover:bg-card"
             aria-label={`${label} bold`}
             onClick={() => command('bold')}
           >
@@ -133,7 +133,7 @@ export function RichTextEditor({
           </button>
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-white"
+            className="rounded p-1.5 hover:bg-card"
             aria-label={`${label} italic`}
             onClick={() => command('italic')}
           >
@@ -141,7 +141,7 @@ export function RichTextEditor({
           </button>
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-white"
+            className="rounded p-1.5 hover:bg-card"
             aria-label={`${label} list`}
             onClick={() => command('insertUnorderedList')}
           >
@@ -149,7 +149,7 @@ export function RichTextEditor({
           </button>
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-white"
+            className="rounded p-1.5 hover:bg-card"
             aria-label={`${label} link`}
             onClick={() => {
               const href = window.prompt('Enter an https:// link');

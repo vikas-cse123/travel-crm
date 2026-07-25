@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/utils/cn';
 
 export const fieldClass =
-  'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-brand-500';
+  'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm text-slate-800 outline-none focus:border-brand-500';
 
 export function SummaryCards({
   items,
@@ -114,7 +114,7 @@ export function EmptyState({
   action?: { to: string; label: string };
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+    <div className="rounded-xl border border-dashed border-slate-300 bg-card px-6 py-14 text-center">
       <CalendarClock className="mx-auto h-10 w-10 text-slate-300" />
       <h2 className="mt-3 font-semibold text-slate-800">{title}</h2>
       <p className="mt-1 text-sm text-slate-500">{message}</p>

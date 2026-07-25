@@ -36,7 +36,7 @@ export function MasterImageField({
           accept={accept}
           aria-label={label}
           onChange={(event) => onSelect(event.target.files?.[0])}
-          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm"
+          className="mt-1 w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm"
         />
       </label>
       <p className="text-xs text-slate-500">

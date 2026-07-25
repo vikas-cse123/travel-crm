@@ -52,7 +52,7 @@ export function TestimonialDetailsPage() {
           </div>
         }
       />
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center gap-4 border-b p-5">
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border bg-slate-50">
             {imageUrl ? (

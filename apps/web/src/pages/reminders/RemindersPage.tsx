@@ -67,7 +67,7 @@ export function RemindersPage() {
           { label: 'Completed', value: analytics.data?.completed ?? 0, tone: 'green' },
         ]}
       />
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
+      <section className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <label className="relative xl:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -117,7 +117,7 @@ export function RemindersPage() {
       {list.isPending ? (
         <div
           aria-label="Loading reminders"
-          className="rounded-xl border bg-white p-10 text-center text-sm text-slate-500"
+          className="rounded-xl border bg-card p-10 text-center text-sm text-slate-500"
         >
           Loading reminders…
         </div>
@@ -136,7 +136,7 @@ export function RemindersPage() {
       ) : (
         <div className="space-y-3">
           {list.data.data.map((row) => (
-            <article key={row.id} className="rounded-xl border bg-white p-4 shadow-sm">
+            <article key={row.id} className="rounded-xl border bg-card p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">

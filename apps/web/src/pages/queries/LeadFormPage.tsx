@@ -10,10 +10,10 @@ export function LeadFormPage() {
   const navigate = useNavigate();
   const lead = useLead(queryId);
   const save = useSaveLead(queryId);
-  if (queryId && lead.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (queryId && lead.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (queryId && lead.isError)
     return (
-      <div className="rounded-xl bg-white p-10 text-center">
+      <div className="rounded-xl bg-card p-10 text-center">
         <h1 className="text-xl font-semibold">Lead unavailable</h1>
         <p className="mt-2 text-slate-500">
           It may not exist or may be outside your visibility scope.
@@ -33,7 +33,7 @@ export function LeadFormPage() {
       <div className="flex items-center gap-3">
         <Link
           to={queryId ? `/queries/${queryId}` : '/queries'}
-          className="rounded-lg p-2 hover:bg-white"
+          className="rounded-lg p-2 hover:bg-card"
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>

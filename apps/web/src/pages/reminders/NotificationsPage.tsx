@@ -50,7 +50,7 @@ export function NotificationsPage() {
           },
         ]}
       />
-      <section className="rounded-xl border bg-white p-4 shadow-sm">
+      <section className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-3">
           <label className="relative md:col-span-2">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -75,7 +75,7 @@ export function NotificationsPage() {
         </div>
       </section>
       {list.isPending ? (
-        <div className="rounded-xl border bg-white p-10 text-center text-sm text-slate-500">
+        <div className="rounded-xl border bg-card p-10 text-center text-sm text-slate-500">
           Loading notifications…
         </div>
       ) : !list.data?.data.length ? (
@@ -84,7 +84,7 @@ export function NotificationsPage() {
           message="New reminder alerts and escalations will appear here."
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           {list.data.data.map((row) => (
             <article
               key={row.id}

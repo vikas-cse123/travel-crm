@@ -34,7 +34,7 @@ import {
 } from '@/features/bookings/bookings.api';
 import { useVendors } from '@/features/vendors/vendors.api';
 
-const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const input = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const money = (value: string | undefined, currency = 'INR') =>
   value === undefined
     ? 'Restricted'
@@ -84,9 +84,9 @@ export function BookingWorkspacePage() {
   const [reversingPaymentId, setReversingPaymentId] = useState<string | null>(null);
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const clear = () => setForm({});
-  if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-white" />;
+  if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
-    return <div className="rounded-xl bg-white p-12 text-center">Booking unavailable.</div>;
+    return <div className="rounded-xl bg-card p-12 text-center">Booking unavailable.</div>;
   const booking = query.data;
   const canFinance = hasPermission(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS);
   const canPay = hasPermission(PERMISSIONS.BOOKINGS_MANAGE_PAYMENTS);
@@ -114,7 +114,7 @@ export function BookingWorkspacePage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/bookings" className="rounded-lg p-2 hover:bg-white">
+          <Link to="/bookings" className="rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -197,7 +197,7 @@ export function BookingWorkspacePage() {
             {booking.attentionIndicators.map((indicator) => (
               <span
                 key={indicator}
-                className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-800"
+                className="rounded-full bg-card px-2.5 py-1 text-xs font-medium text-amber-800"
               >
                 {labelForLookup(indicator)}
               </span>
@@ -219,14 +219,14 @@ export function BookingWorkspacePage() {
           ['Travellers', `${booking.travellers.length}/${totalTravellers}`],
           ['Assigned', booking.assignedTo?.fullName ?? 'Unassigned'],
         ].map(([label, value]) => (
-          <article key={label} className="rounded-xl border bg-white p-4">
+          <article key={label} className="rounded-xl border bg-card p-4">
             <p className="text-xs uppercase text-slate-500">{label}</p>
             <p className="mt-2 font-semibold">{value}</p>
           </article>
         ))}
       </section>
       <nav
-        className="flex gap-1 overflow-x-auto rounded-xl border bg-white p-1"
+        className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
         aria-label="Booking workspace sections"
       >
         {tabs
@@ -247,7 +247,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Overview' && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Booking overview</h2>
             <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[
@@ -274,7 +274,7 @@ export function BookingWorkspacePage() {
               ))}
             </dl>
           </section>
-          <section className="rounded-xl border bg-white p-5">
+          <section className="rounded-xl border bg-card p-5">
             <h2 className="font-semibold">Status workflow</h2>
             {hasPermission(PERMISSIONS.BOOKINGS_CHANGE_STATUS) ? (
               <div className="mt-4 space-y-3">
@@ -315,7 +315,7 @@ export function BookingWorkspacePage() {
             )}
           </section>
           {canFinance && (
-            <section className="rounded-xl border bg-slate-950 p-5 text-white lg:col-span-3">
+            <section className="rounded-xl border border-transparent bg-panel p-5 text-panel-foreground lg:col-span-3">
               <h2 className="font-semibold">Commercial summary</h2>
               <div className="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-7">
                 {(
@@ -337,7 +337,7 @@ export function BookingWorkspacePage() {
                   ] as Array<[string, string | undefined]>
                 ).map(([label, value]) => (
                   <div key={label}>
-                    <p className="text-xs uppercase text-slate-400">{label}</p>
+                    <p className="text-xs uppercase text-panel-foreground/60">{label}</p>
                     <p className="mt-1 text-lg font-semibold">
                       {label === 'Margin' ? value : money(value, booking.currency)}
                     </p>
@@ -394,7 +394,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Travellers' && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Travellers</h2>
             <div className="mt-4 space-y-3">
               {booking.travellers.length ? (
@@ -430,7 +430,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {canTravel && !terminal && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Add traveller</h2>
               <div className="mt-4 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
@@ -512,7 +512,7 @@ export function BookingWorkspacePage() {
       )}
 
       {tab === 'Services' && (
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <div className="flex justify-between">
             <div>
               <h2 className="font-semibold">Booking services</h2>
@@ -742,7 +742,7 @@ export function BookingWorkspacePage() {
       )}
 
       {tab === 'Itinerary' && (
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <h2 className="font-semibold">Operational itinerary</h2>
           <div className="mt-4 space-y-4">
             {booking.itinerary.map((day) => (
@@ -766,7 +766,7 @@ export function BookingWorkspacePage() {
                 ['Paid', booking.totalCustomerPaid],
                 ['Outstanding', booking.totalCustomerOutstanding],
               ].map(([label, value]) => (
-                <article key={label} className="rounded-xl border bg-white p-4">
+                <article key={label} className="rounded-xl border bg-card p-4">
                   <p className="text-xs uppercase text-slate-500">{label}</p>
                   <p className="mt-1 text-xl font-semibold">{money(value, booking.currency)}</p>
                 </article>
@@ -774,7 +774,7 @@ export function BookingWorkspacePage() {
             </section>
           )}
           <div className="grid gap-5 lg:grid-cols-2">
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Installment schedule</h2>
               <div className="mt-3 divide-y">
                 {booking.paymentSchedules.map((row) => (
@@ -830,7 +830,7 @@ export function BookingWorkspacePage() {
                 </div>
               )}
             </section>
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Received payments</h2>
               {canFinance ? (
                 <div className="mt-3 divide-y">
@@ -965,7 +965,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Refunds' && canFinance && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Customer refunds</h2>
             <p className="mt-1 text-xs text-slate-500">
               Refunds reduce net revenue. Reversing a refund restores it; history is never deleted.
@@ -1032,7 +1032,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {canRefund && !terminal && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Process refund</h2>
               <div className="mt-4 space-y-3">
                 <Field label="Amount">
@@ -1115,7 +1115,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Costs' && canFinance && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Agency costs</h2>
             <div className="mt-4 divide-y">
               {booking.costs?.map((cost) => (
@@ -1135,7 +1135,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {canCost && !terminal && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Add cost</h2>
               <div className="mt-4 space-y-2">
                 <select
@@ -1191,7 +1191,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Documents' && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Private documents</h2>
             <div className="mt-4 divide-y">
               {booking.documents.map((document) => (
@@ -1231,7 +1231,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {canDocs && !terminal && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Upload document</h2>
               <div className="mt-4 space-y-3">
                 <select
@@ -1297,7 +1297,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Notes' && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Booking notes</h2>
             <div className="mt-3 divide-y">
               {booking.notes.map((note) => (
@@ -1315,7 +1315,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {canUpdate && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="font-semibold">Add note</h2>
               <div className="mt-4 space-y-3">
                 <select
@@ -1354,7 +1354,7 @@ export function BookingWorkspacePage() {
       )}
 
       {tab === 'Timeline' && (
-        <section className="rounded-xl border bg-white p-5">
+        <section className="rounded-xl border bg-card p-5">
           <h2 className="font-semibold">Complete booking timeline</h2>
           <div className="mt-4 space-y-4">
             {timeline.data?.data.map((item) => (
@@ -1374,7 +1374,7 @@ export function BookingWorkspacePage() {
 
       {tab === 'Emails' && (
         <div className="grid gap-5 lg:grid-cols-3">
-          <section className="rounded-xl border bg-white p-5 lg:col-span-2">
+          <section className="rounded-xl border bg-card p-5 lg:col-span-2">
             <h2 className="font-semibold">Email history</h2>
             <div className="mt-3 divide-y">
               {booking.emailLogs.map((email) => (
@@ -1392,7 +1392,7 @@ export function BookingWorkspacePage() {
             </div>
           </section>
           {hasPermission(PERMISSIONS.BOOKINGS_SEND_CONFIRMATION) && (
-            <section className="rounded-xl border bg-white p-5">
+            <section className="rounded-xl border bg-card p-5">
               <h2 className="flex items-center gap-2 font-semibold">
                 <Mail className="h-4 w-4" />
                 Send customer email

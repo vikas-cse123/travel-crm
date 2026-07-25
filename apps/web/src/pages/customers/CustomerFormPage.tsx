@@ -34,7 +34,7 @@ type Values = {
   specialRequirements: string;
   createAnyway: boolean;
 };
-const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const initial: Values = {
   displayName: '',
   type: 'INDIVIDUAL',
@@ -145,7 +145,7 @@ export function CustomerFormPage() {
               {duplicates.data.slice(0, 4).map((match) => (
                 <a
                   key={match.id}
-                  className="rounded-lg border bg-white p-3 text-sm hover:border-brand-400"
+                  className="rounded-lg border bg-card p-3 text-sm hover:border-brand-400"
                   href={`/customers/${match.id}`}
                 >
                   <span className="font-semibold">{match.displayName}</span>
@@ -166,7 +166,7 @@ export function CustomerFormPage() {
             )}
           </section>
         ) : null}
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <section className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="mb-4 font-semibold">Identity and contact</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <label className="space-y-1 text-sm">
@@ -243,7 +243,7 @@ export function CustomerFormPage() {
             </label>
           </div>
         </section>
-        <section className="rounded-xl border bg-white p-5 shadow-sm">
+        <section className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="mb-4 font-semibold">Travel preferences</h2>
           <div className="grid gap-4 md:grid-cols-3">
             {[
