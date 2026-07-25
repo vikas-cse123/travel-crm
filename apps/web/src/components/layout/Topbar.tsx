@@ -76,8 +76,8 @@ export function Topbar({ collapsed, onToggleCollapse, onOpenMobile, breadcrumbs 
         )}
       </button>
 
-      <nav aria-label="Breadcrumb" className="min-w-0">
-        <ol className="flex items-center gap-1.5 text-sm">
+      <nav aria-label="Breadcrumb" className="hidden min-w-0 sm:block">
+        <ol className="flex items-center gap-1.5 truncate text-sm">
           {breadcrumbs.map((crumb, index) => (
             <li key={crumb} className="flex items-center gap-1.5">
               {index > 0 && (

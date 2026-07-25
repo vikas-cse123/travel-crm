@@ -15,10 +15,7 @@ interface PageHeaderProps {
 export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
   return (
     <div
-      className={cn(
-        'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
-        className,
-      )}
+      className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}
     >
       <div className="min-w-0 space-y-1">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>

@@ -712,7 +712,9 @@ export function QuotationBuilderPage() {
             <p className="text-3xl font-semibold">
               {form.watch('currency')} {estimate.final.toFixed(2)}
             </p>
-            <p className="mt-2 text-xs text-panel-foreground/60">              The server recalculates and rounds every total authoritatively.
+            <p className="mt-2 text-xs text-panel-foreground/60">
+              {' '}
+              The server recalculates and rounds every total authoritatively.
             </p>
           </div>
         </aside>

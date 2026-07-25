@@ -34,9 +34,7 @@ export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProp
             <div className="mt-6">{children}</div>
           </div>
 
-          {footer && (
-            <div className="mt-5 text-center text-sm text-muted-foreground">{footer}</div>
-          )}
+          {footer && <div className="mt-5 text-center text-sm text-muted-foreground">{footer}</div>}
         </div>
       </main>
 
