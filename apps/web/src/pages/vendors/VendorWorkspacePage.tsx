@@ -136,7 +136,7 @@ export function VendorWorkspacePage() {
   return (
     <div className="space-y-5">
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="bg-gradient-to-r from-slate-950 to-brand-900 p-6 text-white">
+        <div className="bg-gradient-to-r from-panel to-primary p-6 text-primary-foreground">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className="rounded-2xl bg-white/10 p-3">

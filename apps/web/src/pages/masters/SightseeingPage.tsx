@@ -269,7 +269,7 @@ export function SightseeingPage() {
                                 </p>
                               </td>
                               <td className="px-4 py-2.5">
-                                <span className="rounded bg-slate-700 px-2 py-0.5 text-[11px] font-medium text-white">
+                                <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                   {row.city.name}
                                 </span>
                               </td>
