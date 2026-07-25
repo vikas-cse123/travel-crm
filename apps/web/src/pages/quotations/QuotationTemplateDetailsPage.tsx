@@ -46,7 +46,7 @@ export function QuotationTemplateDetailsPage() {
           )}
         </div>
       </header>
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 to-brand-900 p-6 text-white shadow-lg">
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-panel to-primary p-6 text-primary-foreground shadow-lg">
         <p className="text-sm text-blue-200">{t.destinationSummary}</p>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div>

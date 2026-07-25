@@ -95,7 +95,9 @@ export default {
         },
 
         // ---- legacy numeric ramps (theme-flipping) ----
-        slate: ramp('slate'),
+        // slate carries a 950 shade (used for the strongest headings); the
+        // other ramps only expose 50–900, which is all the app uses.
+        slate: { ...ramp('slate'), 950: 'oklch(var(--slate-950) / <alpha-value>)' },
         brand: ramp('brand'),
         red: ramp('red'),
         emerald: ramp('emerald'),
