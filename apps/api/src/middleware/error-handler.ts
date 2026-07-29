@@ -2,7 +2,6 @@ import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { ERROR_CODES, type FieldErrors } from '@interscale/shared';
 import { logger } from '../config/logger.js';
-import { isProduction } from '../config/env.js';
 import { isAppError } from '../utils/errors.js';
 import { sendError } from '../utils/api-response.js';
 import { NotFoundError } from '../utils/errors.js';
@@ -71,11 +70,7 @@ export function errorHandler(
     res,
     500,
     ERROR_CODES.INTERNAL_ERROR,
-    isProduction
-      ? 'Something went wrong. Please try again.'
-      : error instanceof Error
-        ? error.message
-        : 'Unknown error',
+    'Something went wrong. Please try again.',
     { requestId },
   );
 }

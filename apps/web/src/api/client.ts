@@ -1,4 +1,4 @@
-import { API_PREFIX, type ApiResponse } from '@interscale/shared';
+import { API_PREFIX, ERROR_CODES, type ApiResponse } from '@interscale/shared';
 
 /**
  * Typed fetch wrapper.
@@ -39,6 +39,25 @@ export class ApiError extends Error {
 /** Cookie name the server writes the CSRF token to. Mirrors CSRF_COOKIE_NAME. */
 const CSRF_COOKIE_NAME = 'interscale_csrf';
 const CSRF_HEADER_NAME = 'X-CSRF-Token';
+const GENERIC_SERVER_ERROR = 'Something went wrong. Please try again.';
+
+const INTERNAL_ERROR_PATTERNS = [
+  /prisma\./i,
+  /prisma(client|Client|KnownRequest|UnknownRequest|Validation)?error/i,
+  /findUnique|findFirst|findMany|createMany|updateMany|deleteMany/i,
+  /invocation in/i,
+  /can't reach database server/i,
+  /database server/i,
+  /localhost:\d+/i,
+  /\/Users\//i,
+  /\/node_modules\//i,
+  /\b[A-Z]:\\/i,
+  /\bat\s+.+:\d+:\d+/i,
+  /\.ts:\d+:\d+/i,
+  /\.js:\d+:\d+/i,
+  /\bstack\b/i,
+  /\btrace\b/i,
+];
 
 function readCookie(name: string): string | undefined {
   const match = document.cookie
@@ -54,6 +73,29 @@ interface RequestOptions {
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function friendlyMessageForStatus(status: number): string {
+  if (status === 401) return 'Please sign in to continue.';
+  if (status === 403) return 'You do not have permission to perform this action.';
+  if (status === 404) return 'The requested information could not be found.';
+  if (status === 409) return 'That record already exists or was changed by someone else.';
+  if (status === 429) return 'Too many requests. Please try again shortly.';
+  if (status >= 500) return GENERIC_SERVER_ERROR;
+  return GENERIC_SERVER_ERROR;
+}
+
+function looksInternal(message: string): boolean {
+  return INTERNAL_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function safeApiMessage(message: string | undefined, status: number, code: string): string {
+  const trimmed = message?.trim();
+  if (!trimmed) return friendlyMessageForStatus(status);
+  if (code === ERROR_CODES.INTERNAL_ERROR || status >= 500 || looksInternal(trimmed)) {
+    return friendlyMessageForStatus(status);
+  }
+  return trimmed;
+}
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal } = options;
@@ -89,7 +131,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (payload === null) {
     throw new ApiError(
-      response.ok ? 'The server returned an unreadable response.' : response.statusText,
+      response.ok ? GENERIC_SERVER_ERROR : friendlyMessageForStatus(response.status),
       response.status,
       'INTERNAL_ERROR',
     );
@@ -97,7 +139,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!payload.success) {
     throw new ApiError(
-      payload.error.message,
+      safeApiMessage(payload.error.message, response.status, payload.error.code),
       response.status,
       payload.error.code,
       payload.error.fields,
