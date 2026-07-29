@@ -158,15 +158,11 @@ export function UserForm({
               )}
             </FormField>
             <div />
-            <FormField
-              label="Temporary password"
-              required
-              error={errors.temporaryPassword?.message}
-            >
+            <FormField label="Password" required error={errors.temporaryPassword?.message}>
               {(a) => <PasswordInput {...a} {...register('temporaryPassword')} />}
             </FormField>
             <FormField
-              label="Confirm temporary password"
+              label="Confirm password"
               required
               error={errors.confirmTemporaryPassword?.message}
             >
@@ -176,14 +172,6 @@ export function UserForm({
           </>
         )}
       </div>
-      <label className="flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          {...register('mustChangePassword')}
-          className="h-4 w-4 rounded border-slate-300"
-        />
-        Require password change on next login
-      </label>
       <div className="flex justify-end">
         <Button type="submit" isLoading={isLoading}>
           {editing ? 'Save changes' : 'Create user'}

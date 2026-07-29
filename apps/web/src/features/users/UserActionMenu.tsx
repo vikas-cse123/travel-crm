@@ -1,78 +1,135 @@
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { MoreHorizontal } from 'lucide-react';
 import type { ManagedUser } from '@interscale/shared';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useUserAction } from './users.api';
+
 export function UserActionMenu({ user }: { user: ManagedUser }) {
   const { hasPermission, user: me } = useAuth();
   const mutation = useUserAction();
-  const run = (action: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'ARCHIVE' | 'RESET') => {
-    const label = action === 'RESET' ? 'send password-reset instructions' : action.toLowerCase();
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  const openMenu = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuWidth = 192;
+    const menuHeight = 176;
+    const left = Math.max(12, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 12));
+    const hasRoomBelow = rect.bottom + menuHeight + 12 <= window.innerHeight;
+    const top = hasRoomBelow ? rect.bottom + 8 : Math.max(12, rect.top - menuHeight - 8);
+    setPosition({ top, left });
+    setOpen((value) => !value);
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    const closeMenu = () => setOpen(false);
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [open]);
+
+  const run = (action: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED') => {
+    const label = action.toLowerCase();
     if (window.confirm(`Are you sure you want to ${label} ${user.fullName}?`))
       mutation.mutate({ id: user.id, action });
   };
+
+  const menu = (
+    <div
+      ref={menuRef}
+      className="fixed z-[100] w-48 rounded-lg border border-slate-200 bg-card p-1 text-sm shadow-xl"
+      style={{ top: position.top, left: position.left }}
+    >
+      <Link
+        className="block rounded px-3 py-2 hover:bg-slate-50"
+        to={`/users/${user.id}`}
+        onClick={() => setOpen(false)}
+      >
+        View
+      </Link>
+      {hasPermission('users.update') && (
+        <Link
+          className="block rounded px-3 py-2 hover:bg-slate-50"
+          to={`/users/${user.id}/edit`}
+          onClick={() => setOpen(false)}
+        >
+          Edit
+        </Link>
+      )}
+      {hasPermission('users.change_status') && user.id !== me?.id && (
+        <>
+          {user.status !== 'ACTIVE' && (
+            <button
+              className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+              onClick={() => {
+                setOpen(false);
+                run('ACTIVE');
+              }}
+            >
+              Restore / activate
+            </button>
+          )}
+          {user.status === 'ACTIVE' && (
+            <button
+              className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+              onClick={() => {
+                setOpen(false);
+                run('INACTIVE');
+              }}
+            >
+              Deactivate
+            </button>
+          )}
+          {user.status !== 'SUSPENDED' && (
+            <button
+              className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+              onClick={() => {
+                setOpen(false);
+                run('SUSPENDED');
+              }}
+            >
+              Suspend
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <details className="relative">
-      <summary
-        className="list-none cursor-pointer rounded p-2 hover:bg-slate-100"
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="rounded p-2 hover:bg-slate-100"
         aria-label={`Actions for ${user.fullName}`}
+        aria-expanded={open}
+        onClick={openMenu}
       >
         <MoreHorizontal className="h-4 w-4" />
-      </summary>
-      <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border bg-card p-1 text-sm shadow-lg">
-        <Link className="block rounded px-3 py-2 hover:bg-slate-50" to={`/users/${user.id}`}>
-          View
-        </Link>
-        {hasPermission('users.update') && (
-          <Link className="block rounded px-3 py-2 hover:bg-slate-50" to={`/users/${user.id}/edit`}>
-            Edit
-          </Link>
-        )}
-        {hasPermission('users.change_status') && user.id !== me?.id && (
-          <>
-            {user.status !== 'ACTIVE' && (
-              <button
-                className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
-                onClick={() => run('ACTIVE')}
-              >
-                Restore / activate
-              </button>
-            )}
-            {user.status === 'ACTIVE' && (
-              <button
-                className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
-                onClick={() => run('INACTIVE')}
-              >
-                Deactivate
-              </button>
-            )}
-            {user.status !== 'SUSPENDED' && (
-              <button
-                className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
-                onClick={() => run('SUSPENDED')}
-              >
-                Suspend
-              </button>
-            )}
-          </>
-        )}
-        {hasPermission('users.reset_password') && user.status !== 'ARCHIVED' && (
-          <button
-            className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
-            onClick={() => run('RESET')}
-          >
-            Send password reset
-          </button>
-        )}
-        {hasPermission('users.archive') && user.id !== me?.id && user.status !== 'ARCHIVED' && (
-          <button
-            className="block w-full rounded px-3 py-2 text-left text-red-600 hover:bg-red-50"
-            onClick={() => run('ARCHIVE')}
-          >
-            Archive
-          </button>
-        )}
-      </div>
-    </details>
+      </button>
+      {open ? createPortal(menu, document.body) : null}
+    </>
   );
 }

@@ -16,6 +16,7 @@ export function LoginPage() {
   const location = useLocation();
   const login = useLogin();
   const [formError, setFormError] = useState<string | null>(null);
+  const [loginMode, setLoginMode] = useState<'admin' | 'user'>('admin');
 
   // Where the user was heading before the guard bounced them here.
   const returnTo = (location.state as { from?: string } | null)?.from ?? '/dashboard';
@@ -62,6 +63,25 @@ export function LoginPage() {
       }
     >
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          {[
+            ['admin', 'Company Admin'],
+            ['user', 'Company User'],
+          ].map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                loginMode === mode
+                  ? 'bg-white text-brand-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              onClick={() => setLoginMode(mode as 'admin' | 'user')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {formError && <Alert tone="error">{formError}</Alert>}
 
         <FormField label="Work email" error={errors.email?.message} required>
@@ -71,7 +91,7 @@ export function LoginPage() {
               {...register('email')}
               type="email"
               autoComplete="email"
-              placeholder="you@agency.com"
+              placeholder={loginMode === 'admin' ? 'admin@agency.com' : 'user@agency.com'}
               className={inputClasses(Boolean(errors.email))}
             />
           )}

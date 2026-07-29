@@ -14,8 +14,7 @@ export function NewUserPage() {
         </p>
         <h1 className="text-2xl font-semibold">Add user</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Admin-provisioned users are email-verified and change their temporary password on first
-          login by default.
+          Admin-provisioned users are email-verified and can sign in with the password you set.
         </p>
       </div>
       <Card>

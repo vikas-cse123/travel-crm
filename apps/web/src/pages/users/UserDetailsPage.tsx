@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
-import { ShieldCheck } from 'lucide-react';
+import { ChevronDown, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { initialsOf } from '@/components/layout/navigation';
@@ -30,7 +30,7 @@ export function UserDetailsPage() {
       </div>
     );
   const u = query.data;
-  const run = (a: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'ARCHIVE' | 'RESET') =>
+  const run = (a: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED') =>
     window.confirm(`Continue with this action for ${u.fullName}?`) &&
     action.mutate({ id: u.id, action: a });
   return (
@@ -62,16 +62,6 @@ export function UserDetailsPage() {
                 onClick={() => run(u.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')}
               >
                 {u.status === 'ACTIVE' ? 'Deactivate' : 'Activate / restore'}
-              </Button>
-            )}
-            {hasPermission('users.reset_password') && u.status !== 'ARCHIVED' && (
-              <Button variant="secondary" onClick={() => run('RESET')}>
-                Send password reset
-              </Button>
-            )}
-            {hasPermission('users.archive') && u.id !== me?.id && u.status !== 'ARCHIVED' && (
-              <Button variant="danger" onClick={() => run('ARCHIVE')}>
-                Archive
               </Button>
             )}
           </div>
@@ -110,17 +100,7 @@ export function UserDetailsPage() {
             </h2>
           </CardHeader>
           <CardBody>
-            <div className="flex flex-wrap gap-2">
-              {u.effectivePermissions?.length ? (
-                u.effectivePermissions.map((p) => (
-                  <span key={p} className="rounded bg-slate-100 px-2 py-1 text-xs">
-                    {p}
-                  </span>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">No effective permissions.</p>
-              )}
-            </div>
+            <EffectivePermissions permissions={u.effectivePermissions ?? []} />
           </CardBody>
         </Card>
       </div>
@@ -145,6 +125,45 @@ export function UserDetailsPage() {
           )}
         </CardBody>
       </Card>
+    </div>
+  );
+}
+
+function EffectivePermissions({ permissions }: { permissions: string[] }) {
+  if (!permissions.length) {
+    return <p className="text-sm text-slate-500">No effective permissions.</p>;
+  }
+
+  const groups = permissions.reduce<Record<string, string[]>>((acc, permission) => {
+    const [group = 'other'] = permission.split('.');
+    acc[group] = [...(acc[group] ?? []), permission];
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-2">
+      {Object.entries(groups)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([group, values]) => (
+          <details key={group} className="group rounded-lg border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold capitalize text-slate-800">
+              <span>
+                {group.replaceAll('_', ' ')}
+                <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                  {values.length}
+                </span>
+              </span>
+              <ChevronDown className="h-4 w-4 text-slate-400 transition group-open:rotate-180" />
+            </summary>
+            <div className="flex flex-wrap gap-2 border-t border-slate-100 p-3">
+              {values.sort().map((permission) => (
+                <span key={permission} className="rounded bg-slate-100 px-2 py-1 text-xs">
+                  {permission}
+                </span>
+              ))}
+            </div>
+          </details>
+        ))}
     </div>
   );
 }
