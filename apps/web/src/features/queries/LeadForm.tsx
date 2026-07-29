@@ -1,12 +1,28 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Car,
+  FileText,
+  Hotel,
+  PackagePlus,
+  Plane,
+  Plus,
+  Ship,
+  Telescope,
+  Trash2,
+  Train,
+  type LucideIcon,
+} from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { SERVICE_TYPES, type QueryInput } from '@interscale/shared';
+import countries from 'world-countries';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
 import { useCustomer, useCustomerDuplicates } from '@/features/customers/customers.api';
+import { cn } from '@/utils/cn';
 
 interface ItineraryForm {
   country: string;
@@ -82,8 +98,8 @@ function defaults(lead?: Lead): FormValues {
     leadType: lead?.leadType ?? 'FRESH',
     leadStage: lead?.leadStage ?? 'NEW_LEAD',
     priority: lead?.priority ?? 'MEDIUM',
-    departureCountry: lead?.departureCountry ?? '',
-    departureCity: lead?.departureCity ?? '',
+    departureCountry: lead?.departureCountry ?? 'India',
+    departureCity: lead?.departureCity ?? 'Mumbai',
     travelStartDate: dateValue(lead?.travelStartDate),
     travelEndDate: dateValue(lead?.travelEndDate),
     flexibleDates: lead?.flexibleDates ?? false,
@@ -123,23 +139,72 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
   </label>
 );
 const inputClass = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
-const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="rounded-xl border border-slate-200 bg-card p-5 shadow-sm">
-    <h2 className="mb-4 text-base font-semibold text-slate-900">{title}</h2>
-    {children}
+const sectionTones = {
+  blue: 'bg-blue-600 text-white',
+  teal: 'bg-teal-600 text-white',
+  green: 'bg-green-600 text-white',
+  slate: 'bg-slate-900 text-white',
+} as const;
+const Section = ({
+  title,
+  children,
+  tone = 'slate',
+}: {
+  title: string;
+  children: React.ReactNode;
+  tone?: keyof typeof sectionTones;
+}) => (
+  <section className="overflow-hidden rounded-lg border border-slate-200 bg-card shadow-sm">
+    <h2 className={cn('px-4 py-3 text-sm font-semibold', sectionTones[tone])}>{title}</h2>
+    <div className="p-4">{children}</div>
   </section>
 );
+const INDIAN_DEPARTURE_CITIES = [
+  { value: 'Ahmedabad', label: 'Ahmedabad (AMD)' },
+  { value: 'Amritsar', label: 'Amritsar (ATQ)' },
+  { value: 'Bengaluru', label: 'Bengaluru (BLR)' },
+  { value: 'Chandigarh', label: 'Chandigarh (IXC)' },
+  { value: 'Chennai', label: 'Chennai (MAA)' },
+  { value: 'Delhi', label: 'Delhi (DEL)' },
+  { value: 'Goa', label: 'Goa (GOI)' },
+  { value: 'Guwahati', label: 'Guwahati (GAU)' },
+  { value: 'Hyderabad', label: 'Hyderabad (HYD)' },
+  { value: 'Jaipur', label: 'Jaipur (JAI)' },
+  { value: 'Kochi', label: 'Kochi (COK)' },
+  { value: 'Kolkata', label: 'Kolkata (CCU)' },
+  { value: 'Lucknow', label: 'Lucknow (LKO)' },
+  { value: 'Mumbai', label: 'Mumbai (BOM)' },
+  { value: 'Nagpur', label: 'Nagpur (NAG)' },
+  { value: 'Pune', label: 'Pune (PNQ)' },
+  { value: 'Srinagar', label: 'Srinagar (SXR)' },
+  { value: 'Udaipur', label: 'Udaipur (UDR)' },
+  { value: 'Varanasi', label: 'Varanasi (VNS)' },
+];
+const SERVICE_ICONS: Partial<Record<string, LucideIcon>> = {
+  FLIGHT: Plane,
+  HOTEL: Hotel,
+  CRUISE: Ship,
+  VEHICLE_TRANSFER: Car,
+  SIGHTSEEING: Telescope,
+  VISA: FileText,
+  RAIL: Train,
+  PASSPORT_ASSISTANCE: FileText,
+  OTHER_ADD_ON: PackagePlus,
+  GENERAL_ENQUIRY: FileText,
+};
 
 export function LeadForm({
   lead,
   onSave,
   saving,
   error,
+  errorFields,
 }: {
   lead?: Lead;
   onSave: (v: QueryInput) => void;
   saving: boolean;
   error?: string;
+  errorFields?: Record<string, string[]>;
 }) {
   const { hasPermission, user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -176,6 +241,7 @@ export function LeadForm({
   const customerName = watch('customerName');
   const email = watch('email');
   const services = watch('services');
+  const departureCountry = watch('departureCountry');
   const counts = watch([
     'rooms',
     'adults',
@@ -186,6 +252,19 @@ export function LeadForm({
   ]);
   const matches = usePhoneSearch(phone);
   const customerMatches = useCustomerDuplicates({ displayName: customerName, phone, email });
+  const countryOptions = useMemo(
+    () => countries.map((country) => country.name.common).sort((a, b) => a.localeCompare(b)),
+    [],
+  );
+  const cityOptions = useMemo(() => {
+    if (departureCountry === 'India') return INDIAN_DEPARTURE_CITIES;
+    return (lookups?.cities ?? [])
+      .map((city) => ({ value: city, label: city }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [departureCountry, lookups?.cities]);
+  const fieldErrorMessages = Object.entries(errorFields ?? {})
+    .flatMap(([field, messages]) => messages.map((message) => ({ field, message })))
+    .slice(0, 6);
   const summary = [
     `${counts[0] || 0} Room${counts[0] === 1 ? '' : 's'}`,
     `${counts[1] || 0} Adult${counts[1] === 1 ? '' : 's'}`,
@@ -196,9 +275,20 @@ export function LeadForm({
   ]
     .filter(Boolean)
     .join(', ');
-  const submit = (v: FormValues) =>
+  const submit = (v: FormValues) => {
+    const itinerary = v.itinerary
+      .filter((r) => r.country.trim() && r.destination.trim())
+      .map((r, index) => ({
+        ...r,
+        sequence: index + 1,
+        arrivalDate: r.arrivalDate ? new Date(r.arrivalDate) : null,
+        departureDate: r.departureDate ? new Date(r.departureDate) : null,
+        notes: r.notes || null,
+      }));
+
     onSave({
       ...v,
+      flexibleDates: false,
       email: v.email || null,
       alternatePhone: v.alternatePhone || null,
       dateOfBirth: v.dateOfBirth ? new Date(v.dateOfBirth) : null,
@@ -217,188 +307,201 @@ export function LeadForm({
       assignedToId: v.assignedToId || null,
       internalRemarks: v.internalRemarks || null,
       services: v.services as QueryInput['services'],
-      itinerary: v.itinerary.map((r, index) => ({
-        ...r,
-        sequence: index + 1,
-        arrivalDate: r.arrivalDate ? new Date(r.arrivalDate) : null,
-        departureDate: r.departureDate ? new Date(r.departureDate) : null,
-        notes: r.notes || null,
-      })),
+      itinerary,
       initialNote: v.initialNote || null,
       initialFollowUp: v.followUpAt
         ? { scheduledAt: new Date(v.followUpAt), assignedToId: v.assignedToId || user?.id }
         : undefined,
     } as QueryInput);
+  };
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-5">
-      {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      <Section title="Lead Information">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Customer name *">
-            <input
-              aria-label="Customer name"
-              className={inputClass}
-              {...register('customerName', { required: true, minLength: 2 })}
-            />
-            {errors.customerName && (
-              <span className="text-xs text-red-600">Enter the customer name.</span>
-            )}
-          </Field>
-          <Field label="Primary phone *">
-            <input
-              aria-label="Primary phone"
-              className={inputClass}
-              inputMode="tel"
-              {...register('phone', { required: true, minLength: 5 })}
-            />
-          </Field>
-          <Field label="Alternate phone">
-            <input className={inputClass} {...register('alternatePhone')} />
-          </Field>
-          <Field label="Email">
-            <input className={inputClass} type="email" {...register('email')} />
-          </Field>
-          {matches.data && matches.data.length > 0 && !lead && (
-            <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              <p className="font-medium text-amber-900">Possible duplicate leads found</p>
-              {matches.data.map((m) => (
-                <button
-                  type="button"
-                  key={m.id}
-                  className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
-                  onClick={() => {
-                    // The explicit "Use details" action is the confirmation;
-                    // matches never overwrite the form automatically.
-                    setValue('customerName', m.customerName, { shouldDirty: true });
-                    setValue('phone', m.phone, { shouldDirty: true });
-                    setValue('alternatePhone', m.alternatePhone ?? '', { shouldDirty: true });
-                    setValue('email', m.email ?? '', { shouldDirty: true });
-                  }}
-                >
-                  Use details from <strong>{m.queryNumber}</strong> · {m.customerName}
-                </button>
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p>{error}</p>
+          {fieldErrorMessages.length > 0 && (
+            <ul className="mt-2 list-inside list-disc space-y-1">
+              {fieldErrorMessages.map(({ field, message }) => (
+                <li key={`${field}-${message}`}>
+                  {field}: {message}
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-          {customerMatches.data && customerMatches.data.length > 0 && !lead && (
-            <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm">
-              <p className="font-medium text-brand-900">Matching customer profiles</p>
-              <p className="text-xs text-brand-700">
-                Choose a profile to link this lead. If there is one exact match, the server links it
-                automatically.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {customerMatches.data.map((match) => (
-                  <label
-                    key={match.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-card px-3 py-2 shadow-sm"
+        </div>
+      )}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
+        <Section title="Lead Information" tone="blue">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Field label="Customer name *">
+              <input
+                aria-label="Customer name"
+                className={inputClass}
+                {...register('customerName', { required: true, minLength: 2 })}
+              />
+              {errors.customerName && (
+                <span className="text-xs text-red-600">Enter the customer name.</span>
+              )}
+            </Field>
+            <Field label="Phone *">
+              <input
+                aria-label="Phone"
+                className={inputClass}
+                inputMode="tel"
+                {...register('phone', { required: true, minLength: 5 })}
+              />
+            </Field>
+            <Field label="Email">
+              <input className={inputClass} type="email" {...register('email')} />
+            </Field>
+            {matches.data && matches.data.length > 0 && !lead && (
+              <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+                <p className="font-medium text-amber-900">Possible duplicate leads found</p>
+                {matches.data.map((m) => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
+                    onClick={() => {
+                      // The explicit "Use details" action is the confirmation;
+                      // matches never overwrite the form automatically.
+                      setValue('customerName', m.customerName, { shouldDirty: true });
+                      setValue('phone', m.phone, { shouldDirty: true });
+                      setValue('alternatePhone', m.alternatePhone ?? '', { shouldDirty: true });
+                      setValue('email', m.email ?? '', { shouldDirty: true });
+                    }}
                   >
-                    <input type="radio" value={match.id} {...register('customerId')} />
-                    <span>
-                      <strong>{match.displayName}</strong>
-                      <span className="block text-xs text-slate-500">
-                        {match.customerNumber} · {match.primaryPhone || match.email}
-                      </span>
-                    </span>
-                  </label>
+                    Use details from <strong>{m.queryNumber}</strong> · {m.customerName}
+                  </button>
                 ))}
               </div>
-              <label className="mt-3 flex items-center gap-2">
-                <input type="checkbox" {...register('createNewCustomer')} />
-                Create a separate customer instead
-              </label>
-              {customerMatches.data.some((match) => match.strongMatch) && (
-                <label className="mt-2 flex items-center gap-2">
-                  <input type="checkbox" {...register('createAnyway')} />I reviewed the exact match
-                  and still want a separate profile
+            )}
+            {customerMatches.data && customerMatches.data.length > 0 && !lead && (
+              <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm">
+                <p className="font-medium text-brand-900">Matching customer profiles</p>
+                <p className="text-xs text-brand-700">
+                  Choose a profile to link this lead. If there is one exact match, the server links
+                  it automatically.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {customerMatches.data.map((match) => (
+                    <label
+                      key={match.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md border bg-card px-3 py-2 shadow-sm"
+                    >
+                      <input type="radio" value={match.id} {...register('customerId')} />
+                      <span>
+                        <strong>{match.displayName}</strong>
+                        <span className="block text-xs text-slate-500">
+                          {match.customerNumber} · {match.primaryPhone || match.email}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <label className="mt-3 flex items-center gap-2">
+                  <input type="checkbox" {...register('createNewCustomer')} />
+                  Create a separate customer instead
                 </label>
-              )}
-            </div>
-          )}
-          <Field label="Date of birth">
-            <input className={inputClass} type="date" {...register('dateOfBirth')} />
-          </Field>
-          {(['leadSource', 'leadType', 'leadStage', 'priority'] as const).map((name) => (
-            <Field
-              key={name}
-              label={
-                (
-                  {
-                    leadSource: 'Lead source *',
-                    leadType: 'Lead type *',
-                    leadStage: 'Lead stage *',
-                    priority: 'Priority *',
-                  } as const
-                )[name]
-              }
-            >
-              <select className={inputClass} {...register(name)}>
-                {lookups?.[
-                  name === 'leadSource'
-                    ? 'leadSources'
-                    : name === 'leadType'
-                      ? 'leadTypes'
-                      : name === 'leadStage'
-                        ? 'leadStages'
-                        : 'priorities'
-                ].map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+                {customerMatches.data.some((match) => match.strongMatch) && (
+                  <label className="mt-2 flex items-center gap-2">
+                    <input type="checkbox" {...register('createAnyway')} />I reviewed the exact
+                    match and still want a separate profile
+                  </label>
+                )}
+              </div>
+            )}
+            <Field label="Date of birth">
+              <input className={inputClass} type="date" {...register('dateOfBirth')} />
+            </Field>
+            {(['leadSource', 'leadType', 'leadStage', 'priority'] as const).map((name) => (
+              <Field
+                key={name}
+                label={
+                  (
+                    {
+                      leadSource: 'Lead source *',
+                      leadType: 'Lead type *',
+                      leadStage: 'Lead stage *',
+                      priority: 'Priority *',
+                    } as const
+                  )[name]
+                }
+              >
+                <select className={inputClass} {...register(name)}>
+                  {lookups?.[
+                    name === 'leadSource'
+                      ? 'leadSources'
+                      : name === 'leadType'
+                        ? 'leadTypes'
+                        : name === 'leadStage'
+                          ? 'leadStages'
+                          : 'priorities'
+                  ].map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ))}
+            <Field label="Assignment">
+              <select
+                aria-label="Assigned salesperson"
+                className={inputClass}
+                disabled={!hasPermission('queries.assign')}
+                {...register('assignedToId')}
+              >
+                <option value={user?.id}>Assign to me</option>
+                {lookups?.assignableUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName}
                   </option>
                 ))}
               </select>
             </Field>
-          ))}
-          <Field label="Assignment">
-            <select
-              aria-label="Assigned salesperson"
-              className={inputClass}
-              disabled={!hasPermission('queries.assign')}
-              {...register('assignedToId')}
-            >
-              <option value={user?.id}>Assign to me</option>
-              {lookups?.assignableUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <label className="md:col-span-2 lg:col-span-3 space-y-1 text-sm font-medium">
-            <span>Internal remarks</span>
-            <textarea className={inputClass} rows={2} {...register('internalRemarks')} />
-          </label>
-        </div>
-      </Section>
-      <Section title="Travel Details">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Travel start">
-            <input className={inputClass} type="date" {...register('travelStartDate')} />
-          </Field>
-          <Field label="Travel end">
-            <input className={inputClass} type="date" {...register('travelEndDate')} />
-          </Field>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" {...register('flexibleDates')} /> Flexible dates
-          </label>
-          <Field label="Departure country">
-            <input list="countries" className={inputClass} {...register('departureCountry')} />
-            <datalist id="countries">
-              {lookups?.countries.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </datalist>
-          </Field>
-          <Field label="Departure city">
-            <input list="cities" className={inputClass} {...register('departureCity')} />
-            <datalist id="cities">
-              {lookups?.cities.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </datalist>
-          </Field>
-        </div>
-      </Section>
+            <label className="md:col-span-2 lg:col-span-3 space-y-1 text-sm font-medium">
+              <span>Internal remarks</span>
+              <textarea className={inputClass} rows={2} {...register('internalRemarks')} />
+            </label>
+          </div>
+        </Section>
+        <Section title="Travel Details" tone="teal">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="Travel start">
+              <input className={inputClass} type="date" {...register('travelStartDate')} />
+            </Field>
+            <Field label="Travel end">
+              <input className={inputClass} type="date" {...register('travelEndDate')} />
+            </Field>
+            <Field label="Departure country">
+              <select
+                className={inputClass}
+                {...register('departureCountry', {
+                  onChange: () => setValue('departureCity', '', { shouldDirty: true }),
+                })}
+              >
+                <option value="">Select country</option>
+                {countryOptions.map((country) => (
+                  <option key={country} value={country}>
+                    {country}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Departure city">
+              <select className={inputClass} {...register('departureCity')}>
+                <option value="">Select city</option>
+                {cityOptions.map((city) => (
+                  <option key={`${city.value}-${city.label}`} value={city.value}>
+                    {city.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </Section>
+      </div>
       <Section title="Traveller Configuration">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
           {(
@@ -439,30 +542,34 @@ export function LeadForm({
           {summary}
         </p>
       </Section>
-      <Section title="Services Required">
+      <Section title="Services Required" tone="green">
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {(lookups?.serviceTypes ?? SERVICE_TYPES.map((value) => ({ value, label: value }))).map(
-            (s) => (
-              <label
-                key={s.value}
-                className="flex items-center gap-2 rounded-lg border p-3 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={services.includes(s.value)}
-                  onChange={(e) =>
-                    setValue(
-                      'services',
-                      e.target.checked
-                        ? [...services, s.value]
-                        : services.filter((x) => x !== s.value),
-                      { shouldDirty: true },
-                    )
-                  }
-                />
-                {s.label}
-              </label>
-            ),
+            (s) => {
+              const Icon = SERVICE_ICONS[s.value] ?? PackagePlus;
+              return (
+                <label
+                  key={s.value}
+                  className="flex items-center gap-2 rounded-lg border p-3 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={services.includes(s.value)}
+                    onChange={(e) =>
+                      setValue(
+                        'services',
+                        e.target.checked
+                          ? [...services, s.value]
+                          : services.filter((x) => x !== s.value),
+                        { shouldDirty: true },
+                      )
+                    }
+                  />
+                  <Icon className="h-4 w-4 text-slate-600" />
+                  {s.label}
+                </label>
+              );
+            },
           )}
         </div>
         {services.length === 0 && (
@@ -477,13 +584,13 @@ export function LeadForm({
                 aria-label={`Country ${index + 1}`}
                 placeholder="Country"
                 className={`${inputClass} md:col-span-2`}
-                {...register(`itinerary.${index}.country`, { required: true })}
+                {...register(`itinerary.${index}.country`)}
               />
               <input
                 aria-label={`Destination ${index + 1}`}
                 placeholder="Destination / city *"
                 className={`${inputClass} md:col-span-3`}
-                {...register(`itinerary.${index}.destination`, { required: true })}
+                {...register(`itinerary.${index}.destination`)}
               />
               <input
                 aria-label={`Nights ${index + 1}`}

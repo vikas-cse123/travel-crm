@@ -136,7 +136,7 @@ export const queryInputSchema = z
     assignedToId: z.string().uuid().nullable().optional(),
     internalRemarks: optionalText(2000),
     services: z.array(z.enum(SERVICE_TYPES)).min(1),
-    itinerary: z.array(itineraryInputSchema).min(1).max(100),
+    itinerary: z.array(itineraryInputSchema).max(100).default([]),
     initialNote: optionalText(4000),
     initialFollowUp: followUpInputSchema.optional(),
   })

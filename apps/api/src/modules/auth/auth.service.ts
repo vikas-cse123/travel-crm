@@ -443,6 +443,14 @@ export const authService = {
       throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
     }
 
+    const isCompanyAdmin =
+      user.role.name === ROLE_NAME.OWNER || user.role.name === ROLE_NAME.MANAGER;
+    const usingAdminLogin = input.loginMode === 'COMPANY_ADMIN';
+    if (usingAdminLogin !== isCompanyAdmin) {
+      await recordFailure(usingAdminLogin ? 'user_used_admin_login' : 'admin_used_user_login');
+      throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
+    }
+
     // Password is correct from here on, so specific messages no longer leak
     // anything an attacker did not already know.
     if (user.company.status !== 'ACTIVE') {

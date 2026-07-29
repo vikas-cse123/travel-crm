@@ -123,6 +123,7 @@ export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, 'Password is required'),
   rememberMe: z.boolean().optional().default(false),
+  loginMode: z.enum(['COMPANY_ADMIN', 'COMPANY_USER']).default('COMPANY_ADMIN'),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

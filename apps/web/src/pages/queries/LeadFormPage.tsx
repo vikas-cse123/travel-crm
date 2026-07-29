@@ -28,6 +28,7 @@ export function LeadFormPage() {
       : save.isError
         ? 'The lead could not be saved.'
         : undefined;
+  const errorFields = save.error instanceof ApiError ? save.error.fields : undefined;
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
@@ -49,6 +50,7 @@ export function LeadFormPage() {
         onSave={submit}
         saving={save.isPending}
         {...(error ? { error } : {})}
+        {...(errorFields ? { errorFields } : {})}
       />
     </div>
   );

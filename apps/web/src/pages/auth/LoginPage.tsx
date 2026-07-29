@@ -27,13 +27,16 @@ export function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '', rememberMe: false },
+    defaultValues: { email: '', password: '', rememberMe: false, loginMode: 'COMPANY_ADMIN' },
   });
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     try {
-      const result = await login.mutateAsync(values);
+      const result = await login.mutateAsync({
+        ...values,
+        loginMode: loginMode === 'admin' ? 'COMPANY_ADMIN' : 'COMPANY_USER',
+      });
 
       // An unverified account gets a session but no CRM access.
       if (result.requiresEmailVerification) {
