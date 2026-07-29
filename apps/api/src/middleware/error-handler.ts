@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { ERROR_CODES, type FieldErrors } from '@interscale/shared';
 import { logger } from '../config/logger.js';
@@ -25,6 +26,16 @@ export function zodErrorToFields(error: ZodError): FieldErrors {
 /** 404 for any route that reached the end of the stack unmatched. */
 export function notFoundHandler(req: Request, _res: Response, next: NextFunction): void {
   next(new NotFoundError(`Route ${req.method} ${req.originalUrl} does not exist.`));
+}
+
+function isDatabaseUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientInitializationError ||
+    (error instanceof Error &&
+      /can't reach database server|database server is running|connection refused/i.test(
+        error.message,
+      ))
+  );
 }
 
 /**
@@ -61,6 +72,18 @@ export function errorHandler(
       ...(error.fields ? { fields: error.fields } : {}),
       requestId,
     });
+    return;
+  }
+
+  if (isDatabaseUnavailableError(error)) {
+    logger.error({ requestId, err: error }, 'Database unavailable');
+    sendError(
+      res,
+      503,
+      ERROR_CODES.SERVICE_UNAVAILABLE,
+      'Database is temporarily unavailable. Please try again shortly.',
+      { requestId },
+    );
     return;
   }
 
