@@ -1,14 +1,12 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import {
-  ArrowDown,
-  ArrowUp,
   Car,
   FileText,
   Hotel,
   PackagePlus,
   Plane,
-  Plus,
+  Search,
   Ship,
   Telescope,
   Trash2,
@@ -16,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { SERVICE_TYPES, type QueryInput } from '@interscale/shared';
+import { type QueryInput } from '@interscale/shared';
 import countries from 'world-countries';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -101,7 +99,7 @@ function defaults(lead?: Lead): FormValues {
     departureCountry: lead?.departureCountry ?? 'India',
     departureCity: lead?.departureCity ?? 'Mumbai',
     travelStartDate: dateValue(lead?.travelStartDate),
-    travelEndDate: dateValue(lead?.travelEndDate),
+    travelEndDate: '',
     flexibleDates: lead?.flexibleDates ?? false,
     rooms: lead?.rooms ?? 1,
     adults: lead?.adults ?? 1,
@@ -121,7 +119,7 @@ function defaults(lead?: Lead): FormValues {
     supplierCostingNotes: lead?.supplierCostingNotes ?? '',
     assignedToId: lead?.assignedToId ?? '',
     internalRemarks: lead?.internalRemarks ?? '',
-    services: lead?.services.map((s) => s.serviceType) ?? ['GENERAL_ENQUIRY'],
+    services: lead?.services.map((s) => s.serviceType) ?? [],
     itinerary: lead?.itinerary.map((r) => ({
       ...r,
       arrivalDate: dateValue(r.arrivalDate),
@@ -161,25 +159,92 @@ const Section = ({
 );
 const INDIAN_DEPARTURE_CITIES = [
   { value: 'Ahmedabad', label: 'Ahmedabad (AMD)' },
+  { value: 'Agra', label: 'Agra' },
+  { value: 'Ajmer', label: 'Ajmer' },
+  { value: 'Alappuzha', label: 'Alappuzha' },
   { value: 'Amritsar', label: 'Amritsar (ATQ)' },
+  { value: 'Aurangabad', label: 'Aurangabad' },
+  { value: 'Bhopal', label: 'Bhopal (BHO)' },
+  { value: 'Bhubaneswar', label: 'Bhubaneswar (BBI)' },
   { value: 'Bengaluru', label: 'Bengaluru (BLR)' },
+  { value: 'Calicut', label: 'Calicut (CCJ)' },
   { value: 'Chandigarh', label: 'Chandigarh (IXC)' },
   { value: 'Chennai', label: 'Chennai (MAA)' },
+  { value: 'Coimbatore', label: 'Coimbatore (CJB)' },
+  { value: 'Darjeeling', label: 'Darjeeling' },
+  { value: 'Dehradun', label: 'Dehradun (DED)' },
   { value: 'Delhi', label: 'Delhi (DEL)' },
+  { value: 'Gangtok', label: 'Gangtok' },
   { value: 'Goa', label: 'Goa (GOI)' },
   { value: 'Guwahati', label: 'Guwahati (GAU)' },
+  { value: 'Gwalior', label: 'Gwalior (GWL)' },
   { value: 'Hyderabad', label: 'Hyderabad (HYD)' },
+  { value: 'Indore', label: 'Indore (IDR)' },
+  { value: 'Jabalpur', label: 'Jabalpur (JLR)' },
   { value: 'Jaipur', label: 'Jaipur (JAI)' },
+  { value: 'Jaisalmer', label: 'Jaisalmer (JSA)' },
+  { value: 'Jodhpur', label: 'Jodhpur (JDH)' },
   { value: 'Kochi', label: 'Kochi (COK)' },
+  { value: 'Kodaikanal', label: 'Kodaikanal' },
   { value: 'Kolkata', label: 'Kolkata (CCU)' },
+  { value: 'Leh', label: 'Leh (IXL)' },
   { value: 'Lucknow', label: 'Lucknow (LKO)' },
+  { value: 'Madurai', label: 'Madurai (IXM)' },
+  { value: 'Manali', label: 'Manali' },
+  { value: 'Mangalore', label: 'Mangalore (IXE)' },
+  { value: 'Munnar', label: 'Munnar' },
   { value: 'Mumbai', label: 'Mumbai (BOM)' },
+  { value: 'Mysuru', label: 'Mysuru (MYQ)' },
   { value: 'Nagpur', label: 'Nagpur (NAG)' },
+  { value: 'Nainital', label: 'Nainital' },
+  { value: 'Ooty', label: 'Ooty' },
+  { value: 'Patna', label: 'Patna (PAT)' },
+  { value: 'Port Blair', label: 'Port Blair (IXZ)' },
   { value: 'Pune', label: 'Pune (PNQ)' },
+  { value: 'Raipur', label: 'Raipur (RPR)' },
+  { value: 'Rajkot', label: 'Rajkot (RAJ)' },
+  { value: 'Ranchi', label: 'Ranchi (IXR)' },
+  { value: 'Rishikesh', label: 'Rishikesh' },
+  { value: 'Shimla', label: 'Shimla (SLV)' },
   { value: 'Srinagar', label: 'Srinagar (SXR)' },
+  { value: 'Surat', label: 'Surat (STV)' },
+  { value: 'Tirupati', label: 'Tirupati (TIR)' },
+  { value: 'Trivandrum', label: 'Trivandrum (TRV)' },
   { value: 'Udaipur', label: 'Udaipur (UDR)' },
   { value: 'Varanasi', label: 'Varanasi (VNS)' },
+  { value: 'Vijayawada', label: 'Vijayawada (VGA)' },
+  { value: 'Visakhapatnam', label: 'Visakhapatnam (VTZ)' },
 ];
+const DESTINATION_OPTIONS = [
+  'Andaman',
+  'Bali',
+  'Dubai',
+  'Europe',
+  'Goa',
+  'Himachal',
+  'India',
+  'Kashmir',
+  'Kerala',
+  'Ladakh',
+  'Maldives',
+  'Rajasthan',
+  'Singapore',
+  'Thailand',
+  'Uttarakhand',
+];
+const CREATE_LEAD_SERVICES = [
+  'CRUISE',
+  'FLIGHT',
+  'HOTEL',
+  'VEHICLE_TRANSFER',
+  'SIGHTSEEING',
+  'VISA',
+  'OTHER_ADD_ON',
+] as const;
+const SERVICE_LABELS: Partial<Record<string, string>> = {
+  VEHICLE_TRANSFER: 'Vehicle (disposal)',
+  OTHER_ADD_ON: 'Add-on Service (Rail, Passport, etc.)',
+};
 const SERVICE_ICONS: Partial<Record<string, LucideIcon>> = {
   FLIGHT: Plane,
   HOTEL: Hotel,
@@ -207,6 +272,9 @@ export function LeadForm({
   errorFields?: Record<string, string[]>;
 }) {
   const { hasPermission, user } = useAuth();
+  const [searchPhone, setSearchPhone] = useState('');
+  const [submittedSearchPhone, setSubmittedSearchPhone] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const requestedCustomerId = lead ? '' : (searchParams.get('customerId') ?? '');
   const requestedCustomer = useCustomer(requestedCustomerId || undefined);
@@ -236,7 +304,7 @@ export function LeadForm({
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [isDirty]);
-  const { fields, append, remove, move } = useFieldArray({ control, name: 'itinerary' });
+  const { fields, append, remove } = useFieldArray({ control, name: 'itinerary' });
   const phone = watch('phone');
   const customerName = watch('customerName');
   const email = watch('email');
@@ -251,6 +319,7 @@ export function LeadForm({
     'extraBeds',
   ]);
   const matches = usePhoneSearch(phone);
+  const searchedMatches = usePhoneSearch(submittedSearchPhone);
   const customerMatches = useCustomerDuplicates({ displayName: customerName, phone, email });
   const countryOptions = useMemo(
     () => countries.map((country) => country.name.common).sort((a, b) => a.localeCompare(b)),
@@ -275,6 +344,14 @@ export function LeadForm({
   ]
     .filter(Boolean)
     .join(', ');
+  const fillFromLead = (
+    value: Pick<Lead, 'customerName' | 'phone' | 'alternatePhone' | 'email'>,
+  ) => {
+    setValue('customerName', value.customerName, { shouldDirty: true });
+    setValue('phone', value.phone, { shouldDirty: true });
+    setValue('alternatePhone', value.alternatePhone ?? '', { shouldDirty: true });
+    setValue('email', value.email ?? '', { shouldDirty: true });
+  };
   const submit = (v: FormValues) => {
     const itinerary = v.itinerary
       .filter((r) => r.country.trim() && r.destination.trim())
@@ -286,6 +363,18 @@ export function LeadForm({
         notes: r.notes || null,
       }));
 
+    if (v.services.length === 0) {
+      setLocalError('Please fix the following errors: Select at least one service required.');
+      return;
+    }
+    if (itinerary.length === 0) {
+      setLocalError(
+        'Please fix the following errors: At least one destination and city must be selected.',
+      );
+      return;
+    }
+    setLocalError(null);
+
     onSave({
       ...v,
       customerId: v.customerId || null,
@@ -296,7 +385,7 @@ export function LeadForm({
       departureCountry: v.departureCountry || null,
       departureCity: v.departureCity || null,
       travelStartDate: v.travelStartDate ? new Date(v.travelStartDate) : null,
-      travelEndDate: v.travelEndDate ? new Date(v.travelEndDate) : null,
+      travelEndDate: null,
       expectedAmount: v.expectedAmount ? Number(v.expectedAmount) : null,
       budgetMin: v.budgetMin ? Number(v.budgetMin) : null,
       budgetMax: v.budgetMax ? Number(v.budgetMax) : null,
@@ -317,10 +406,10 @@ export function LeadForm({
   };
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-5">
-      {error && (
+      {(localError || error) && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          <p>{error}</p>
-          {fieldErrorMessages.length > 0 && (
+          <p>{localError ?? error}</p>
+          {!localError && fieldErrorMessages.length > 0 && (
             <ul className="mt-2 list-inside list-disc space-y-1">
               {fieldErrorMessages.map(({ field, message }) => (
                 <li key={`${field}-${message}`}>
@@ -333,7 +422,49 @@ export function LeadForm({
       )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
         <Section title="Lead Information" tone="blue">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {!lead && (
+              <div className="md:col-span-2 lg:col-span-3">
+                <p className="mb-2 text-sm font-semibold text-slate-900">
+                  Search Existing Lead by Phone
+                </p>
+                <div className="flex overflow-hidden rounded-lg border border-slate-300 bg-card">
+                  <input
+                    aria-label="Search existing lead by phone"
+                    className="min-w-0 flex-1 px-3 py-2 text-sm outline-none"
+                    inputMode="tel"
+                    value={searchPhone}
+                    onChange={(event) => setSearchPhone(event.target.value)}
+                    placeholder="Enter phone number to search"
+                  />
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+                    onClick={() => setSubmittedSearchPhone(searchPhone.trim())}
+                  >
+                    <Search className="h-4 w-4" /> Search
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Search existing leads by phone number to auto-fill form
+                </p>
+                {searchedMatches.data && searchedMatches.data.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+                    <p className="font-medium text-amber-900">Existing leads found</p>
+                    {searchedMatches.data.map((match) => (
+                      <button
+                        type="button"
+                        key={match.id}
+                        className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
+                        onClick={() => fillFromLead(match)}
+                      >
+                        Use details from <strong>{match.queryNumber}</strong> · {match.customerName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <Field label="Customer name *">
               <input
                 aria-label="Customer name"
@@ -364,12 +495,7 @@ export function LeadForm({
                     key={m.id}
                     className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
                     onClick={() => {
-                      // The explicit "Use details" action is the confirmation;
-                      // matches never overwrite the form automatically.
-                      setValue('customerName', m.customerName, { shouldDirty: true });
-                      setValue('phone', m.phone, { shouldDirty: true });
-                      setValue('alternatePhone', m.alternatePhone ?? '', { shouldDirty: true });
-                      setValue('email', m.email ?? '', { shouldDirty: true });
+                      fillFromLead(m);
                     }}
                   >
                     Use details from <strong>{m.queryNumber}</strong> · {m.customerName}
@@ -412,18 +538,15 @@ export function LeadForm({
                 )}
               </div>
             )}
-            <Field label="Date of birth">
-              <input className={inputClass} type="date" {...register('dateOfBirth')} />
-            </Field>
             {(['leadSource', 'leadType', 'leadStage', 'priority'] as const).map((name) => (
               <Field
                 key={name}
                 label={
                   (
                     {
-                      leadSource: 'Lead source *',
-                      leadType: 'Lead type *',
-                      leadStage: 'Lead stage *',
+                      leadSource: 'Received *',
+                      leadType: 'Type *',
+                      leadStage: 'Stage *',
                       priority: 'Priority *',
                     } as const
                   )[name]
@@ -446,7 +569,18 @@ export function LeadForm({
                 </select>
               </Field>
             ))}
-            <Field label="Assignment">
+            <div className="md:col-span-2 lg:col-span-3 space-y-3">
+              <p className="text-sm font-semibold text-slate-900">Assign Type</p>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="radio" checked readOnly /> Manual Assignment
+              </label>
+              {hasPermission('queries.assign') && (
+                <p className="text-xs text-slate-500">
+                  As an admin, you must assign this lead to a team member. This field is required.
+                </p>
+              )}
+            </div>
+            <Field label="Assign To *">
               <select
                 aria-label="Assigned salesperson"
                 className={inputClass}
@@ -461,19 +595,17 @@ export function LeadForm({
                 ))}
               </select>
             </Field>
-            <label className="md:col-span-2 lg:col-span-3 space-y-1 text-sm font-medium">
-              <span>Internal remarks</span>
-              <textarea className={inputClass} rows={2} {...register('internalRemarks')} />
-            </label>
+            <div className="md:col-span-2 lg:col-span-3">
+              <Field label="Birth Date">
+                <input className={inputClass} type="date" {...register('dateOfBirth')} />
+              </Field>
+            </div>
           </div>
         </Section>
         <Section title="Travel Details" tone="teal">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Field label="Travel start">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Travel Date *">
               <input className={inputClass} type="date" {...register('travelStartDate')} />
-            </Field>
-            <Field label="Travel end">
-              <input className={inputClass} type="date" {...register('travelEndDate')} />
             </Field>
             <Field label="Departure country">
               <select
@@ -501,217 +633,179 @@ export function LeadForm({
               </select>
             </Field>
           </div>
-        </Section>
-      </div>
-      <Section title="Traveller Configuration">
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
-          {(
-            [
-              'rooms',
-              'adults',
-              'childrenWithBed',
-              'childrenWithoutBed',
-              'infants',
-              'extraBeds',
-            ] as const
-          ).map((name) => (
-            <Field
-              key={name}
-              label={
-                (
-                  {
-                    rooms: 'Rooms',
-                    adults: 'Adults',
-                    childrenWithBed: 'Children + bed',
-                    childrenWithoutBed: 'Children no bed',
-                    infants: 'Infants',
-                    extraBeds: 'Extra beds',
-                  } as const
-                )[name]
-              }
-            >
-              <input
-                className={inputClass}
-                type="number"
-                min={name === 'rooms' || name === 'adults' ? 1 : 0}
-                {...register(name, { valueAsNumber: true })}
-              />
-            </Field>
-          ))}
-        </div>
-        <p className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-800">
-          {summary}
-        </p>
-      </Section>
-      <Section title="Services Required" tone="green">
-        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {(lookups?.serviceTypes ?? SERVICE_TYPES.map((value) => ({ value, label: value }))).map(
-            (s) => {
-              const Icon = SERVICE_ICONS[s.value] ?? PackagePlus;
-              return (
-                <label
-                  key={s.value}
-                  className="flex items-center gap-2 rounded-lg border p-3 text-sm"
+          <div className="mt-5 rounded-lg bg-slate-50 p-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+              {(
+                [
+                  'rooms',
+                  'adults',
+                  'childrenWithBed',
+                  'childrenWithoutBed',
+                  'infants',
+                  'extraBeds',
+                ] as const
+              ).map((name) => (
+                <Field
+                  key={name}
+                  label={
+                    (
+                      {
+                        rooms: 'Rooms *',
+                        adults: 'Adults *',
+                        childrenWithBed: 'CWB',
+                        childrenWithoutBed: 'CWOB',
+                        infants: 'Infants',
+                        extraBeds: 'Extra Beds',
+                      } as const
+                    )[name]
+                  }
                 >
                   <input
+                    className={inputClass}
+                    type="number"
+                    min={name === 'rooms' || name === 'adults' ? 1 : 0}
+                    {...register(name, { valueAsNumber: true })}
+                  />
+                </Field>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              <strong>CWB</strong> = Child with Bed | <strong>CWOB</strong> = Child without Bed |{' '}
+              <strong>Infants</strong> = Visa charges only
+            </p>
+            <div className="mt-4 bg-slate-100 p-3">
+              <p className="mb-2 text-sm font-semibold text-slate-800">Travelers:</p>
+              <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {summary || '1 Room(s), 1 Adult(s)'}
+              </div>
+            </div>
+          </div>
+        </Section>
+        <Section title="Services Required *" tone="green">
+          <p className="mb-4 text-sm text-slate-500">
+            Select at least one service required for this lead, or check Add-on Service:
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CREATE_LEAD_SERVICES.map((value) => {
+              const Icon = SERVICE_ICONS[value] ?? PackagePlus;
+              const label =
+                SERVICE_LABELS[value] ??
+                lookups?.serviceTypes.find((service) => service.value === value)?.label ??
+                value;
+              return (
+                <label key={value} className="flex items-center gap-2 text-sm font-semibold">
+                  <input
                     type="checkbox"
-                    checked={services.includes(s.value)}
+                    checked={services.includes(value)}
                     onChange={(e) =>
                       setValue(
                         'services',
                         e.target.checked
-                          ? [...services, s.value]
-                          : services.filter((x) => x !== s.value),
+                          ? [...services, value]
+                          : services.filter((service) => service !== value),
                         { shouldDirty: true },
                       )
                     }
                   />
-                  <Icon className="h-4 w-4 text-slate-600" />
-                  {s.label}
+                  <Icon className="h-4 w-4 text-slate-700" />
+                  {label}
                 </label>
               );
-            },
+            })}
+          </div>
+          {services.length === 0 && (
+            <p className="mt-3 text-sm text-red-600">Select at least one service.</p>
           )}
-        </div>
-        {services.length === 0 && (
-          <p className="mt-2 text-sm text-red-600">Select at least one service.</p>
-        )}
-      </Section>
-      <Section title="Itinerary">
+        </Section>
+      </div>
+      <Section title="Itinerary *" tone="blue">
         <div className="space-y-3">
           {fields.map((field, index) => (
-            <div key={field.id} className="grid gap-3 rounded-lg bg-slate-50 p-3 md:grid-cols-12">
-              <input
-                aria-label={`Country ${index + 1}`}
-                placeholder="Country"
-                className={`${inputClass} md:col-span-2`}
-                {...register(`itinerary.${index}.country`)}
-              />
-              <input
-                aria-label={`Destination ${index + 1}`}
-                placeholder="Destination / city *"
-                className={`${inputClass} md:col-span-3`}
-                {...register(`itinerary.${index}.destination`)}
-              />
-              <input
-                aria-label={`Nights ${index + 1}`}
-                type="number"
-                min="0"
-                className={`${inputClass} md:col-span-1`}
-                {...register(`itinerary.${index}.nights`, { valueAsNumber: true })}
-              />
-              <input
-                aria-label={`Arrival ${index + 1}`}
-                type="date"
-                className={`${inputClass} md:col-span-2`}
-                {...register(`itinerary.${index}.arrivalDate`)}
-              />
-              <input
-                aria-label={`Departure ${index + 1}`}
-                type="date"
-                className={`${inputClass} md:col-span-2`}
-                {...register(`itinerary.${index}.departureDate`)}
-              />
-              <div className="flex gap-1 md:col-span-2">
+            <div
+              key={field.id}
+              className="grid gap-3 rounded-lg border border-slate-200 bg-card p-4 md:grid-cols-[1fr_1fr_180px_240px]"
+            >
+              <Field label={`Destination ${index + 1}`}>
+                <div className="flex gap-2">
+                  <select
+                    aria-label={`Destination ${index + 1}`}
+                    className={inputClass}
+                    {...register(`itinerary.${index}.country`)}
+                  >
+                    <option value="">Select Destination</option>
+                    {DESTINATION_OPTIONS.map((destination) => (
+                      <option key={destination} value={destination}>
+                        {destination}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="h-9 rounded bg-green-600 px-3 text-sm font-semibold text-white"
+                  >
+                    + Add
+                  </button>
+                </div>
+              </Field>
+              <Field label={`City ${index + 1}`}>
+                <div className="flex gap-2">
+                  <select
+                    aria-label={`City ${index + 1}`}
+                    className={inputClass}
+                    {...register(`itinerary.${index}.destination`)}
+                  >
+                    <option value="">Select City</option>
+                    {INDIAN_DEPARTURE_CITIES.map((city) => (
+                      <option key={city.value} value={city.value}>
+                        {city.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="h-9 rounded bg-green-600 px-3 text-sm font-semibold text-white"
+                  >
+                    + Add
+                  </button>
+                </div>
+              </Field>
+              <Field label="Nights">
+                <input
+                  aria-label={`Nights ${index + 1}`}
+                  type="number"
+                  min="0"
+                  className={inputClass}
+                  {...register(`itinerary.${index}.nights`, { valueAsNumber: true })}
+                />
+              </Field>
+              <div className="flex items-end gap-2">
                 <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Move up"
-                  disabled={index === 0}
-                  onClick={() => move(index, index - 1)}
+                  className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                  onClick={() => append(emptyRow(fields.length + 1))}
                 >
-                  <ArrowUp className="h-4 w-4" />
+                  Add More
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Move down"
-                  disabled={index === fields.length - 1}
-                  onClick={() => move(index, index + 1)}
-                >
-                  <ArrowDown className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Remove itinerary"
-                  disabled={fields.length === 1}
-                  onClick={() => remove(index)}
-                >
-                  <Trash2 className="h-4 w-4 text-red-600" />
-                </Button>
+                {fields.length > 1 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Remove itinerary"
+                    onClick={() => remove(index)}
+                  >
+                    <Trash2 className="h-4 w-4 text-red-600" />
+                  </Button>
+                )}
               </div>
             </div>
           ))}
         </div>
-        <Button
-          className="mt-3"
-          variant="secondary"
-          onClick={() => append(emptyRow(fields.length + 1))}
-        >
-          <Plus className="h-4 w-4" /> Add destination
+      </Section>
+      <div className="flex justify-start gap-2 rounded-lg border bg-card p-4 shadow-sm">
+        <Button type="submit" isLoading={saving}>
+          {lead ? 'Save changes' : 'Create Lead'}
         </Button>
-      </Section>
-      <Section title="Commercial Details">
-        <div className="grid gap-4 md:grid-cols-4">
-          <Field label="Expected amount">
-            <input className={inputClass} type="number" min="0" {...register('expectedAmount')} />
-          </Field>
-          <Field label="Minimum budget">
-            <input className={inputClass} type="number" min="0" {...register('budgetMin')} />
-          </Field>
-          <Field label="Maximum budget">
-            <input className={inputClass} type="number" min="0" {...register('budgetMax')} />
-          </Field>
-          <Field label="Currency">
-            <select className={inputClass} {...register('currency')}>
-              {lookups?.currencies.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Expected margin">
-            <input className={inputClass} type="number" min="0" {...register('expectedMargin')} />
-          </Field>
-          <Field label="Trip type">
-            <select className={inputClass} {...register('tripType')}>
-              <option value="">Select</option>
-              {lookups?.tripTypes.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-          </Field>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" {...register('quotationRequired')} /> Quotation required
-          </label>
-          <Field label="Booking status placeholder">
-            <input className={inputClass} {...register('bookingStatusPlaceholder')} />
-          </Field>
-          <Field label="Web link placeholder">
-            <input className={inputClass} type="url" {...register('webLinkPlaceholder')} />
-          </Field>
-          <label className="space-y-1 text-sm font-medium md:col-span-3">
-            <span>Supplier / costing notes</span>
-            <textarea className={inputClass} rows={2} {...register('supplierCostingNotes')} />
-          </label>
-        </div>
-      </Section>
-      {!lead && (
-        <Section title="Follow-Up and Notes">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Initial follow-up">
-              <input className={inputClass} type="datetime-local" {...register('followUpAt')} />
-            </Field>
-            <label className="space-y-1 text-sm font-medium">
-              <span>Initial note</span>
-              <textarea className={inputClass} rows={3} {...register('initialNote')} />
-            </label>
-          </div>
-        </Section>
-      )}
-      <div className="sticky bottom-4 flex justify-end rounded-xl border bg-card/95 p-3 shadow-lg backdrop-blur">
-        <Button type="submit" isLoading={saving} disabled={services.length === 0}>
-          {lead ? 'Save changes' : 'Create lead'}
+        <Button variant="secondary" onClick={() => history.back()}>
+          Cancel
         </Button>
       </div>
     </form>
