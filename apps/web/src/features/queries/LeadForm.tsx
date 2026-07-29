@@ -288,6 +288,7 @@ export function LeadForm({
 
     onSave({
       ...v,
+      customerId: v.customerId || null,
       flexibleDates: false,
       email: v.email || null,
       alternatePhone: v.alternatePhone || null,
