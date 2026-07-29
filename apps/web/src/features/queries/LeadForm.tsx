@@ -119,7 +119,7 @@ function defaults(lead?: Lead): FormValues {
     supplierCostingNotes: lead?.supplierCostingNotes ?? '',
     assignedToId: lead?.assignedToId ?? '',
     internalRemarks: lead?.internalRemarks ?? '',
-    services: lead?.services.map((s) => s.serviceType) ?? [],
+    services: lead ? lead.services.map((s) => s.serviceType) : ['HOTEL', 'SIGHTSEEING'],
     itinerary: lead?.itinerary.map((r) => ({
       ...r,
       arrivalDate: dateValue(r.arrivalDate),
@@ -334,6 +334,11 @@ export function LeadForm({
   const fieldErrorMessages = Object.entries(errorFields ?? {})
     .flatMap(([field, messages]) => messages.map((message) => ({ field, message })))
     .slice(0, 6);
+  const assignableTeamMembers =
+    lookups?.assignableUsers.filter((assignableUser) => assignableUser.id !== user?.id) ?? [];
+  const childrenWithBedCount = Math.max(0, Math.min(12, Number(counts[2]) || 0));
+  const childrenWithoutBedCount = Math.max(0, Math.min(12, Number(counts[3]) || 0));
+  const infantCount = Math.max(0, Math.min(12, Number(counts[4]) || 0));
   const summary = [
     `${counts[0] || 0} Room${counts[0] === 1 ? '' : 's'}`,
     `${counts[1] || 0} Adult${counts[1] === 1 ? '' : 's'}`,
@@ -371,6 +376,10 @@ export function LeadForm({
       setLocalError(
         'Please fix the following errors: At least one destination and city must be selected.',
       );
+      return;
+    }
+    if (hasPermission('queries.assign') && !v.assignedToId) {
+      setLocalError('Please fix the following errors: Assign To is required.');
       return;
     }
     setLocalError(null);
@@ -587,10 +596,12 @@ export function LeadForm({
                 disabled={!hasPermission('queries.assign')}
                 {...register('assignedToId')}
               >
-                <option value={user?.id}>Assign to me</option>
-                {lookups?.assignableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.fullName}
+                <option value="">
+                  {hasPermission('queries.assign') ? 'Select User' : 'Assign to me'}
+                </option>
+                {assignableTeamMembers.map((assignableUser) => (
+                  <option key={assignableUser.id} value={assignableUser.id}>
+                    {assignableUser.fullName}
                   </option>
                 ))}
               </select>
@@ -634,7 +645,7 @@ export function LeadForm({
             </Field>
           </div>
           <div className="mt-5 rounded-lg bg-slate-50 p-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               {(
                 [
                   'rooms',
@@ -668,11 +679,36 @@ export function LeadForm({
                   />
                 </Field>
               ))}
+              <button
+                type="button"
+                className="self-end rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
+              >
+                Apply
+              </button>
             </div>
             <p className="mt-2 text-xs text-slate-500">
               <strong>CWB</strong> = Child with Bed | <strong>CWOB</strong> = Child without Bed |{' '}
               <strong>Infants</strong> = Visa charges only
             </p>
+            {(childrenWithBedCount > 0 || childrenWithoutBedCount > 0 || infantCount > 0) && (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                {Array.from({ length: childrenWithBedCount }, (_, index) => (
+                  <Field key={`cwb-age-${index}`} label={`CWB ${index + 1} Age`}>
+                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                  </Field>
+                ))}
+                {Array.from({ length: childrenWithoutBedCount }, (_, index) => (
+                  <Field key={`cwob-age-${index}`} label={`CWOB ${index + 1} Age`}>
+                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                  </Field>
+                ))}
+                {Array.from({ length: infantCount }, (_, index) => (
+                  <Field key={`infant-age-${index}`} label={`Infant ${index + 1} Age`}>
+                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                  </Field>
+                ))}
+              </div>
+            )}
             <div className="mt-4 bg-slate-100 p-3">
               <p className="mb-2 text-sm font-semibold text-slate-800">Travelers:</p>
               <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
