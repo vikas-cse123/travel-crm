@@ -152,14 +152,6 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
             );
           })}
         </nav>
-
-        {!collapsed && (
-          <div className="border-t border-sidebar-border p-3">
-            <p className="text-[11px] text-muted-foreground">
-              More modules arrive in upcoming releases.
-            </p>
-          </div>
-        )}
       </aside>
     </>
   );

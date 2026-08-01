@@ -10,7 +10,7 @@ import {
   useVehicle,
   vehicleImageUrl,
 } from '@/features/masters/masters.api';
-import { Breadcrumbs, LoadingCard, StatusBadge } from './MasterUi';
+import { Breadcrumbs, formatMasterDate, LoadingCard, StatusBadge } from './MasterUi';
 
 export function VehicleDetailsPage() {
   const { vehicleId = '' } = useParams<{ vehicleId: string }>();
@@ -54,9 +54,9 @@ export function VehicleDetailsPage() {
     { label: 'Vehicle Name', value: value.name },
     { label: 'Vehicle Type', value: value.vehicleType },
     { label: 'Capacity', value: value.capacity != null ? `${value.capacity} persons` : '—' },
-    { label: 'Created At', value: new Date(value.createdAt).toLocaleDateString() },
+    { label: 'Created At', value: formatMasterDate(value.createdAt) },
     { label: 'Created By', value: value.createdBy?.fullName ?? '—' },
-    { label: 'Last Updated', value: new Date(value.updatedAt).toLocaleDateString() },
+    { label: 'Last Updated', value: formatMasterDate(value.updatedAt) },
     { label: 'Updated By', value: value.updatedBy?.fullName ?? '—' },
   ];
 
@@ -87,7 +87,9 @@ export function VehicleDetailsPage() {
             <Button
               variant="danger"
               onClick={() => {
-                if (window.confirm(`Archive ${value.name}?`)) archive.mutate(vehicleId);
+                if (window.confirm('Are you sure you want to delete this vehicle?')) {
+                  archive.mutate(vehicleId);
+                }
               }}
             >
               <Archive className="h-4 w-4" /> Archive

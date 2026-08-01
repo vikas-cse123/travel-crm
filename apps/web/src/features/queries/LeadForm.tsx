@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import {
   Car,
@@ -18,8 +18,8 @@ import { type QueryInput } from '@interscale/shared';
 import countries from 'world-countries';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
-import { useCustomer, useCustomerDuplicates } from '@/features/customers/customers.api';
+import { useLead, useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
+import { useCustomer } from '@/features/customers/customers.api';
 import { cn } from '@/utils/cn';
 
 interface ItineraryForm {
@@ -286,7 +286,7 @@ export function LeadForm({
     setValue,
     reset,
     handleSubmit,
-    formState: { errors, isDirty },
+    formState: { isDirty },
   } = useForm<FormValues>({ defaultValues: defaults(lead) });
   useEffect(() => reset(defaults(lead)), [lead, reset]);
   useEffect(() => {
@@ -305,9 +305,6 @@ export function LeadForm({
     return () => window.removeEventListener('beforeunload', warn);
   }, [isDirty]);
   const { fields, append, remove } = useFieldArray({ control, name: 'itinerary' });
-  const phone = watch('phone');
-  const customerName = watch('customerName');
-  const email = watch('email');
   const services = watch('services');
   const departureCountry = watch('departureCountry');
   const counts = watch([
@@ -318,9 +315,17 @@ export function LeadForm({
     'infants',
     'extraBeds',
   ]);
-  const matches = usePhoneSearch(phone);
   const searchedMatches = usePhoneSearch(submittedSearchPhone);
-  const customerMatches = useCustomerDuplicates({ displayName: customerName, phone, email });
+  const searchMatchId = lead ? undefined : searchedMatches.data?.[0]?.id;
+  const searchedLead = useLead(searchMatchId);
+  const autofilledIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const found = searchedLead.data;
+    if (!found || lead) return;
+    if (autofilledIdRef.current === found.id) return;
+    autofilledIdRef.current = found.id;
+    reset(defaults(found));
+  }, [searchedLead.data, lead, reset]);
   const countryOptions = useMemo(
     () => countries.map((country) => country.name.common).sort((a, b) => a.localeCompare(b)),
     [],
@@ -336,9 +341,9 @@ export function LeadForm({
     .slice(0, 6);
   const assignableTeamMembers =
     lookups?.assignableUsers.filter((assignableUser) => assignableUser.id !== user?.id) ?? [];
-  const childrenWithBedCount = Math.max(0, Math.min(12, Number(counts[2]) || 0));
-  const childrenWithoutBedCount = Math.max(0, Math.min(12, Number(counts[3]) || 0));
-  const infantCount = Math.max(0, Math.min(12, Number(counts[4]) || 0));
+  const childrenWithBedCount = Math.max(0, Math.min(100, Number(counts[2]) || 0));
+  const childrenWithoutBedCount = Math.max(0, Math.min(100, Number(counts[3]) || 0));
+  const infantCount = Math.max(0, Math.min(100, Number(counts[4]) || 0));
   const summary = [
     `${counts[0] || 0} Room${counts[0] === 1 ? '' : 's'}`,
     `${counts[1] || 0} Adult${counts[1] === 1 ? '' : 's'}`,
@@ -349,14 +354,6 @@ export function LeadForm({
   ]
     .filter(Boolean)
     .join(', ');
-  const fillFromLead = (
-    value: Pick<Lead, 'customerName' | 'phone' | 'alternatePhone' | 'email'>,
-  ) => {
-    setValue('customerName', value.customerName, { shouldDirty: true });
-    setValue('phone', value.phone, { shouldDirty: true });
-    setValue('alternatePhone', value.alternatePhone ?? '', { shouldDirty: true });
-    setValue('email', value.email ?? '', { shouldDirty: true });
-  };
   const submit = (v: FormValues) => {
     const itinerary = v.itinerary
       .filter((r) => r.country.trim() && r.destination.trim())
@@ -368,6 +365,14 @@ export function LeadForm({
         notes: r.notes || null,
       }));
 
+    if (hasPermission('queries.assign') && !v.assignedToId) {
+      setLocalError('Please fix the following errors: Assign To is required.');
+      return;
+    }
+    if (!v.travelStartDate) {
+      setLocalError('Please fix the following errors: Travel date is required.');
+      return;
+    }
     if (v.services.length === 0) {
       setLocalError('Please fix the following errors: Select at least one service required.');
       return;
@@ -376,10 +381,6 @@ export function LeadForm({
       setLocalError(
         'Please fix the following errors: At least one destination and city must be selected.',
       );
-      return;
-    }
-    if (hasPermission('queries.assign') && !v.assignedToId) {
-      setLocalError('Please fix the following errors: Assign To is required.');
       return;
     }
     setLocalError(null);
@@ -414,7 +415,16 @@ export function LeadForm({
     } as QueryInput);
   };
   return (
-    <form onSubmit={handleSubmit(submit)} className="space-y-5">
+    <form
+      onSubmit={handleSubmit(submit)}
+      onKeyDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (event.key === 'Enter' && target.tagName !== 'TEXTAREA') {
+          event.preventDefault();
+        }
+      }}
+      className="space-y-5"
+    >
       {(localError || error) && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           <p>{localError ?? error}</p>
@@ -457,96 +467,33 @@ export function LeadForm({
                 <p className="mt-1 text-xs text-slate-500">
                   Search existing leads by phone number to auto-fill form
                 </p>
-                {searchedMatches.data && searchedMatches.data.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-                    <p className="font-medium text-amber-900">Existing leads found</p>
-                    {searchedMatches.data.map((match) => (
-                      <button
-                        type="button"
-                        key={match.id}
-                        className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
-                        onClick={() => fillFromLead(match)}
-                      >
-                        Use details from <strong>{match.queryNumber}</strong> · {match.customerName}
-                      </button>
-                    ))}
-                  </div>
+                {searchedMatches.data && searchedMatches.data.length === 0 && (
+                  <p className="mt-2 text-xs text-slate-500">No matching lead found.</p>
                 )}
               </div>
             )}
-            <Field label="Customer name *">
-              <input
-                aria-label="Customer name"
-                className={inputClass}
-                {...register('customerName', { required: true, minLength: 2 })}
-              />
-              {errors.customerName && (
-                <span className="text-xs text-red-600">Enter the customer name.</span>
-              )}
-            </Field>
-            <Field label="Phone *">
-              <input
-                aria-label="Phone"
-                className={inputClass}
-                inputMode="tel"
-                {...register('phone', { required: true, minLength: 5 })}
-              />
-            </Field>
-            <Field label="Email">
-              <input className={inputClass} type="email" {...register('email')} />
-            </Field>
-            {matches.data && matches.data.length > 0 && !lead && (
-              <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-                <p className="font-medium text-amber-900">Possible duplicate leads found</p>
-                {matches.data.map((m) => (
-                  <button
-                    type="button"
-                    key={m.id}
-                    className="mr-3 mt-2 rounded-md bg-card px-3 py-2 text-left shadow-sm"
-                    onClick={() => {
-                      fillFromLead(m);
-                    }}
-                  >
-                    Use details from <strong>{m.queryNumber}</strong> · {m.customerName}
-                  </button>
-                ))}
-              </div>
-            )}
-            {customerMatches.data && customerMatches.data.length > 0 && !lead && (
-              <div className="md:col-span-2 lg:col-span-4 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm">
-                <p className="font-medium text-brand-900">Matching customer profiles</p>
-                <p className="text-xs text-brand-700">
-                  Choose a profile to link this lead. If there is one exact match, the server links
-                  it automatically.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {customerMatches.data.map((match) => (
-                    <label
-                      key={match.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md border bg-card px-3 py-2 shadow-sm"
-                    >
-                      <input type="radio" value={match.id} {...register('customerId')} />
-                      <span>
-                        <strong>{match.displayName}</strong>
-                        <span className="block text-xs text-slate-500">
-                          {match.customerNumber} · {match.primaryPhone || match.email}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <label className="mt-3 flex items-center gap-2">
-                  <input type="checkbox" {...register('createNewCustomer')} />
-                  Create a separate customer instead
-                </label>
-                {customerMatches.data.some((match) => match.strongMatch) && (
-                  <label className="mt-2 flex items-center gap-2">
-                    <input type="checkbox" {...register('createAnyway')} />I reviewed the exact
-                    match and still want a separate profile
-                  </label>
-                )}
-              </div>
-            )}
+            <div className="md:col-span-2 lg:col-span-3">
+              <Field label="Name *">
+                <input
+                  aria-label="Name"
+                  className={inputClass}
+                  {...register('customerName', { required: true, minLength: 2 })}
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Phone *">
+                <input
+                  aria-label="Phone"
+                  className={inputClass}
+                  inputMode="tel"
+                  {...register('phone', { required: true, minLength: 5 })}
+                />
+              </Field>
+              <Field label="Email">
+                <input className={inputClass} type="email" {...register('email')} />
+              </Field>
+            </div>
             {(['leadSource', 'leadType', 'leadStage', 'priority'] as const).map((name) => (
               <Field
                 key={name}
@@ -616,7 +563,11 @@ export function LeadForm({
         <Section title="Travel Details" tone="teal">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Travel Date *">
-              <input className={inputClass} type="date" {...register('travelStartDate')} />
+              <input
+                className={inputClass}
+                type="date"
+                {...register('travelStartDate')}
+              />
             </Field>
             <Field label="Departure country">
               <select
@@ -645,7 +596,7 @@ export function LeadForm({
             </Field>
           </div>
           <div className="mt-5 rounded-lg bg-slate-50 p-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
               {(
                 [
                   'rooms',
@@ -679,32 +630,52 @@ export function LeadForm({
                   />
                 </Field>
               ))}
-              <button
-                type="button"
-                className="self-end rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
-              >
-                Apply
-              </button>
             </div>
             <p className="mt-2 text-xs text-slate-500">
               <strong>CWB</strong> = Child with Bed | <strong>CWOB</strong> = Child without Bed |{' '}
               <strong>Infants</strong> = Visa charges only
             </p>
-            {(childrenWithBedCount > 0 || childrenWithoutBedCount > 0 || infantCount > 0) && (
+            {childrenWithBedCount > 0 && (
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                 {Array.from({ length: childrenWithBedCount }, (_, index) => (
                   <Field key={`cwb-age-${index}`} label={`CWB ${index + 1} Age`}>
-                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      placeholder="Age"
+                      defaultValue={8}
+                    />
                   </Field>
                 ))}
+              </div>
+            )}
+            {childrenWithoutBedCount > 0 && (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                 {Array.from({ length: childrenWithoutBedCount }, (_, index) => (
                   <Field key={`cwob-age-${index}`} label={`CWOB ${index + 1} Age`}>
-                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      placeholder="Age"
+                      defaultValue={4}
+                    />
                   </Field>
                 ))}
+              </div>
+            )}
+            {infantCount > 0 && (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                 {Array.from({ length: infantCount }, (_, index) => (
                   <Field key={`infant-age-${index}`} label={`Infant ${index + 1} Age`}>
-                    <input className={inputClass} type="number" min="0" placeholder="Age" />
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min="0"
+                      placeholder="Age"
+                      defaultValue={1}
+                    />
                   </Field>
                 ))}
               </div>
@@ -717,7 +688,8 @@ export function LeadForm({
             </div>
           </div>
         </Section>
-        <Section title="Services Required *" tone="green">
+      </div>
+      <Section title="Services Required *" tone="green">
           <p className="mb-4 text-sm text-slate-500">
             Select at least one service required for this lead, or check Add-on Service:
           </p>
@@ -753,7 +725,6 @@ export function LeadForm({
             <p className="mt-3 text-sm text-red-600">Select at least one service.</p>
           )}
         </Section>
-      </div>
       <Section title="Itinerary *" tone="blue">
         <div className="space-y-3">
           {fields.map((field, index) => (

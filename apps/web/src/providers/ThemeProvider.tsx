@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 
 /**
  * Frontend-only appearance theming.
@@ -26,20 +26,6 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function systemPrefersDark(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
-}
-
-function readStoredPreference(): ThemePreference {
-  if (typeof window === 'undefined') return 'system';
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-}
-
 function applyResolved(resolved: ResolvedTheme): void {
   const root = document.documentElement;
   root.classList.toggle('dark', resolved === 'dark');
@@ -47,44 +33,26 @@ function applyResolved(resolved: ResolvedTheme): void {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference);
-  const [systemDark, setSystemDark] = useState<boolean>(systemPrefersDark);
-
-  const resolved: ResolvedTheme =
-    preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
-
-  // Keep the painted mode in sync with the resolved preference.
+  // The app ships light-only. Pin light on mount and clear any previously
+  // stored dark/system preference so it never reappears. The `useTheme` API is
+  // kept as a light-only no-op so existing consumers keep working.
   useEffect(() => {
-    applyResolved(resolved);
-  }, [resolved]);
-
-  // Track OS changes only while the user is following the system.
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const query = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (event: MediaQueryListEvent) => setSystemDark(event.matches);
-    query.addEventListener('change', handler);
-    return () => query.removeEventListener('change', handler);
-  }, []);
-
-  const setPreference = useCallback((next: ThemePreference) => {
-    setPreferenceState(next);
+    applyResolved('light');
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      window.localStorage.removeItem(THEME_STORAGE_KEY);
     } catch {
       // Private-mode storage failures must not break theming.
     }
   }, []);
 
-  // Toggle flips to the opposite of what is currently on screen, then pins it
-  // as an explicit preference (leaving "system" behind, as users expect).
-  const toggle = useCallback(() => {
-    setPreference(resolved === 'dark' ? 'light' : 'dark');
-  }, [resolved, setPreference]);
-
   const value = useMemo<ThemeContextValue>(
-    () => ({ preference, resolved, setPreference, toggle }),
-    [preference, resolved, setPreference, toggle],
+    () => ({
+      preference: 'light',
+      resolved: 'light',
+      setPreference: () => {},
+      toggle: () => {},
+    }),
+    [],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

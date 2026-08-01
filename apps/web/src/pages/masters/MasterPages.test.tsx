@@ -175,10 +175,10 @@ describe('Phase 13A master pages', () => {
       { route: '/masters/cities/new' },
     );
     await screen.findByRole('heading', { name: 'Create City' });
+    await screen.findByRole('option', { name: 'India' });
+    expect(screen.getByRole('combobox', { name: /country/i })).toHaveValue('IN');
     await userEvent.click(screen.getByRole('button', { name: 'Create City' }));
-    expect(await screen.findByText('Select a country.')).toBeInTheDocument();
     expect(await screen.findByText('Enter a city name.')).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByText('Country *').querySelector('select')!, 'IN');
     await userEvent.type(screen.getByPlaceholderText('Enter city name'), 'Jaipur');
     await userEvent.type(screen.getByPlaceholderText('e.g. DEL'), 'jai');
     await userEvent.click(screen.getByRole('button', { name: 'Create City' }));

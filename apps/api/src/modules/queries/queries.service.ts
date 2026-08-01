@@ -191,12 +191,16 @@ export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
 const noteSelect = {
   id: true,
   content: true,
+  leadStage: true,
   isCustomerContact: true,
   contactMethod: true,
   contactedAt: true,
   createdAt: true,
   updatedAt: true,
   authorUser: { select: userSelect },
+  followUp: {
+    select: { id: true, scheduledAt: true, status: true, snoozedUntil: true },
+  },
 } as const;
 const followUpSelect = {
   id: true,
@@ -1307,21 +1311,141 @@ export const queriesService = {
       orderBy: { createdAt: 'desc' },
     });
   },
+  /**
+   * Aggregate view for the "All Notes" dashboard: notes grouped per lead
+   * (newest first), with stat totals and search / stage / author filters.
+   * Only leads visible to the caller are included (tenant + visibility rules).
+   */
+  async notesOverview(
+    auth: AuthContext,
+    params: { search?: string; stage?: LeadStage; userId?: string; page?: number; pageSize?: number },
+  ) {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 12));
+    const visible = await visibleWhere(auth);
+    const queryFilter: Prisma.QueryWhereInput = {
+      AND: [visible, ...(params.stage ? [{ leadStage: params.stage }] : [])],
+    };
+    const search = params.search?.trim();
+    const noteWhere: Prisma.QueryNoteWhereInput = {
+      companyId: auth.companyId,
+      deletedAt: null,
+      query: queryFilter,
+      ...(params.userId ? { authorUserId: params.userId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { content: { contains: search, mode: 'insensitive' } },
+              { query: { customerName: { contains: search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+    const [groups, distinctLeads, totalNotes, totalLeads] = await Promise.all([
+      prisma.queryNote.groupBy({
+        by: ['queryId'],
+        where: noteWhere,
+        _max: { createdAt: true },
+        orderBy: { _max: { createdAt: 'desc' } },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.queryNote.groupBy({ by: ['queryId'], where: noteWhere }),
+      prisma.queryNote.count({ where: noteWhere }),
+      prisma.query.count({ where: visible }),
+    ]);
+    const totalLeadsWithNotes = distinctLeads.length;
+    const totalPages = Math.max(1, Math.ceil(totalLeadsWithNotes / pageSize));
+    const queryIds = groups.map((g) => g.queryId);
+    const [notes, leads] = await Promise.all([
+      prisma.queryNote.findMany({
+        where: { ...noteWhere, queryId: { in: queryIds } },
+        select: { ...noteSelect, queryId: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.query.findMany({
+        where: { id: { in: queryIds } },
+        select: {
+          id: true,
+          queryNumber: true,
+          customerName: true,
+          phone: true,
+          leadStage: true,
+          assignedTo: { select: userSelect },
+        },
+      }),
+    ]);
+    const leadMap = new Map(leads.map((l) => [l.id, l]));
+    const cards = queryIds
+      .map((qid) => {
+        const lead = leadMap.get(qid);
+        if (!lead) return null;
+        const leadNotes = notes.filter((n) => n.queryId === qid);
+        const [latestNote, ...previousNotes] = leadNotes;
+        return { ...lead, noteCount: leadNotes.length, latestNote: latestNote ?? null, previousNotes };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+    return {
+      stats: { totalNotes, totalLeads, totalLeadsWithNotes, totalPages },
+      page,
+      pageSize,
+      leads: cards,
+    };
+  },
   async addNote(
     auth: AuthContext,
     id: string,
-    input: { content: string; isCustomerContact?: boolean; contactMethod?: ContactMethod | null },
+    input: {
+      content: string;
+      isCustomerContact?: boolean;
+      contactMethod?: ContactMethod | null;
+      reminderAt?: Date;
+      reminderAssignedToId?: string;
+      reminderNotes?: string | null;
+    },
     context: RequestContext,
   ) {
-    await getVisible(auth, id);
+    const query = await getVisible(auth, id);
+    // When a follow-up reminder is requested, validate it before opening the
+    // transaction so a bad assignee/date fails cleanly without a half-write.
+    let reminderAssigneeId: string | null = null;
+    if (input.reminderAt) {
+      reminderAssigneeId = input.reminderAssignedToId ?? query.assignedToId ?? auth.userId;
+      validateScheduledAt(input.reminderAt);
+      await assertAssignable(auth, reminderAssigneeId);
+      await assertCanAssignOther(auth, reminderAssigneeId);
+    }
     return prisma.$transaction(async (tx) => {
       const contactedAt = input.isCustomerContact ? new Date() : null;
+      let followUpId: string | null = null;
+      if (input.reminderAt && reminderAssigneeId) {
+        const followUp = await tx.queryFollowUp.create({
+          data: {
+            companyId: auth.companyId,
+            queryId: id,
+            createdById: auth.userId,
+            assignedToId: reminderAssigneeId,
+            scheduledAt: input.reminderAt,
+            notes: input.reminderNotes ?? null,
+          },
+          select: { id: true, scheduledAt: true },
+        });
+        followUpId = followUp.id;
+        await tx.activityLog.create({
+          data: audit(auth, 'QUERY_FOLLOW_UP_CREATED', id, context, {
+            followUpId: followUp.id,
+            scheduledAt: followUp.scheduledAt.toISOString(),
+          }),
+        });
+      }
       const note = await tx.queryNote.create({
         data: {
           companyId: auth.companyId,
           queryId: id,
           authorUserId: auth.userId,
           content: input.content,
+          leadStage: query.leadStage,
+          followUpId,
           isCustomerContact: input.isCustomerContact ?? false,
           contactMethod: input.isCustomerContact ? (input.contactMethod ?? 'OTHER') : null,
           contactedAt,
@@ -1330,6 +1454,7 @@ export const queriesService = {
       });
       if (contactedAt)
         await tx.query.update({ where: { id }, data: { lastContactedAt: contactedAt } });
+      if (followUpId) await recalculateNextFollowUp(tx, auth.companyId, id);
       await tx.activityLog.create({
         data: audit(auth, 'QUERY_NOTE_ADDED', id, context, { noteId: note.id }),
       });

@@ -13,9 +13,11 @@ import {
   useUpdateVehicle,
   useVehicle,
   useVehicleTypes,
+  vehicleImageUrl,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader } from './MasterUi';
 import { MasterImageField } from './MasterImageField';
+import { MasterImageEditor } from './MasterImageEditor';
 
 const MAX_IMAGE_MB = 5;
 
@@ -44,6 +46,9 @@ export function VehicleFormPage() {
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA);
 
   const [image, setImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+  const [existingImageUrl, setExistingImageUrl] = useState('');
+  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
   const [imageError, setImageError] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -63,12 +68,44 @@ export function VehicleFormPage() {
     });
   }, [vehicle.data, form]);
 
+  useEffect(() => {
+    if (!image) {
+      setImagePreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+
+  useEffect(() => {
+    let active = true;
+    if (!vehicleId || !vehicle.data?.hasImage) {
+      setExistingImageUrl('');
+      return;
+    }
+    void vehicleImageUrl(vehicleId)
+      .then((result) => {
+        if (active) setExistingImageUrl(result.url);
+      })
+      .catch(() => {
+        if (active) setExistingImageUrl('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [vehicleId, vehicle.data?.hasImage, vehicle.data?.imageConfirmedAt]);
+
   if (vehicleId && vehicle.isError) return <Navigate to="/masters/vehicles" replace />;
   const mutation = vehicleId ? update : create;
 
   const validateImage = (file?: File) => {
     setImageError('');
-    if (!file) return setImage(null);
+    if (!file) {
+      setImage(null);
+      setImageEditorOpen(false);
+      return;
+    }
     if (
       !VEHICLE_IMAGE_MIME_TYPES.includes(file.type as (typeof VEHICLE_IMAGE_MIME_TYPES)[number])
     ) {
@@ -80,6 +117,16 @@ export function VehicleFormPage() {
       return;
     }
     setImage(file);
+    setImageEditorOpen(true);
+  };
+  const applyEditedImage = (file: File) => {
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
+      return;
+    }
+    setImageError('');
+    setImage(file);
+    setImageEditorOpen(false);
   };
 
   const uploadImage = async (id: string, file: File) => {
@@ -125,7 +172,7 @@ export function VehicleFormPage() {
     <div className="space-y-5">
       <MasterHeader
         title={vehicleId ? 'Edit Vehicle' : 'Create Vehicle'}
-        description="Capture the vehicle category, seating capacity and photo."
+        description=""
         current="Vehicles"
       />
 
@@ -240,10 +287,49 @@ export function VehicleFormPage() {
                   onDelete={async () => {
                     if (vehicleId && window.confirm('Delete this vehicle image?')) {
                       await deleteVehicleImage(vehicleId);
+                      setExistingImageUrl('');
                       await vehicle.refetch();
                     }
                   }}
                 />
+              )}
+              {(imagePreviewUrl || existingImageUrl) && (
+                <div className="overflow-hidden rounded-lg border bg-slate-50">
+                  <img
+                    src={imagePreviewUrl || existingImageUrl}
+                    alt="Vehicle image preview"
+                    className="h-44 w-full bg-slate-50 object-contain"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
+                    <p className="min-w-0 truncate text-sm text-slate-600">
+                      {image?.name ?? vehicle.data?.imageFileName ?? 'Current vehicle image'}
+                    </p>
+                    {image && (
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setImageEditorOpen(true)}
+                        >
+                          Edit image
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setImage(null);
+                            setImageError('');
+                            setImageEditorOpen(false);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
               <label className="block text-sm font-medium text-slate-700">
                 Description
@@ -258,7 +344,7 @@ export function VehicleFormPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 bg-background/95 py-4 backdrop-blur">
           <Button variant="secondary" onClick={() => navigate('/masters/vehicles')}>
             <X className="h-4 w-4" /> Cancel
           </Button>
@@ -267,6 +353,16 @@ export function VehicleFormPage() {
           </Button>
         </div>
       </form>
+      {image && imagePreviewUrl && (
+        <MasterImageEditor
+          file={image}
+          imageUrl={imagePreviewUrl}
+          isOpen={isImageEditorOpen}
+          title="Edit Vehicle Image"
+          onCancel={() => setImageEditorOpen(false)}
+          onApply={applyEditedImage}
+        />
+      )}
     </div>
   );
 }

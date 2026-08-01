@@ -8,18 +8,7 @@ import {
   useArchiveAddOnService,
   useRestoreAddOnService,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
-
-/** Strip HTML so the reference's description column stays readable. */
-function plainText(html: string | null): string {
-  if (!html) return '';
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import { MasterHeader, Pagination, RichTextPreview, StatusBadge } from './MasterUi';
 
 function money(amount: number, currency: string): string {
   try {
@@ -47,9 +36,8 @@ export function AddOnServicesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this add-on service?')) archive.mutate(id);
   };
 
   return (
@@ -131,9 +119,7 @@ export function AddOnServicesPage() {
                     <tr key={service.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-900">{service.name}</td>
                       <td className="max-w-lg px-4 py-3 text-slate-600">
-                        <span className="line-clamp-2 block">
-                          {plainText(service.description) || '—'}
-                        </span>
+                        <RichTextPreview html={service.description} />
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-800">
                         {money(service.price, service.currency)}
@@ -162,7 +148,7 @@ export function AddOnServicesPage() {
                           {canArchive && service.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${service.name}`}
-                              onClick={() => archiveRow(service.id, service.name)}
+                              onClick={() => archiveRow(service.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -210,6 +196,7 @@ export function AddOnServicesPage() {
 
             <Pagination
               page={services.data.pagination.page}
+              pageSize={services.data.pagination.pageSize}
               totalPages={services.data.pagination.totalPages}
               total={services.data.pagination.total}
               onPage={(page) => update('page', String(page))}

@@ -4,7 +4,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useCity } from '@/features/masters/masters.api';
-import { LoadingCard, MasterHeader, StatusBadge } from './MasterUi';
+import { formatMasterDate, LoadingCard, MasterHeader, StatusBadge } from './MasterUi';
 
 export function CityDetailsPage() {
   const { cityId } = useParams();
@@ -19,7 +19,7 @@ export function CityDetailsPage() {
     ['Airport Code', value.airportCode ?? 'Not provided'],
     ['Status', value.status],
     ['Used by destinations', String(value._count.destinationLinks)],
-    ['Created At', new Date(value.createdAt).toLocaleString()],
+    ['Created At', formatMasterDate(value.createdAt)],
     ['Created By', value.createdBy.fullName],
   ];
   return (

@@ -10,7 +10,7 @@ import {
   useRestoreSightseeing,
   useSightseeing,
 } from '@/features/masters/masters.api';
-import { Breadcrumbs, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
+import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 
 /** "14:30" → "2:30 PM". */
 function formatTime(value: string | null): string {
@@ -70,9 +70,9 @@ export function SightseeingDetailsPage() {
       value: value.estimatedHours != null ? `${value.estimatedHours.toFixed(1)}h` : '—',
     },
     { label: 'Suggested Start Time', value: formatTime(value.suggestedStartTime) },
-    { label: 'Created', value: new Date(value.createdAt).toLocaleDateString() },
+    { label: 'Created', value: formatMasterDate(value.createdAt) },
     { label: 'Created By', value: value.createdBy?.fullName ?? '—' },
-    { label: 'Last Updated', value: new Date(value.updatedAt).toLocaleDateString() },
+    { label: 'Last Updated', value: formatMasterDate(value.updatedAt) },
     { label: 'Updated By', value: value.updatedBy?.fullName ?? '—' },
   ];
 
@@ -106,7 +106,9 @@ export function SightseeingDetailsPage() {
             <Button
               variant="danger"
               onClick={() => {
-                if (window.confirm(`Archive ${value.title}?`)) archive.mutate(sightseeingId);
+                if (window.confirm('Are you sure you want to delete this sightseeing?')) {
+                  archive.mutate(sightseeingId);
+                }
               }}
             >
               <Archive className="h-4 w-4" /> Archive

@@ -10,7 +10,7 @@ import {
   useCruise,
   useRestoreCruise,
 } from '@/features/masters/masters.api';
-import { Breadcrumbs, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
+import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 
 export function CruiseDetailsPage() {
   const { cruiseId = '' } = useParams<{ cruiseId: string }>();
@@ -85,7 +85,9 @@ export function CruiseDetailsPage() {
             <Button
               variant="danger"
               onClick={() => {
-                if (window.confirm(`Archive ${value.name}?`)) archive.mutate(cruiseId);
+                if (window.confirm('Are you sure you want to delete this cruise?')) {
+                  archive.mutate(cruiseId);
+                }
               }}
             >
               <Archive className="h-4 w-4" /> Archive
@@ -119,7 +121,7 @@ export function CruiseDetailsPage() {
               </div>
               <div>
                 <dt className="text-xs text-slate-500">Created</dt>
-                <dd className="text-slate-800">{new Date(value.createdAt).toLocaleDateString()}</dd>
+                <dd className="text-slate-800">{formatMasterDate(value.createdAt)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-500">Created By</dt>
@@ -127,7 +129,7 @@ export function CruiseDetailsPage() {
               </div>
               <div>
                 <dt className="text-xs text-slate-500">Last Updated</dt>
-                <dd className="text-slate-800">{new Date(value.updatedAt).toLocaleDateString()}</dd>
+                <dd className="text-slate-800">{formatMasterDate(value.updatedAt)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-500">Updated By</dt>
@@ -159,7 +161,9 @@ export function CruiseDetailsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-brand-700">{roomType.name}</p>
                       {roomType.description && (
-                        <p className="text-xs text-slate-500">{roomType.description}</p>
+                        <div className="mt-1 text-xs text-slate-500">
+                          <SafeRichText html={roomType.description} />
+                        </div>
                       )}
                     </div>
                     {canViewCosting && roomType.price != null && (

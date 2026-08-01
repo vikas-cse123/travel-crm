@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Archive, Bus, Eye, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
@@ -8,8 +9,11 @@ import {
   useRestoreVehicle,
   useVehicles,
   useVehicleTypes,
+  vehicleImageUrl,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import { formatMasterDate, MasterHeader, Pagination, StatusBadge } from './MasterUi';
+
+const vehicleImageUrlCache = new Map<string, { fingerprint: string; url: string }>();
 
 export function VehiclesPage() {
   const [params, setParams] = useSearchParams();
@@ -19,9 +23,72 @@ export function VehiclesPage() {
   const archive = useArchiveVehicle();
   const restore = useRestoreVehicle();
   const { hasPermission } = useAuth();
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_VEHICLES_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_VEHICLES_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_VEHICLES_DELETE);
+  const imageIdsKey =
+    vehicles.data?.data
+      .filter((vehicle) => vehicle.hasImage)
+      .map((vehicle) => `${vehicle.id}:${vehicle.imageConfirmedAt ?? ''}`)
+      .join('|') ?? '';
+
+  useEffect(() => {
+    const rowsWithImages = vehicles.data?.data.filter((vehicle) => vehicle.hasImage);
+    if (!rowsWithImages?.length) return;
+
+    const cachedEntries = rowsWithImages.flatMap((vehicle) => {
+      const cached = vehicleImageUrlCache.get(vehicle.id);
+      return cached?.fingerprint === vehicle.imageConfirmedAt
+        ? ([[vehicle.id, cached.url]] as const)
+        : [];
+    });
+    if (cachedEntries.length) {
+      setImageUrls((current) => {
+        const next = { ...current };
+        cachedEntries.forEach(([id, url]) => {
+          next[id] = url;
+        });
+        return next;
+      });
+    }
+
+    const missingRows = rowsWithImages.filter(
+      (vehicle) => vehicleImageUrlCache.get(vehicle.id)?.fingerprint !== vehicle.imageConfirmedAt,
+    );
+    if (!missingRows.length) return;
+
+    let active = true;
+    void Promise.all(
+      missingRows.map(async (vehicle) => {
+        try {
+          const result = await vehicleImageUrl(vehicle.id);
+          return [vehicle.id, result.url] as const;
+        } catch {
+          return [vehicle.id, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setImageUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([id, url]) => {
+          if (url) {
+            const vehicle = missingRows.find((row) => row.id === id);
+            vehicleImageUrlCache.set(id, {
+              fingerprint: vehicle?.imageConfirmedAt ?? '',
+              url,
+            });
+            next[id] = url;
+          }
+        });
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [vehicles.data?.data, imageIdsKey]);
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -30,16 +97,15 @@ export function VehiclesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this vehicle?')) archive.mutate(id);
   };
 
   return (
     <div className="space-y-5">
       <MasterHeader
         title="Vehicle Master"
-        description="Maintain the vehicle categories used for transfers and sightseeing."
+        description=""
         current="Vehicles"
         action={
           canCreate ? (
@@ -118,7 +184,7 @@ export function VehiclesPage() {
                       'Type',
                       'Capacity',
                       'Status',
-                      'Created At',
+                      'Created',
                       'Actions',
                     ].map((heading) => (
                       <th key={heading} className="px-4 py-3">
@@ -131,13 +197,15 @@ export function VehiclesPage() {
                   {vehicles.data.data.map((vehicle) => (
                     <tr key={vehicle.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <div className="flex h-9 w-14 items-center justify-center rounded bg-slate-100 text-slate-500">
-                          {vehicle.hasImage ? (
-                            <Bus className="h-4 w-4 text-brand-600" />
+                        <div className="flex h-10 w-16 items-center justify-center overflow-hidden rounded bg-slate-100 text-slate-500">
+                          {vehicle.hasImage && imageUrls[vehicle.id] ? (
+                            <img
+                              src={imageUrls[vehicle.id]}
+                              alt={`${vehicle.name} image`}
+                              className="h-full w-full object-cover"
+                            />
                           ) : (
-                            <span className="text-[10px] font-semibold text-slate-400">
-                              No Image
-                            </span>
+                            <Bus className="h-4 w-4 text-brand-600" />
                           )}
                         </div>
                       </td>
@@ -150,7 +218,7 @@ export function VehiclesPage() {
                         <StatusBadge value={vehicle.status} />
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(vehicle.createdAt).toLocaleDateString()}
+                        {formatMasterDate(vehicle.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
@@ -173,7 +241,7 @@ export function VehiclesPage() {
                           {canArchive && vehicle.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${vehicle.name}`}
-                              onClick={() => archiveRow(vehicle.id, vehicle.name)}
+                              onClick={() => archiveRow(vehicle.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -220,6 +288,7 @@ export function VehiclesPage() {
             </div>
             <Pagination
               page={vehicles.data.pagination.page}
+              pageSize={vehicles.data.pagination.pageSize}
               totalPages={vehicles.data.pagination.totalPages}
               total={vehicles.data.pagination.total}
               onPage={(page) => update('page', String(page))}

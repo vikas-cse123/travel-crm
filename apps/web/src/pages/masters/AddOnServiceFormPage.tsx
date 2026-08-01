@@ -16,16 +16,15 @@ interface FormValues {
   price: string;
   /** Carried through so editing never resets a non-default currency. */
   currency: string;
-  active: boolean;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 }
 
 /**
  * Create/edit Add-On Service.
  *
  * The reference form is deliberately small: name, description, price and an
- * active toggle. The toggle maps onto the shared MasterStatus enum so this
- * module keeps the same lifecycle as every other master — ARCHIVED remains
- * reachable only through the archive action.
+ * status. The status select maps onto the shared MasterStatus enum so this
+ * module keeps the same lifecycle as every other master.
  */
 export function AddOnServiceFormPage() {
   const { addOnServiceId } = useParams<{ addOnServiceId: string }>();
@@ -36,7 +35,13 @@ export function AddOnServiceFormPage() {
   const [formError, setFormError] = useState('');
 
   const form = useForm<FormValues>({
-    defaultValues: { name: '', description: '', price: '0.00', currency: 'INR', active: true },
+    defaultValues: {
+      name: '',
+      description: '',
+      price: '0.00',
+      currency: 'INR',
+      status: 'ACTIVE',
+    },
   });
 
   useEffect(() => {
@@ -47,15 +52,12 @@ export function AddOnServiceFormPage() {
       description: value.description ?? '',
       price: String(value.price),
       currency: value.currency,
-      active: value.status === 'ACTIVE',
+      status: value.status as FormValues['status'],
     });
   }, [record.data, form]);
 
   if (addOnServiceId && record.isError) return <Navigate to="/masters/add-on-services" replace />;
   const mutation = addOnServiceId ? update : create;
-  // An archived record keeps that status unless it is explicitly restored, so
-  // saving an edit never silently un-archives it.
-  const isArchived = record.data?.status === 'ARCHIVED';
 
   const submit = form.handleSubmit(async (values) => {
     setFormError('');
@@ -64,11 +66,7 @@ export function AddOnServiceFormPage() {
       description: values.description || null,
       price: Number(values.price || 0),
       currency: values.currency || 'INR',
-      status: isArchived
-        ? ('ARCHIVED' as const)
-        : values.active
-          ? ('ACTIVE' as const)
-          : ('INACTIVE' as const),
+      status: values.status,
     };
     try {
       const saved = addOnServiceId
@@ -158,21 +156,14 @@ export function AddOnServiceFormPage() {
               )}
             </div>
 
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-slate-300 text-brand-600"
-                disabled={isArchived}
-                {...form.register('active')}
-              />
-              Active
+            <label className="block text-sm font-medium text-slate-700">
+              Status
+              <select className={fieldClass} {...form.register('status')}>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="ARCHIVED">ARCHIVED</option>
+              </select>
             </label>
-            {isArchived && (
-              <p className="text-xs text-slate-500">
-                This service is archived. Restore it from the detail page to make it selectable
-                again.
-              </p>
-            )}
           </div>
           <div className="flex justify-end gap-2 border-t bg-slate-50 p-4">
             <Button variant="secondary" onClick={() => navigate('/masters/add-on-services')}>

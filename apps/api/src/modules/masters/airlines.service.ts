@@ -129,7 +129,7 @@ export const airlinesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
-      pageSize: Number(query.pageSize) || undefined,
+      pageSize: Number(query.pageSize) || 10,
     });
     const canManageAirlines = await canManage(auth);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
@@ -152,8 +152,8 @@ export const airlinesService = {
           }
         : {}),
     };
-    const order = query.sortOrder === 'desc' ? 'desc' : 'asc';
-    const sortBy = String(query.sortBy ?? 'name');
+    const order = query.sortOrder === 'asc' ? 'asc' : 'desc';
+    const sortBy = String(query.sortBy ?? 'createdAt');
     const orderBy: Prisma.AirlineOrderByWithRelationInput =
       sortBy === 'createdAt'
         ? { createdAt: order }

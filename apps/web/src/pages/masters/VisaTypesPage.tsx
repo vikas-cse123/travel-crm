@@ -24,16 +24,15 @@ export function VisaTypesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this visa type?')) archive.mutate(id);
   };
 
   return (
     <div className="space-y-5">
       <MasterHeader
         title="Visa Types Master"
-        description="Maintain reusable visa types per destination with rich-text sections."
+        description=""
         current="Visa Types"
         action={
           canCreate ? (
@@ -148,7 +147,7 @@ export function VisaTypesPage() {
                           {canArchive && visa.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${visa.name}`}
-                              onClick={() => archiveRow(visa.id, visa.name)}
+                              onClick={() => archiveRow(visa.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -188,6 +187,7 @@ export function VisaTypesPage() {
             </div>
             <Pagination
               page={visaTypes.data.pagination.page}
+              pageSize={visaTypes.data.pagination.pageSize}
               totalPages={visaTypes.data.pagination.totalPages}
               total={visaTypes.data.pagination.total}
               onPage={(page) => update('page', String(page))}

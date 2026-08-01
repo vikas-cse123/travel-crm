@@ -1,9 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Archive,
   ArrowDown,
   ArrowUp,
   Building2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Eye,
   Image as ImageIcon,
@@ -25,22 +28,12 @@ import {
   useRestoreSightseeing,
   useSightseeingList,
   useSightseeingSummary,
+  sightseeingImageUrl,
   type Sightseeing,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination } from './MasterUi';
+import { MasterHeader, Pagination, RichTextPreview } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
-
-/** Strip HTML so the truncated description column stays readable. */
-function plainText(html: string | null): string {
-  if (!html) return '';
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /** "14:30" → "2:30 PM", matching the reference's start-time column. */
 function formatTime(value: string | null): string {
@@ -53,6 +46,18 @@ function formatTime(value: string | null): string {
   return `${display}:${minuteText ?? '00'} ${suffix}`;
 }
 
+function SightseeingThumbnail({ row }: { row: Sightseeing }) {
+  const image = useQuery({
+    queryKey: ['masters', 'sightseeing', row.id, 'image'],
+    queryFn: () => sightseeingImageUrl(row.id),
+    enabled: row.hasImage,
+    staleTime: 240_000,
+  });
+  if (row.hasImage && image.data?.url)
+    return <img src={image.data.url} alt="" className="h-12 w-16 rounded object-cover" />;
+  return <div className="flex h-12 w-16 items-center justify-center rounded bg-slate-100"><ImageIcon className="h-5 w-5 text-slate-300" /></div>;
+}
+
 /**
  * Sightseeing list.
  *
@@ -62,8 +67,14 @@ function formatTime(value: string | null): string {
  */
 export function SightseeingPage() {
   const [params, setParams] = useSearchParams();
-  const rows = useSightseeingList(params);
-  const summary = useSightseeingSummary();
+  const listParams = useMemo(() => {
+    const next = new URLSearchParams(params);
+    next.set('pageSize', '100');
+    next.delete('page');
+    return next;
+  }, [params]);
+  const rows = useSightseeingList(listParams);
+  const summary = useSightseeingSummary(params);
   const destinations = useDestinations(LARGE);
   const cities = useCities(LARGE);
   const archive = useArchiveSightseeing();
@@ -73,6 +84,7 @@ export function SightseeingPage() {
   const canCreate = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_DELETE);
+  const [openDestinations, setOpenDestinations] = useState<Set<string>>(new Set());
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -84,9 +96,8 @@ export function SightseeingPage() {
     setParams(next);
   };
 
-  const archiveRow = (id: string, title: string) => {
-    if (window.confirm(`Archive ${title}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this sightseeing?')) archive.mutate(id);
   };
 
   /** Group the page into destination → city buckets, preserving server order. */
@@ -115,21 +126,13 @@ export function SightseeingPage() {
     <div className="space-y-5">
       <MasterHeader
         title="Sightseeing Master"
-        description="Organized by destinations — reusable attractions, tours and transfers."
+        description="Organized by destinations"
         current="Sightseeing"
-        action={
-          canCreate ? (
-            <Link to="/masters/sightseeing/new">
-              <Button>
-                <Plus className="h-4 w-4" /> Add New Sightseeing
-              </Button>
-            </Link>
-          ) : undefined
-        }
       />
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_200px_200px_150px]">
+        <div className="flex items-center justify-between border-b px-5 py-4"><h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>{canCreate && <Link to="/masters/sightseeing/new"><Button size="sm"><Plus className="h-4 w-4" /> Add New Sightseeing</Button></Link>}</div>
+        <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_280px_280px]">
           <label className="relative">
             <span className="sr-only">Search sightseeing</span>
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -167,21 +170,6 @@ export function SightseeingPage() {
               </option>
             ))}
           </select>
-          {canUpdate ? (
-            <select
-              aria-label="Sightseeing status"
-              className="rounded-lg border px-3 py-2.5 text-sm"
-              value={params.get('status') ?? ''}
-              onChange={(event) => update('status', event.target.value)}
-            >
-              <option value="">Current statuses</option>
-              <option>ACTIVE</option>
-              <option>INACTIVE</option>
-              <option>ARCHIVED</option>
-            </select>
-          ) : (
-            <div />
-          )}
         </div>
 
         {rows.isPending ? (
@@ -202,10 +190,13 @@ export function SightseeingPage() {
           <>
             {/* Desktop: destination → city grouped tables. */}
             <div className="hidden md:block">
-              {groups.map(([destinationId, destination]) => (
-                <section key={destinationId} className="border-b last:border-b-0">
-                  <header className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-2.5">
-                    <div className="flex items-center gap-2">
+              {groups.map(([destinationId, destination]) => {
+                const isOpen = openDestinations.has(destinationId);
+                const toggle = () => setOpenDestinations((current) => { const next = new Set(current); if (next.has(destinationId)) next.delete(destinationId); else next.add(destinationId); return next; });
+                return <section key={destinationId} className="mb-4 overflow-hidden rounded-lg border last:mb-0">
+                  <header className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                    <button type="button" onClick={toggle} aria-expanded={isOpen} className="flex items-center gap-2 text-left">
+                      {isOpen ? <ChevronDown className="h-5 w-5 text-slate-500" /> : <ChevronRight className="h-5 w-5 text-slate-500" />}
                       <MapPinned className="h-4 w-4 text-brand-600" aria-hidden="true" />
                       <h2 className="font-semibold text-brand-700">{destination.name}</h2>
                       <span className="text-xs text-slate-500">
@@ -216,16 +207,11 @@ export function SightseeingPage() {
                         attractions ({destination.cities.size}{' '}
                         {destination.cities.size === 1 ? 'city' : 'cities'})
                       </span>
-                    </div>
-                    <Link
-                      to={`/masters/destinations/${destinationId}`}
-                      className="text-xs font-medium text-slate-600 hover:text-brand-700"
-                    >
-                      View Dest.
-                    </Link>
+                    </button>
+                    <div className="flex gap-2">{canCreate && <Link to={`/masters/sightseeing/new?destinationId=${destinationId}`}><Button size="sm" variant="secondary"><Plus className="h-4 w-4" /> Add Sightseeing</Button></Link>}<Link to={`/masters/destinations/${destinationId}`}><Button size="sm" variant="secondary">View Destination</Button></Link></div>
                   </header>
 
-                  {[...destination.cities.entries()].map(([cityId, city]) => (
+                  {isOpen && <>{[...destination.cities.entries()].map(([cityId, city]) => (
                     <div key={cityId}>
                       <div className="flex items-center gap-2 border-y bg-slate-100/70 px-4 py-1.5">
                         <Building2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
@@ -250,12 +236,7 @@ export function SightseeingPage() {
                           {city.items.map((row) => (
                             <tr key={row.id} className="hover:bg-slate-50">
                               <td className="w-16 px-4 py-2.5">
-                                <div className="flex h-9 w-12 items-center justify-center rounded bg-slate-100">
-                                  <ImageIcon
-                                    className={`h-4 w-4 ${row.hasImage ? 'text-brand-600' : 'text-slate-300'}`}
-                                    aria-hidden="true"
-                                  />
-                                </div>
+                                <SightseeingThumbnail row={row} />
                               </td>
                               <td className="px-4 py-2.5">
                                 <Link
@@ -264,9 +245,10 @@ export function SightseeingPage() {
                                 >
                                   {row.title}
                                 </Link>
-                                <p className="line-clamp-1 text-xs text-slate-500">
-                                  {plainText(row.description)}
-                                </p>
+                                <RichTextPreview
+                                  html={row.description}
+                                  className="mt-0.5 text-xs text-slate-500"
+                                />
                               </td>
                               <td className="px-4 py-2.5">
                                 <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -340,7 +322,7 @@ export function SightseeingPage() {
                                   {canArchive && row.status !== 'ARCHIVED' && (
                                     <button
                                       aria-label={`Archive ${row.title}`}
-                                      onClick={() => archiveRow(row.id, row.title)}
+                                      onClick={() => archiveRow(row.id)}
                                       className="rounded bg-red-600 p-1.5 text-white"
                                     >
                                       <Archive className="h-3.5 w-3.5" />
@@ -362,9 +344,8 @@ export function SightseeingPage() {
                         </tbody>
                       </table>
                     </div>
-                  ))}
-                </section>
-              ))}
+                  ))}</>}</section>;
+              })}
             </div>
 
             {/* Mobile: flat cards. */}
@@ -393,6 +374,7 @@ export function SightseeingPage() {
 
             <Pagination
               page={rows.data.pagination.page}
+              pageSize={rows.data.pagination.pageSize}
               totalPages={rows.data.pagination.totalPages}
               total={rows.data.pagination.total}
               onPage={(page) => update('page', String(page))}

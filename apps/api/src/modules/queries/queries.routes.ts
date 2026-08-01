@@ -70,6 +70,12 @@ const list = z.object({
 });
 const timeline = z.object(paging);
 const phone = z.object({ phone: z.string().trim().min(5).max(32) });
+const notesOverview = z.object({
+  ...paging,
+  search: z.string().trim().max(120).optional(),
+  stage: z.nativeEnum(LeadStage).optional(),
+  userId: z.string().uuid().optional(),
+});
 
 router.use(requireAuth, requireVerifiedEmail);
 router.get(
@@ -106,6 +112,13 @@ router.get(
   requirePermission(PERMISSIONS.QUERIES_EXPORT),
   validateRequest({ query: list }),
   asyncHandler(queriesController.export),
+);
+// Fixed path registered before the /:queryId routes so it is not captured.
+router.get(
+  '/notes-overview',
+  requirePermission(PERMISSIONS.QUERIES_VIEW),
+  validateRequest({ query: notesOverview }),
+  asyncHandler(queriesController.notesOverview),
 );
 router.post(
   '/bulk-assignment',

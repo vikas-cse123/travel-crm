@@ -4,7 +4,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useArchiveCity, useCities, useMasterLookups } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import { formatMasterDate, MasterHeader, Pagination, StatusBadge } from './MasterUi';
 
 export function CitiesPage() {
   const [params, setParams] = useSearchParams();
@@ -22,15 +22,14 @@ export function CitiesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveCity = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing destination relationships will remain visible.`))
-      archive.mutate(id);
+  const archiveCity = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this city?')) archive.mutate(id);
   };
   return (
     <div className="space-y-5">
       <MasterHeader
         title="City Master"
-        description="Maintain reusable cities and airport codes for destination planning."
+        description=""
         current="Cities"
         action={
           canCreate ? (
@@ -126,7 +125,7 @@ export function CitiesPage() {
                         <StatusBadge value={city.status} />
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(city.createdAt).toLocaleDateString()}
+                        {formatMasterDate(city.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
@@ -149,7 +148,7 @@ export function CitiesPage() {
                           {canArchive && city.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${city.name}`}
-                              onClick={() => archiveCity(city.id, city.name)}
+                              onClick={() => archiveCity(city.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -189,6 +188,7 @@ export function CitiesPage() {
             </div>
             <Pagination
               page={cities.data.pagination.page}
+              pageSize={cities.data.pagination.pageSize}
               totalPages={cities.data.pagination.totalPages}
               total={cities.data.pagination.total}
               onPage={(page) => update('page', String(page))}

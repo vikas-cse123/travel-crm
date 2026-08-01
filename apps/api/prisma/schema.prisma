@@ -2351,6 +2351,8 @@ model QueryNote {
   queryId           String         @db.Uuid
   authorUserId      String         @db.Uuid
   content           String         @db.VarChar(4000)
+  leadStage         LeadStage?
+  followUpId        String?        @unique @db.Uuid
   isCustomerContact Boolean        @default(false)
   contactMethod     ContactMethod?
   contactedAt       DateTime?
@@ -2360,6 +2362,7 @@ model QueryNote {
   company           Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   query             Query          @relation(fields: [queryId], references: [id], onDelete: Cascade)
   authorUser        User           @relation("QueryNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  followUp          QueryFollowUp? @relation("QueryNoteFollowUp", fields: [followUpId], references: [id], onDelete: SetNull)
 
   @@index([companyId, queryId, createdAt])
   @@map("query_notes")
@@ -2455,6 +2458,7 @@ model QueryFollowUp {
   cancelledBy              User?                   @relation("QueryFollowUpCancelled", fields: [cancelledById], references: [id], onDelete: SetNull)
   notifications            Notification[]
   escalations              ReminderEscalation[]
+  originNote               QueryNote?              @relation("QueryNoteFollowUp")
 
   @@unique([companyId, deduplicationKey])
   @@index([companyId, queryId, scheduledAt])

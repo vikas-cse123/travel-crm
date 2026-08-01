@@ -1,4 +1,4 @@
-import { Check, Clock3, Plus, Search, X } from 'lucide-react';
+import { Check, Clock3, Eye, Plus, Search, StickyNote, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   PERMISSIONS,
@@ -172,25 +172,49 @@ export function RemindersPage() {
                   </p>
                 </div>
               </div>
-              {!['COMPLETED', 'CANCELLED'].includes(row.status) && (
+              {(!['COMPLETED', 'CANCELLED'].includes(row.status) || row.queryId) && (
                 <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-                  {hasPermission(PERMISSIONS.REMINDERS_COMPLETE) && (
-                    <Button size="sm" variant="secondary" onClick={() => act(row.id, 'complete')}>
-                      <Check className="h-4 w-4" />
-                      Complete
-                    </Button>
+                  {!['COMPLETED', 'CANCELLED'].includes(row.status) && (
+                    <>
+                      {hasPermission(PERMISSIONS.REMINDERS_COMPLETE) && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => act(row.id, 'complete')}
+                        >
+                          <Check className="h-4 w-4" />
+                          Complete
+                        </Button>
+                      )}
+                      {hasPermission(PERMISSIONS.REMINDERS_SNOOZE) && (
+                        <Button size="sm" variant="ghost" onClick={() => act(row.id, 'snooze')}>
+                          <Clock3 className="h-4 w-4" />
+                          Snooze 1 day
+                        </Button>
+                      )}
+                      {hasPermission(PERMISSIONS.REMINDERS_UPDATE) && (
+                        <Button size="sm" variant="ghost" onClick={() => act(row.id, 'cancel')}>
+                          <X className="h-4 w-4" />
+                          Dismiss
+                        </Button>
+                      )}
+                    </>
                   )}
-                  {hasPermission(PERMISSIONS.REMINDERS_SNOOZE) && (
-                    <Button size="sm" variant="ghost" onClick={() => act(row.id, 'snooze')}>
-                      <Clock3 className="h-4 w-4" />
-                      Snooze 1 day
-                    </Button>
+                  {row.queryId && hasPermission(PERMISSIONS.QUERIES_UPDATE) && (
+                    <Link to={`/queries/${row.queryId}/notes/new`}>
+                      <Button size="sm" variant="ghost" type="button">
+                        <StickyNote className="h-4 w-4" />
+                        Add Note
+                      </Button>
+                    </Link>
                   )}
-                  {hasPermission(PERMISSIONS.REMINDERS_UPDATE) && (
-                    <Button size="sm" variant="ghost" onClick={() => act(row.id, 'cancel')}>
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
+                  {row.queryId && hasPermission(PERMISSIONS.QUERIES_VIEW) && (
+                    <Link to={`/queries/${row.queryId}/notes`}>
+                      <Button size="sm" variant="ghost" type="button">
+                        <Eye className="h-4 w-4" />
+                        View Lead
+                      </Button>
+                    </Link>
                   )}
                 </div>
               )}

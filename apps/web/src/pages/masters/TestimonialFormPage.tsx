@@ -18,6 +18,7 @@ import {
   useUpdateTestimonial,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader } from './MasterUi';
+import { MasterImageEditor } from './MasterImageEditor';
 
 interface FormValues {
   clientName: string;
@@ -44,6 +45,8 @@ export function TestimonialFormPage() {
   const { hasPermission } = useAuth();
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA);
   const [image, setImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
   const [imageError, setImageError] = useState('');
   const [uploading, setUploading] = useState(false);
   const form = useForm<FormValues>({ defaultValues: empty });
@@ -59,12 +62,26 @@ export function TestimonialFormPage() {
     });
   }, [testimonial.data, form]);
 
+  useEffect(() => {
+    if (!image) {
+      setImagePreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+
   if (testimonialId && testimonial.isError) return <Navigate to="/masters/testimonials" replace />;
   const mutation = testimonialId ? update : create;
 
   const validateImage = (file?: File) => {
     setImageError('');
-    if (!file) return setImage(null);
+    if (!file) {
+      setImage(null);
+      setImageEditorOpen(false);
+      return;
+    }
     if (
       !TESTIMONIAL_IMAGE_MIME_TYPES.includes(
         file.type as (typeof TESTIMONIAL_IMAGE_MIME_TYPES)[number],
@@ -78,6 +95,16 @@ export function TestimonialFormPage() {
       return;
     }
     setImage(file);
+    setImageEditorOpen(true);
+  };
+  const applyEditedImage = (file: File) => {
+    if (file.size > 2 * 1024 * 1024) {
+      setImageError('Image must be 2 MB or smaller.');
+      return;
+    }
+    setImageError('');
+    setImage(file);
+    setImageEditorOpen(false);
   };
   const uploadImage = async (id: string, file: File) => {
     const approval = await approveTestimonialImage(id, {
@@ -191,9 +218,44 @@ export function TestimonialFormPage() {
                     />
                   </label>
                   <p className="mt-1 text-xs text-slate-500">Recommended 150×150 px. Max 2 MB.</p>
+                  {imagePreviewUrl && (
+                    <div className="mt-3 overflow-hidden rounded-lg border bg-slate-50">
+                      <img
+                        src={imagePreviewUrl}
+                        alt="Testimonial image preview"
+                        className="h-36 w-full bg-slate-50 object-contain"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
+                        <p className="min-w-0 truncate text-sm text-slate-600">{image?.name}</p>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setImageEditorOpen(true)}
+                          >
+                            Edit image
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setImage(null);
+                              setImageError('');
+                              setImageEditorOpen(false);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {testimonialId && testimonial.data?.hasImage && (
                     <Button
                       className="mt-2"
+                      type="button"
                       size="sm"
                       variant="danger"
                       onClick={async () => {
@@ -256,6 +318,16 @@ export function TestimonialFormPage() {
           </Button>
         </div>
       </form>
+      {image && imagePreviewUrl && (
+        <MasterImageEditor
+          file={image}
+          imageUrl={imagePreviewUrl}
+          isOpen={isImageEditorOpen}
+          title="Edit Testimonial Image"
+          onCancel={() => setImageEditorOpen(false)}
+          onApply={applyEditedImage}
+        />
+      )}
     </div>
   );
 }

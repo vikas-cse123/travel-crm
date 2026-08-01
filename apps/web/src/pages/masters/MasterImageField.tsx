@@ -44,9 +44,9 @@ export function MasterImageField({
         Recommended 800×600 pixels. Max file size: {maxSizeMb} MB. Allowed formats: JPG, JPEG, PNG,
         WebP, GIF.
       </p>
-      <p className="text-xs text-amber-700">
+      {/* <p className="text-xs text-amber-700">
         Upload only royalty-free or owned images. Interscale is not liable for copyright issues.
-      </p>
+      </p> */}
       {error && (
         <p role="alert" className="text-xs font-medium text-red-600">
           {error}

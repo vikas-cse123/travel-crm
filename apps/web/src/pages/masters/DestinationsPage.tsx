@@ -1,14 +1,18 @@
+import { useEffect, useState } from 'react';
 import { Archive, Eye, Globe2, Pencil, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
+  destinationImageUrl,
   useArchiveDestination,
   useDestinations,
   useMasterLookups,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import { formatMasterDate, MasterHeader, Pagination, StatusBadge } from './MasterUi';
+
+const destinationImageUrlCache = new Map<string, string>();
 
 export function DestinationsPage() {
   const [params, setParams] = useSearchParams();
@@ -16,9 +20,66 @@ export function DestinationsPage() {
   const lookups = useMasterLookups();
   const archive = useArchiveDestination();
   const { hasPermission } = useAuth();
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_DESTINATIONS_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_DESTINATIONS_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_DESTINATIONS_DELETE);
+  const imageIdsKey =
+    destinations.data?.data
+      .filter((destination) => destination.hasImage)
+      .map((destination) => destination.id)
+      .join('|') ?? '';
+
+  useEffect(() => {
+    const rowsWithImages = destinations.data?.data.filter((destination) => destination.hasImage);
+    if (!rowsWithImages?.length) return;
+    const cachedEntries = rowsWithImages.flatMap((destination) => {
+      const cachedUrl = destinationImageUrlCache.get(destination.id);
+      return cachedUrl ? ([[destination.id, cachedUrl]] as const) : [];
+    });
+    if (cachedEntries.length) {
+      setImageUrls((current) => {
+        const next = { ...current };
+        cachedEntries.forEach(([id, url]) => {
+          next[id] = url;
+        });
+        return next;
+      });
+    }
+
+    const missingRows = rowsWithImages.filter(
+      (destination) => !destinationImageUrlCache.has(destination.id),
+    );
+    if (!missingRows.length) return;
+
+    let active = true;
+    void Promise.all(
+      missingRows.map(async (destination) => {
+        try {
+          const result = await destinationImageUrl(destination.id);
+          return [destination.id, result.url] as const;
+        } catch {
+          return [destination.id, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setImageUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([id, url]) => {
+          if (url) {
+            destinationImageUrlCache.set(id, url);
+            next[id] = url;
+          }
+        });
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [destinations.data?.data, imageIdsKey]);
+
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -26,17 +87,15 @@ export function DestinationsPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`)) {
-      archive.mutate(id);
-    }
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this destination?')) archive.mutate(id);
   };
 
   return (
     <div className="space-y-5">
       <MasterHeader
         title="Destination Master"
-        description="Build reusable destinations with ordered cities and customer-facing policies."
+        description=""
         current="Destinations"
         action={
           canCreate ? (
@@ -141,7 +200,15 @@ export function DestinationsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-14 items-center justify-center rounded-lg bg-gradient-to-br from-blue-100 to-cyan-50 text-blue-600">
-                            <Globe2 className="h-5 w-5" />
+                            {imageUrls[destination.id] ? (
+                              <img
+                                src={imageUrls[destination.id]}
+                                alt=""
+                                className="h-full w-full rounded-lg object-cover"
+                              />
+                            ) : (
+                              <Globe2 className="h-5 w-5" />
+                            )}
                           </div>
                           <span className="font-semibold text-slate-900">{destination.name}</span>
                         </div>
@@ -159,7 +226,7 @@ export function DestinationsPage() {
                         <StatusBadge value={destination.status} />
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(destination.createdAt).toLocaleDateString()}
+                        {formatMasterDate(destination.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
@@ -182,7 +249,7 @@ export function DestinationsPage() {
                           {canArchive && destination.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${destination.name}`}
-                              onClick={() => archiveRow(destination.id, destination.name)}
+                              onClick={() => archiveRow(destination.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -199,11 +266,24 @@ export function DestinationsPage() {
               {destinations.data.data.map((destination) => (
                 <article key={destination.id} className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h2 className="font-semibold">{destination.name}</h2>
-                      <p className="text-sm text-slate-500">
-                        {destination.countryName} · {destination._count.cities} cities
-                      </p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-12 w-16 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-100 to-cyan-50 text-blue-600">
+                        {imageUrls[destination.id] ? (
+                          <img
+                            src={imageUrls[destination.id]}
+                            alt=""
+                            className="h-full w-full rounded-lg object-cover"
+                          />
+                        ) : (
+                          <Globe2 className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="truncate font-semibold">{destination.name}</h2>
+                        <p className="text-sm text-slate-500">
+                          {destination.countryName} · {destination._count.cities} cities
+                        </p>
+                      </div>
                     </div>
                     <StatusBadge value={destination.destinationType} />
                   </div>
@@ -222,6 +302,7 @@ export function DestinationsPage() {
             </div>
             <Pagination
               page={destinations.data.pagination.page}
+              pageSize={destinations.data.pagination.pageSize}
               totalPages={destinations.data.pagination.totalPages}
               total={destinations.data.pagination.total}
               onPage={(page) => update('page', String(page))}

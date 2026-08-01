@@ -136,15 +136,23 @@ export interface Page<T> {
   data: T[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
+export interface NoteFollowUpRef {
+  id: string;
+  scheduledAt: string;
+  status: string;
+  snoozedUntil: string | null;
+}
 export interface Note {
   id: string;
   content: string;
+  leadStage: string | null;
   createdAt: string;
   updatedAt: string;
   isCustomerContact: boolean;
   contactMethod: string | null;
   contactedAt: string | null;
   authorUser: UserOption;
+  followUp: NoteFollowUpRef | null;
 }
 export interface FollowUp {
   id: string;
@@ -247,6 +255,7 @@ export const queryKeys = {
   detail: (id: string) => ['queries', id] as const,
   workspace: (id: string) => ['queries', id, 'workspace'] as const,
   notes: (id: string) => ['queries', id, 'notes'] as const,
+  notesOverview: ['queries', 'notes-overview'] as const,
   followUps: (id: string) => ['queries', id, 'follow-ups'] as const,
   timeline: (id: string) => ['queries', id, 'timeline'] as const,
 };
@@ -380,6 +389,36 @@ export function useNotes(id: string) {
     queryFn: ({ signal }) => apiClient.get<Note[]>(`/queries/${id}/notes`, signal),
   });
 }
+export interface NotesOverviewLead {
+  id: string;
+  queryNumber: string;
+  customerName: string;
+  phone: string;
+  leadStage: string;
+  assignedTo: UserOption | null;
+  noteCount: number;
+  latestNote: Note | null;
+  previousNotes: Note[];
+}
+export interface NotesOverview {
+  stats: {
+    totalNotes: number;
+    totalLeads: number;
+    totalLeadsWithNotes: number;
+    totalPages: number;
+  };
+  page: number;
+  pageSize: number;
+  leads: NotesOverviewLead[];
+}
+export function useNotesOverview(params: URLSearchParams) {
+  const q = params.toString();
+  return useQuery({
+    queryKey: [...queryKeys.notesOverview, q],
+    queryFn: ({ signal }) =>
+      apiClient.get<NotesOverview>(`/queries/notes-overview${q ? `?${q}` : ''}`, signal),
+  });
+}
 export function useNoteAction(id: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -388,12 +427,18 @@ export function useNoteAction(id: string) {
       content,
       isCustomerContact,
       contactMethod,
+      reminderAt,
+      reminderAssignedToId,
+      reminderNotes,
       remove,
     }: {
       noteId?: string;
       content?: string;
       isCustomerContact?: boolean;
       contactMethod?: ContactMethodValue | null;
+      reminderAt?: string;
+      reminderAssignedToId?: string;
+      reminderNotes?: string;
       remove?: boolean;
     }) =>
       remove
@@ -408,11 +453,16 @@ export function useNoteAction(id: string) {
               content,
               isCustomerContact: isCustomerContact ?? false,
               contactMethod,
+              ...(reminderAt
+                ? { reminderAt, reminderAssignedToId, reminderNotes }
+                : {}),
             }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.notes(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.workspace(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.notesOverview });
+      void qc.invalidateQueries({ queryKey: ['reminders'] });
     },
   });
 }

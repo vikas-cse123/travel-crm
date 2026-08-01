@@ -17,11 +17,11 @@ const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 interface FormValues {
   destinationId: string;
   name: string;
-  isActive: boolean;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   sections: { title: string; content: string }[];
 }
 
-const empty: FormValues = { destinationId: '', name: '', isActive: true, sections: [] };
+const empty: FormValues = { destinationId: '', name: '', status: 'ACTIVE', sections: [] };
 
 export function VisaTypeFormPage() {
   const { visaTypeId } = useParams();
@@ -38,7 +38,7 @@ export function VisaTypeFormPage() {
     form.reset({
       destinationId: visaType.data.destinationId,
       name: visaType.data.name,
-      isActive: visaType.data.status !== 'INACTIVE',
+      status: visaType.data.status,
       sections: visaType.data.sections.map((section) => ({
         title: section.title,
         content: section.content,
@@ -61,7 +61,7 @@ export function VisaTypeFormPage() {
     const payload: VisaTypeInput = {
       destinationId: values.destinationId,
       name: values.name.trim(),
-      status: values.isActive ? 'ACTIVE' : 'INACTIVE',
+      status: values.status,
       sections: values.sections
         .filter((section) => section.title.trim())
         .map((section) => ({ title: section.title.trim(), content: section.content })),
@@ -80,7 +80,7 @@ export function VisaTypeFormPage() {
     <div className="space-y-5">
       <MasterHeader
         title={visaTypeId ? 'Edit Visa Type' : 'Create Visa Type'}
-        description="A visa type belongs to one destination and can carry any number of sections."
+        description=""
         current={visaTypeId ? 'Edit Visa Type' : 'Create Visa Type'}
       />
       <form onSubmit={submit} className="space-y-5">
@@ -121,8 +121,13 @@ export function VisaTypeFormPage() {
                 <span className="text-xs text-red-600">{form.formState.errors.name.message}</span>
               )}
             </label>
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" {...form.register('isActive')} /> Active
+            <label className="block text-sm font-medium">
+              Status
+              <select className={fieldClass} {...form.register('status')}>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="ARCHIVED">ARCHIVED</option>
+              </select>
             </label>
           </div>
         </section>
@@ -201,7 +206,7 @@ export function VisaTypeFormPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 bg-background/95 py-4 backdrop-blur">
           <Link to={visaTypeId ? `/masters/visa-types/${visaTypeId}` : '/masters/visa-types'}>
             <Button variant="secondary">Cancel</Button>
           </Link>

@@ -201,8 +201,17 @@ export const noteInputSchema = z.object({
   content: z.string().trim().min(1).max(4000),
   isCustomerContact: z.boolean().default(false),
   contactMethod: z.enum(CONTACT_METHODS).nullable().optional(),
+  // Optional follow-up reminder created together with the note (matches the
+  // "Create reminder for follow-up" option on the Add Note screen).
+  reminderAt: z.coerce.date().optional(),
+  reminderAssignedToId: z.string().uuid().optional(),
+  reminderNotes: optionalText(2000),
 });
-export const noteUpdateSchema = noteInputSchema;
+export const noteUpdateSchema = noteInputSchema.omit({
+  reminderAt: true,
+  reminderAssignedToId: true,
+  reminderNotes: true,
+});
 export const followUpUpdateSchema = followUpInputSchema
   .partial()
   .refine((v) => Object.keys(v).length > 0);

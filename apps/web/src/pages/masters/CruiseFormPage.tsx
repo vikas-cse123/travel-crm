@@ -8,6 +8,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import {
   approveCruiseImage,
   confirmCruiseImage,
+  cruiseImageUrl,
   deleteCruiseImage,
   useCreateCruise,
   useCruise,
@@ -15,6 +16,7 @@ import {
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
 import { MasterImageField } from './MasterImageField';
+import { MasterImageEditor } from './MasterImageEditor';
 
 const MAX_IMAGE_MB = 5;
 
@@ -51,6 +53,9 @@ export function CruiseFormPage() {
   const canManageCosting = hasPermission(PERMISSIONS.MASTER_CRUISES_MANAGE_COSTING);
 
   const [image, setImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+  const [existingImageUrl, setExistingImageUrl] = useState('');
+  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
   const [imageError, setImageError] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -76,12 +81,44 @@ export function CruiseFormPage() {
     });
   }, [cruise.data, form]);
 
+  useEffect(() => {
+    if (!image) {
+      setImagePreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+
+  useEffect(() => {
+    if (!cruiseId || !cruise.data?.hasImage) {
+      setExistingImageUrl('');
+      return;
+    }
+    let active = true;
+    void cruiseImageUrl(cruiseId)
+      .then((result) => {
+        if (active) setExistingImageUrl(result.url);
+      })
+      .catch(() => {
+        if (active) setExistingImageUrl('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [cruise.data?.hasImage, cruiseId]);
+
   if (cruiseId && cruise.isError) return <Navigate to="/masters/cruises" replace />;
   const mutation = cruiseId ? update : create;
 
   const validateImage = (file?: File) => {
     setImageError('');
-    if (!file) return setImage(null);
+    if (!file) {
+      setImage(null);
+      setImageEditorOpen(false);
+      return;
+    }
     if (!CRUISE_IMAGE_MIME_TYPES.includes(file.type as (typeof CRUISE_IMAGE_MIME_TYPES)[number])) {
       setImageError('Use a JPEG, PNG, WebP, or GIF image.');
       return;
@@ -91,6 +128,16 @@ export function CruiseFormPage() {
       return;
     }
     setImage(file);
+    setImageEditorOpen(true);
+  };
+  const applyEditedImage = (file: File) => {
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
+      return;
+    }
+    setImageError('');
+    setImage(file);
+    setImageEditorOpen(false);
   };
 
   const uploadImage = async (id: string, file: File) => {
@@ -148,7 +195,7 @@ export function CruiseFormPage() {
     <div className="space-y-5">
       <MasterHeader
         title={cruiseId ? 'Edit Cruise' : 'Create Cruise'}
-        description="Capture the cruise and the cabin categories you sell."
+        description=""
         current="Cruises"
       />
 
@@ -193,21 +240,64 @@ export function CruiseFormPage() {
               />
 
               {canManageMedia && (
-                <MasterImageField
-                  label="Cruise Image"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  maxSizeMb={MAX_IMAGE_MB}
-                  error={imageError}
-                  editing={Boolean(cruiseId)}
-                  hasExisting={Boolean(cruise.data?.hasImage)}
-                  onSelect={validateImage}
-                  onDelete={async () => {
-                    if (cruiseId && window.confirm('Delete this cruise image?')) {
-                      await deleteCruiseImage(cruiseId);
-                      await cruise.refetch();
-                    }
-                  }}
-                />
+                <div className="space-y-3">
+                  <MasterImageField
+                    label="Cruise Image"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    maxSizeMb={MAX_IMAGE_MB}
+                    error={imageError}
+                    editing={Boolean(cruiseId)}
+                    hasExisting={Boolean(cruise.data?.hasImage)}
+                    onSelect={validateImage}
+                    onDelete={async () => {
+                      if (cruiseId && window.confirm('Delete this cruise image?')) {
+                        await deleteCruiseImage(cruiseId);
+                        setExistingImageUrl('');
+                        await cruise.refetch();
+                      }
+                    }}
+                  />
+                  {(imagePreviewUrl || existingImageUrl) && (
+                    <div className="overflow-hidden rounded-lg border bg-slate-50">
+                      <img
+                        src={imagePreviewUrl || existingImageUrl}
+                        alt="Cruise image preview"
+                        className="h-44 w-full bg-slate-50 object-contain"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
+                        <p className="min-w-0 truncate text-sm text-slate-600">
+                          {image?.name ?? cruise.data?.imageFileName ?? 'Cruise image'}
+                        </p>
+                        <div className="flex gap-2">
+                          {image && (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => setImageEditorOpen(true)}
+                              >
+                                Edit image
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setImage(null);
+                                  setImageError('');
+                                  setImageEditorOpen(false);
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               <label className="block text-sm font-medium text-slate-700">
@@ -267,16 +357,15 @@ export function CruiseFormPage() {
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                    <label className="block text-sm font-medium text-slate-700">
-                      Description
-                      <textarea
-                        rows={2}
-                        className={fieldClass}
-                        placeholder="Enter room description"
-                        aria-label={`Room type ${index + 1} description`}
-                        {...form.register(`roomTypes.${index}.description` as const)}
-                      />
-                    </label>
+                    <RichTextEditor
+                      label="Description"
+                      value={form.watch(`roomTypes.${index}.description` as const)}
+                      onChange={(value) =>
+                        form.setValue(`roomTypes.${index}.description` as const, value, {
+                          shouldDirty: true,
+                        })
+                      }
+                    />
                     {canManageCosting && (
                       <label className="block text-sm font-medium text-slate-700">
                         Price
@@ -298,7 +387,7 @@ export function CruiseFormPage() {
           </section>
         </div>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 bg-background/95 py-4 backdrop-blur">
           <Button variant="secondary" onClick={() => navigate('/masters/cruises')}>
             <X className="h-4 w-4" /> Cancel
           </Button>
@@ -307,6 +396,16 @@ export function CruiseFormPage() {
           </Button>
         </div>
       </form>
+      {image && imagePreviewUrl && (
+        <MasterImageEditor
+          file={image}
+          imageUrl={imagePreviewUrl}
+          isOpen={isImageEditorOpen}
+          title="Edit Cruise Image"
+          onCancel={() => setImageEditorOpen(false)}
+          onApply={applyEditedImage}
+        />
+      )}
     </div>
   );
 }

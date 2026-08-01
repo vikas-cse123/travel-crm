@@ -31,6 +31,9 @@ import { ActivityLogsPage } from '@/pages/administration/ActivityLogsPage';
 import { LeadsPage } from '@/pages/queries/LeadsPage';
 import { LeadFormPage } from '@/pages/queries/LeadFormPage';
 import { LeadDetailsPage } from '@/pages/queries/LeadDetailsPage';
+import { AllNotesPage } from '@/pages/notes/AllNotesPage';
+import { LeadNotesPage } from '@/pages/notes/LeadNotesPage';
+import { AddNotePage } from '@/pages/notes/AddNotePage';
 import { RemindersPage } from '@/pages/reminders/RemindersPage';
 import { ReminderFormPage } from '@/pages/reminders/ReminderFormPage';
 import { BookingRemindersPage } from '@/pages/reminders/BookingRemindersPage';
@@ -156,6 +159,30 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.QUERIES_CREATE}>
                 <LeadFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/notes"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_VIEW}>
+                <AllNotesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/:queryId/notes"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_VIEW}>
+                <LeadNotesPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/queries/:queryId/notes/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUERIES_UPDATE}>
+                <AddNotePage />
               </PermissionRoute>
             }
           />

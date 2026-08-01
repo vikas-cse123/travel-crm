@@ -86,6 +86,15 @@ export const queriesController = {
   async notes(req: Request, res: Response) {
     sendSuccess(res, await queriesService.notes(auth(req), req.params.queryId!));
   },
+  async notesOverview(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await queriesService.notesOverview(
+        auth(req),
+        req.query as Parameters<typeof queriesService.notesOverview>[1],
+      ),
+    );
+  },
   async addNote(req: Request, res: Response) {
     sendSuccess(
       res,

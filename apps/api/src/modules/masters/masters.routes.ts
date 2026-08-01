@@ -617,6 +617,7 @@ router.get(
 router.get(
   '/sightseeing/summary',
   requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({ query: sightseeingList }),
   asyncHandler(sightseeing.summary),
 );
 router.get(

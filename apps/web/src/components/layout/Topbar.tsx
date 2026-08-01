@@ -6,7 +6,6 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { useLogout } from '@/features/auth/auth.api';
 import { initialsOf } from './navigation';
 import { useNotificationAnalytics } from '@/features/reminders/reminders.api';
-import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 interface TopbarProps {
   collapsed: boolean;
@@ -101,7 +100,6 @@ export function Topbar({ collapsed, onToggleCollapse, onOpenMobile, breadcrumbs 
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
-        <ThemeToggle />
         {canViewNotifications && (
           <Link
             to="/reminders/notifications"

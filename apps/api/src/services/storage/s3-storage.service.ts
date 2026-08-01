@@ -16,6 +16,11 @@ export class S3StorageService implements StorageService {
     region: env.AWS_REGION,
     ...(env.AWS_S3_ENDPOINT ? { endpoint: env.AWS_S3_ENDPOINT } : {}),
     forcePathStyle: env.AWS_S3_FORCE_PATH_STYLE,
+    // Browser PUT uploads send the raw File body. The SDK's default
+    // WHEN_SUPPORTED mode adds x-amz-sdk-checksum-algorithm/x-amz-checksum-*
+    // to presigned PutObject URLs, which can make S3 validate a checksum that
+    // was computed for the empty signing body instead of the user's file.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
     // Credentials intentionally omitted: the SDK default chain supports IAM
     // roles and only reads AWS_* static credentials when explicitly supplied.
   });
@@ -39,14 +44,18 @@ export class S3StorageService implements StorageService {
     size: number,
     expiresInSeconds = env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
   ): Promise<string> {
+    // Only sign headers the browser actually sends on the PUT (Content-Type).
+    // Signing ServerSideEncryption/ContentLength would make them required signed
+    // headers; the browser omits x-amz-server-side-encryption, causing a 403
+    // SignatureDoesNotMatch. Encryption at rest is enforced by the bucket's
+    // default encryption instead.
+    void size;
     return getSignedUrl(
       this.client,
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
         ContentType: contentType,
-        ContentLength: size,
-        ServerSideEncryption: env.AWS_S3_SERVER_SIDE_ENCRYPTION,
       }),
       { expiresIn: expiresInSeconds },
     );

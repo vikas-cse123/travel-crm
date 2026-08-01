@@ -5,7 +5,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { hotelImageUrl, useHotel } from '@/features/masters/masters.api';
-import { LoadingCard, MasterHeader, SafeRichText, Stars, StatusBadge } from './MasterUi';
+import { formatMasterDate, LoadingCard, MasterHeader, SafeRichText, Stars, StatusBadge } from './MasterUi';
 
 const tabs = [
   ['description', 'Description'],
@@ -41,7 +41,7 @@ export function HotelDetailsPage() {
     <div className="space-y-5">
       <MasterHeader
         title="View Hotel"
-        description="Hotel overview, content, room types and meal plans."
+        description=""
         current={value.name}
         action={
           <div className="flex gap-2">
@@ -109,7 +109,7 @@ export function HotelDetailsPage() {
               </div>
               <div>
                 <dt className="text-slate-500">Created</dt>
-                <dd className="font-medium">{new Date(value.createdAt).toLocaleDateString()}</dd>
+                <dd className="font-medium">{formatMasterDate(value.createdAt)}</dd>
               </div>
             </dl>
             {(value.address || value.landmark) && (

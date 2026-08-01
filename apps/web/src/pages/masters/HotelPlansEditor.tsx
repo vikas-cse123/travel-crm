@@ -16,9 +16,10 @@ interface Props {
   kind: 'room' | 'meal';
   hotel: Hotel;
   mealTypes?: readonly string[];
+  headerClass?: string;
 }
 
-export function HotelPlansEditor({ kind, hotel, mealTypes = [] }: Props) {
+export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: Props) {
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission(PERMISSIONS.MASTER_HOTELS_UPDATE);
   const canManageCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
@@ -85,20 +86,37 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [] }: Props) {
   };
 
   const archive = async (id: string) => {
-    if (!window.confirm('Archive this item?')) return;
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
     if (kind === 'room') await updateRoom.mutateAsync({ id, input: { status: 'ARCHIVED' } });
     else await updateMeal.mutateAsync({ id, input: { status: 'ARCHIVED' } });
   };
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <div className="flex items-center justify-between border-b bg-slate-50 px-5 py-3">
-        <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-        {canUpdate && (
-          <Button size="sm" variant="secondary" onClick={() => setOpen((value) => !value)}>
-            <Plus className="h-4 w-4" /> Add {kind === 'room' ? 'Room Type' : 'Meal Plan'}
-          </Button>
-        )}
+      <div
+        className={
+          headerClass
+            ? `flex items-center justify-between px-5 py-3 text-white ${headerClass}`
+            : 'flex items-center justify-between border-b bg-slate-50 px-5 py-3'
+        }
+      >
+        <h3 className={headerClass ? 'font-semibold' : 'text-sm font-semibold text-slate-700'}>
+          {title}
+        </h3>
+        {canUpdate &&
+          (headerClass ? (
+            <button
+              type="button"
+              onClick={() => setOpen((value) => !value)}
+              className="inline-flex items-center gap-1 rounded-md bg-white/20 px-2.5 py-1 text-sm font-medium hover:bg-white/30"
+            >
+              <Plus className="h-4 w-4" /> Add {kind === 'room' ? 'Room Type' : 'Meal Plan'}
+            </button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => setOpen((value) => !value)}>
+              <Plus className="h-4 w-4" /> Add {kind === 'room' ? 'Room Type' : 'Meal Plan'}
+            </Button>
+          ))}
       </div>
       <div className="space-y-3 p-5">
         {!items.length && (

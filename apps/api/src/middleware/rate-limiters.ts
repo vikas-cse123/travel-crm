@@ -8,9 +8,13 @@ import { getRequestId } from './request-id.js';
  * client can handle a 429 without a special case.
  */
 function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit' | 'message'>) {
+  const defaultLimit = isProduction
+    ? env.RATE_LIMIT_MAX_REQUESTS
+    : Math.max(env.RATE_LIMIT_MAX_REQUESTS, 2_000);
+
   return rateLimit({
     windowMs: options.windowMs ?? env.RATE_LIMIT_WINDOW_MINUTES * 60_000,
-    limit: options.limit ?? env.RATE_LIMIT_MAX_REQUESTS,
+    limit: options.limit ?? defaultLimit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     // Counting during tests makes suites order-dependent and flaky.

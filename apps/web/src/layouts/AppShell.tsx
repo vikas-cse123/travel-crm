@@ -4,6 +4,7 @@ import { cn } from '@/utils/cn';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { NAV_ITEMS } from '@/components/layout/navigation';
+import { ReminderAlerts } from '@/features/reminders/ReminderAlerts';
 
 /** Derive breadcrumbs from the current path, falling back to the raw segment. */
 function useBreadcrumbs(): string[] {
@@ -42,6 +43,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <ReminderAlerts />
     </div>
   );
 }

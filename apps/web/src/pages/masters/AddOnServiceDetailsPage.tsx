@@ -8,7 +8,7 @@ import {
   useArchiveAddOnService,
   useRestoreAddOnService,
 } from '@/features/masters/masters.api';
-import { Breadcrumbs, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
+import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 
 function money(amount: number, currency: string): string {
   try {
@@ -64,7 +64,9 @@ export function AddOnServiceDetailsPage() {
             <Button
               variant="danger"
               onClick={() => {
-                if (window.confirm(`Archive ${value.name}?`)) archive.mutate(addOnServiceId);
+                if (window.confirm('Are you sure you want to delete this add-on service?')) {
+                  archive.mutate(addOnServiceId);
+                }
               }}
             >
               <Archive className="h-4 w-4" /> Archive
@@ -109,7 +111,7 @@ export function AddOnServiceDetailsPage() {
                 Created
               </th>
               <td className="px-4 py-2.5 text-slate-800">
-                {new Date(value.createdAt).toLocaleDateString()}
+                {formatMasterDate(value.createdAt)}
               </td>
             </tr>
             <tr>
@@ -123,7 +125,7 @@ export function AddOnServiceDetailsPage() {
                 Last Updated
               </th>
               <td className="px-4 py-2.5 text-slate-800">
-                {new Date(value.updatedAt).toLocaleDateString()}
+                {formatMasterDate(value.updatedAt)}
               </td>
             </tr>
             <tr>

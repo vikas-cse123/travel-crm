@@ -4,7 +4,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useVisaType } from '@/features/masters/masters.api';
-import { LoadingCard, MasterHeader, SafeRichText, StatusBadge } from './MasterUi';
+import { formatMasterDate, LoadingCard, MasterHeader, SafeRichText, StatusBadge } from './MasterUi';
 
 export function VisaTypeDetailsPage() {
   const { visaTypeId } = useParams();
@@ -58,7 +58,7 @@ export function VisaTypeDetailsPage() {
           </div>
           <div>
             <dt className="text-slate-500">Last updated</dt>
-            <dd className="font-medium">{new Date(value.updatedAt).toLocaleString()}</dd>
+            <dd className="font-medium">{formatMasterDate(value.updatedAt)}</dd>
           </div>
         </dl>
       </section>

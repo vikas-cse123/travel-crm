@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
@@ -21,19 +21,29 @@ const schema = z.object({
     .trim()
     .toUpperCase()
     .refine((value) => !value || /^[A-Z]{3}$/.test(value), 'Use a three-letter airport code.'),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE'),
 });
 type Values = z.infer<typeof schema>;
-const initial: Values = { countryCode: '', name: '', airportCode: '', status: 'ACTIVE' };
+const initial: Values = { countryCode: 'IN', name: '', airportCode: '', status: 'ACTIVE' };
 
 export function CityFormPage() {
   const { cityId } = useParams();
   const navigate = useNavigate();
+  const alertRef = useRef<HTMLDivElement>(null);
   const city = useCity(cityId);
   const lookups = useMasterLookups();
   const create = useCreateCity();
   const update = useUpdateCity(cityId ?? '');
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: initial });
+  useEffect(() => {
+    if (!cityId && lookups.data?.countries.some((country) => country.code === 'IN')) {
+      form.setValue('countryCode', 'IN', {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+  }, [cityId, form, lookups.data?.countries]);
   useEffect(() => {
     if (city.data)
       form.reset({
@@ -52,6 +62,13 @@ export function CityFormPage() {
   }, [form.formState.isDirty]);
   if (cityId && city.isError) return <Navigate to="/masters/cities" replace />;
   const mutation = cityId ? update : create;
+  const scrollToAlert = () => {
+    window.setTimeout(() => {
+      if (typeof alertRef.current?.scrollIntoView === 'function') {
+        alertRef.current.scrollIntoView({ block: 'center' });
+      }
+    }, 0);
+  };
   const submit = (values: Values) => {
     const payload: CityInput = {
       countryCode: values.countryCode,
@@ -59,18 +76,29 @@ export function CityFormPage() {
       airportCode: values.airportCode || null,
       status: values.status,
     };
-    if (cityId) update.mutate(payload, { onSuccess: () => navigate(`/masters/cities/${cityId}`) });
-    else create.mutate(payload, { onSuccess: (row) => navigate(`/masters/cities/${row.id}`) });
+    if (cityId)
+      update.mutate(payload, {
+        onSuccess: () => navigate(`/masters/cities/${cityId}`),
+        onError: scrollToAlert,
+      });
+    else
+      create.mutate(payload, {
+        onSuccess: (row) => navigate(`/masters/cities/${row.id}`),
+        onError: scrollToAlert,
+      });
+  };
+  const invalid = () => {
+    scrollToAlert();
   };
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <MasterHeader
         title={cityId ? 'Edit City' : 'Create City'}
-        description="Keep city names consistent and add the IATA airport code when available."
         current={cityId ? 'Edit City' : 'Create City'}
       />
       <form
-        onSubmit={form.handleSubmit(submit)}
+        noValidate
+        onSubmit={form.handleSubmit(submit, invalid)}
         className="overflow-hidden rounded-xl border bg-card shadow-sm"
       >
         <div className="border-b bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-4 text-lg font-semibold text-white">
@@ -78,13 +106,21 @@ export function CityFormPage() {
         </div>
         <div className="space-y-5 p-5">
           {mutation.error && (
-            <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            <div
+              ref={alertRef}
+              role="alert"
+              className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+            >
               {mutation.error.message}
             </div>
           )}
           <label className="block text-sm font-medium">
             Country *
-            <select className={fieldClass} {...form.register('countryCode')}>
+            <select
+              className={fieldClass}
+              aria-invalid={Boolean(form.formState.errors.countryCode)}
+              {...form.register('countryCode')}
+            >
               <option value="">Select country</option>
               {lookups.data?.countries.map((country) => (
                 <option key={country.code} value={country.code}>
@@ -102,6 +138,7 @@ export function CityFormPage() {
             City Name *
             <input
               className={fieldClass}
+              aria-invalid={Boolean(form.formState.errors.name)}
               placeholder="Enter city name"
               {...form.register('name')}
             />
@@ -113,6 +150,7 @@ export function CityFormPage() {
             Airport Code
             <input
               className={`${fieldClass} uppercase`}
+              aria-invalid={Boolean(form.formState.errors.airportCode)}
               maxLength={3}
               placeholder="e.g. DEL"
               {...form.register('airportCode')}

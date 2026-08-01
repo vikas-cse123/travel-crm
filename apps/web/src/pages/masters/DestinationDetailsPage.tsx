@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Globe2, MapPin, Pencil } from 'lucide-react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Globe2, MapPin, Pencil, Plane } from 'lucide-react';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { destinationImageUrl, useDestination } from '@/features/masters/masters.api';
-import { LoadingCard, MasterHeader, SafeRichText, StatusBadge } from './MasterUi';
+import { formatMasterDate, LoadingCard, MasterHeader, SafeRichText, StatusBadge } from './MasterUi';
 
 const tabs = [
   ['inclusions', 'Inclusions'],
@@ -17,6 +17,7 @@ const tabs = [
 
 export function DestinationDetailsPage() {
   const { destinationId } = useParams();
+  const location = useLocation();
   const destination = useDestination(destinationId);
   const { hasPermission } = useAuth();
   const [tab, setTab] = useState<(typeof tabs)[number][0]>('inclusions');
@@ -36,12 +37,16 @@ export function DestinationDetailsPage() {
   if (destination.isError) return <Navigate to="/masters/destinations" replace />;
   if (!destination.data) return <LoadingCard />;
   const value = destination.data;
+  const warning =
+    typeof (location.state as { warning?: unknown } | null)?.warning === 'string'
+      ? (location.state as { warning: string }).warning
+      : '';
 
   return (
     <div className="space-y-5">
       <MasterHeader
         title="Destination Details"
-        description="Overview, ordered cities, policies, and audit metadata."
+        description=""
         current={value.name}
         action={
           <div className="flex gap-2">
@@ -60,10 +65,21 @@ export function DestinationDetailsPage() {
           </div>
         }
       />
+      {warning && (
+        <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+          {warning}
+        </div>
+      )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
           {imageUrl ? (
-            <img src={imageUrl} alt={value.name} className="h-64 w-full object-cover" />
+            <div className="flex h-64 items-center justify-center bg-slate-50">
+              <img
+                src={imageUrl}
+                alt={value.name}
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
           ) : (
             <div className="flex h-52 items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-cyan-700 text-white">
               <Globe2 className="h-16 w-16 opacity-70" />
@@ -79,23 +95,25 @@ export function DestinationDetailsPage() {
               <p className="mt-1 text-sm text-slate-500">{value.countryName}</p>
             </div>
             <div>
-              <h3 className="font-semibold">Cities in visit order</h3>
+              <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-800">
+                <MapPin className="h-4 w-4 text-slate-700" />
+                Cities Covered
+                <span className="rounded bg-cyan-600 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {value.cities.length}
+                </span>
+              </h3>
               <div className="mt-3 space-y-2">
-                {value.cities.map((link, index) => (
-                  <div
-                    key={link.id}
-                    className="flex items-center gap-3 rounded-lg border bg-slate-50 p-3"
-                  >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">
-                      {index + 1}
+                {value.cities.map((link) => (
+                  <div key={link.id} className="rounded-lg border bg-slate-50 px-4 py-3">
+                    <p className="font-semibold text-slate-900">{link.city.name}</p>
+                    <span className="mt-1 inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                      {link.city.airportCode ? (
+                        <Plane className="h-3 w-3" />
+                      ) : (
+                        <MapPin className="h-3 w-3" />
+                      )}
+                      {link.city.airportCode ?? 'No airport code'}
                     </span>
-                    <MapPin className="h-4 w-4 text-slate-400" />
-                    <div>
-                      <p className="font-medium">{link.city.name}</p>
-                      <p className="text-xs text-slate-500">
-                        {link.city.airportCode ?? 'No airport code'}
-                      </p>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -107,11 +125,11 @@ export function DestinationDetailsPage() {
               </div>
               <div>
                 <dt className="text-slate-500">Created</dt>
-                <dd className="font-medium">{new Date(value.createdAt).toLocaleString()}</dd>
+                <dd className="font-medium">{formatMasterDate(value.createdAt)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">Last updated</dt>
-                <dd className="font-medium">{new Date(value.updatedAt).toLocaleString()}</dd>
+                <dd className="font-medium">{formatMasterDate(value.updatedAt)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">Image</dt>

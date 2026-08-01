@@ -1,19 +1,78 @@
+import { useEffect, useState } from 'react';
 import { Archive, Eye, Pencil, Plane, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { COUNTRIES, PERMISSIONS } from '@interscale/shared';
+import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useAirlines, useArchiveAirline } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import { airlineLogoUrl, useAirlines, useArchiveAirline } from '@/features/masters/masters.api';
+import { formatMasterDate, MasterHeader, Pagination } from './MasterUi';
+
+const airlineLogoUrlCache = new Map<string, string>();
 
 export function AirlinesPage() {
   const [params, setParams] = useSearchParams();
   const airlines = useAirlines(params);
   const archive = useArchiveAirline();
   const { hasPermission } = useAuth();
+  const [logoUrls, setLogoUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_AIRLINES_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_AIRLINES_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_AIRLINES_DELETE);
+  const logoIdsKey =
+    airlines.data?.data
+      .filter((airline) => airline.hasLogo)
+      .map((airline) => airline.id)
+      .join('|') ?? '';
+
+  useEffect(() => {
+    const rowsWithLogos = airlines.data?.data.filter((airline) => airline.hasLogo);
+    if (!rowsWithLogos?.length) return;
+
+    const cachedEntries = rowsWithLogos.flatMap((airline) => {
+      const cachedUrl = airlineLogoUrlCache.get(airline.id);
+      return cachedUrl ? ([[airline.id, cachedUrl]] as const) : [];
+    });
+    if (cachedEntries.length) {
+      setLogoUrls((current) => {
+        const next = { ...current };
+        cachedEntries.forEach(([id, url]) => {
+          next[id] = url;
+        });
+        return next;
+      });
+    }
+
+    const missingRows = rowsWithLogos.filter((airline) => !airlineLogoUrlCache.has(airline.id));
+    if (!missingRows.length) return;
+
+    let active = true;
+    void Promise.all(
+      missingRows.map(async (airline) => {
+        try {
+          const result = await airlineLogoUrl(airline.id);
+          return [airline.id, result.url] as const;
+        } catch {
+          return [airline.id, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setLogoUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([id, url]) => {
+          if (url) {
+            airlineLogoUrlCache.set(id, url);
+            next[id] = url;
+          }
+        });
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [airlines.data?.data, logoIdsKey]);
+
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -21,16 +80,15 @@ export function AirlinesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this airline?')) archive.mutate(id);
   };
 
   return (
     <div className="space-y-5">
       <MasterHeader
         title="Airline Master"
-        description="Maintain the airlines used across quotations and bookings."
+        description=""
         current="Airlines"
         action={
           canCreate ? (
@@ -43,46 +101,18 @@ export function AirlinesPage() {
         }
       />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_200px_160px]">
-          <label className="relative">
+        <div className="border-b p-4">
+          <label className="relative block">
             <span className="sr-only">Search airlines</span>
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               aria-label="Search airlines"
-              placeholder="Search airline or code…"
+              placeholder="Search airline…"
               className="w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm"
               value={params.get('search') ?? ''}
               onChange={(event) => update('search', event.target.value)}
             />
           </label>
-          <select
-            aria-label="Airline country"
-            className="rounded-lg border px-3 py-2.5 text-sm"
-            value={params.get('country') ?? ''}
-            onChange={(event) => update('country', event.target.value)}
-          >
-            <option value="">All countries</option>
-            {COUNTRIES.map((country) => (
-              <option key={country.code} value={country.code}>
-                {country.name}
-              </option>
-            ))}
-          </select>
-          {canUpdate ? (
-            <select
-              aria-label="Airline status"
-              className="rounded-lg border px-3 py-2.5 text-sm"
-              value={params.get('status') ?? ''}
-              onChange={(event) => update('status', event.target.value)}
-            >
-              <option value="">Current statuses</option>
-              <option>ACTIVE</option>
-              <option>INACTIVE</option>
-              <option>ARCHIVED</option>
-            </select>
-          ) : (
-            <div />
-          )}
         </div>
         {airlines.isPending ? (
           <div className="h-72 animate-pulse bg-slate-100" />
@@ -102,16 +132,7 @@ export function AirlinesPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-muted text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   <tr>
-                    {[
-                      'Logo',
-                      'Airline',
-                      'IATA',
-                      'ICAO',
-                      'Country',
-                      'Status',
-                      'Updated',
-                      'Actions',
-                    ].map((heading) => (
+                    {['Logo', 'Airline', 'Created', 'Actions'].map((heading) => (
                       <th key={heading} className="px-4 py-3">
                         {heading}
                       </th>
@@ -123,8 +144,14 @@ export function AirlinesPage() {
                     <tr key={airline.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="flex h-9 w-14 items-center justify-center rounded bg-slate-100 text-slate-500">
-                          {airline.hasLogo ? (
-                            <Plane className="h-4 w-4 text-brand-600" />
+                          {logoUrls[airline.id] ? (
+                            <img
+                              src={logoUrls[airline.id]}
+                              alt=""
+                              className="h-full w-full rounded object-contain"
+                            />
+                          ) : airline.hasLogo ? (
+                            <Plane className="h-4 w-4 text-slate-300" />
                           ) : (
                             <span className="text-[10px] font-semibold text-slate-400">
                               No Logo
@@ -133,14 +160,8 @@ export function AirlinesPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{airline.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{airline.iataCode ?? '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{airline.icaoCode ?? '—'}</td>
-                      <td className="px-4 py-3">{airline.countryName ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <StatusBadge value={airline.status} />
-                      </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(airline.updatedAt).toLocaleDateString()}
+                        {formatMasterDate(airline.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
@@ -163,7 +184,7 @@ export function AirlinesPage() {
                           {canArchive && airline.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${airline.name}`}
-                              onClick={() => archiveRow(airline.id, airline.name)}
+                              onClick={() => archiveRow(airline.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -179,11 +200,23 @@ export function AirlinesPage() {
             <div className="divide-y md:hidden">
               {airlines.data.data.map((airline) => (
                 <article key={airline.id} className="flex items-center justify-between gap-2 p-4">
-                  <div>
-                    <h2 className="font-semibold">{airline.name}</h2>
-                    <p className="font-mono text-xs text-slate-500">
-                      {airline.iataCode ?? '—'} · {airline.icaoCode ?? '—'}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-14 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500">
+                      {logoUrls[airline.id] ? (
+                        <img
+                          src={logoUrls[airline.id]}
+                          alt=""
+                          className="h-full w-full rounded object-contain"
+                        />
+                      ) : airline.hasLogo ? (
+                        <Plane className="h-4 w-4 text-slate-300" />
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-400">No Logo</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="truncate font-semibold">{airline.name}</h2>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Link to={`/masters/airlines/${airline.id}`}>
@@ -200,6 +233,7 @@ export function AirlinesPage() {
             </div>
             <Pagination
               page={airlines.data.pagination.page}
+              pageSize={airlines.data.pagination.pageSize}
               totalPages={airlines.data.pagination.totalPages}
               total={airlines.data.pagination.total}
               onPage={(page) => update('page', String(page))}

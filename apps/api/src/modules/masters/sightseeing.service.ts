@@ -163,7 +163,7 @@ export const sightseeingService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
-      pageSize: Number(query.pageSize) || undefined,
+      pageSize: Number(query.pageSize) || 10,
     });
     const canManageRows = await canManage(auth);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
@@ -189,18 +189,11 @@ export const sightseeingService = {
         : {}),
     };
 
-    // Default order mirrors the reference's grouped view: destination, then
-    // city, then the manual sequence within that city.
     const [rows, total] = await Promise.all([
       prisma.sightseeing.findMany({
         where,
         ...toPrismaPagination(pagination),
-        orderBy: [
-          { destination: { name: 'asc' } },
-          { city: { name: 'asc' } },
-          { sequence: 'asc' },
-          { title: 'asc' },
-        ],
+        orderBy: [{ createdAt: 'desc' }, { title: 'asc' }],
         include: sightseeingInclude,
       }),
       prisma.sightseeing.count({ where }),
@@ -216,11 +209,28 @@ export const sightseeingService = {
    * Counts backing the reference's "Summary Statistics" strip.
    * Scoped to the tenant's live rows.
    */
-  async summary(auth: AuthContext) {
+  async summary(auth: AuthContext, query: Record<string, unknown> = {}) {
+    const canManageRows = await canManage(auth);
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.SightseeingWhereInput = {
       companyId: auth.companyId,
-      deletedAt: null,
-      status: 'ACTIVE',
+      ...(canManageRows
+        ? status === 'ARCHIVED'
+          ? { status: 'ARCHIVED' }
+          : { deletedAt: null, ...(status ? { status } : {}) }
+        : { status: 'ACTIVE', deletedAt: null }),
+      ...(query.destinationId ? { destinationId: String(query.destinationId) } : {}),
+      ...(query.cityId ? { cityId: String(query.cityId) } : {}),
+      ...(search
+        ? {
+            OR: [
+              { title: { contains: search, mode: 'insensitive' } },
+              { city: { name: { contains: search, mode: 'insensitive' } } },
+              { destination: { name: { contains: search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
     };
     const [totalAttractions, destinations, cities, withImages] = await Promise.all([
       prisma.sightseeing.count({ where }),

@@ -5,7 +5,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { airlineLogoUrl, useAirline } from '@/features/masters/masters.api';
-import { LoadingCard, MasterHeader, StatusBadge } from './MasterUi';
+import { formatMasterDate, LoadingCard, MasterHeader } from './MasterUi';
 
 export function AirlineDetailsPage() {
   const { airlineId } = useParams();
@@ -32,7 +32,7 @@ export function AirlineDetailsPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <MasterHeader
         title="View Airline"
-        description="Airline profile and codes."
+        description="Airline profile."
         current={value.name}
         action={
           <div className="flex gap-2">
@@ -63,41 +63,17 @@ export function AirlineDetailsPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-semibold">{value.name}</h2>
-              <StatusBadge value={value.status} />
             </div>
-            <p className="mt-1 font-mono text-sm text-slate-500">
-              {value.iataCode ?? '—'} · {value.icaoCode ?? '—'}
-            </p>
           </div>
         </div>
         <dl className="grid gap-4 p-5 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-slate-500">IATA Code</dt>
-            <dd className="font-medium">{value.iataCode ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">ICAO Code</dt>
-            <dd className="font-medium">{value.icaoCode ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Country</dt>
-            <dd className="font-medium">{value.countryName ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Website</dt>
-            <dd className="font-medium">{value.website ?? '—'}</dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-slate-500">Internal Notes</dt>
-            <dd className="font-medium">{value.internalNotes ?? '—'}</dd>
-          </div>
           <div>
             <dt className="text-slate-500">Created by</dt>
             <dd className="font-medium">{value.createdBy.fullName}</dd>
           </div>
           <div>
             <dt className="text-slate-500">Created</dt>
-            <dd className="font-medium">{new Date(value.createdAt).toLocaleString()}</dd>
+            <dd className="font-medium">{formatMasterDate(value.createdAt)}</dd>
           </div>
         </dl>
       </section>

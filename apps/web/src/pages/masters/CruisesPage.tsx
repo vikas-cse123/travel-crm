@@ -1,20 +1,24 @@
+import { useEffect, useState } from 'react';
 import { Archive, Eye, Pencil, Plus, RotateCcw, Search, Ship } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useArchiveCruise, useCruises, useRestoreCruise } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import {
+  cruiseImageUrl,
+  useArchiveCruise,
+  useCruises,
+  useRestoreCruise,
+} from '@/features/masters/masters.api';
+import {
+  formatMasterDate,
+  MasterHeader,
+  Pagination,
+  RichTextPreview,
+  StatusBadge,
+} from './MasterUi';
 
-/** Strip HTML so the reference's truncated description column stays readable. */
-function plainText(html: string | null): string {
-  if (!html) return '';
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+const cruiseImageUrlCache = new Map<string, string>();
 
 function priceRangeLabel(range?: { min: number; max: number } | null): string {
   if (!range) return '—';
@@ -30,10 +34,65 @@ export function CruisesPage() {
   const archive = useArchiveCruise();
   const restore = useRestoreCruise();
   const { hasPermission } = useAuth();
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_CRUISES_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_CRUISES_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_CRUISES_DELETE);
   const canViewCosting = hasPermission(PERMISSIONS.MASTER_CRUISES_VIEW_COSTING);
+  const imageIdsKey =
+    cruises.data?.data
+      .filter((cruise) => cruise.hasImage)
+      .map((cruise) => cruise.id)
+      .join('|') ?? '';
+
+  useEffect(() => {
+    const rowsWithImages = cruises.data?.data.filter((cruise) => cruise.hasImage);
+    if (!rowsWithImages?.length) return;
+
+    const cachedEntries = rowsWithImages.flatMap((cruise) => {
+      const cachedUrl = cruiseImageUrlCache.get(cruise.id);
+      return cachedUrl ? ([[cruise.id, cachedUrl]] as const) : [];
+    });
+    if (cachedEntries.length) {
+      setImageUrls((current) => {
+        const next = { ...current };
+        cachedEntries.forEach(([id, url]) => {
+          next[id] = url;
+        });
+        return next;
+      });
+    }
+
+    const missingRows = rowsWithImages.filter((cruise) => !cruiseImageUrlCache.has(cruise.id));
+    if (!missingRows.length) return;
+
+    let active = true;
+    void Promise.all(
+      missingRows.map(async (cruise) => {
+        try {
+          const result = await cruiseImageUrl(cruise.id);
+          return [cruise.id, result.url] as const;
+        } catch {
+          return [cruise.id, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setImageUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([id, url]) => {
+          if (url) {
+            cruiseImageUrlCache.set(id, url);
+            next[id] = url;
+          }
+        });
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [cruises.data?.data, imageIdsKey]);
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -42,9 +101,8 @@ export function CruisesPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive ${name}? Existing records using it will remain intact.`))
-      archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this cruise?')) archive.mutate(id);
   };
 
   const columns = [
@@ -62,7 +120,7 @@ export function CruisesPage() {
     <div className="space-y-5">
       <MasterHeader
         title="Cruise Master"
-        description="Maintain the cruises and cabin categories offered to travellers."
+        description=""
         current="Cruises"
         action={
           canCreate ? (
@@ -76,9 +134,9 @@ export function CruisesPage() {
       />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_160px]">
-          <label className="relative">
+          <label className="relative block">
             <span className="sr-only">Search cruises</span>
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               aria-label="Search cruises"
               placeholder="Search cruises…"
@@ -133,21 +191,21 @@ export function CruisesPage() {
                   {cruises.data.data.map((cruise) => (
                     <tr key={cruise.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <div className="flex h-9 w-14 items-center justify-center rounded bg-slate-100 text-slate-500">
-                          {cruise.hasImage ? (
-                            <Ship className="h-4 w-4 text-brand-600" />
+                        <div className="flex h-10 w-16 items-center justify-center overflow-hidden rounded bg-slate-100 text-slate-500">
+                          {cruise.hasImage && imageUrls[cruise.id] ? (
+                            <img
+                              src={imageUrls[cruise.id]}
+                              alt={`${cruise.name} image`}
+                              className="h-full w-full object-cover"
+                            />
                           ) : (
-                            <span className="text-[10px] font-semibold text-slate-400">
-                              No Image
-                            </span>
+                            <Ship className="h-4 w-4 text-brand-600" />
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{cruise.name}</td>
                       <td className="max-w-xs px-4 py-3 text-slate-600">
-                        <span className="line-clamp-2 block">
-                          {plainText(cruise.description) || '—'}
-                        </span>
+                        <RichTextPreview html={cruise.description} />
                       </td>
                       <td className="px-4 py-3">
                         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
@@ -164,7 +222,7 @@ export function CruisesPage() {
                         <StatusBadge value={cruise.status} />
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(cruise.createdAt).toLocaleDateString()}
+                        {formatMasterDate(cruise.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
@@ -187,7 +245,7 @@ export function CruisesPage() {
                           {canArchive && cruise.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive ${cruise.name}`}
-                              onClick={() => archiveRow(cruise.id, cruise.name)}
+                              onClick={() => archiveRow(cruise.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -234,6 +292,7 @@ export function CruisesPage() {
             </div>
             <Pagination
               page={cruises.data.pagination.page}
+              pageSize={cruises.data.pagination.pageSize}
               totalPages={cruises.data.pagination.totalPages}
               total={cruises.data.pagination.total}
               onPage={(page) => update('page', String(page))}

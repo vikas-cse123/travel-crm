@@ -4,7 +4,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useArchiveTestimonial, useTestimonials } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import { MasterHeader, Pagination, StatusBadge, TextPreview } from './MasterUi';
 
 export function TestimonialsPage() {
   const [params, setParams] = useSearchParams();
@@ -21,8 +21,8 @@ export function TestimonialsPage() {
     if (key !== 'page') next.delete('page');
     setParams(next);
   };
-  const archiveRow = (id: string, name: string) => {
-    if (window.confirm(`Archive testimonial from ${name}?`)) archive.mutate(id);
+  const archiveRow = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this testimonial?')) archive.mutate(id);
   };
   const label = (name: string | null) => name?.trim() || 'Anonymous';
 
@@ -105,8 +105,8 @@ export function TestimonialsPage() {
                         {label(testimonial.clientName)}
                       </td>
                       <td className="px-4 py-3">{testimonial.destinationName}</td>
-                      <td className="max-w-xs truncate px-4 py-3 text-slate-600">
-                        {testimonial.description}
+                      <td className="max-w-xs px-4 py-3 text-slate-600">
+                        <TextPreview>{testimonial.description}</TextPreview>
                       </td>
                       <td className="px-4 py-3">
                         {testimonial.isVisible ? (
@@ -141,9 +141,7 @@ export function TestimonialsPage() {
                           {canArchive && testimonial.status !== 'ARCHIVED' && (
                             <button
                               aria-label={`Archive testimonial from ${label(testimonial.clientName)}`}
-                              onClick={() =>
-                                archiveRow(testimonial.id, label(testimonial.clientName))
-                              }
+                              onClick={() => archiveRow(testimonial.id)}
                               className="rounded bg-red-600 p-2 text-white"
                             >
                               <Archive className="h-4 w-4" />
@@ -163,9 +161,9 @@ export function TestimonialsPage() {
                     <div className="min-w-0">
                       <h2 className="font-semibold">{label(testimonial.clientName)}</h2>
                       <p className="text-sm text-slate-500">{testimonial.destinationName}</p>
-                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">
+                      <TextPreview className="mt-1 text-sm text-slate-600">
                         {testimonial.description}
-                      </p>
+                      </TextPreview>
                     </div>
                     <StatusBadge value={testimonial.status} />
                   </div>
@@ -184,6 +182,7 @@ export function TestimonialsPage() {
             </div>
             <Pagination
               page={testimonials.data.pagination.page}
+              pageSize={testimonials.data.pagination.pageSize}
               totalPages={testimonials.data.pagination.totalPages}
               total={testimonials.data.pagination.total}
               onPage={(page) => update('page', String(page))}

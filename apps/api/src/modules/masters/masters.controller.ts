@@ -419,7 +419,7 @@ export const sightseeingController = {
   list: async (req: Request, res: Response) =>
     sendSuccess(res, await sightseeingService.list(auth(req), req.query)),
   summary: async (req: Request, res: Response) =>
-    sendSuccess(res, await sightseeingService.summary(auth(req))),
+    sendSuccess(res, await sightseeingService.summary(auth(req), req.query)),
   lookups: async (req: Request, res: Response) =>
     sendSuccess(res, await sightseeingService.lookups(auth(req), req.query)),
   details: async (req: Request, res: Response) =>

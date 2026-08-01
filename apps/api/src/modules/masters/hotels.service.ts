@@ -240,7 +240,7 @@ export const hotelsService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
-      pageSize: Number(query.pageSize) || undefined,
+      pageSize: Number(query.pageSize) || 10,
     });
     const canManageHotels = await canManage(auth);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
@@ -268,8 +268,8 @@ export const hotelsService = {
           }
         : {}),
     };
-    const order = query.sortOrder === 'desc' ? 'desc' : 'asc';
-    const sortBy = String(query.sortBy ?? 'name');
+    const order = query.sortOrder === 'asc' ? 'asc' : 'desc';
+    const sortBy = String(query.sortBy ?? 'createdAt');
     const orderBy: Prisma.HotelOrderByWithRelationInput =
       sortBy === 'starCategory'
         ? { starCategory: order }
@@ -278,7 +278,7 @@ export const hotelsService = {
           : sortBy === 'updatedAt'
             ? { updatedAt: order }
             : { name: order };
-    const [rows, total] = await Promise.all([
+    const [rows, total, rating, destinationRows, cityRows, roomTypes, mealPlans] = await Promise.all([
       prisma.hotel.findMany({
         where,
         ...toPrismaPagination(pagination),
@@ -286,10 +286,23 @@ export const hotelsService = {
         include: hotelListInclude,
       }),
       prisma.hotel.count({ where }),
+      prisma.hotel.aggregate({ where, _avg: { starRating: true } }),
+      prisma.hotel.findMany({ where, distinct: ['destinationId'], select: { destinationId: true } }),
+      prisma.hotel.findMany({ where, distinct: ['cityId'], select: { cityId: true } }),
+      prisma.hotelRoomType.count({ where: { hotel: where, status: 'ACTIVE' } }),
+      prisma.hotelMealPlan.count({ where: { hotel: where, status: 'ACTIVE' } }),
     ]);
     return {
       data: rows.map((row) => presentHotel(row as unknown as Record<string, unknown>, false)),
       pagination: buildPaginationMeta(pagination, total),
+      statistics: {
+        totalHotels: total,
+        destinations: destinationRows.length,
+        totalCities: cityRows.length,
+        averageRating: num(rating._avg.starRating),
+        roomTypes,
+        mealPlans,
+      },
     };
   },
 

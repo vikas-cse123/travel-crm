@@ -85,9 +85,30 @@ export interface Page<T> {
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
+export interface HotelStatistics {
+  totalHotels: number;
+  destinations: number;
+  totalCities: number;
+  averageRating: number | null;
+  roomTypes: number;
+  mealPlans: number;
+}
+
+export interface HotelPage extends Page<HotelSummary> {
+  statistics: HotelStatistics;
+}
+
 export interface MasterLookups {
   countries: CountryReference[];
   cities: Array<{ id: string; name: string; airportCode: string | null; countryCode: string }>;
+}
+
+const MASTER_DEFAULT_PAGE_SIZE = '10';
+
+function masterListQuery(params = new URLSearchParams()) {
+  const next = new URLSearchParams(params);
+  if (!next.has('pageSize')) next.set('pageSize', MASTER_DEFAULT_PAGE_SIZE);
+  return next.toString();
 }
 
 const keys = {
@@ -109,7 +130,7 @@ const invalidate = (
 };
 
 export function useCities(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...keys.cities, query],
     queryFn: ({ signal }) =>
@@ -157,7 +178,7 @@ export function useArchiveCity() {
 }
 
 export function useDestinations(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...keys.destinations, query],
     queryFn: ({ signal }) =>
@@ -312,11 +333,11 @@ const hotelKeys = {
 };
 
 export function useHotels(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...hotelKeys.all, query],
     queryFn: ({ signal }) =>
-      apiClient.get<Page<HotelSummary>>(`/masters/hotels${query ? `?${query}` : ''}`, signal),
+      apiClient.get<HotelPage>(`/masters/hotels${query ? `?${query}` : ''}`, signal),
   });
 }
 export function useHotel(id?: string) {
@@ -383,6 +404,13 @@ export function useUpdateMealPlan(hotelId: string) {
     onSuccess: () => invalidateHotel(client, hotelId),
   });
 }
+/** Non-hook create helpers, used when persisting draft rows right after a hotel is created. */
+export async function createRoomType(hotelId: string, input: HotelRoomTypeInput) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/room-types`, input);
+}
+export async function createMealPlan(hotelId: string, input: HotelMealPlanInput) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/meal-plans`, input);
+}
 export async function approveHotelImage(id: string, input: HotelImageUploadInput) {
   return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
     `/masters/hotels/${id}/image/upload`,
@@ -430,7 +458,7 @@ const airlineKeys = {
 };
 
 export function useAirlines(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...airlineKeys.all, query],
     queryFn: ({ signal }) =>
@@ -529,7 +557,7 @@ const cruiseKeys = {
 };
 
 export function useCruises(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...cruiseKeys.all, query],
     queryFn: ({ signal }) =>
@@ -623,7 +651,7 @@ const vehicleKeys = {
 };
 
 export function useVehicles(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...vehicleKeys.all, query],
     queryFn: ({ signal }) =>
@@ -736,7 +764,7 @@ const sightseeingKeys = {
 };
 
 export function useSightseeingList(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...sightseeingKeys.all, query],
     queryFn: ({ signal }) =>
@@ -744,11 +772,15 @@ export function useSightseeingList(params = new URLSearchParams()) {
   });
 }
 /** Counts for the reference's Summary Statistics strip. */
-export function useSightseeingSummary() {
+export function useSightseeingSummary(params = new URLSearchParams()) {
+  const query = masterListQuery(params);
   return useQuery({
-    queryKey: sightseeingKeys.summary,
+    queryKey: [...sightseeingKeys.summary, query],
     queryFn: ({ signal }) =>
-      apiClient.get<SightseeingSummary>('/masters/sightseeing/summary', signal),
+      apiClient.get<SightseeingSummary>(
+        `/masters/sightseeing/summary${query ? `?${query}` : ''}`,
+        signal,
+      ),
   });
 }
 export function useSightseeing(id?: string) {
@@ -843,7 +875,7 @@ const addOnServiceKeys = {
 };
 
 export function useAddOnServices(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...addOnServiceKeys.all, query],
     queryFn: ({ signal }) =>
@@ -926,7 +958,7 @@ const visaTypeKeys = {
   one: (id: string) => ['masters', 'visa-types', id] as const,
 };
 export function useVisaTypes(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...visaTypeKeys.all, query],
     queryFn: ({ signal }) =>
@@ -993,7 +1025,7 @@ const testimonialKeys = {
   one: (id: string) => ['masters', 'testimonials', id] as const,
 };
 export function useTestimonials(params = new URLSearchParams()) {
-  const query = params.toString();
+  const query = masterListQuery(params);
   return useQuery({
     queryKey: [...testimonialKeys.all, query],
     queryFn: ({ signal }) =>

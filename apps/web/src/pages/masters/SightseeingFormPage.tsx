@@ -17,6 +17,7 @@ import {
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
 import { MasterImageField } from './MasterImageField';
+import { MasterImageEditor } from './MasterImageEditor';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 const MAX_IMAGE_MB = 5;
@@ -51,6 +52,8 @@ export function SightseeingFormPage() {
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA);
 
   const [image, setImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
   const [imageError, setImageError] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -91,6 +94,16 @@ export function SightseeingFormPage() {
     });
   }, [record.data, form]);
 
+  useEffect(() => {
+    if (!image) {
+      setImagePreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+
   if (sightseeingId && record.isError) return <Navigate to="/masters/sightseeing" replace />;
   const mutation = sightseeingId ? update : create;
 
@@ -100,7 +113,11 @@ export function SightseeingFormPage() {
 
   const validateImage = (file?: File) => {
     setImageError('');
-    if (!file) return setImage(null);
+    if (!file) {
+      setImage(null);
+      setImageEditorOpen(false);
+      return;
+    }
     if (
       !SIGHTSEEING_IMAGE_MIME_TYPES.includes(
         file.type as (typeof SIGHTSEEING_IMAGE_MIME_TYPES)[number],
@@ -114,6 +131,16 @@ export function SightseeingFormPage() {
       return;
     }
     setImage(file);
+    setImageEditorOpen(true);
+  };
+  const applyEditedImage = (file: File) => {
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
+      return;
+    }
+    setImageError('');
+    setImage(file);
+    setImageEditorOpen(false);
   };
 
   const uploadImage = async (id: string, file: File) => {
@@ -163,7 +190,7 @@ export function SightseeingFormPage() {
     <div className="space-y-5">
       <MasterHeader
         title={sightseeingId ? 'Edit Sightseeing' : 'Create Sightseeing'}
-        description="Reusable itinerary content grouped by destination and city."
+        description=""
         current="Sightseeing"
       />
 
@@ -178,7 +205,7 @@ export function SightseeingFormPage() {
         )}
 
         <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          <h2 className="border-b bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800">
+          <h2 className="bg-brand-600 px-4 py-3 text-base font-semibold text-white">
             Sightseeing Information
           </h2>
           <div className="grid gap-4 p-4 lg:grid-cols-2">
@@ -382,7 +409,7 @@ export function SightseeingFormPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
+        <div className="sticky bottom-0 flex justify-end gap-2 bg-transparent py-2">
           <Button variant="secondary" onClick={() => navigate('/masters/sightseeing')}>
             <X className="h-4 w-4" /> Cancel
           </Button>
@@ -392,6 +419,16 @@ export function SightseeingFormPage() {
           </Button>
         </div>
       </form>
+      {image && imagePreviewUrl && (
+        <MasterImageEditor
+          file={image}
+          imageUrl={imagePreviewUrl}
+          isOpen={isImageEditorOpen}
+          title="Edit Sightseeing Image"
+          onCancel={() => setImageEditorOpen(false)}
+          onApply={applyEditedImage}
+        />
+      )}
     </div>
   );
 }
