@@ -20,7 +20,10 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useLead, useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
 import { useCustomer } from '@/features/customers/customers.api';
+import { useDestinations } from '@/features/masters/masters.api';
 import { cn } from '@/utils/cn';
+
+const ITINERARY_DESTINATIONS_PARAMS = new URLSearchParams('pageSize=100&status=ACTIVE');
 
 interface ItineraryForm {
   country: string;
@@ -215,23 +218,6 @@ const INDIAN_DEPARTURE_CITIES = [
   { value: 'Vijayawada', label: 'Vijayawada (VGA)' },
   { value: 'Visakhapatnam', label: 'Visakhapatnam (VTZ)' },
 ];
-const DESTINATION_OPTIONS = [
-  'Andaman',
-  'Bali',
-  'Dubai',
-  'Europe',
-  'Goa',
-  'Himachal',
-  'India',
-  'Kashmir',
-  'Kerala',
-  'Ladakh',
-  'Maldives',
-  'Rajasthan',
-  'Singapore',
-  'Thailand',
-  'Uttarakhand',
-];
 const CREATE_LEAD_SERVICES = [
   'CRUISE',
   'FLIGHT',
@@ -336,6 +322,23 @@ export function LeadForm({
       .map((city) => ({ value: city, label: city }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [departureCountry, lookups?.cities]);
+  // Itinerary destinations come from the Destinations master so each row's City
+  // dropdown can show the cities linked to the chosen destination.
+  const itineraryDestinations = useDestinations(ITINERARY_DESTINATIONS_PARAMS);
+  const destinationCityMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const destination of itineraryDestinations.data?.data ?? []) {
+      map.set(
+        destination.name,
+        destination.cities
+          .slice()
+          .sort((a, b) => a.sequence - b.sequence)
+          .map((link) => link.city.name),
+      );
+    }
+    return map;
+  }, [itineraryDestinations.data?.data]);
+  const itineraryRows = watch('itinerary');
   const fieldErrorMessages = Object.entries(errorFields ?? {})
     .flatMap(([field, messages]) => messages.map((message) => ({ field, message })))
     .slice(0, 6);
@@ -733,48 +736,42 @@ export function LeadForm({
               className="grid gap-3 rounded-lg border border-slate-200 bg-card p-4 md:grid-cols-[1fr_1fr_180px_240px]"
             >
               <Field label={`Destination ${index + 1}`}>
-                <div className="flex gap-2">
-                  <select
-                    aria-label={`Destination ${index + 1}`}
-                    className={inputClass}
-                    {...register(`itinerary.${index}.country`)}
-                  >
-                    <option value="">Select Destination</option>
-                    {DESTINATION_OPTIONS.map((destination) => (
-                      <option key={destination} value={destination}>
-                        {destination}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="h-9 rounded bg-green-600 px-3 text-sm font-semibold text-white"
-                  >
-                    + Add
-                  </button>
-                </div>
+                <select
+                  aria-label={`Destination ${index + 1}`}
+                  className={inputClass}
+                  {...register(`itinerary.${index}.country`, {
+                    onChange: () =>
+                      setValue(`itinerary.${index}.destination`, '', { shouldDirty: true }),
+                  })}
+                >
+                  <option value="">Select Destination</option>
+                  {(itineraryDestinations.data?.data ?? []).map((destination) => (
+                    <option key={destination.id} value={destination.name}>
+                      {destination.name}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label={`City ${index + 1}`}>
-                <div className="flex gap-2">
-                  <select
-                    aria-label={`City ${index + 1}`}
-                    className={inputClass}
-                    {...register(`itinerary.${index}.destination`)}
-                  >
-                    <option value="">Select City</option>
-                    {INDIAN_DEPARTURE_CITIES.map((city) => (
-                      <option key={city.value} value={city.value}>
-                        {city.label}
+                <select
+                  aria-label={`City ${index + 1}`}
+                  className={inputClass}
+                  disabled={!itineraryRows?.[index]?.country}
+                  {...register(`itinerary.${index}.destination`)}
+                >
+                  <option value="">
+                    {itineraryRows?.[index]?.country
+                      ? 'Select City'
+                      : 'Select a destination first'}
+                  </option>
+                  {(destinationCityMap.get(itineraryRows?.[index]?.country ?? '') ?? []).map(
+                    (cityName) => (
+                      <option key={cityName} value={cityName}>
+                        {cityName}
                       </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="h-9 rounded bg-green-600 px-3 text-sm font-semibold text-white"
-                  >
-                    + Add
-                  </button>
-                </div>
+                    ),
+                  )}
+                </select>
               </Field>
               <Field label="Nights">
                 <input
@@ -794,12 +791,13 @@ export function LeadForm({
                 </Button>
                 {fields.length > 1 && (
                   <Button
-                    size="sm"
                     variant="ghost"
                     aria-label="Remove itinerary"
+                    className="text-red-600 hover:bg-red-50"
                     onClick={() => remove(index)}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4" />
+                    Remove
                   </Button>
                 )}
               </div>
