@@ -28,7 +28,7 @@ import {
   hotelImageUrl,
   type HotelSummary,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Stars, StatusBadge } from './MasterUi';
+import { MasterHeader, Stars } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 

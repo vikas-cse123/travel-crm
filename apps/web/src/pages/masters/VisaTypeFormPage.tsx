@@ -38,7 +38,7 @@ export function VisaTypeFormPage() {
     form.reset({
       destinationId: visaType.data.destinationId,
       name: visaType.data.name,
-      status: visaType.data.status,
+      status: visaType.data.status as FormValues['status'],
       sections: visaType.data.sections.map((section) => ({
         title: section.title,
         content: section.content,

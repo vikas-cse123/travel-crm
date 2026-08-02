@@ -2,9 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowUpDown,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Download,
+  Eye,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
   Plus,
   Search,
   UsersRound,
@@ -30,20 +36,102 @@ const badge = (value: string) =>
       ? 'bg-emerald-50 text-emerald-700'
       : 'bg-blue-50 text-blue-700';
 
+const leadDate = (value: string | null) =>
+  value
+    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(
+        new Date(value),
+      )
+    : null;
+
+function LeadInfoCell({ lead }: { lead: Lead }) {
+  const email = lead.email ?? lead.customer?.email;
+  return (
+    <div className="min-w-44 space-y-1">
+      <Link className="block font-semibold text-brand-700 hover:underline" to={`/queries/${lead.id}`}>
+        {lead.customerName}
+      </Link>
+      <span className="flex items-center gap-1 text-xs text-slate-500">
+        <Phone className="h-3 w-3 shrink-0" /> {lead.phone}
+      </span>
+      {email && (
+        <span className="flex max-w-52 items-center gap-1 text-xs text-brand-600">
+          <Mail className="h-3 w-3 shrink-0" />
+          <span className="truncate" title={email}>{email}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function DestinationCell({ lead }: { lead: Lead }) {
+  const totalNights = lead.itinerary.reduce((sum, item) => sum + item.nights, 0);
+  if (!lead.itinerary.length) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="min-w-40 space-y-1.5">
+      <span className="inline-flex rounded-full bg-sky-500 px-2 py-0.5 text-xs font-semibold text-white">
+        {totalNights}N Total
+      </span>
+      {lead.itinerary.map((item) => (
+        <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-center">
+          <p className="font-semibold text-slate-800">{item.destination}</p>
+          <p className="text-xs font-semibold text-red-500">{item.nights}N</p>
+          {item.country && <p className="text-[11px] text-slate-500">{item.country}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TravellersInfoCell({ lead }: { lead: Lead }) {
+  return (
+    <div className="min-w-44 space-y-1.5 text-xs">
+      <span className="flex w-fit items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 font-semibold text-slate-700">
+        <MapPin className="h-3 w-3 text-sky-600" /> {lead.departureCity || 'N/A'}
+      </span>
+      <span className="block w-fit rounded border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-slate-700">
+        {leadDate(lead.travelStartDate) ?? 'Flexible dates'}
+      </span>
+      <span className="block w-fit rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-slate-700">
+        {lead.travellerSummary || 'No traveller details'}
+      </span>
+    </div>
+  );
+}
+
+function ServicesCell({ lead }: { lead: Lead }) {
+  if (!lead.services.length) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="flex min-w-28 flex-wrap gap-1">
+      {lead.services.map((service, index) => (
+        <span key={`${service.serviceType}-${index}`} className="rounded bg-slate-100 px-1.5 py-1 text-[11px] font-semibold text-slate-600">
+          {labelForLookup(service.serviceType)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function QuotationCell({ lead }: { lead: Lead }) {
   const summary = lead.quotationSummary;
   if (lead.quotationSummary === undefined) return <span className="text-slate-300">—</span>;
-  if (!summary) return <span className="text-xs text-slate-400">None</span>;
+  if (!summary)
+    return lead.actions?.canCreateQuotation ? (
+      <Link className="inline-flex rounded bg-brand-600 px-2 py-1 text-xs font-semibold text-white" to={`/queries/${lead.id}/quotations/new`}>
+        + New
+      </Link>
+    ) : (
+      <span className="text-xs text-slate-400">None</span>
+    );
   return (
-    <div className="text-xs">
-      <span
-        className={`rounded-full px-2 py-0.5 font-medium ${badge(summary.quotationStatus)}`}
-        title={summary.quotationNumber}
-      >
+    <div className="min-w-28 space-y-1 text-xs">
+      <Link className="inline-flex items-center gap-1 rounded bg-emerald-500 px-2 py-1 font-semibold text-white" to={`/quotations/${summary.quotationId}`}>
+        <Eye className="h-3 w-3" /> View
+      </Link>
+      <span className={`ml-1 inline-flex rounded px-2 py-1 font-medium ${badge(summary.quotationStatus)}`} title={summary.quotationNumber}>
         {labelForLookup(summary.quotationStatus)}
       </span>
       {summary.latestVersionAmount && (
-        <p className="mt-0.5 text-slate-500">
+        <p className="text-slate-500">
           {summary.currency ?? ''} {summary.latestVersionAmount}
         </p>
       )}
@@ -54,7 +142,8 @@ function QuotationCell({ lead }: { lead: Lead }) {
 function BookingCell({ lead }: { lead: Lead }) {
   const summary = lead.bookingSummary;
   if (lead.bookingSummary === undefined) return <span className="text-slate-300">—</span>;
-  if (!summary) return <span className="text-xs text-slate-400">None</span>;
+  if (!summary)
+    return <span className="text-xs text-slate-500">{lead.quotationRequired ? 'Quote Required' : 'None'}</span>;
   return (
     <div className="text-xs">
       <Link className="font-medium text-brand-700" to={`/bookings/${summary.bookingId}`}>
@@ -71,37 +160,37 @@ function QuickActions({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   const quotationId = lead.quotationSummary?.quotationId;
   const bookingId = lead.bookingSummary?.bookingId;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium">
-      <Link className="text-brand-700" to={`/queries/${lead.id}`}>
-        View
+    <div className="flex min-w-24 flex-wrap items-center gap-1 text-xs font-medium">
+      <Link aria-label={`View ${lead.queryNumber}`} className="rounded bg-cyan-600 p-2 text-white" to={`/queries/${lead.id}`}>
+        <Eye className="h-3.5 w-3.5" />
       </Link>
       {canEdit && (
-        <Link className="text-slate-600" to={`/queries/${lead.id}/edit`}>
-          Edit
+        <Link aria-label={`Edit ${lead.queryNumber}`} className="rounded bg-brand-600 p-2 text-white" to={`/queries/${lead.id}/edit`}>
+          <Pencil className="h-3.5 w-3.5" />
         </Link>
       )}
       {a?.canConvertToBooking && quotationId && (
-        <Link className="text-emerald-700" to={`/quotations/${quotationId}/convert-to-booking`}>
+        <Link className="rounded bg-emerald-600 px-2 py-1.5 text-white" to={`/quotations/${quotationId}/convert-to-booking`}>
           Convert to booking
         </Link>
       )}
       {a?.canViewBooking && bookingId && (
-        <Link className="text-emerald-700" to={`/bookings/${bookingId}`}>
+        <Link className="rounded bg-emerald-600 px-2 py-1.5 text-white" to={`/bookings/${bookingId}`}>
           View booking
         </Link>
       )}
       {a?.canOpenQuotation && quotationId && !a.canConvertToBooking && !a.canViewBooking && (
-        <Link className="text-slate-600" to={`/quotations/${quotationId}`}>
+        <Link className="rounded bg-slate-600 px-2 py-1.5 text-white" to={`/quotations/${quotationId}`}>
           View quotation
         </Link>
       )}
       {a?.canCreateQuotation && !lead.hasQuotations && (
-        <Link className="text-slate-600" to={`/queries/${lead.id}/quotations/new`}>
+        <Link className="rounded bg-slate-600 px-2 py-1.5 text-white" to={`/queries/${lead.id}/quotations/new`}>
           Create quotation
         </Link>
       )}
       {a?.canAddFollowUp && (
-        <Link className="text-slate-600" to={`/queries/${lead.id}?tab=follow-ups`}>
+        <Link className="rounded bg-cyan-600 px-2 py-1.5 text-white" to={`/queries/${lead.id}?tab=follow-ups`}>
           Follow-up
         </Link>
       )}
@@ -242,18 +331,19 @@ export function LeadsPage() {
 
   const headers: Array<[string, string?]> = [
     ['Lead ID', 'queryNumber'],
-    ['Customer', 'customerName'],
-    ['Itinerary'],
-    ['Travellers'],
-    ['Source'],
-    ['Travel', 'travelStartDate'],
-    ['Assigned to'],
-    ['Type', 'leadType'],
-    ['Stage', 'leadStage'],
-    ['Next follow-up', 'nextFollowUpAt'],
+    ['Lead Info', 'customerName'],
+    ['Destination'],
+    ['Travellers Info'],
+    ['Services'],
     ['Quotation'],
     ['Booking'],
-    ['Created by'],
+    ['Weblink'],
+    ['Logging'],
+    ['Assigned to'],
+    ['Amount'],
+    ['Margin'],
+    ['Type', 'leadType'],
+    ['Stage', 'leadStage'],
     ['Created', 'createdAt'],
     ['Actions'],
   ];
@@ -265,46 +355,25 @@ export function LeadsPage() {
           <p className="text-sm text-slate-500">Home / Leads</p>
           <h1 className="text-2xl font-semibold">Leads</h1>
         </div>
-        <div className="flex gap-2">
-          {canExport && (
-            <Button
-              variant="secondary"
-              disabled={exportLeads.isPending}
-              onClick={() => exportLeads.mutate(params)}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-          )}
-          {hasPermission('queries.create') && (
-            <Link to="/queries/new">
-              <Button>
-                <Plus className="h-4 w-4" />
-                Add Lead
-              </Button>
-            </Link>
-          )}
-        </div>
       </div>
-      {analytics.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-xl bg-card" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          {cards.map(([title, value]) => (
-            <div key={title} className="rounded-xl border border-slate-200 bg-card p-4 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{title}</p>
-              <p className="mt-1 text-2xl font-semibold">{value}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      <section className="flex min-h-12 flex-wrap items-center gap-2 rounded-lg border bg-card px-4 py-2 shadow-sm">
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-700"><BarChart3 className="h-4 w-4 text-brand-600" /> Analytics</span>
+        {analytics.isLoading ? (
+          <span className="h-6 w-48 animate-pulse rounded bg-slate-100" />
+        ) : (
+          cards
+            .filter(([title]) => ['Total Leads', 'Booking Confirmed', 'Conversion Rate', 'Win Rate'].includes(String(title)))
+            .map(([title, value]) => (
+              <span key={title} className="inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white">
+                <span>{value}</span><span>{title}</span>
+              </span>
+            ))
+        )}
+      </section>
       <section className="rounded-xl border border-slate-200 bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3"><h2 className="text-lg font-medium text-slate-800">Leads List</h2><div className="flex gap-2">{canExport && <Button size="sm" variant="secondary" disabled={exportLeads.isPending} onClick={() => exportLeads.mutate(params)}><Download className="h-4 w-4" /> Export</Button>}{hasPermission('queries.create') && <Link aria-label="Add Lead" to="/queries/new"><Button size="sm"><Plus className="h-4 w-4" /> Create</Button></Link>}</div></div>
         <div className="space-y-3 border-b p-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px_auto]">
             <label className="relative md:col-span-2">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
@@ -315,6 +384,7 @@ export function LeadsPage() {
                 onChange={(e) => set('search', e.target.value)}
               />
             </label>
+            <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={params.get('leadType') === 'HOT'} onChange={(event) => set('leadType', event.target.checked ? 'HOT' : '')} /> 🔥 Hot</label>
             {[
               ['leadType', 'All lead types', lookups?.leadTypes],
               ['leadStage', 'All lead stages', lookups?.leadStages],
@@ -325,7 +395,7 @@ export function LeadsPage() {
               <select
                 key={String(key)}
                 aria-label={String(label)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={params.get(String(key)) ?? ''}
                 onChange={(e) => set(String(key), e.target.value)}
               >
@@ -352,14 +422,14 @@ export function LeadsPage() {
             </select>
             <input
               aria-label="Destination"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
               placeholder="Destination"
               value={params.get('destination') ?? ''}
               onChange={(e) => set('destination', e.target.value)}
             />
             <select
               aria-label="Quotation required"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={params.get('quotationRequired') ?? ''}
               onChange={(e) => set('quotationRequired', e.target.value)}
             >
@@ -377,7 +447,7 @@ export function LeadsPage() {
                 ['createdTo', 'Created to'],
               ] as Array<[string, string]>
             ).map(([key, label]) => (
-              <label key={key} className="space-y-1 text-xs font-medium text-slate-500">
+              <label key={key} className="hidden space-y-1 text-xs font-medium text-slate-500">
                 {label}
                 <input
                   aria-label={label}
@@ -389,17 +459,17 @@ export function LeadsPage() {
               </label>
             ))}
             <button
-              className="text-left text-sm font-medium text-brand-700"
+              className="hidden text-left text-sm font-medium text-brand-700"
               onClick={() => setParams({})}
             >
               Clear filters
             </button>
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2 border-t-4 border-indigo-500 bg-sky-50 p-3">
             {chips.map(([label, value, count]) => (
               <button
                 key={`${label}-${value}`}
-                className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs ${params.get(value && ['FRESH', 'HOT', 'WARM', 'COLD'].includes(String(value)) ? 'leadType' : 'leadStage') === value || (!value && !params.get('leadType') && !params.get('leadStage')) ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200'}`}
+                className={`whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold ${params.get(value && ['FRESH', 'HOT', 'WARM', 'COLD'].includes(String(value)) ? 'leadType' : 'leadStage') === value || (!value && !params.get('leadType') && !params.get('leadStage')) ? 'border-brand-600 bg-slate-800 text-white' : 'border-blue-300 bg-card text-blue-700'}`}
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.delete('leadType');
@@ -529,8 +599,8 @@ export function LeadsPage() {
               ))}
             </div>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1400px] text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <table className="w-full min-w-[2100px] table-auto text-left text-sm">
+                <thead className="bg-emerald-500 text-xs uppercase text-white">
                   <tr>
                     {canAssign && (
                       <th className="px-3 py-3">
@@ -543,7 +613,7 @@ export function LeadsPage() {
                       </th>
                     )}
                     {headers.map(([label, sortBy]) => (
-                      <th key={label} className="px-4 py-3">
+                      <th key={label} className="whitespace-nowrap border-r border-emerald-400 px-3 py-3 last:border-r-0">
                         {sortBy ? (
                           <button
                             className="inline-flex items-center gap-1 hover:text-slate-900"
@@ -562,9 +632,9 @@ export function LeadsPage() {
                 </thead>
                 <tbody className="divide-y">
                   {rows.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-slate-50">
+                    <tr key={lead.id} className="border-b border-slate-200 align-top hover:bg-slate-50 even:bg-slate-50/60">
                       {canAssign && (
-                        <td className="px-3 py-3">
+                        <td className="border-r px-3 py-4">
                           <input
                             type="checkbox"
                             aria-label={`Select ${lead.queryNumber}`}
@@ -573,52 +643,24 @@ export function LeadsPage() {
                           />
                         </td>
                       )}
-                      <td className="px-4 py-3 font-medium text-brand-700">
+                      <td className="border-r px-3 py-4 font-semibold text-brand-700">
                         <Link to={`/queries/${lead.id}`}>{lead.queryNumber}</Link>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="block font-medium">{lead.customerName}</span>
-                        <span className="text-xs text-slate-500">{lead.phone}</span>
-                      </td>
-                      <td className="max-w-48 px-4 py-3">
-                        <span className="line-clamp-2">
-                          {lead.itinerary.map((x) => `${x.destination} (${x.nights}N)`).join(' → ')}
-                        </span>
-                      </td>
-                      <td className="max-w-44 px-4 py-3 text-xs">{lead.travellerSummary}</td>
-                      <td className="px-4 py-3 text-xs">{labelForLookup(lead.leadSource)}</td>
-                      <td className="px-4 py-3">
-                        {lead.travelStartDate
-                          ? new Date(lead.travelStartDate).toLocaleDateString()
-                          : 'Flexible'}
-                      </td>
-                      <td className="px-4 py-3">{lead.assignedTo?.fullName ?? 'Unassigned'}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-medium ${badge(lead.leadType)}`}
-                        >
-                          {labelForLookup(lead.leadType)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-medium ${badge(lead.leadStage)}`}
-                        >
-                          {labelForLookup(lead.leadStage)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleString() : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <QuotationCell lead={lead} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <BookingCell lead={lead} />
-                      </td>
-                      <td className="px-4 py-3 text-xs">{lead.createdBy?.fullName ?? '—'}</td>
-                      <td className="px-4 py-3">{new Date(lead.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
+                      <td className="border-r px-3 py-4"><LeadInfoCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><DestinationCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><TravellersInfoCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><ServicesCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><QuotationCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><BookingCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4 text-xs text-slate-500">{lead.webLinkPlaceholder || 'Not Generated'}</td>
+                      <td className="border-r px-3 py-4"><Link aria-label={`Open logging for ${lead.queryNumber}`} to={`/queries/${lead.id}?tab=follow-ups`} className="inline-flex rounded bg-cyan-600 px-2 py-1.5 text-xs font-semibold text-white">＋ <Eye className="ml-1 h-3.5 w-3.5" /></Link></td>
+                      <td className="min-w-28 border-r px-3 py-4">{lead.assignedTo?.fullName ?? 'Unassigned'}</td>
+                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—'}</td>
+                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—'}</td>
+                      <td className="border-r px-3 py-4"><span className="inline-flex whitespace-nowrap rounded bg-sky-600 px-2 py-1 text-xs font-semibold text-white">{labelForLookup(lead.leadType)}</span></td>
+                      <td className="border-r px-3 py-4"><span className="inline-flex whitespace-nowrap rounded bg-sky-600 px-2 py-1 text-xs font-semibold text-white">{labelForLookup(lead.leadStage)}</span></td>
+                      <td className="whitespace-nowrap border-r px-3 py-4">{leadDate(lead.createdAt)}</td>
+                      <td className="px-3 py-4">
                         <QuickActions lead={lead} canEdit={canUpdate} />
                       </td>
                     </tr>

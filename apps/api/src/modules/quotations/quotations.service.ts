@@ -103,6 +103,7 @@ function presentVersion(version: FullVersion, canViewCosting: boolean, customerS
     marginAmount,
     marginPercentage,
     internalNotes,
+    netAmount,
     ...value
   } = version;
   void companyId;
@@ -122,11 +123,23 @@ function presentVersion(version: FullVersion, canViewCosting: boolean, customerS
     taxAmount: decimal(value.taxAmount),
     discountAmount: decimal(value.discountAmount),
     finalAmount: decimal(value.finalAmount),
+    // Reference "Summary & Pricing" — per-passenger package pricing.
+    perAdultPrice: decimal(value.perAdultPrice),
+    perChildWithBedPrice: decimal(value.perChildWithBedPrice),
+    perChildWithoutBedPrice: decimal(value.perChildWithoutBedPrice),
+    perInfantPrice: decimal(value.perInfantPrice),
+    initialPaymentAmount: decimal(value.initialPaymentAmount),
+    // Reference "Visa" — single dedicated section.
+    visaAmount: decimal(value.visaAmount),
+    visaServiceCharge: decimal(value.visaServiceCharge),
+    visaGstPercent: decimal(value.visaGstPercent),
+    visaVfsCharge: decimal(value.visaVfsCharge),
     ...(canViewCosting && !customerSafe
       ? {
           subtotalCost: decimal(subtotalCost),
           marginAmount: decimal(marginAmount),
           marginPercentage: decimal(marginPercentage),
+          netAmount: decimal(netAmount),
           internalNotes,
         }
       : {}),
@@ -217,9 +230,26 @@ function normalizeVersionInput(input: QuotationVersionInput, allowCosting: boole
   };
 }
 
-function versionCreateData(input: QuotationVersionInput, companyId: string, allowCosting: boolean) {
+interface PaxCounts {
+  adults: number;
+  childrenWithBed: number;
+  childrenWithoutBed: number;
+  infants: number;
+}
+
+function versionCreateData(
+  input: QuotationVersionInput,
+  companyId: string,
+  allowCosting: boolean,
+  pax: PaxCounts,
+) {
   const normalized = normalizeVersionInput(input, allowCosting);
-  const pricing = calculatePricing(normalized);
+  // Per-passenger prices × the lead's traveller mix drive the stored total.
+  const pricing = calculatePricing({
+    ...normalized,
+    netAmount: allowCosting ? normalized.netAmount : 0,
+    pax,
+  });
   const { serviceLines, ...totals } = pricing;
   return {
     scalar: {
@@ -233,6 +263,35 @@ function versionCreateData(input: QuotationVersionInput, companyId: string, allo
       markupMode: normalized.markupMode,
       markupValue: normalized.markupValue,
       taxRate: normalized.taxRate,
+      // Reference "Summary & Pricing" — per-passenger package pricing.
+      perAdultPrice: normalized.perAdultPrice ?? 0,
+      perChildWithBedPrice: normalized.perChildWithBedPrice ?? 0,
+      perChildWithoutBedPrice: normalized.perChildWithoutBedPrice ?? 0,
+      perInfantPrice: normalized.perInfantPrice ?? 0,
+      taxNote: normalized.taxNote ?? null,
+      // Net amount is internal margin data — never taken from viewers without costing.
+      netAmount: allowCosting ? (normalized.netAmount ?? 0) : 0,
+      initialPaymentAmount: normalized.initialPaymentAmount ?? 0,
+      paymentLink: normalized.paymentLink ?? null,
+      showServiceChargesSeparately: normalized.showServiceChargesSeparately ?? false,
+      markServiceChargesOutside: normalized.markServiceChargesOutside ?? false,
+      hidePricing: normalized.hidePricing ?? false,
+      showIndividualPricing: normalized.showIndividualPricing ?? false,
+      // Reference "Inclusions & Exclusions" — rich-text blocks.
+      inclusionsHtml: normalized.inclusionsHtml ?? null,
+      exclusionsHtml: normalized.exclusionsHtml ?? null,
+      paymentPolicies: normalized.paymentPolicies ?? null,
+      cancellationPolicies: normalized.cancellationPolicies ?? null,
+      bookingTerms: normalized.bookingTerms ?? null,
+      // Reference "Visa" — single dedicated section.
+      includeVisa: normalized.includeVisa ?? true,
+      visaSectionTitle: normalized.visaSectionTitle ?? null,
+      visaAmount: normalized.visaAmount ?? 0,
+      visaDestination: normalized.visaDestination ?? null,
+      visaType: normalized.visaType ?? null,
+      visaServiceCharge: normalized.visaServiceCharge ?? 0,
+      visaGstPercent: normalized.visaGstPercent ?? 0,
+      visaVfsCharge: normalized.visaVfsCharge ?? 0,
       notes: normalized.notes ?? null,
       internalNotes: allowCosting ? (normalized.internalNotes ?? null) : null,
       ...totals,
@@ -287,6 +346,31 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
     markupValue: source.markupValue.toNumber(),
     taxRate: source.taxRate.toNumber(),
     discountAmount: source.discountAmount.toNumber(),
+    perAdultPrice: source.perAdultPrice.toNumber(),
+    perChildWithBedPrice: source.perChildWithBedPrice.toNumber(),
+    perChildWithoutBedPrice: source.perChildWithoutBedPrice.toNumber(),
+    perInfantPrice: source.perInfantPrice.toNumber(),
+    taxNote: source.taxNote,
+    netAmount: source.netAmount.toNumber(),
+    initialPaymentAmount: source.initialPaymentAmount.toNumber(),
+    paymentLink: source.paymentLink,
+    showServiceChargesSeparately: source.showServiceChargesSeparately,
+    markServiceChargesOutside: source.markServiceChargesOutside,
+    hidePricing: source.hidePricing,
+    showIndividualPricing: source.showIndividualPricing,
+    inclusionsHtml: source.inclusionsHtml,
+    exclusionsHtml: source.exclusionsHtml,
+    paymentPolicies: source.paymentPolicies,
+    cancellationPolicies: source.cancellationPolicies,
+    bookingTerms: source.bookingTerms,
+    includeVisa: source.includeVisa,
+    visaSectionTitle: source.visaSectionTitle,
+    visaAmount: source.visaAmount.toNumber(),
+    visaDestination: source.visaDestination,
+    visaType: source.visaType,
+    visaServiceCharge: source.visaServiceCharge.toNumber(),
+    visaGstPercent: source.visaGstPercent.toNumber(),
+    visaVfsCharge: source.visaVfsCharge.toNumber(),
     notes: source.notes,
     internalNotes: source.internalNotes,
     itinerary: source.itinerary.map(
@@ -346,6 +430,54 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
   };
 }
 
+/**
+ * Finds a Destination master (with a confirmed image) that matches any of this
+ * quote's places, and returns a short-lived signed URL for its image. Used as
+ * the customer weblink hero. Returns null when nothing matches.
+ */
+async function resolveDestinationHeroImage(
+  companyId: string,
+  destinationSummary: string,
+  itineraryDestinations: string[],
+): Promise<string | null> {
+  const candidates = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    for (const part of (value ?? '').split(/[•,>/→|-]+/))
+      if (part.trim()) candidates.add(part.trim().toLowerCase());
+  };
+  add(destinationSummary);
+  itineraryDestinations.forEach(add);
+  if (!candidates.size) return null;
+  const destinations = await prisma.destination.findMany({
+    where: {
+      companyId,
+      deletedAt: null,
+      imageObjectKey: { not: null },
+      imageConfirmedAt: { not: null },
+    },
+    select: { name: true, normalizedName: true, imageObjectKey: true, imageFileName: true },
+  });
+  const match =
+    destinations.find(
+      (row) =>
+        candidates.has(row.name.trim().toLowerCase()) ||
+        candidates.has(row.normalizedName.trim().toLowerCase()),
+    ) ??
+    destinations.find((row) => {
+      const name = row.name.trim().toLowerCase();
+      return name.length > 2 && [...candidates].some((c) => c.includes(name) || name.includes(c));
+    });
+  if (!match?.imageObjectKey) return null;
+  try {
+    return await storageService.createDownloadUrl(
+      match.imageObjectKey,
+      match.imageFileName ?? 'destination.jpg',
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function getVersion(auth: AuthContext, quotationId: string, versionId: string) {
   await getQuotation(auth, quotationId);
   const version = await prisma.quotationVersion.findFirst({
@@ -363,11 +495,12 @@ async function createVersion(
   input: QuotationVersionInput,
   versionNumber: number,
   allowCosting: boolean,
+  pax: PaxCounts,
 ) {
   // Single choke point for version creation: initial version, added revision,
   // duplication and template application all funnel through here.
   await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
-  const data = versionCreateData(input, auth.companyId, allowCosting);
+  const data = versionCreateData(input, auth.companyId, allowCosting, pax);
   const version = await tx.quotationVersion.create({
     data: {
       companyId: auth.companyId,
@@ -710,7 +843,7 @@ export const quotationsService = {
           validUntil: input.validUntil ?? null,
         },
       });
-      const initial = await createVersion(tx, auth, quotation.id, version, 1, costing);
+      const initial = await createVersion(tx, auth, quotation.id, version, 1, costing, quotation);
       await tx.quotation.update({
         where: { id: quotation.id },
         data: { currentVersionId: initial.id },
@@ -838,7 +971,7 @@ export const quotationsService = {
     const number = Math.max(0, ...quotation.versions.map((version) => version.versionNumber)) + 1;
     const costing = await hasCosting(auth);
     const created = await prisma.$transaction(async (tx) => {
-      const version = await createVersion(tx, auth, id, body, number, costing);
+      const version = await createVersion(tx, auth, id, body, number, costing, quotation);
       await tx.quotation.update({
         where: { id },
         data: {
@@ -868,13 +1001,14 @@ export const quotationsService = {
     input: QuotationVersionUpdate,
     context: RequestContext,
   ) {
+    const quotation = await getQuotation(auth, id);
     const existing = await getVersion(auth, id, versionId);
     if (existing.status !== 'DRAFT')
       throw new ConflictError('Finalized versions are immutable. Create a revision instead.');
     const costing = await hasCosting(auth);
     const merged = { ...fromVersion(existing), ...input } as QuotationVersionInput;
     await validateMasterRefs(auth.companyId, merged.hotels ?? [], merged.services ?? []);
-    const normalized = versionCreateData(merged, auth.companyId, costing);
+    const normalized = versionCreateData(merged, auth.companyId, costing, quotation);
     const result = await prisma.$transaction(async (tx) => {
       await tx.quotationVersion.update({ where: { id: versionId }, data: normalized.scalar });
       await Promise.all([
@@ -1484,8 +1618,16 @@ export const quotationsService = {
         downloadUrl = null;
       }
     }
+    // Hero image: match this quote's places to a Destination master that has a
+    // confirmed image, and hand the page a short-lived signed URL.
+    const heroImageUrl = await resolveDestinationHeroImage(
+      quotation.companyId,
+      quotation.destinationSummary,
+      version.itinerary.map((day) => day.destination),
+    );
     return {
       company: quotation.company,
+      heroImageUrl,
       quotation: {
         quotationNumber: quotation.quotationNumber,
         customerName: quotation.customerName,

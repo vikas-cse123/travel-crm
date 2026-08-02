@@ -31,7 +31,7 @@ import {
   sightseeingImageUrl,
   type Sightseeing,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, RichTextPreview } from './MasterUi';
+import { MasterHeader, RichTextPreview } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -372,13 +372,6 @@ export function SightseeingPage() {
               ))}
             </div>
 
-            <Pagination
-              page={rows.data.pagination.page}
-              pageSize={rows.data.pagination.pageSize}
-              totalPages={rows.data.pagination.totalPages}
-              total={rows.data.pagination.total}
-              onPage={(page) => update('page', String(page))}
-            />
           </>
         )}
       </section>

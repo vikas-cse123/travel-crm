@@ -49,3 +49,7 @@ apps/api/prisma/*.db-journal
 
 # Docker volumes (if bind-mounted locally)
 .docker-data/
+
+# Local reference training videos
+references/lead-creation-videos/*.mp4
+references/lead-creation-videos/extracted/

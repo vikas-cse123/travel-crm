@@ -31,7 +31,7 @@ function extractText(buffer: Buffer): string {
   let match: RegExpExecArray | null;
   while ((match = re.exec(raw))) {
     try {
-      parts.push(zlib.inflateSync(Buffer.from(match[1], 'latin1')).toString('latin1'));
+      parts.push(zlib.inflateSync(Buffer.from(match[1] ?? '', 'latin1')).toString('latin1'));
     } catch {
       /* not a flate stream; skip */
     }
@@ -131,6 +131,26 @@ describe('PDF rendering with long content', () => {
         currency: 'INR',
         finalAmount: '450000.00',
         notes: LONG_TERMS,
+        perAdultPrice: '40000.00',
+        perChildWithBedPrice: '30000.00',
+        perChildWithoutBedPrice: '20000.00',
+        perInfantPrice: '5000.00',
+        taxNote: 'Inclusive of GST',
+        initialPaymentAmount: '50000.00',
+        paymentLink: 'https://example.com/pay',
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: `<p>${'Pay early. '.repeat(10)}</p>`,
+        cancellationPolicies: '<ul><li>Cancellation applies</li></ul>',
+        bookingTerms: null,
+        includeVisa: true,
+        visaSectionTitle: 'Visa Details',
+        visaAmount: '2000.00',
+        visaDestination: 'Singapore',
+        visaType: 'Tourist',
+        visaServiceCharge: '500.00',
+        visaGstPercent: '18',
+        visaVfsCharge: '300.00',
         hotels: Array.from({ length: 10 }, (_, i) => ({
           city: `City ${i + 1}`,
           hotelName: `Very Grand Heritage Palace Resort and Spa ${i + 1}`,
@@ -155,6 +175,7 @@ describe('PDF rendering with long content', () => {
           description: 'Service description. '.repeat(15),
           city: s.city,
           quantity: '1',
+          unitSellingPrice: '1000',
         })),
         inclusions: Array.from({ length: 25 }, (_, i) => ({ content: `Inclusion ${i + 1}` })),
         exclusions: Array.from({ length: 25 }, (_, i) => ({ content: `Exclusion ${i + 1}` })),

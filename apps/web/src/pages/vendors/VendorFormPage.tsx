@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
+import { ArrowLeft, Save } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
 import {
   labelForLookup,
-  PERMISSIONS,
   VENDOR_CONTRACT_TYPES,
   VENDOR_PAYMENT_TERMS,
   VENDOR_STATUSES,
@@ -13,13 +13,11 @@ import {
   type VendorInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
-import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useCreateVendor,
   useUpdateVendor,
   useVendor,
   useVendorDuplicates,
-  useVendorLookups,
 } from '@/features/vendors/vendors.api';
 
 const optional = z.string().trim().max(2000);
@@ -59,6 +57,19 @@ const schema = z
     message: 'Enter custom term days.',
   });
 type Values = z.infer<typeof schema>;
+const contractOptions: Array<{ value: Values['contractType']; label: string }> = [
+  { value: 'FIXED_CONTRACT', label: 'Rate Contract' },
+  { value: 'ON_REQUEST', label: 'Allotment' },
+  { value: 'COMMISSION_BASED', label: 'Commission Based' },
+  { value: 'NET_RATE', label: 'Net Rate' },
+];
+const paymentOptions: Array<{ value: Values['paymentTerm']; label: string }> = [
+  { value: 'IMMEDIATE', label: 'Immediate' },
+  { value: 'NET_15', label: 'Net 15' },
+  { value: 'NET_30', label: 'Net 30' },
+  { value: 'NET_45', label: 'Net 45' },
+  { value: 'ADVANCE', label: 'Advance Required' },
+];
 const initial: Values = {
   name: '',
   vendorType: 'HOTEL',
@@ -72,7 +83,7 @@ const initial: Values = {
   postalCode: '',
   coverageAreas: '',
   servicesOffered: '',
-  contractType: 'NET_RATE',
+  contractType: 'FIXED_CONTRACT',
   contractStartDate: '',
   contractEndDate: '',
   paymentTerm: 'NET_30',
@@ -85,15 +96,14 @@ const initial: Values = {
   rating: '',
   createAnyway: false,
 };
-const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
+const field =
+  'w-full rounded-md border border-slate-300 bg-card px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 const clean = (value: string) => value || null;
 
 export function VendorFormPage() {
   const { vendorId } = useParams();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
   const vendor = useVendor(vendorId);
-  const lookups = useVendorLookups();
   const create = useCreateVendor();
   const update = useUpdateVendor(vendorId ?? '');
   const {
@@ -184,13 +194,11 @@ export function VendorFormPage() {
   if (vendorId && vendor.isError) return <Navigate to="/vendors" replace />;
   const error = (name: keyof Values) => errors[name]?.message;
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <header>
-        <p className="text-sm font-medium text-brand-700">Supplier profile</p>
-        <h1 className="text-2xl font-semibold">{vendorId ? 'Edit vendor' : 'Create vendor'}</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Vendor code is generated automatically and safely within your company.
-        </p>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {vendorId ? 'Edit Vendor' : 'Create Vendor'}
+        </h1>
       </header>
       <form onSubmit={handleSubmit(submit)} className="space-y-5">
         {mutation.error && (
@@ -226,17 +234,31 @@ export function VendorFormPage() {
             )}
           </section>
         ) : null}
-        <section className="rounded-xl border bg-card p-5 shadow-sm">
-          <h2 className="font-semibold">Vendor information</h2>
-          <div className="mt-4 grid gap-5 md:grid-cols-2">
-            <div className="space-y-4">
-              <label className="block text-sm">
-                Vendor name *<input className={`${field} mt-1`} {...register('name')} />
+        <section className="overflow-hidden rounded-md border bg-card shadow-sm">
+          <div className="flex items-center justify-between bg-blue-600 px-5 py-4 text-white">
+            <h2 className="text-lg font-medium">Vendor Information</h2>
+            <span className="rounded bg-cyan-500 px-2 py-1 text-xs font-semibold text-white">
+              Code will be auto-generated
+            </span>
+          </div>
+          <div className="grid gap-5 p-5 md:grid-cols-2">
+            <div className="space-y-5">
+              <label className="block text-sm font-semibold">
+                Vendor Name <span className="text-red-500">*</span>
+                <input
+                  aria-label="Vendor name *"
+                  className={`${field} mt-2 font-normal`}
+                  {...register('name')}
+                />
                 {error('name') && <span className="text-xs text-red-600">{error('name')}</span>}
               </label>
-              <label className="block text-sm">
-                Vendor type *
-                <select className={`${field} mt-1`} {...register('vendorType')}>
+              <label className="block text-sm font-semibold">
+                Vendor Type <span className="text-red-500">*</span>
+                <select
+                  aria-label="Vendor type *"
+                  className={`${field} mt-2 font-normal`}
+                  {...register('vendorType')}
+                >
                   {VENDOR_TYPES.map((v) => (
                     <option key={v} value={v}>
                       {labelForLookup(v)}
@@ -244,50 +266,50 @@ export function VendorFormPage() {
                   ))}
                 </select>
               </label>
-              <label className="block text-sm">
-                Contact person
-                <input className={`${field} mt-1`} {...register('contactPerson')} />
+              <label className="block text-sm font-semibold">
+                Contact Person
+                <input className={`${field} mt-2 font-normal`} {...register('contactPerson')} />
               </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  Phone
-                  <input className={`${field} mt-1`} {...register('primaryPhone')} />
-                </label>
-                <label className="text-sm">
-                  Email
-                  <input className={`${field} mt-1`} type="email" {...register('primaryEmail')} />
-                  {error('primaryEmail') && (
-                    <span className="text-xs text-red-600">{error('primaryEmail')}</span>
-                  )}
-                </label>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  Contract type
-                  <select className={`${field} mt-1`} {...register('contractType')}>
-                    {VENDOR_CONTRACT_TYPES.map((v) => (
-                      <option key={v} value={v}>
-                        {labelForLookup(v)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm">
-                  Payment terms
-                  <select className={`${field} mt-1`} {...register('paymentTerm')}>
-                    {VENDOR_PAYMENT_TERMS.map((v) => (
-                      <option key={v} value={v}>
-                        {labelForLookup(v)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <label className="block text-sm font-semibold">
+                Phone
+                <input className={`${field} mt-2 font-normal`} {...register('primaryPhone')} />
+              </label>
+              <label className="block text-sm font-semibold">
+                Email
+                <input
+                  className={`${field} mt-2 font-normal`}
+                  type="email"
+                  {...register('primaryEmail')}
+                />
+                {error('primaryEmail') && (
+                  <span className="text-xs text-red-600">{error('primaryEmail')}</span>
+                )}
+              </label>
+              <label className="block text-sm font-semibold">
+                Contract Type
+                <select className={`${field} mt-2 font-normal`} {...register('contractType')}>
+                  {contractOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-semibold">
+                Payment Terms
+                <select className={`${field} mt-2 font-normal`} {...register('paymentTerm')}>
+                  {paymentOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {watched.paymentTerm === 'CUSTOM' && (
-                <label className="block text-sm">
-                  Custom payment days
+                <label className="block text-sm font-semibold">
+                  Custom Payment Days
                   <input
-                    className={`${field} mt-1`}
+                    className={`${field} mt-2 font-normal`}
                     min="1"
                     type="number"
                     {...register('customPaymentTermDays')}
@@ -298,120 +320,49 @@ export function VendorFormPage() {
                 </label>
               )}
             </div>
-            <div className="space-y-4">
-              <label className="block text-sm">
+            <div className="space-y-5">
+              <label className="block text-sm font-semibold">
                 Address
-                <textarea className={`${field} mt-1 min-h-20`} {...register('address')} />
-              </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  City
-                  <input className={`${field} mt-1`} {...register('city')} />
-                </label>
-                <label className="text-sm">
-                  State
-                  <input className={`${field} mt-1`} {...register('state')} />
-                </label>
-                <label className="text-sm">
-                  Country
-                  <input className={`${field} mt-1`} {...register('country')} />
-                </label>
-                <label className="text-sm">
-                  Postal code
-                  <input className={`${field} mt-1`} {...register('postalCode')} />
-                </label>
-              </div>
-              <label className="block text-sm">
-                Coverage areas
                 <textarea
-                  className={`${field} mt-1 min-h-20`}
+                  className={`${field} mt-2 min-h-32 resize-y font-normal`}
+                  placeholder="Full business address"
+                  {...register('address')}
+                />
+              </label>
+              <label className="block text-sm font-semibold">
+                Coverage Areas
+                <textarea
+                  className={`${field} mt-2 min-h-32 resize-y font-normal`}
                   placeholder="Cities, regions or countries covered"
                   {...register('coverageAreas')}
                 />
               </label>
-              <label className="block text-sm">
-                Services offered
+              <label className="block text-sm font-semibold">
+                Services Offered
                 <textarea
-                  className={`${field} mt-1 min-h-20`}
-                  placeholder="Describe the supplier capabilities"
+                  className={`${field} mt-2 min-h-44 resize-y font-normal`}
+                  placeholder="Detailed description of services offered"
                   {...register('servicesOffered')}
                 />
               </label>
             </div>
           </div>
         </section>
-        <section className="rounded-xl border bg-card p-5 shadow-sm">
-          <h2 className="font-semibold">Contract, compliance and ownership</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <label className="text-sm">
-              Contract starts
-              <input className={`${field} mt-1`} type="date" {...register('contractStartDate')} />
-            </label>
-            <label className="text-sm">
-              Contract ends
-              <input className={`${field} mt-1`} type="date" {...register('contractEndDate')} />
-              {error('contractEndDate') && (
-                <span className="text-xs text-red-600">{error('contractEndDate')}</span>
-              )}
-            </label>
-            <label className="text-sm">
-              Assigned user
-              <select className={`${field} mt-1`} {...register('assignedToId')}>
-                <option value="">Unassigned</option>
-                {lookups.data?.users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.fullName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              GST number
-              <input className={`${field} mt-1 uppercase`} {...register('gstNumber')} />
-            </label>
-            <label className="text-sm">
-              PAN number
-              <input className={`${field} mt-1 uppercase`} {...register('panNumber')} />
-            </label>
-            <label className="text-sm">
-              Tax registration
-              <input className={`${field} mt-1`} {...register('taxRegistrationNumber')} />
-            </label>
-            {vendorId && (
-              <label className="text-sm">
-                Status
-                <select className={`${field} mt-1`} {...register('status')}>
-                  {VENDOR_STATUSES.map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {hasPermission(PERMISSIONS.VENDORS_VIEW_FINANCIALS) && (
-              <label className="text-sm">
-                Manual rating (0–5)
-                <input
-                  className={`${field} mt-1`}
-                  min="0"
-                  max="5"
-                  step="0.1"
-                  type="number"
-                  {...register('rating')}
-                />
-              </label>
-            )}
-          </div>
-        </section>
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap gap-2 rounded-md border bg-slate-50 p-4 shadow-sm">
+          <Button
+            disabled={mutation.isPending}
+            type="submit"
+            className="rounded-md bg-blue-600 hover:bg-blue-700"
+          >
+            <Save className="h-4 w-4" />
+            {mutation.isPending ? 'Saving…' : vendorId ? 'Save Changes' : 'Create Vendor'}
+          </Button>
           <Button
             type="button"
             variant="secondary"
             onClick={() => navigate(vendorId ? `/vendors/${vendorId}` : '/vendors')}
           >
-            Cancel
-          </Button>
-          <Button disabled={mutation.isPending} type="submit">
-            {mutation.isPending ? 'Saving…' : vendorId ? 'Save changes' : 'Create vendor'}
+            <ArrowLeft className="h-4 w-4" /> Cancel
           </Button>
         </div>
       </form>

@@ -25,6 +25,8 @@ export interface Customer extends CustomerRef {
   travelPreferences: string | null;
   dietaryRequirements: string | null;
   specialRequirements: string | null;
+  preferredContactMethod: string | null;
+  preferredCurrency: string;
   assignedTo: { id: string; fullName: string } | null;
   createdBy: { id: string; fullName: string };
   addresses: Array<{
@@ -185,6 +187,13 @@ export function useUpdateCustomer(id: string) {
     mutationFn: (input: CustomerUpdateInput) =>
       apiClient.patch<Customer>(`/customers/${id}`, input),
     onSuccess: () => refresh(client, id),
+  });
+}
+export function useArchiveCustomer() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/customers/${id}`),
+    onSuccess: () => refresh(client),
   });
 }
 export function useCustomerRelationships(

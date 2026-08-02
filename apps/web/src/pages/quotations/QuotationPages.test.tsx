@@ -325,7 +325,17 @@ describe('Phase 8 quotation pages', () => {
     };
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => response({ quotationNumber: 'QT-2026-000001', versions: [draftVersion] })),
+      vi.fn(async () =>
+        response({
+          quotationNumber: 'QT-2026-000001',
+          customerName: 'Aarav Mehta',
+          adults: 1,
+          childrenWithBed: 0,
+          childrenWithoutBed: 0,
+          infants: 0,
+          versions: [draftVersion],
+        }),
+      ),
     );
     const renderBuilder = () =>
       renderWithProviders(
@@ -338,18 +348,23 @@ describe('Phase 8 quotation pages', () => {
         { route: '/quotations/quotation-1/versions/version-1/edit' },
       );
     const costView = renderBuilder();
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel' }));
     expect(await screen.findByLabelText('Hotel internal cost')).toHaveValue(50);
-    await userEvent.selectOptions(screen.getByLabelText('Markup mode'), 'PERCENTAGE');
-    await userEvent.clear(screen.getByLabelText('Markup value'));
-    await userEvent.type(screen.getByLabelText('Markup value'), '10');
-    expect(await screen.findByText('INR 110.00')).toBeInTheDocument();
-    expect(screen.getByText('Internal cost')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Summary & Pricing' }));
+    // Per-passenger pricing: 1 adult × 110 = the package total.
+    await userEvent.type(screen.getByLabelText('Per Adult Price'), '110');
+    // The Total Package Price field, breakdown and the summary card all echo it.
+    expect((await screen.findAllByText('INR 110.00')).length).toBeGreaterThan(0);
+    // Net Amount (margin basis) is a costing-only field.
+    expect(screen.getByLabelText('Net Amount')).toBeInTheDocument();
     costView.unmount();
     auth.permissions.delete('quotations.view_costing');
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Hotel' }));
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
-    expect(screen.queryByText('Internal cost')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Summary & Pricing' }));
+    expect(screen.queryByLabelText('Net Amount')).not.toBeInTheDocument();
   });
 
   it('shows version history and runs revision, PDF, public-link and send actions', async () => {
@@ -838,6 +853,10 @@ const renderBuilderPage = () =>
     { route: '/quotations/quotation-1/versions/version-1/edit' },
   );
 
+/** Activate a builder tab by its nav-button label (tabs mount only when active). */
+const openTab = async (name: string) =>
+  userEvent.click(await screen.findByRole('button', { name }));
+
 describe('Phase 14 master selectors', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -854,7 +873,8 @@ describe('Phase 14 master selectors', () => {
   it('keeps room type and meal plan disabled until a hotel is linked', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     expect(screen.getByLabelText('Hotel master')).toBeEnabled();
     expect(screen.getByLabelText('Room type master')).toBeDisabled();
     expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
@@ -863,7 +883,8 @@ describe('Phase 14 master selectors', () => {
   it('prefills the hotel snapshot and adds room type and meal plan pricing', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
 
     // The snapshot fields are filled but stay editable free text.
@@ -888,7 +909,8 @@ describe('Phase 14 master selectors', () => {
     auth.permissions.delete('quotations.view_costing');
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
@@ -896,29 +918,31 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
   });
 
-  it('shows only the selector that matches the service type and clears it on switch', async () => {
+  it('shows each tab its own master picker and keeps a fresh row unlinked', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
 
-    // Rows default to sightseeing.
+    // The Sightseeing tab owns the sightseeing picker, never the airline one.
+    await openTab('Sightseeing');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Sightseeing' }));
     expect(screen.getByLabelText('Sightseeing master')).toBeInTheDocument();
     expect(screen.queryByLabelText('Airline master')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Sightseeing master'), 'Gobustan Tour');
     await waitFor(() => expect(screen.getByLabelText('Service name')).toHaveValue('Gobustan Tour'));
 
-    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'FLIGHT');
+    // The Flight tab owns the airline picker; its new row starts unlinked.
+    await openTab('Flight');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Flight' }));
     expect(await screen.findByLabelText('Airline master')).toBeInTheDocument();
     expect(screen.queryByLabelText('Sightseeing master')).not.toBeInTheDocument();
-    // The previous link is dropped, so nothing incompatible can be submitted.
     expect(screen.getByLabelText('Airline master')).toHaveValue('');
   });
 
   it('links a cruise before its cabin and prefills the cabin price', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
-    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'CRUISE');
+    await openTab('Cruise');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Cruise' }));
     expect(await screen.findByLabelText('Cruise room type master')).toBeDisabled();
 
     await userEvent.type(screen.getByLabelText('Cruise master'), 'Dream Genting');
@@ -930,24 +954,27 @@ describe('Phase 14 master selectors', () => {
   it('prefills an add-on service price and leaves priceless masters alone', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Service' }));
 
-    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'OTHER_ADD_ON');
-    await userEvent.type(await screen.findByLabelText('Add-on service master'), 'Visa Assistance');
-    await waitFor(() => expect(screen.getByLabelText('Service unit selling')).toHaveValue(3800));
+    // Including an add-on master with its own price prefills its selling figure.
+    await openTab('Add-on Services');
+    await userEvent.click(await screen.findByLabelText('Include Visa Assistance'));
+    await waitFor(() => expect(screen.getByLabelText('Visa Assistance price')).toHaveValue(3800));
 
     // A vehicle has no price of its own, so a typed figure must survive.
-    await userEvent.selectOptions(screen.getByLabelText('Service type'), 'VEHICLE_TRANSFER');
+    await openTab('Vehicle');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Vehicle' }));
+    await userEvent.type(screen.getByLabelText('Service unit selling'), '5000');
     await userEvent.type(await screen.findByLabelText('Vehicle master'), 'Innova Crysta');
     await waitFor(() => expect(screen.getByLabelText('Service name')).toHaveValue('Innova Crysta'));
-    expect(screen.getByLabelText('Service unit selling')).toHaveValue(3800);
+    expect(screen.getByLabelText('Service unit selling')).toHaveValue(5000);
   });
 
   it('submits the linked master ids alongside the snapshot fields', async () => {
     const fetchMock = masterFetch(builderQuotation());
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
@@ -969,7 +996,8 @@ describe('Phase 14 master selectors', () => {
     const fetchMock = masterFetch(builderQuotation());
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.type(screen.getByLabelText('Hotel name'), 'Typed by hand');
     await userEvent.type(screen.getByLabelText('Hotel city'), 'Manali');
     await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
@@ -985,7 +1013,8 @@ describe('Phase 14 master selectors', () => {
   it('unlinks a master without erasing the snapshot text', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Hotel option' }));
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel name')).toHaveValue('Shah Palace Hotel'),
@@ -1044,11 +1073,13 @@ describe('Phase 14 master selectors', () => {
       ),
     );
     renderBuilderPage();
+    // The Flight tab is active first, so its preloaded airline link shows.
+    await waitFor(() => expect(screen.getByLabelText('Airline master')).toHaveValue('Air India'));
+    await openTab('Hotel');
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
     );
     expect(screen.getByLabelText('Room type master')).toBeEnabled();
-    await waitFor(() => expect(screen.getByLabelText('Airline master')).toHaveValue('Air India'));
   });
 
   it('offers the same pickers in the template builder', async () => {

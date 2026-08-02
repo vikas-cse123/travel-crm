@@ -127,6 +127,34 @@ export interface QuotationVersion {
   marginAmount?: string;
   marginPercentage?: string;
   pricingMode: string;
+  // Reference "Summary & Pricing" — per-passenger package pricing.
+  perAdultPrice: string;
+  perChildWithBedPrice: string;
+  perChildWithoutBedPrice: string;
+  perInfantPrice: string;
+  taxNote: string | null;
+  netAmount?: string;
+  initialPaymentAmount: string;
+  paymentLink: string | null;
+  showServiceChargesSeparately: boolean;
+  markServiceChargesOutside: boolean;
+  hidePricing: boolean;
+  showIndividualPricing: boolean;
+  // Reference "Inclusions & Exclusions" — rich-text blocks.
+  inclusionsHtml: string | null;
+  exclusionsHtml: string | null;
+  paymentPolicies: string | null;
+  cancellationPolicies: string | null;
+  bookingTerms: string | null;
+  // Reference "Visa" — single dedicated section.
+  includeVisa: boolean;
+  visaSectionTitle: string | null;
+  visaAmount: string;
+  visaDestination: string | null;
+  visaType: string | null;
+  visaServiceCharge: string;
+  visaGstPercent: string;
+  visaVfsCharge: string;
   notes: string | null;
   internalNotes?: string | null;
   status: string;

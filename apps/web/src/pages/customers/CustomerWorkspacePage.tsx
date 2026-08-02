@@ -1,6 +1,20 @@
 import { useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { Edit3, Mail, MessageSquarePlus, Phone, Upload, UserRound } from 'lucide-react';
+import {
+  Banknote,
+  BarChart3,
+  Edit3,
+  Eye,
+  IndianRupee,
+  Mail,
+  MessageCircle,
+  MessageSquarePlus,
+  Phone,
+  Plane,
+  Plus,
+  Upload,
+  UserCircle,
+} from 'lucide-react';
 import { CUSTOMER_DOCUMENT_TYPES, PERMISSIONS, labelForLookup } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -39,6 +53,15 @@ const money = (value?: string) =>
         style: 'currency',
         currency: 'INR',
         maximumFractionDigits: 0,
+      }).format(Number(value));
+const moneyDetailed = (value?: string) =>
+  value === undefined
+    ? 'Restricted'
+    : new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
       }).format(Number(value));
 const card = 'rounded-xl border bg-card p-5 shadow-sm';
 
@@ -123,6 +146,7 @@ export function CustomerWorkspacePage() {
   const timeline = useCustomerTimeline(customerId);
   const notes = useCustomerNotes(customerId);
   const communications = useCustomerCommunications(customerId);
+  const bookingHistory = useCustomerRelationships(customerId, 'bookings');
   const documents = useCustomerDocuments(
     customerId,
     hasPermission(PERMISSIONS.CUSTOMERS_VIEW_DOCUMENTS),
@@ -159,88 +183,223 @@ export function CustomerWorkspacePage() {
     );
   return (
     <div className="space-y-5">
-      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="bg-gradient-to-r from-panel to-primary p-6 text-primary-foreground">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-white/10 p-3">
-                <UserRound className="h-8 w-8" />
+      <header>
+        <h1 className="text-3xl font-semibold tracking-tight">Customer Details</h1>
+      </header>
+
+      {active === 'overview' && (
+        <div className="grid items-start gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="space-y-4">
+            <section className="overflow-hidden rounded-md border-t-4 border-blue-600 bg-card shadow-sm">
+              <div className="p-5 text-center">
+                <UserCircle className="mx-auto h-24 w-24 text-slate-500" strokeWidth={1.7} />
+                <h2 className="mt-2 text-xl font-bold uppercase">{value.displayName}</h2>
+                <p className="mt-2 text-slate-500">{value.customerNumber}</p>
               </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-brand-200">
-                  {value.customerNumber} · {labelForLookup(value.type)}
-                </p>
-                <h1 className="text-2xl font-semibold">{value.displayName}</h1>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full bg-white/10 px-2 py-1">
-                    {labelForLookup(value.status)}
-                  </span>
-                  {value.isRepeatCustomer && (
-                    <span className="rounded-full bg-emerald-500/30 px-2 py-1">
-                      Repeat customer
-                    </span>
-                  )}
-                  {value.isVip && (
-                    <span className="rounded-full bg-amber-400/30 px-2 py-1">VIP</span>
-                  )}
-                  {Boolean(value.duplicateWarnings?.length) && (
-                    <span className="rounded-full bg-red-500/30 px-2 py-1">Possible duplicate</span>
-                  )}
+              <dl className="divide-y px-5 text-sm">
+                {[
+                  ['Customer Type', labelForLookup(value.type) || 'N/A'],
+                  ['Loyalty Tier', value.isVip ? 'VIP' : 'N/A'],
+                  ['Status', labelForLookup(value.status) || 'N/A'],
+                  ['Total Bookings', value.bookingCount],
+                  ['Total Spent', moneyDetailed(value.totalBookedValue)],
+                ].map(([label, detail]) => (
+                  <div key={label} className="flex items-center justify-between gap-4 py-4">
+                    <dt className="font-semibold">{label}</dt>
+                    <dd className="text-right font-medium text-blue-600">{detail}</dd>
+                  </div>
+                ))}
+              </dl>
+              {hasPermission(PERMISSIONS.CUSTOMERS_UPDATE) && (
+                <div className="grid grid-cols-2 gap-3 p-5">
+                  <Link to={`/customers/${customerId}/edit`}>
+                    <Button fullWidth className="rounded-md bg-blue-600 hover:bg-blue-700">
+                      <Edit3 className="h-4 w-4" /> Edit
+                    </Button>
+                  </Link>
+                  <Button
+                    fullWidth
+                    className="rounded-md bg-cyan-600 hover:bg-cyan-700"
+                    onClick={() => setActive('communications')}
+                  >
+                    <MessageCircle className="h-4 w-4" /> Contact
+                  </Button>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-4 text-sm text-slate-200">
-                  {value.primaryPhone && (
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-4 w-4" />
-                      {value.primaryPhone}
-                    </span>
-                  )}
-                  {value.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-4 w-4" />
-                      {value.email}
-                    </span>
-                  )}
+              )}
+            </section>
+
+            <section className="overflow-hidden rounded-md border bg-card shadow-sm">
+              <div className="bg-blue-600 px-5 py-4 text-white">
+                <h2 className="text-lg font-medium">Contact Information</h2>
+              </div>
+              <div className="divide-y px-5 text-sm">
+                <div className="py-4">
+                  <p className="flex items-center gap-2 font-semibold">
+                    <Phone className="h-4 w-4" /> Phone
+                  </p>
+                  <p className="mt-1 text-slate-500">{value.primaryPhone || 'Not set'}</p>
+                </div>
+                {value.email && (
+                  <div className="py-4">
+                    <p className="flex items-center gap-2 font-semibold">
+                      <Mail className="h-4 w-4" /> Email
+                    </p>
+                    <p className="mt-1 break-all text-slate-500">{value.email}</p>
+                  </div>
+                )}
+                <div className="py-4">
+                  <p className="flex items-center gap-2 font-semibold">
+                    <MessageCircle className="h-4 w-4" /> Communication Preference
+                  </p>
+                  <p className="mt-1 text-slate-500">
+                    {value.preferredContactMethod
+                      ? labelForLookup(value.preferredContactMethod)
+                      : 'Not set'}
+                  </p>
                 </div>
               </div>
-            </div>
-            {hasPermission(PERMISSIONS.CUSTOMERS_UPDATE) && (
-              <div className="flex flex-wrap gap-2">
+            </section>
+          </div>
+
+          <div className="space-y-4">
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {([
+                ['Total Bookings', value.bookingCount, Plane, 'bg-cyan-600'],
+                ['Total Spent', money(value.totalBookedValue), IndianRupee, 'bg-green-600'],
+                [
+                  'Avg. Booking',
+                  moneyDetailed(
+                    String(Number(value.totalBookedValue ?? 0) / Math.max(value.bookingCount, 1)),
+                  ),
+                  BarChart3,
+                  'bg-amber-400',
+                ],
+                ['Total Paid', money(value.totalPaid), Banknote, 'bg-rose-500'],
+              ] as const).map(([label, metric, Icon, iconStyle]) => {
+                const MetricIcon = Icon as typeof Plane;
+                return (
+                  <article
+                    key={String(label)}
+                    className="flex min-h-24 items-center gap-3 rounded-md border bg-card p-3 shadow-sm"
+                  >
+                    <span
+                      className={`flex h-16 w-16 shrink-0 items-center justify-center rounded text-white ${iconStyle}`}
+                    >
+                      <MetricIcon className="h-8 w-8" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="mt-2 truncate font-bold">{metric}</p>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+
+            <section className="overflow-hidden rounded-md border bg-card shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+                <h2 className="text-lg font-medium">Booking History</h2>
                 <Link to={`/queries/new?customerId=${customerId}`}>
-                  <Button variant="secondary">Add lead</Button>
-                </Link>
-                <Button variant="secondary" onClick={() => setActive('communications')}>
-                  Log communication
-                </Button>
-                <Button variant="secondary" onClick={() => setActive('notes')}>
-                  Add note
-                </Button>
-                <Link to={`/customers/${customerId}/edit`}>
-                  <Button variant="secondary">
-                    <Edit3 className="h-4 w-4" />
-                    Edit
+                  <Button className="rounded-md bg-blue-600 hover:bg-blue-700">
+                    <Plus className="h-4 w-4" /> Create Lead
                   </Button>
                 </Link>
               </div>
-            )}
-          </div>
-          <div className="mt-5 grid gap-3 border-t border-white/20 pt-4 sm:grid-cols-3 lg:grid-cols-7">
-            {[
-              ['Lifecycle', labelForLookup(value.lifecycleStage)],
-              ['Leads', value.queryCount],
-              ['Quotations', value.quotationCount],
-              ['Bookings', value.bookingCount],
-              ['Booked', money(value.totalBookedValue)],
-              ['Paid', money(value.totalPaid)],
-              ['Outstanding', money(value.totalOutstanding)],
-            ].map(([label, metric]) => (
-              <div key={label}>
-                <p className="text-lg font-semibold">{metric}</p>
-                <p className="text-xs uppercase tracking-wide text-slate-300">{label}</p>
+              <div className="overflow-x-auto p-5">
+                <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                  <thead className="bg-slate-50 font-semibold">
+                    <tr>
+                      {[
+                        'Booking Code',
+                        'Title',
+                        'Travel Date',
+                        'Amount',
+                        'Status',
+                        'Payment',
+                        'Actions',
+                      ].map((heading) => (
+                        <th key={heading} className="border px-3 py-3">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(bookingHistory.data) && bookingHistory.data.length ? (
+                      bookingHistory.data.map((booking) => {
+                        const bookingId = String(booking.id ?? '');
+                        const bookingNumber = String(booking.bookingNumber ?? bookingId);
+                        const status = String(booking.bookingStatus ?? booking.status ?? 'N/A');
+                        const payment = String(
+                          booking.paymentStatus ?? booking.paymentSummary ?? 'N/A',
+                        );
+                        return (
+                          <tr key={bookingId} className="bg-slate-50/70">
+                            <td className="border px-3 py-4 font-medium">{bookingNumber}</td>
+                            <td className="border px-3 py-4 font-medium">
+                              {String(
+                                booking.title ??
+                                  booking.destinationSummary ??
+                                  `${value.displayName} booking`,
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap border px-3 py-4">
+                              {booking.travelStartDate
+                                ? new Date(String(booking.travelStartDate)).toLocaleDateString(
+                                    'en-US',
+                                    { month: 'short', day: '2-digit', year: 'numeric' },
+                                  )
+                                : '—'}
+                            </td>
+                            <td className="whitespace-nowrap border px-3 py-4">
+                              {money(
+                                String(
+                                  booking.totalAmount ??
+                                    booking.totalBookingValue ??
+                                    booking.amount ??
+                                    0,
+                                ),
+                              )}
+                            </td>
+                            <td className="border px-3 py-4">
+                              <span className="rounded bg-blue-600 px-2 py-1 text-xs font-semibold text-white">
+                                {labelForLookup(status)}
+                              </span>
+                            </td>
+                            <td className="border px-3 py-4">
+                              <span className="rounded bg-cyan-600 px-2 py-1 text-xs font-semibold text-white">
+                                {labelForLookup(payment)}
+                              </span>
+                            </td>
+                            <td className="border px-3 py-4">
+                              <Link
+                                aria-label={`View ${bookingNumber}`}
+                                to={`/bookings/${bookingId}`}
+                                className="inline-flex rounded bg-cyan-600 p-2 text-white hover:bg-cyan-700"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="border px-4 py-8 text-center text-slate-500">
+                          No bookings linked to this customer.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            ))}
+            </section>
           </div>
         </div>
-        <nav className="flex overflow-x-auto border-t px-3">
+      )}
+
+      <section className="overflow-hidden rounded-md border bg-card shadow-sm">
+        <nav className="flex overflow-x-auto px-3">
           {tabs
             .filter(
               (tab) => tab !== 'documents' || hasPermission(PERMISSIONS.CUSTOMERS_VIEW_DOCUMENTS),
@@ -260,113 +419,6 @@ export function CustomerWorkspacePage() {
             ))}
         </nav>
       </section>
-
-      {active === 'overview' && (
-        <div className="grid gap-5 lg:grid-cols-3">
-          <section className={`${card} lg:col-span-2`}>
-            <h2 className="font-semibold">Profile</h2>
-            <dl className="mt-4 grid gap-4 text-sm md:grid-cols-2">
-              {[
-                ['Status', labelForLookup(value.status)],
-                ['Assigned agent', value.assignedTo?.fullName ?? 'Unassigned'],
-                ['Company', value.companyName ?? '—'],
-                [
-                  'Date of birth',
-                  value.dateOfBirth ? new Date(value.dateOfBirth).toLocaleDateString() : '—',
-                ],
-                ['Travel preferences', value.travelPreferences ?? '—'],
-                ['Dietary requirements', value.dietaryRequirements ?? '—'],
-                ['Special requirements', value.specialRequirements ?? '—'],
-                [
-                  'Last interaction',
-                  value.lastInteractionAt
-                    ? new Date(value.lastInteractionAt).toLocaleString()
-                    : '—',
-                ],
-              ].map(([label, detail]) => (
-                <div key={label}>
-                  <dt className="text-xs uppercase text-slate-500">{label}</dt>
-                  <dd className="mt-1 font-medium">{detail}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-          <section className={card}>
-            <h2 className="font-semibold">Tags</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {value.tags.length ? (
-                value.tags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="rounded-full px-3 py-1 text-xs text-white"
-                    style={{ backgroundColor: tag.color }}
-                  >
-                    {tag.name}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-slate-500">No tags assigned.</span>
-              )}
-            </div>
-            <h2 className="mt-6 font-semibold">Addresses</h2>
-            <div className="mt-3 space-y-2">
-              {value.addresses.length ? (
-                value.addresses.map((address) => (
-                  <div className="rounded-lg bg-slate-50 p-3 text-sm" key={address.id}>
-                    <p className="font-medium">
-                      {labelForLookup(address.type)}
-                      {address.isPrimary ? ' · Primary' : ''}
-                    </p>
-                    <p>
-                      {address.line1}, {address.city}, {address.country}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <span className="text-sm text-slate-500">No address recorded.</span>
-              )}
-            </div>
-          </section>
-          <section className={`${card} lg:col-span-3`}>
-            <h2 className="font-semibold">Relationship highlights</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-4">
-              {[
-                [
-                  'Latest lead',
-                  value.latestLead?.queryNumber ?? 'No lead',
-                  value.latestLead ? `/queries/${value.latestLead.id}` : null,
-                ],
-                [
-                  'Latest quotation',
-                  value.latestQuotation?.quotationNumber ?? 'No quotation',
-                  value.latestQuotation ? `/quotations/${value.latestQuotation.id}` : null,
-                ],
-                [
-                  'Latest booking',
-                  value.latestBooking?.bookingNumber ?? 'No booking',
-                  value.latestBooking ? `/bookings/${value.latestBooking.id}` : null,
-                ],
-                [
-                  'Upcoming travel',
-                  value.upcomingTravel?.destinationSummary ?? 'Nothing scheduled',
-                  value.upcomingTravel ? `/bookings/${value.upcomingTravel.id}` : null,
-                ],
-              ].map(([label, detail, href]) => (
-                <div className="rounded-lg bg-slate-50 p-3" key={label}>
-                  <p className="text-xs uppercase text-slate-500">{label}</p>
-                  {href ? (
-                    <Link className="mt-1 block font-medium text-brand-700" to={href}>
-                      {detail}
-                    </Link>
-                  ) : (
-                    <p className="mt-1 font-medium">{detail}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
       {active === 'timeline' && (
         <section className={card}>
           <h2 className="font-semibold">Unified timeline</h2>
