@@ -43,6 +43,9 @@ const leadDate = (value: string | null) =>
       )
     : null;
 
+/** Keep the stored query number intact while hiding its year in the lead list. */
+const leadListId = (value: string) => value.replace(/^([^-]+)-\d{4}-/, '$1-');
+
 function LeadInfoCell({ lead }: { lead: Lead }) {
   const email = lead.email ?? lead.customer?.email;
   return (
@@ -559,7 +562,7 @@ export function LeadsPage() {
                       )}
                       <div>
                         <Link className="font-semibold text-brand-700" to={`/queries/${lead.id}`}>
-                          {lead.queryNumber}
+                          {leadListId(lead.queryNumber)}
                         </Link>
                         <p className="font-medium">{lead.customerName}</p>
                         <p className="text-xs text-slate-500">{lead.phone}</p>
@@ -643,8 +646,8 @@ export function LeadsPage() {
                           />
                         </td>
                       )}
-                      <td className="border-r px-3 py-4 font-semibold text-brand-700">
-                        <Link to={`/queries/${lead.id}`}>{lead.queryNumber}</Link>
+                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-brand-700">
+                        <Link to={`/queries/${lead.id}`}>{leadListId(lead.queryNumber)}</Link>
                       </td>
                       <td className="border-r px-3 py-4"><LeadInfoCell lead={lead} /></td>
                       <td className="border-r px-3 py-4"><DestinationCell lead={lead} /></td>

@@ -151,6 +151,46 @@ describe('PDF rendering with long content', () => {
         visaServiceCharge: '500.00',
         visaGstPercent: '18',
         visaVfsCharge: '300.00',
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Arrival in Singapore',
+              city: 'Singapore',
+              date: '2026-10-23',
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'Airport transfer', description: '<p>Meet and greet.</p>' }],
+            },
+          ],
+        },
+        flightDetails: {
+          include: true,
+          journeyType: 'ROUND_TRIP',
+          outbound: {
+            fromCity: 'Kolkata',
+            toCity: 'Singapore',
+            segments: [
+              {
+                airlineName: 'Indigo',
+                flightNumber: '6E1015',
+                travelClass: 'Economy',
+                from: 'Kolkata',
+                to: 'Singapore',
+                departureDate: '2026-10-23',
+                departureTime: '02:05',
+                arrivalDate: '2026-10-23',
+                arrivalTime: '09:00',
+                duration: '4h 55m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '30kg',
+              },
+            ],
+          },
+          returnJourney: { fromCity: 'Singapore', toCity: 'Kolkata', segments: [] },
+        },
         hotels: Array.from({ length: 10 }, (_, i) => ({
           city: `City ${i + 1}`,
           hotelName: `Very Grand Heritage Palace Resort and Spa ${i + 1}`,

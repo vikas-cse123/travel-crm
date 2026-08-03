@@ -62,7 +62,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
     const client = await owner();
     const response = await client.post('/api/customers', customerPayload());
     expect(response.status).toBe(201);
-    expect(response.body.data.customerNumber).toMatch(/^CUS-\d{4}-000001$/);
+    expect(response.body.data.customerNumber).toMatch(/^CUS-000001$/);
     expect(response.body.data).not.toHaveProperty('companyId');
     expect(response.body.data).not.toHaveProperty('normalizedPhone');
     expect(response.body.data).not.toHaveProperty('normalizedEmail');

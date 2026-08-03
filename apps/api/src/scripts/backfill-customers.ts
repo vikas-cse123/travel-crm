@@ -56,7 +56,7 @@ async function run() {
       await prisma.$transaction(async (tx) => {
         let customerId = [...matches][0];
         if (!customerId) {
-          const year = lead.createdAt.getUTCFullYear();
+          const year = 0;
           const counter = await tx.customerCounter.upsert({
             where: { companyId_year: { companyId: company.id, year } },
             create: { companyId: company.id, year, value: 1 },
@@ -66,7 +66,7 @@ async function run() {
           const customer = await tx.customer.create({
             data: {
               companyId: company.id,
-              customerNumber: `CUS-${year}-${String(counter.value).padStart(6, '0')}`,
+              customerNumber: `CUS-${String(counter.value).padStart(6, '0')}`,
               displayName: lead.customerName,
               normalizedName: normalizeCustomerName(lead.customerName),
               primaryPhone: lead.phone,

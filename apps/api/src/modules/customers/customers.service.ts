@@ -279,14 +279,14 @@ export async function findDuplicates(auth: AuthContext, input: CustomerDuplicate
 }
 
 async function nextCustomerNumber(tx: Prisma.TransactionClient, companyId: string) {
-  const year = new Date().getUTCFullYear();
+  const year = 0;
   const counter = await tx.customerCounter.upsert({
     where: { companyId_year: { companyId, year } },
     create: { companyId, year, value: 1 },
     update: { value: { increment: 1 } },
     select: { value: true },
   });
-  return `CUS-${year}-${String(counter.value).padStart(6, '0')}`;
+  return `CUS-${String(counter.value).padStart(6, '0')}`;
 }
 
 function present(

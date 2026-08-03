@@ -111,9 +111,8 @@ describe('Phase 18 company settings', () => {
     expect(d.branding.hasLogo).toBe(false);
     expect(d.preferences).toMatchObject({ timezone: 'Asia/Kolkata', defaultCurrency: 'INR' });
     expect(d.bankAccount.exists).toBe(false);
-    const year = new Date().getUTCFullYear();
-    expect(d.numbering.bookingExample).toBe(`BK-${year}-000001`);
-    expect(d.numbering.refundExample).toBe(`REF-${year}-000001`);
+    expect(d.numbering.bookingExample).toBe('BK-000001');
+    expect(d.numbering.refundExample).toBe('REF-000001');
     expect(d.capabilities).toMatchObject({ canView: true, canUpdate: true });
   });
 

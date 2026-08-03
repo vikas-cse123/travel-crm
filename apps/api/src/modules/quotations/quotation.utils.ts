@@ -8,7 +8,8 @@ export async function nextCompanyNumber(
   companyId: string,
   kind: 'quotation' | 'template',
 ) {
-  const year = new Date().getUTCFullYear();
+  // One lifetime counter keeps IDs compact and prevents yearly resets.
+  const year = 0;
   const counter = await tx.quotationCounter.upsert({
     where: { companyId_year: { companyId, year } },
     create: {
@@ -24,7 +25,7 @@ export async function nextCompanyNumber(
     select: { quotationValue: true, templateValue: true },
   });
   const value = kind === 'quotation' ? counter.quotationValue : counter.templateValue;
-  return `${kind === 'quotation' ? 'QT' : 'QTP'}-${year}-${String(value).padStart(6, '0')}`;
+  return `${kind === 'quotation' ? 'QT' : 'QTP'}-${String(value).padStart(6, '0')}`;
 }
 
 export function quotationAudit(

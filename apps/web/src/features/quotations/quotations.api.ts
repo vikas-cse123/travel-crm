@@ -106,6 +106,66 @@ export interface QuotationTemplate {
   actionPermissions?: { canUpdate: boolean; canDelete: boolean; canUse: boolean };
   counts?: { cities: number; services: number; hotelOptions: number };
 }
+export interface FlightSegment {
+  airlineId?: string | null;
+  airlineName?: string | null;
+  flightNumber?: string | null;
+  travelClass?: string | null;
+  from?: string | null;
+  to?: string | null;
+  departureDate?: string | null;
+  departureTime?: string | null;
+  arrivalDate?: string | null;
+  arrivalTime?: string | null;
+  duration?: string | null;
+  cabinLuggage?: string | null;
+  checkInLuggage?: string | null;
+  notes?: string | null;
+  connectionVia?: string | null;
+}
+export interface FlightJourney {
+  fromCity?: string | null;
+  toCity?: string | null;
+  travelClass?: string | null;
+  segments: FlightSegment[];
+}
+export interface FlightDetails {
+  include: boolean;
+  sectionTitle?: string | null;
+  amount?: number | null;
+  journeyType: 'ROUND_TRIP' | 'ONEWAY_OUTBOUND' | 'ONEWAY_RETURN';
+  outbound: FlightJourney;
+  returnJourney: FlightJourney;
+}
+export interface HotelDetails {
+  sectionTitle?: string | null;
+  amount?: number | null;
+  description?: string | null;
+}
+export interface SightseeingActivity {
+  sightseeingId?: string | null;
+  name?: string | null;
+  startTime?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+}
+export interface SightseeingDay {
+  dayNumber: number;
+  title?: string | null;
+  city?: string | null;
+  date?: string | null;
+  meals: { breakfast: boolean; lunch: boolean; dinner: boolean };
+  mealMode: 'NO_TRANSFER' | 'INCLUDE_AT_HOTEL' | 'WITH_TRANSFER';
+  dailyTransfer: 'PRIVATE' | 'SHARED' | 'NO_TRANSFER';
+  activities: SightseeingActivity[];
+}
+export interface SightseeingDetails {
+  include: boolean;
+  sectionTitle?: string | null;
+  amount?: number | null;
+  description?: string | null;
+  days: SightseeingDay[];
+}
 export interface QuotationVersion {
   id: string;
   versionNumber: number;
@@ -155,6 +215,12 @@ export interface QuotationVersion {
   visaServiceCharge: string;
   visaGstPercent: string;
   visaVfsCharge: string;
+  // Reference "Flight" — structured journeys/segments (JSON).
+  flightDetails: FlightDetails | null;
+  // Reference "Hotel" — editable section metadata (JSON).
+  hotelDetails: HotelDetails | null;
+  // Reference "Sightseeing" — day-wise activity itinerary (JSON).
+  sightseeingDetails: SightseeingDetails | null;
   notes: string | null;
   internalNotes?: string | null;
   status: string;
@@ -223,6 +289,17 @@ export interface Quotation {
     leadStage: string;
     assignedToId: string | null;
     createdById: string;
+    departureCity: string | null;
+    departureCountry: string | null;
+    itinerary?: Array<{
+      id: string;
+      country: string;
+      destination: string;
+      nights: number;
+      sequence: number;
+      arrivalDate: string | null;
+      departureDate: string | null;
+    }>;
   };
   versions: QuotationVersion[];
   documents: QuotationDocument[];

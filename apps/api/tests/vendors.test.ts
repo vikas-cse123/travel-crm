@@ -112,7 +112,7 @@ describe('Phase 11 vendor and supplier management', () => {
     expect(responses.every((response) => response.status === 201)).toBe(true);
     const codes = responses.map((response) => response.body.data.vendorCode);
     expect(new Set(codes).size).toBe(4);
-    expect(codes.every((code: string) => /^VEN-\d{4}-\d{6}$/.test(code))).toBe(true);
+    expect(codes.every((code: string) => /^VEN-\d{6}$/.test(code))).toBe(true);
     const stored = await db.vendor.findUniqueOrThrow({ where: { id: responses[0]!.body.data.id } });
     expect(stored.normalizedPhone).toMatch(/^\+91/);
     expect(stored.normalizedEmail).toBe('vendor-0@example.test');

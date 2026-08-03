@@ -70,8 +70,6 @@ describe('Phase 18 settings page', () => {
     expect(await screen.findByLabelText('Default quotation terms')).toHaveValue('Pay in 7 days');
     await userEvent.click(screen.getByRole('button', { name: 'Bank Account' }));
     expect(await screen.findByLabelText('Account holder')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Numbering' }));
-    expect(await screen.findByText('Current numbering formats')).toBeInTheDocument();
   });
 
   it('saves the company profile', async () => {
@@ -163,13 +161,12 @@ describe('Phase 18 settings page', () => {
     expect(screen.queryByLabelText('Account holder')).not.toBeInTheDocument();
   });
 
-  it('renders a read-only numbering table and excludes out-of-scope sections', async () => {
+  it('excludes numbering and other out-of-scope sections', async () => {
     stub(settings());
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
-    await userEvent.click(screen.getByRole('button', { name: 'Numbering' }));
-    expect(await screen.findByText('BK-2026-000001')).toBeInTheDocument();
-    expect(screen.getByText(/Read-only in this version/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Numbering' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Current numbering formats')).not.toBeInTheDocument();
     // Excluded settings must not appear anywhere.
     for (const label of [
       'Email Configuration',

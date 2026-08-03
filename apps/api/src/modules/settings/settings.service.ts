@@ -46,8 +46,7 @@ function audit(
 
 /** Read-only numbering formats surfaced in the settings overview. */
 function numberingExamples() {
-  const year = new Date().getUTCFullYear();
-  const example = (prefix: string) => `${prefix}-${year}-000001`;
+  const example = (prefix: string) => `${prefix}-000001`;
   return {
     queryExample: example('QRY'),
     customerExample: example('CUS'),
@@ -59,7 +58,6 @@ function numberingExamples() {
     vendorExample: example('VEN'),
     vendorPayableExample: example('VP'),
     vendorPaymentExample: example('VPAY'),
-    year,
   };
 }
 

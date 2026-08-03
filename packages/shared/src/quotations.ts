@@ -145,6 +145,105 @@ export const quotationTemplateUpdateSchema = quotationTemplateInputSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field must be supplied.');
 
+export const FLIGHT_JOURNEY_TYPES = ['ROUND_TRIP', 'ONEWAY_OUTBOUND', 'ONEWAY_RETURN'] as const;
+
+/** Reference "Flight" tab — one segment (leg/connection) of a journey. */
+export const flightSegmentSchema = z
+  .object({
+    airlineId: z.string().uuid().nullable().optional(),
+    airlineName: optionalText(200),
+    flightNumber: optionalText(40),
+    travelClass: optionalText(40),
+    from: optionalText(120),
+    to: optionalText(120),
+    departureDate: optionalText(20),
+    departureTime: optionalText(20),
+    arrivalDate: optionalText(20),
+    arrivalTime: optionalText(20),
+    duration: optionalText(40),
+    cabinLuggage: optionalText(40),
+    checkInLuggage: optionalText(40),
+    notes: optionalText(8000),
+    connectionVia: optionalText(120),
+  })
+  .superRefine((segment, ctx) => {
+    if (
+      !segment.departureDate ||
+      !segment.departureTime ||
+      !segment.arrivalDate ||
+      !segment.arrivalTime
+    )
+      return;
+    const departure = new Date(`${segment.departureDate}T${segment.departureTime}`).getTime();
+    const arrival = new Date(`${segment.arrivalDate}T${segment.arrivalTime}`).getTime();
+    if (!Number.isNaN(departure) && !Number.isNaN(arrival) && arrival <= departure) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['arrivalTime'],
+        message: 'Arrival time must be after departure time.',
+      });
+    }
+  });
+
+export const flightJourneySchema = z.object({
+  fromCity: optionalText(120),
+  toCity: optionalText(120),
+  travelClass: optionalText(40),
+  segments: z.array(flightSegmentSchema).max(20).default([]),
+});
+
+export const flightDetailsSchema = z.object({
+  include: z.boolean().default(true),
+  sectionTitle: optionalText(200),
+  amount: optionalMoney,
+  journeyType: z.enum(FLIGHT_JOURNEY_TYPES).default('ROUND_TRIP'),
+  outbound: flightJourneySchema.default({ segments: [] }),
+  returnJourney: flightJourneySchema.default({ segments: [] }),
+});
+
+export const SIGHTSEEING_MEAL_MODES = ['NO_TRANSFER', 'INCLUDE_AT_HOTEL', 'WITH_TRANSFER'] as const;
+export const SIGHTSEEING_TRANSFER_MODES = ['PRIVATE', 'SHARED', 'NO_TRANSFER'] as const;
+
+/** Reference "Sightseeing" tab — one attraction/activity within a day. */
+export const sightseeingActivitySchema = z.object({
+  sightseeingId: z.string().uuid().nullable().optional(),
+  name: optionalText(300),
+  startTime: optionalText(20),
+  description: optionalText(8000),
+  imageUrl: optionalText(1000),
+});
+
+export const sightseeingDaySchema = z.object({
+  dayNumber: z.coerce.number().int().min(1).max(365),
+  title: optionalText(300),
+  city: optionalText(120),
+  date: optionalText(20),
+  meals: z
+    .object({
+      breakfast: z.boolean().default(false),
+      lunch: z.boolean().default(false),
+      dinner: z.boolean().default(false),
+    })
+    .default({ breakfast: false, lunch: false, dinner: false }),
+  mealMode: z.enum(SIGHTSEEING_MEAL_MODES).default('INCLUDE_AT_HOTEL'),
+  dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).default('SHARED'),
+  activities: z.array(sightseeingActivitySchema).max(20).default([]),
+});
+
+export const sightseeingDetailsSchema = z.object({
+  include: z.boolean().default(true),
+  sectionTitle: optionalText(200),
+  amount: optionalMoney,
+  description: optionalText(8000),
+  days: z.array(sightseeingDaySchema).max(60).default([]),
+});
+
+export const hotelDetailsSchema = z.object({
+  sectionTitle: optionalText(200).default('Your Hotels'),
+  amount: optionalMoney,
+  description: optionalText(8000),
+});
+
 export const quotationVersionInputSchema = z
   .object({
     title: z.string().trim().min(2).max(200),
@@ -190,6 +289,12 @@ export const quotationVersionInputSchema = z
     visaServiceCharge: optionalMoney,
     visaGstPercent: money.max(100).nullable().optional(),
     visaVfsCharge: optionalMoney,
+    // Reference "Flight" — structured journeys/segments.
+    flightDetails: flightDetailsSchema.nullable().optional(),
+    // Reference "Hotel" — editable section heading, amount and description.
+    hotelDetails: hotelDetailsSchema.nullable().optional(),
+    // Reference "Sightseeing" — day-wise activity itinerary.
+    sightseeingDetails: sightseeingDetailsSchema.nullable().optional(),
     notes: optionalText(4000),
     internalNotes: optionalText(4000),
     itinerary: z.array(quotationItinerarySchema).max(500).default([]),

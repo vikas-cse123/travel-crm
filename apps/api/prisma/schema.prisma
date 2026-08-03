@@ -2922,28 +2922,28 @@ model Quotation {
 }
 
 model QuotationVersion {
-  id                   String                 @id @default(uuid()) @db.Uuid
-  companyId            String                 @db.Uuid
-  quotationId          String                 @db.Uuid
-  versionNumber        Int
-  title                String                 @db.VarChar(200)
-  introduction         String?                @db.VarChar(4000)
-  destinationSummary   String                 @db.VarChar(500)
-  travelStartDate      DateTime?              @db.Date
-  travelEndDate        DateTime?              @db.Date
-  currency             String                 @db.VarChar(3)
-  subtotalCost         Decimal                @default(0) @db.Decimal(14, 2)
-  subtotalSellingPrice Decimal                @default(0) @db.Decimal(14, 2)
-  markupMode           MarkupMode             @default(NONE)
-  markupValue          Decimal                @default(0) @db.Decimal(14, 4)
-  totalMarkup          Decimal                @default(0) @db.Decimal(14, 2)
-  taxRate              Decimal                @default(0) @db.Decimal(8, 4)
-  taxAmount            Decimal                @default(0) @db.Decimal(14, 2)
-  discountAmount       Decimal                @default(0) @db.Decimal(14, 2)
-  finalAmount          Decimal                @default(0) @db.Decimal(14, 2)
-  marginAmount         Decimal                @default(0) @db.Decimal(14, 2)
-  marginPercentage     Decimal                @default(0) @db.Decimal(8, 4)
-  pricingMode          PricingMode            @default(ITEMIZED)
+  id                           String                 @id @default(uuid()) @db.Uuid
+  companyId                    String                 @db.Uuid
+  quotationId                  String                 @db.Uuid
+  versionNumber                Int
+  title                        String                 @db.VarChar(200)
+  introduction                 String?                @db.VarChar(4000)
+  destinationSummary           String                 @db.VarChar(500)
+  travelStartDate              DateTime?              @db.Date
+  travelEndDate                DateTime?              @db.Date
+  currency                     String                 @db.VarChar(3)
+  subtotalCost                 Decimal                @default(0) @db.Decimal(14, 2)
+  subtotalSellingPrice         Decimal                @default(0) @db.Decimal(14, 2)
+  markupMode                   MarkupMode             @default(NONE)
+  markupValue                  Decimal                @default(0) @db.Decimal(14, 4)
+  totalMarkup                  Decimal                @default(0) @db.Decimal(14, 2)
+  taxRate                      Decimal                @default(0) @db.Decimal(8, 4)
+  taxAmount                    Decimal                @default(0) @db.Decimal(14, 2)
+  discountAmount               Decimal                @default(0) @db.Decimal(14, 2)
+  finalAmount                  Decimal                @default(0) @db.Decimal(14, 2)
+  marginAmount                 Decimal                @default(0) @db.Decimal(14, 2)
+  marginPercentage             Decimal                @default(0) @db.Decimal(8, 4)
+  pricingMode                  PricingMode            @default(ITEMIZED)
   // Reference "Summary & Pricing" — per-passenger package pricing.
   perAdultPrice                Decimal                @default(0) @db.Decimal(14, 2)
   perChildWithBedPrice         Decimal                @default(0) @db.Decimal(14, 2)
@@ -2972,12 +2972,20 @@ model QuotationVersion {
   visaServiceCharge            Decimal                @default(0) @db.Decimal(14, 2)
   visaGstPercent               Decimal                @default(0) @db.Decimal(8, 4)
   visaVfsCharge                Decimal                @default(0) @db.Decimal(14, 2)
-  notes                String?                @db.VarChar(4000)
-  internalNotes        String?                @db.VarChar(4000)
-  status               QuotationVersionStatus @default(DRAFT)
-  finalizedAt          DateTime?
-  createdById          String                 @db.Uuid
-  createdAt            DateTime               @default(now())
+  // Reference "Flight" — structured journeys/segments (section title, amount,
+  // journey type, outbound & return legs). Stored as JSON; see flightDetailsSchema.
+  flightDetails                Json?
+  // Reference "Sightseeing" — day-wise itinerary of activities (attraction,
+  // start time, description, image, meals, transfer). Stored as JSON.
+  sightseeingDetails           Json?
+  // Reference "Hotel" — editable section title, amount and description.
+  hotelDetails                 Json?
+  notes                        String?                @db.VarChar(4000)
+  internalNotes                String?                @db.VarChar(4000)
+  status                       QuotationVersionStatus @default(DRAFT)
+  finalizedAt                  DateTime?
+  createdById                  String                 @db.Uuid
+  createdAt                    DateTime               @default(now())
 
   company    Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   quotation  Quotation                      @relation(fields: [quotationId], references: [id], onDelete: Cascade)

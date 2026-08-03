@@ -113,7 +113,7 @@ async function setup() {
 describe('Phase 8 quotation templates', () => {
   it('creates, searches, previews, duplicates inactive, changes status and soft deletes', async () => {
     const { client, template } = await setup();
-    expect(template.templateCode).toMatch(/^QTP-\d{4}-000001$/);
+    expect(template.templateCode).toMatch(/^QTP-000001$/);
     const list = await client.get(
       '/api/quotation-templates?search=Coastal&destination=Goa&status=ACTIVE',
     );
@@ -168,7 +168,7 @@ describe('Phase 8 customer quotations', () => {
       version: { markupMode: 'PERCENTAGE', markupValue: 10, taxRate: 5, discountAmount: 100 },
     });
     expect(response.status).toBe(201);
-    expect(response.body.data.quotationNumber).toMatch(/^QT-\d{4}-000001$/);
+    expect(response.body.data.quotationNumber).toMatch(/^QT-000001$/);
     expect(response.body.data.versions[0]).toMatchObject({
       versionNumber: 1,
       status: 'DRAFT',
@@ -645,6 +645,16 @@ describe('Phase 14 quotation master references', () => {
     const token = link.body.data.url.split('/q/')[1];
     const publicView = await createAuthClient(app).get(`/public/quotations/${token}`);
     expect(publicView.status).toBe(200);
+    const hotelPresentation = Object.values(
+      publicView.body.data.hotelPresentations as Record<string, unknown>,
+    )[0];
+    expect(hotelPresentation).toMatchObject({
+      imageUrl: null,
+      starCategory: 4,
+      address: 'Boyuk Qala 47',
+      destination: 'Azerbaijan',
+      country: 'Azerbaijan',
+    });
     const body = JSON.stringify(publicView.body.data);
     for (const field of [...SERVICE_FK, 'hotelId', 'hotelRoomTypeId', 'hotelMealPlanId'])
       expect(body).not.toContain(field);

@@ -168,7 +168,7 @@ describe('Phase 9 booking conversion and lifecycle', () => {
       quotationVersionId: version.id,
       bookingStatus: 'PENDING_CONFIRMATION',
     });
-    expect(response.body.data.bookingNumber).toMatch(/^BK-\d{4}-000001$/);
+    expect(response.body.data.bookingNumber).toMatch(/^BK-000001$/);
     expect(response.body.data.services).toHaveLength(2);
     expect(response.body.data.itinerary[0].title).toBe('Arrival');
     expect(response.body.data.totalSellingAmount).toBe('32000.00');
@@ -442,7 +442,7 @@ describe('Phase 9 travellers, payments, costs and documents', () => {
       paymentStatus: 'RECEIVED',
       receivedAt: '2026-09-01',
     });
-    expect(first.body.data.paymentNumber).toMatch(/^PAY-\d{4}-000001$/);
+    expect(first.body.data.paymentNumber).toMatch(/^PAY-000001$/);
     expect((await client.get(`/api/bookings/${booking.id}`)).body.data).toMatchObject({
       totalCustomerPaid: '20000.00',
       totalCustomerOutstanding: '30000.00',
@@ -914,7 +914,7 @@ describe('Phase 15 GST, TCS, refunds and profit', () => {
       totalCustomerOutstanding: '20000.00',
       paymentStatus: 'PARTIALLY_REFUNDED',
     });
-    expect(refunded.body.data.refunds[0].refundNumber).toMatch(/^REF-\d{4}-000001$/);
+    expect(refunded.body.data.refunds[0].refundNumber).toMatch(/^REF-000001$/);
   });
 
   it('marks a booking refunded when the full paid amount is returned', async () => {

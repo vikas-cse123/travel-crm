@@ -769,7 +769,7 @@ export const queriesService = {
         );
       if (strong.length === 1 && !input.createNewCustomer) linkedCustomerId = strong[0]!.id;
     }
-    const year = new Date().getUTCFullYear();
+    const year = 0;
     const id = await prisma.$transaction(async (tx) => {
       if (!linkedCustomerId) {
         const customerCounter = await tx.customerCounter.upsert({
@@ -781,7 +781,7 @@ export const queriesService = {
         const customer = await tx.customer.create({
           data: {
             companyId: auth.companyId,
-            customerNumber: `CUS-${year}-${String(customerCounter.value).padStart(6, '0')}`,
+            customerNumber: `CUS-${String(customerCounter.value).padStart(6, '0')}`,
             displayName: input.customerName,
             normalizedName: normalizeCustomerName(input.customerName),
             primaryPhone: input.phone,
@@ -818,7 +818,7 @@ export const queriesService = {
       const createData = {
         companyId: auth.companyId,
         customerId: linkedCustomerId,
-        queryNumber: `QRY-${year}-${String(counter.value).padStart(6, '0')}`,
+        queryNumber: `QRY-${String(counter.value).padStart(6, '0')}`,
         createdById: auth.userId,
         ...scalarData(input),
         assignedToId,

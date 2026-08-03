@@ -13,7 +13,8 @@ export async function nextBookingNumber(
   companyId: string,
   kind: 'booking' | 'payment' | 'refund',
 ) {
-  const year = new Date().getUTCFullYear();
+  // One lifetime counter keeps IDs compact and prevents yearly resets.
+  const year = 0;
   const counter = await tx.bookingCounter.upsert({
     where: { companyId_year: { companyId, year } },
     create: {
@@ -38,7 +39,7 @@ export async function nextBookingNumber(
         ? counter.paymentValue
         : counter.refundValue;
   const prefix = kind === 'booking' ? 'BK' : kind === 'payment' ? 'PAY' : 'REF';
-  return `${prefix}-${year}-${String(value).padStart(6, '0')}`;
+  return `${prefix}-${String(value).padStart(6, '0')}`;
 }
 
 export function bookingAudit(

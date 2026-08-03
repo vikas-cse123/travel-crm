@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
+  flightDetailsSchema,
+  sightseeingDetailsSchema,
   PERMISSIONS,
   type QuotationInput,
   type QuotationSendInput,
@@ -47,7 +49,28 @@ export const versionInclude = {
 const quotationInclude = {
   customer: { select: { id: true, customerNumber: true, displayName: true } },
   query: {
-    select: { id: true, queryNumber: true, leadStage: true, assignedToId: true, createdById: true },
+    select: {
+      id: true,
+      queryNumber: true,
+      leadStage: true,
+      assignedToId: true,
+      createdById: true,
+      // Used to prefill the quotation Flight tab's departure city.
+      departureCity: true,
+      departureCountry: true,
+      itinerary: {
+        orderBy: { sequence: 'asc' as const },
+        select: {
+          id: true,
+          country: true,
+          destination: true,
+          nights: true,
+          sequence: true,
+          arrivalDate: true,
+          departureDate: true,
+        },
+      },
+    },
   },
   createdBy: { select: userSelect },
   versions: { include: versionInclude, orderBy: { versionNumber: 'desc' as const } },
@@ -292,6 +315,12 @@ function versionCreateData(
       visaServiceCharge: normalized.visaServiceCharge ?? 0,
       visaGstPercent: normalized.visaGstPercent ?? 0,
       visaVfsCharge: normalized.visaVfsCharge ?? 0,
+      // Reference "Flight" — structured journeys/segments (JSON).
+      flightDetails: (normalized.flightDetails ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      // Reference "Hotel" — editable section metadata (JSON).
+      hotelDetails: (normalized.hotelDetails ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      sightseeingDetails: (normalized.sightseeingDetails ??
+        Prisma.JsonNull) as Prisma.InputJsonValue,
       notes: normalized.notes ?? null,
       internalNotes: allowCosting ? (normalized.internalNotes ?? null) : null,
       ...totals,
@@ -371,6 +400,9 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
     visaServiceCharge: source.visaServiceCharge.toNumber(),
     visaGstPercent: source.visaGstPercent.toNumber(),
     visaVfsCharge: source.visaVfsCharge.toNumber(),
+    flightDetails: source.flightDetails as QuotationVersionInput['flightDetails'],
+    hotelDetails: source.hotelDetails as QuotationVersionInput['hotelDetails'],
+    sightseeingDetails: source.sightseeingDetails as QuotationVersionInput['sightseeingDetails'],
     notes: source.notes,
     internalNotes: source.internalNotes,
     itinerary: source.itinerary.map(
@@ -476,6 +508,196 @@ async function resolveDestinationHeroImage(
   } catch {
     return null;
   }
+}
+
+/** Customer-safe hotel catalogue details used by the public quotation cards. */
+async function resolveHotelPresentations(
+  companyId: string,
+  options: Array<{ id: string; hotelId: string | null }>,
+) {
+  const hotelIds = [...new Set(options.map((row) => row.hotelId).filter(Boolean))] as string[];
+  if (!hotelIds.length) return {};
+  const hotels = await prisma.hotel.findMany({
+    where: { id: { in: hotelIds }, companyId, deletedAt: null },
+    select: {
+      id: true,
+      starCategory: true,
+      starRating: true,
+      address: true,
+      reviewLink: true,
+      checkInTime: true,
+      checkOutTime: true,
+      imageObjectKey: true,
+      imageFileName: true,
+      imageConfirmedAt: true,
+      destination: { select: { name: true, countryName: true } },
+    },
+  });
+  const byId = new Map(
+    await Promise.all(
+      hotels.map(async (hotel) => {
+        let imageUrl: string | null = null;
+        if (hotel.imageObjectKey && hotel.imageConfirmedAt) {
+          try {
+            imageUrl = await storageService.createDownloadUrl(
+              hotel.imageObjectKey,
+              hotel.imageFileName ?? 'hotel.jpg',
+            );
+          } catch {
+            imageUrl = null;
+          }
+        }
+        return [
+          hotel.id,
+          {
+            imageUrl,
+            starCategory: hotel.starCategory,
+            starRating: decimal(hotel.starRating),
+            address: hotel.address,
+            reviewLink: hotel.reviewLink,
+            checkInTime: hotel.checkInTime,
+            checkOutTime: hotel.checkOutTime,
+            destination: hotel.destination.name,
+            country: hotel.destination.countryName,
+          },
+        ] as const;
+      }),
+    ),
+  );
+  return Object.fromEntries(
+    options.flatMap((option) => {
+      const presentation = option.hotelId ? byId.get(option.hotelId) : undefined;
+      return presentation ? [[option.id, presentation]] : [];
+    }),
+  );
+}
+
+/** Customer-safe vehicle catalogue details used by the public quotation card. */
+async function resolveVehiclePresentations(
+  companyId: string,
+  services: Array<{ id: string; vehicleId: string | null }>,
+) {
+  const vehicleIds = [...new Set(services.map((row) => row.vehicleId).filter(Boolean))] as string[];
+  if (!vehicleIds.length) return {};
+  const vehicles = await prisma.vehicle.findMany({
+    where: { id: { in: vehicleIds }, companyId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      vehicleType: true,
+      capacity: true,
+      imageObjectKey: true,
+      imageFileName: true,
+      imageConfirmedAt: true,
+    },
+  });
+  const byId = new Map(
+    await Promise.all(
+      vehicles.map(async (vehicle) => {
+        let imageUrl: string | null = null;
+        if (vehicle.imageObjectKey && vehicle.imageConfirmedAt) {
+          try {
+            imageUrl = await storageService.createDownloadUrl(
+              vehicle.imageObjectKey,
+              vehicle.imageFileName ?? 'vehicle.jpg',
+            );
+          } catch {
+            imageUrl = null;
+          }
+        }
+        return [
+          vehicle.id,
+          {
+            imageUrl,
+            name: vehicle.name,
+            vehicleType: vehicle.vehicleType,
+            capacity: vehicle.capacity,
+          },
+        ] as const;
+      }),
+    ),
+  );
+  return Object.fromEntries(
+    services.flatMap((service) => {
+      const presentation = service.vehicleId ? byId.get(service.vehicleId) : undefined;
+      return presentation ? [[service.id, presentation]] : [];
+    }),
+  );
+}
+
+/** Customer-safe Airline master logos used by public flight segment cards. */
+async function resolveAirlinePresentations(companyId: string, flightDetails: unknown) {
+  const parsed = flightDetailsSchema.safeParse(flightDetails);
+  if (!parsed.success) return {};
+  const segments = [...parsed.data.outbound.segments, ...parsed.data.returnJourney.segments];
+  const airlineIds = [
+    ...new Set(segments.map((segment) => segment.airlineId).filter(Boolean)),
+  ] as string[];
+  if (!airlineIds.length) return {};
+  const airlines = await prisma.airline.findMany({
+    where: { id: { in: airlineIds }, companyId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      logoObjectKey: true,
+      logoFileName: true,
+      logoConfirmedAt: true,
+    },
+  });
+  return Object.fromEntries(
+    await Promise.all(
+      airlines.map(async (airline) => {
+        let logoUrl: string | null = null;
+        if (airline.logoObjectKey && airline.logoConfirmedAt) {
+          try {
+            logoUrl = await storageService.createDownloadUrl(
+              airline.logoObjectKey,
+              airline.logoFileName ?? 'airline-logo',
+            );
+          } catch {
+            logoUrl = null;
+          }
+        }
+        return [airline.id, { name: airline.name, logoUrl }] as const;
+      }),
+    ),
+  );
+}
+
+/** Maps each sightseeing activity's master id to a short-lived signed image URL. */
+async function resolveSightseeingPresentations(companyId: string, sightseeingDetails: unknown) {
+  const parsed = sightseeingDetailsSchema.safeParse(sightseeingDetails);
+  if (!parsed.success) return {};
+  const ids = [
+    ...new Set(
+      parsed.data.days
+        .flatMap((day) => day.activities.map((activity) => activity.sightseeingId))
+        .filter(Boolean),
+    ),
+  ] as string[];
+  if (!ids.length) return {};
+  const rows = await prisma.sightseeing.findMany({
+    where: { id: { in: ids }, companyId, deletedAt: null },
+    select: { id: true, imageObjectKey: true, imageFileName: true, imageConfirmedAt: true },
+  });
+  return Object.fromEntries(
+    await Promise.all(
+      rows.map(async (row) => {
+        let imageUrl: string | null = null;
+        if (row.imageObjectKey && row.imageConfirmedAt) {
+          try {
+            imageUrl = await storageService.createDownloadUrl(
+              row.imageObjectKey,
+              row.imageFileName ?? 'sightseeing',
+            );
+          } catch {
+            imageUrl = null;
+          }
+        }
+        return [row.id, { imageUrl }] as const;
+      }),
+    ),
+  );
 }
 
 async function getVersion(auth: AuthContext, quotationId: string, versionId: string) {
@@ -756,8 +978,13 @@ export const quotationsService = {
       (lead.itinerary.map((row) => row.destination).join(' • ') ||
         lead.departureCity ||
         'Travel package');
+    const primaryDestination =
+      lead.itinerary[0]?.destination?.trim() ||
+      destination.split(/[•(→>,]/)[0]?.trim() ||
+      destination;
+    const defaultTitle = `${primaryDestination} Package for ${lead.customerName}`;
     const version: QuotationVersionInput = {
-      title: input.version?.title ?? source?.title ?? `${destination} travel proposal`,
+      title: input.version?.title ?? source?.title ?? defaultTitle,
       introduction:
         input.version?.introduction ??
         source?.introduction ??
@@ -1625,9 +1852,31 @@ export const quotationsService = {
       quotation.destinationSummary,
       version.itinerary.map((day) => day.destination),
     );
+    const hotelPresentations = await resolveHotelPresentations(
+      quotation.companyId,
+      version.hotels.map((hotel) => ({ id: hotel.id, hotelId: hotel.hotelId })),
+    );
+    const vehiclePresentations = await resolveVehiclePresentations(
+      quotation.companyId,
+      version.services
+        .filter((service) => service.serviceType === 'VEHICLE_TRANSFER')
+        .map((service) => ({ id: service.id, vehicleId: service.vehicleId })),
+    );
+    const airlinePresentations = await resolveAirlinePresentations(
+      quotation.companyId,
+      version.flightDetails,
+    );
+    const sightseeingPresentations = await resolveSightseeingPresentations(
+      quotation.companyId,
+      version.sightseeingDetails,
+    );
     return {
       company: quotation.company,
       heroImageUrl,
+      hotelPresentations,
+      vehiclePresentations,
+      airlinePresentations,
+      sightseeingPresentations,
       quotation: {
         quotationNumber: quotation.quotationNumber,
         customerName: quotation.customerName,

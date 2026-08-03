@@ -24,7 +24,6 @@ const TABS = [
   ['preferences', 'Preferences'],
   ['terms', 'Default Terms'],
   ['bank', 'Bank Account'],
-  ['numbering', 'Numbering'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -489,43 +488,6 @@ function BankTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boolea
   );
 }
 
-function NumberingTab({ data }: { data: CompanySettings }) {
-  const rows: Array<[string, string]> = [
-    ['Query', String(data.numbering.queryExample)],
-    ['Customer', String(data.numbering.customerExample)],
-    ['Quotation', String(data.numbering.quotationExample)],
-    ['Quotation Template', String(data.numbering.quotationTemplateExample)],
-    ['Booking', String(data.numbering.bookingExample)],
-    ['Customer Payment', String(data.numbering.customerPaymentExample)],
-    ['Refund', String(data.numbering.refundExample)],
-    ['Vendor', String(data.numbering.vendorExample)],
-    ['Vendor Payable', String(data.numbering.vendorPayableExample)],
-    ['Vendor Payment', String(data.numbering.vendorPaymentExample)],
-  ];
-  return (
-    <section className={card}>
-      <h2 className="font-semibold">Current numbering formats</h2>
-      <p className="text-xs text-slate-500">Read-only in this version.</p>
-      <table className="min-w-full text-left text-sm">
-        <thead className="text-xs uppercase text-slate-500">
-          <tr>
-            <th className="py-2 pr-4">Document type</th>
-            <th className="py-2 pr-4">Example ({String(data.numbering.year)})</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {rows.map(([label, example]) => (
-            <tr key={label}>
-              <td className="py-2 pr-4">{label}</td>
-              <td className="py-2 pr-4 font-mono">{example}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
 export function SettingsPage() {
   const settings = useSettings();
   const [tab, setTab] = useState<TabKey>('profile');
@@ -568,7 +530,6 @@ export function SettingsPage() {
       {tab === 'preferences' && <PreferencesTab data={data} canUpdate={canUpdate} />}
       {tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
       {tab === 'bank' && <BankTab data={data} canUpdate={canUpdate} />}
-      {tab === 'numbering' && <NumberingTab data={data} />}
     </div>
   );
 }

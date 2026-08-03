@@ -81,7 +81,7 @@ describe('Phase 6 travel lead management', () => {
     const client = await owner('owner@alpha.test', 'Alpha Travel');
     const response = await client.post('/api/queries', payload());
     expect(response.status).toBe(201);
-    expect(response.body.data.queryNumber).toMatch(/^QRY-\d{4}-000001$/);
+    expect(response.body.data.queryNumber).toMatch(/^QRY-000001$/);
     expect(response.body.data.travellerSummary).toContain('3 Adults');
     expect(response.body.data.services).toHaveLength(2);
     expect(response.body.data.itinerary.map((x: { destination: string }) => x.destination)).toEqual(

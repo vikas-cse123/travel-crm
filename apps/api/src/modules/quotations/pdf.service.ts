@@ -94,6 +94,10 @@ export async function renderQuotationPdf(input: {
     visaServiceCharge: unknown;
     visaGstPercent: unknown;
     visaVfsCharge: unknown;
+    // Reference "Flight" — structured journeys/segments (JSON).
+    flightDetails: unknown;
+    // Reference "Sightseeing" — day-wise activity itinerary (JSON).
+    sightseeingDetails: unknown;
     hotels: Array<{
       city: string;
       hotelName: string;
@@ -233,6 +237,133 @@ export async function renderQuotationPdf(input: {
   const q = input.quotation;
   const currency = v.currency;
   const textLines = (lines: string[]) => lines.forEach((line) => doc.text(line, { indent: 10 }));
+
+  // Flight — structured journeys/segments.
+  type PdfFlightSegment = {
+    airlineName?: string | null;
+    flightNumber?: string | null;
+    travelClass?: string | null;
+    from?: string | null;
+    to?: string | null;
+    departureDate?: string | null;
+    departureTime?: string | null;
+    arrivalDate?: string | null;
+    arrivalTime?: string | null;
+    duration?: string | null;
+    cabinLuggage?: string | null;
+    checkInLuggage?: string | null;
+    notes?: string | null;
+  };
+  type PdfFlightJourney = {
+    fromCity?: string | null;
+    toCity?: string | null;
+    segments?: PdfFlightSegment[];
+  };
+  type PdfFlightDetails = {
+    include?: boolean;
+    journeyType?: string;
+    outbound?: PdfFlightJourney;
+    returnJourney?: PdfFlightJourney;
+  };
+  const fd = v.flightDetails as PdfFlightDetails | null | undefined;
+  const flightLegs =
+    fd && fd.include
+      ? (
+          [
+            fd.journeyType === 'ONEWAY_RETURN'
+              ? null
+              : { title: 'Outbound Journey', journey: fd.outbound },
+            fd.journeyType === 'ONEWAY_OUTBOUND'
+              ? null
+              : { title: 'Return Journey', journey: fd.returnJourney },
+          ] as Array<{ title: string; journey?: PdfFlightJourney } | null>
+        ).filter((leg): leg is { title: string; journey?: PdfFlightJourney } => Boolean(leg))
+      : [];
+  const segHasData = (s: PdfFlightSegment) => Boolean(s.airlineName || s.from || s.to || s.flightNumber);
+  if (flightLegs.some((leg) => (leg.journey?.segments ?? []).some(segHasData))) {
+    heading('Flight details');
+    for (const leg of flightLegs) {
+      const segs = (leg.journey?.segments ?? []).filter(segHasData);
+      if (!segs.length) continue;
+      const route = [leg.journey?.fromCity, leg.journey?.toCity].filter(Boolean).join(' -> ');
+      doc.font('Helvetica-Bold').text(`${leg.title}${route ? `: ${route}` : ''}`).font('Helvetica');
+      segs.forEach((s, index) => {
+        const airline = [s.airlineName, s.flightNumber].filter(Boolean).join(' ');
+        doc.text(`Segment ${index + 1}: ${airline || 'Airline'}${s.travelClass ? ` • ${s.travelClass}` : ''}`, {
+          indent: 10,
+        });
+        doc
+          .fillColor('#475569')
+          .text(
+            `${safe(s.departureTime)} ${safe(s.from)} (${date(s.departureDate)}) -> ${safe(s.arrivalTime)} ${safe(s.to)} (${date(s.arrivalDate)})${s.duration ? ` • ${s.duration}` : ''}`,
+            { indent: 20 },
+          )
+          .fillColor('#0f172a');
+        if (s.cabinLuggage || s.checkInLuggage)
+          doc
+            .fillColor('#475569')
+            .text(`Baggage: Cabin ${s.cabinLuggage ?? '-'} / Check-in ${s.checkInLuggage ?? '-'}`, {
+              indent: 20,
+            })
+            .fillColor('#0f172a');
+        const noteLines = htmlToLines(s.notes);
+        if (noteLines.length) {
+          doc.fillColor('#475569').text('Notes:', { indent: 20 });
+          noteLines.forEach((line) => doc.text(line, { indent: 30 }));
+          doc.fillColor('#0f172a');
+        }
+      });
+      doc.moveDown(0.3);
+    }
+  }
+
+  // Sightseeing — day-wise activity itinerary.
+  type PdfSightActivity = { name?: string | null; description?: string | null };
+  type PdfSightDay = {
+    dayNumber?: number;
+    title?: string | null;
+    city?: string | null;
+    date?: string | null;
+    meals?: { breakfast?: boolean; lunch?: boolean; dinner?: boolean };
+    dailyTransfer?: string | null;
+    activities?: PdfSightActivity[];
+  };
+  const sd = v.sightseeingDetails as { include?: boolean; days?: PdfSightDay[] } | null | undefined;
+  const sightDays = (sd && sd.include !== false ? (sd.days ?? []) : []).filter(
+    (day) => day.title || (day.activities ?? []).some((a) => a.name || a.description),
+  );
+  if (sightDays.length) {
+    heading('Your itinerary');
+    for (const day of sightDays) {
+      const place = [day.city, day.date ? date(day.date) : ''].filter(Boolean).join(' • ');
+      doc
+        .font('Helvetica-Bold')
+        .text(`${day.title || `Day ${day.dayNumber ?? ''}`}${place ? ` (${place})` : ''}`)
+        .font('Helvetica');
+      for (const activity of (day.activities ?? []).filter((a) => a.name || a.description)) {
+        if (activity.name) doc.text(`• ${activity.name}`, { indent: 10 });
+        htmlToLines(activity.description).forEach((line) => doc.text(line, { indent: 20 }));
+      }
+      const meals = [
+        day.meals?.breakfast && 'Breakfast',
+        day.meals?.lunch && 'Lunch',
+        day.meals?.dinner && 'Dinner',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      if (meals || day.dailyTransfer)
+        doc
+          .fillColor('#475569')
+          .text(
+            [meals && `Meals: ${meals}`, day.dailyTransfer && `Transfer: ${day.dailyTransfer}`]
+              .filter(Boolean)
+              .join(' • '),
+            { indent: 10 },
+          )
+          .fillColor('#0f172a');
+      doc.moveDown(0.3);
+    }
+  }
 
   // Visa — single dedicated section.
   const visaConsolidated =

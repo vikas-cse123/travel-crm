@@ -178,7 +178,8 @@ async function nextNumber(
   companyId: string,
   kind: 'vendor' | 'payable' | 'payment',
 ) {
-  const year = new Date().getUTCFullYear();
+  // One lifetime counter keeps IDs compact and prevents yearly resets.
+  const year = 0;
   const create = {
     companyId,
     year,
@@ -205,7 +206,7 @@ async function nextNumber(
         ? counter.payableValue
         : counter.paymentValue;
   const prefix = kind === 'vendor' ? 'VEN' : kind === 'payable' ? 'VP' : 'VPAY';
-  return `${prefix}-${year}-${String(value).padStart(6, '0')}`;
+  return `${prefix}-${String(value).padStart(6, '0')}`;
 }
 
 function presentVendor(vendor: Record<string, unknown>, financial: boolean) {

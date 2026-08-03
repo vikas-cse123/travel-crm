@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { MasterSelect, type MasterOption } from '@/components/ui/MasterSelect';
 import {
   useAddOnServices,
@@ -50,22 +50,41 @@ interface HotelMasterFieldsProps {
   };
   /** Costing inputs are hidden without the permission, so never prefill them. */
   canCost: boolean;
+  preferredCity?: string | undefined;
+  showLabels?: boolean;
   onChange: (patch: HotelRowPatch) => void;
 }
 
-export function HotelMasterFields({ value, canCost, onChange }: HotelMasterFieldsProps) {
+export function HotelMasterFields({
+  value,
+  canCost,
+  preferredCity,
+  showLabels = false,
+  onChange,
+}: HotelMasterFieldsProps) {
   const hotels = useHotels(ACTIVE());
   const detail = useHotel(value.hotelId ?? undefined);
 
-  const hotelOptions = useMemo<MasterOption[]>(
-    () =>
-      (hotels.data?.data ?? []).map((hotel) => ({
+  const hotelOptions = useMemo<MasterOption[]>(() => {
+    const normalizedCity = preferredCity?.trim().toLowerCase();
+    return [...(hotels.data?.data ?? [])]
+      .sort((a, b) => {
+        const aMatches =
+          a.city.name.toLowerCase() === normalizedCity ||
+          a.destination.name.toLowerCase() === normalizedCity;
+        const bMatches =
+          b.city.name.toLowerCase() === normalizedCity ||
+          b.destination.name.toLowerCase() === normalizedCity;
+        if (aMatches !== bMatches) return aMatches ? -1 : 1;
+        if (a.isDefaultForCity !== b.isDefaultForCity) return a.isDefaultForCity ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      })
+      .map((hotel) => ({
         id: hotel.id,
         label: hotel.name,
         hint: hotel.city?.name,
-      })),
-    [hotels.data],
-  );
+      }));
+  }, [hotels.data, preferredCity]);
   const roomTypes = detail.data?.roomTypes ?? [];
   const mealPlans = detail.data?.mealPlans ?? [];
 
@@ -85,57 +104,79 @@ export function HotelMasterFields({ value, canCost, onChange }: HotelMasterField
     };
   };
 
+  const FieldShell = ({ label, children }: { label: string; children: ReactNode }) =>
+    showLabels ? (
+      <label className="text-sm font-semibold text-slate-800">
+        {label}
+        <span className="ml-0.5 text-red-500">*</span>
+        <span className="mt-1 block">{children}</span>
+      </label>
+    ) : (
+      <>{children}</>
+    );
+
   return (
     <>
-      <MasterSelect
-        ariaLabel="Hotel master"
-        placeholder="Link a hotel"
-        options={hotelOptions}
-        value={value.hotelId}
-        loading={hotels.isPending}
-        fallbackLabel={detail.data?.name}
-        onSelect={(option) =>
-          onChange({
-            hotelId: option?.id ?? null,
-            // The child selections belong to the previous hotel.
-            hotelRoomTypeId: null,
-            hotelMealPlanId: null,
-            ...(option
-              ? { hotelName: option.label, ...(option.hint ? { city: option.hint } : {}) }
-              : {}),
-          })
-        }
-      />
-      <MasterSelect
-        ariaLabel="Room type master"
-        placeholder={value.hotelId ? 'Link a room type' : 'Select a hotel first'}
-        options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
-        value={value.hotelRoomTypeId}
-        disabled={!value.hotelId}
-        loading={Boolean(value.hotelId) && detail.isPending}
-        onSelect={(option) =>
-          onChange({
-            hotelRoomTypeId: option?.id ?? null,
-            ...(option ? { roomType: option.label } : {}),
-            ...pricing(option?.id ?? null, value.hotelMealPlanId ?? null),
-          })
-        }
-      />
-      <MasterSelect
-        ariaLabel="Meal plan master"
-        placeholder={value.hotelId ? 'Link a meal plan' : 'Select a hotel first'}
-        options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
-        value={value.hotelMealPlanId}
-        disabled={!value.hotelId}
-        loading={Boolean(value.hotelId) && detail.isPending}
-        onSelect={(option) =>
-          onChange({
-            hotelMealPlanId: option?.id ?? null,
-            ...(option ? { mealPlan: option.label } : {}),
-            ...pricing(value.hotelRoomTypeId ?? null, option?.id ?? null),
-          })
-        }
-      />
+      <FieldShell label="Hotel Name">
+        <MasterSelect
+          ariaLabel="Hotel master"
+          placeholder="Link a hotel"
+          options={hotelOptions}
+          value={value.hotelId}
+          loading={hotels.isPending}
+          fallbackLabel={detail.data?.name}
+          onSelect={(option) => {
+            const selected = (hotels.data?.data ?? []).find((hotel) => hotel.id === option?.id);
+            onChange({
+              hotelId: option?.id ?? null,
+              // The child selections belong to the previous hotel.
+              hotelRoomTypeId: null,
+              hotelMealPlanId: null,
+              ...(option
+                ? {
+                    hotelName: option.label,
+                    ...(option.hint ? { city: option.hint } : {}),
+                    category: selected?.starCategory ? `${selected.starCategory} Star` : null,
+                  }
+                : {}),
+            });
+          }}
+        />
+      </FieldShell>
+      <FieldShell label="Room Type">
+        <MasterSelect
+          ariaLabel="Room type master"
+          placeholder={value.hotelId ? 'Link a room type' : 'Select a hotel first'}
+          options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
+          value={value.hotelRoomTypeId}
+          disabled={!value.hotelId}
+          loading={Boolean(value.hotelId) && detail.isPending}
+          onSelect={(option) =>
+            onChange({
+              hotelRoomTypeId: option?.id ?? null,
+              ...(option ? { roomType: option.label } : {}),
+              ...pricing(option?.id ?? null, value.hotelMealPlanId ?? null),
+            })
+          }
+        />
+      </FieldShell>
+      <FieldShell label="Meal Plan">
+        <MasterSelect
+          ariaLabel="Meal plan master"
+          placeholder={value.hotelId ? 'Link a meal plan' : 'Select a hotel first'}
+          options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
+          value={value.hotelMealPlanId}
+          disabled={!value.hotelId}
+          loading={Boolean(value.hotelId) && detail.isPending}
+          onSelect={(option) =>
+            onChange({
+              hotelMealPlanId: option?.id ?? null,
+              ...(option ? { mealPlan: option.label } : {}),
+              ...pricing(value.hotelRoomTypeId ?? null, option?.id ?? null),
+            })
+          }
+        />
+      </FieldShell>
     </>
   );
 }

@@ -102,12 +102,6 @@ export function HotelDetailsPage() {
                 <dd className="font-medium">{value.mealPlans.length}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">Check-in / out</dt>
-                <dd className="font-medium">
-                  {value.checkInTime ?? '—'} / {value.checkOutTime ?? '—'}
-                </dd>
-              </div>
-              <div>
                 <dt className="text-slate-500">Created</dt>
                 <dd className="font-medium">{formatMasterDate(value.createdAt)}</dd>
               </div>
