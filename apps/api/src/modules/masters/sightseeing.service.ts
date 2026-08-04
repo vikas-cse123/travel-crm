@@ -193,7 +193,16 @@ export const sightseeingService = {
       prisma.sightseeing.findMany({
         where,
         ...toPrismaPagination(pagination),
-        orderBy: [{ createdAt: 'desc' }, { title: 'asc' }],
+        // Ascending sequence within each destination/city group, with a stable
+        // creation-date + id tiebreak for equal sequences. This keeps the
+        // reference "1, 2, 3 …" ordering instead of newest-first.
+        orderBy: [
+          { destination: { name: 'asc' } },
+          { city: { name: 'asc' } },
+          { sequence: 'asc' },
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
         include: sightseeingInclude,
       }),
       prisma.sightseeing.count({ where }),
@@ -288,6 +297,22 @@ export const sightseeingService = {
     await validateDestinationCity(auth.companyId, input.destinationId, input.cityId);
     try {
       const row = await prisma.$transaction(async (tx) => {
+        // A fresh record gets the next sequence in its city group unless an
+        // explicit sequence was supplied (the schema default of 1 is treated
+        // as "auto"), keeping group numbering contiguous.
+        let sequence = input.sequence ?? 1;
+        if (sequence === 1) {
+          const max = await tx.sightseeing.aggregate({
+            where: {
+              companyId: auth.companyId,
+              cityId: input.cityId,
+              deletedAt: null,
+              status: { not: 'ARCHIVED' },
+            },
+            _max: { sequence: true },
+          });
+          sequence = (max._max.sequence ?? 0) + 1;
+        }
         const created = await tx.sightseeing.create({
           data: {
             companyId: auth.companyId,
@@ -297,7 +322,8 @@ export const sightseeingService = {
             normalizedTitle: normalizeCustomerName(input.title),
             status: input.status,
             createdById: auth.userId,
-            ...writeData(input),
+            sequence,
+            ...writeData({ ...input, sequence }),
           },
           include: sightseeingInclude,
         });

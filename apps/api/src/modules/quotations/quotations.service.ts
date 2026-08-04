@@ -118,6 +118,23 @@ function effectiveStatus(value: { status: string; validUntil: Date | null }) {
     : value.status;
 }
 
+/** Short-lived signed URL for the company branding logo, or null. */
+async function publicCompanyLogoUrl(company: {
+  logoObjectKey: string | null;
+  logoConfirmedAt: Date | null;
+}) {
+  if (!company.logoObjectKey || !company.logoConfirmedAt) return null;
+  try {
+    return await storageService.createDownloadUrl(
+      company.logoObjectKey,
+      'logo',
+      env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS,
+    );
+  } catch {
+    return null;
+  }
+}
+
 function presentVersion(version: FullVersion, canViewCosting: boolean, customerSafe = false) {
   const {
     companyId,
@@ -621,6 +638,69 @@ async function resolveVehiclePresentations(
     services.flatMap((service) => {
       const presentation = service.vehicleId ? byId.get(service.vehicleId) : undefined;
       return presentation ? [[service.id, presentation]] : [];
+    }),
+  );
+}
+
+/** Customer-safe Cruise master image + room-type name used by public cruise cards. */
+async function resolveCruisePresentations(
+  companyId: string,
+  services: Array<{ id: string; cruiseId: string | null; cruiseRoomTypeId: string | null }>,
+) {
+  const cruiseIds = [...new Set(services.map((row) => row.cruiseId).filter(Boolean))] as string[];
+  if (!cruiseIds.length) return {};
+  const cruises = await prisma.cruise.findMany({
+    where: { id: { in: cruiseIds }, companyId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      imageObjectKey: true,
+      imageFileName: true,
+      imageConfirmedAt: true,
+      roomTypes: {
+        where: { status: 'ACTIVE' },
+        select: { id: true, name: true },
+        orderBy: { sortOrder: 'asc' as const },
+      },
+    },
+  });
+  const roomNameById = new Map<string, string>();
+  for (const cruise of cruises)
+    for (const room of cruise.roomTypes) roomNameById.set(room.id, room.name);
+  const byCruise = new Map(
+    await Promise.all(
+      cruises.map(async (cruise) => {
+        let imageUrl: string | null = null;
+        if (cruise.imageObjectKey && cruise.imageConfirmedAt) {
+          try {
+            imageUrl = await storageService.createDownloadUrl(
+              cruise.imageObjectKey,
+              cruise.imageFileName ?? 'cruise.jpg',
+            );
+          } catch {
+            imageUrl = null;
+          }
+        }
+        return [cruise.id, { imageUrl, name: cruise.name }] as const;
+      }),
+    ),
+  );
+  return Object.fromEntries(
+    services.flatMap((service) => {
+      const cruise = service.cruiseId ? byCruise.get(service.cruiseId) : undefined;
+      if (!cruise) return [];
+      return [
+        [
+          service.id,
+          {
+            imageUrl: cruise.imageUrl,
+            name: cruise.name,
+            roomTypeName: service.cruiseRoomTypeId
+              ? (roomNameById.get(service.cruiseRoomTypeId) ?? null)
+              : null,
+          },
+        ],
+      ];
     }),
   );
 }
@@ -1788,6 +1868,13 @@ export const quotationsService = {
             website: true,
             address: true,
             primaryColor: true,
+            // Company Settings values surfaced on the public footer/favicon.
+            operatingSinceYear: true,
+            tripsSold: true,
+            tan: true,
+            taxRegistrationNumber: true,
+            logoObjectKey: true,
+            logoConfirmedAt: true,
           },
         },
       },
@@ -1870,13 +1957,36 @@ export const quotationsService = {
       quotation.companyId,
       version.sightseeingDetails,
     );
+    const cruisePresentations = await resolveCruisePresentations(
+      quotation.companyId,
+      version.services
+        .filter((service) => service.serviceType === 'CRUISE')
+        .map((service) => ({
+          id: service.id,
+          cruiseId: service.cruiseId,
+          cruiseRoomTypeId: service.cruiseRoomTypeId,
+        })),
+    );
     return {
-      company: quotation.company,
+      company: {
+        name: quotation.company.name,
+        email: quotation.company.email,
+        phone: quotation.company.phone,
+        website: quotation.company.website,
+        address: quotation.company.address,
+        primaryColor: quotation.company.primaryColor,
+        operatingSince: quotation.company.operatingSinceYear,
+        tripsSold: quotation.company.tripsSold,
+        tan: quotation.company.tan,
+        taxRegistrationNumber: quotation.company.taxRegistrationNumber,
+        logoUrl: await publicCompanyLogoUrl(quotation.company),
+      },
       heroImageUrl,
       hotelPresentations,
       vehiclePresentations,
       airlinePresentations,
       sightseeingPresentations,
+      cruisePresentations,
       quotation: {
         quotationNumber: quotation.quotationNumber,
         customerName: quotation.customerName,
@@ -1889,6 +1999,7 @@ export const quotationsService = {
         infants: quotation.infants,
         rooms: quotation.rooms,
         validUntil: quotation.validUntil,
+        createdAt: quotation.createdAt,
         status: effectiveStatus(quotation),
       },
       version: presentVersion(version, false, true),

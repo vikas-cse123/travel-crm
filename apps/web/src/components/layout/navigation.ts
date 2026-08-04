@@ -24,6 +24,11 @@ import {
 } from 'lucide-react';
 import { PERMISSIONS } from '@interscale/shared';
 
+// The "Visa Types" item is temporarily hidden from the Masters sidebar
+// navigation. Set this back to true to restore it; the route, pages and data
+// are untouched.
+export const SHOW_VISA_TYPES_MASTER_NAVIGATION = false;
+
 /**
  * The sidebar model.
  *
@@ -198,13 +203,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
         available: true,
         permission: PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW,
       },
-      {
-        label: 'Visa Types',
-        to: '/masters/visa-types',
-        icon: FileText,
-        available: true,
-        permission: PERMISSIONS.MASTER_VISA_TYPES_VIEW,
-      },
+      ...(SHOW_VISA_TYPES_MASTER_NAVIGATION
+        ? [
+            {
+              label: 'Visa Types',
+              to: '/masters/visa-types',
+              icon: FileText,
+              available: true,
+              permission: PERMISSIONS.MASTER_VISA_TYPES_VIEW,
+            },
+          ]
+        : []),
     ],
   },
   // Users, Reports and Settings have permissions already, but their screens

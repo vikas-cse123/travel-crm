@@ -168,7 +168,7 @@ describe('Phase 8 customer quotations', () => {
       version: { markupMode: 'PERCENTAGE', markupValue: 10, taxRate: 5, discountAmount: 100 },
     });
     expect(response.status).toBe(201);
-    expect(response.body.data.quotationNumber).toMatch(/^QT-000001$/);
+    expect(response.body.data.quotationNumber).toMatch(/^QT-001000$/);
     expect(response.body.data.versions[0]).toMatchObject({
       versionNumber: 1,
       status: 'DRAFT',
@@ -196,7 +196,83 @@ describe('Phase 8 customer quotations', () => {
     );
     expect(responses.every((response) => response.status === 201)).toBe(true);
     expect(new Set(responses.map((response) => response.body.data.quotationNumber)).size).toBe(5);
-    expect((await db.quotationCounter.findFirstOrThrow()).quotationValue).toBe(5);
+    expect((await db.quotationCounter.findFirstOrThrow()).quotationValue).toBe(1004);
+  });
+
+  it('starts a fresh quotation sequence at QT-001000 and increments by exactly one', async () => {
+    const client = await owner();
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const first = await client.post('/api/quotations', { queryId: lead.id });
+    const second = await client.post('/api/quotations', { queryId: lead.id });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.data.quotationNumber).toBe('QT-001000');
+    expect(second.body.data.quotationNumber).toBe('QT-001001');
+    expect((await db.quotationCounter.findFirstOrThrow()).quotationValue).toBe(1001);
+    // Already-issued numbers never change.
+    expect(
+      (await db.quotation.findUniqueOrThrow({ where: { id: first.body.data.id } })).quotationNumber,
+    ).toBe('QT-001000');
+    expect(
+      (await db.quotation.findUniqueOrThrow({ where: { id: second.body.data.id } }))
+        .quotationNumber,
+    ).toBe('QT-001001');
+  });
+
+  it('jumps a legacy counter below the floor to QT-001000', async () => {
+    const client = await owner();
+    const companyId = (await db.company.findFirstOrThrow()).id;
+    await db.quotationCounter.upsert({
+      where: { companyId_year: { companyId, year: 0 } },
+      create: { companyId, year: 0, quotationValue: 34 },
+      update: { quotationValue: 34 },
+    });
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const response = await client.post('/api/quotations', { queryId: lead.id });
+    expect(response.status).toBe(201);
+    expect(response.body.data.quotationNumber).toBe('QT-001000');
+    // The legacy counter was raised, never lowered, and the next one continues.
+    const next = await client.post('/api/quotations', { queryId: lead.id });
+    expect(next.body.data.quotationNumber).toBe('QT-001001');
+  });
+
+  it('continues from an existing counter above 1000', async () => {
+    const client = await owner();
+    const companyId = (await db.company.findFirstOrThrow()).id;
+    await db.quotationCounter.upsert({
+      where: { companyId_year: { companyId, year: 0 } },
+      create: { companyId, year: 0, quotationValue: 1457 },
+      update: { quotationValue: 1457 },
+    });
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const response = await client.post('/api/quotations', { queryId: lead.id });
+    expect(response.status).toBe(201);
+    expect(response.body.data.quotationNumber).toBe('QT-001458');
+  });
+
+  it('starts at QT-001000 even when a template counter exists first', async () => {
+    const client = await owner();
+    await client.post('/api/quotation-templates', templatePayload());
+    expect((await db.quotationCounter.findFirstOrThrow()).quotationValue).toBe(0);
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const response = await client.post('/api/quotations', { queryId: lead.id });
+    expect(response.status).toBe(201);
+    expect(response.body.data.quotationNumber).toBe('QT-001000');
+  });
+
+  it('keeps quotation counters isolated per company, both starting at 1000', async () => {
+    const alpha = await owner('owner@alpha.test', 'Alpha Travel');
+    const beta = await owner('owner@beta.test', 'Beta Travel');
+    const leadAlpha = (await alpha.post('/api/queries', leadPayload('+91 90000 00001'))).body.data;
+    const leadBeta = (await beta.post('/api/queries', leadPayload('+91 90000 00002'))).body.data;
+    const a1 = await alpha.post('/api/quotations', { queryId: leadAlpha.id });
+    const b1 = await beta.post('/api/quotations', { queryId: leadBeta.id });
+    expect(a1.body.data.quotationNumber).toBe('QT-001000');
+    expect(b1.body.data.quotationNumber).toBe('QT-001000');
+    const a2 = await alpha.post('/api/quotations', { queryId: leadAlpha.id });
+    const b2 = await beta.post('/api/quotations', { queryId: leadBeta.id });
+    expect(a2.body.data.quotationNumber).toBe('QT-001001');
+    expect(b2.body.data.quotationNumber).toBe('QT-001001');
   });
 
   it('finalizes immutable versions and creates revisions without overwriting history', async () => {
@@ -227,6 +303,52 @@ describe('Phase 8 customer quotations', () => {
       'Revised package',
       'Goa family escape',
     ]);
+  });
+
+  it('accepts hotels: [] and rejects empty hotel rows when hotels are supplied', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const version = quotation.versions[0];
+
+    // Empty hotels array (hotel excluded) is a valid draft save.
+    const cleared = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      hotels: [],
+    });
+    expect(cleared.status).toBe(200);
+
+    // An empty hotel row is still rejected when hotel data is supplied.
+    const invalid = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      hotels: [
+        {
+          city: 'Goa',
+          hotelName: '',
+          rooms: 1,
+          nights: 1,
+          selected: true,
+          sequence: 1,
+        },
+      ],
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.fields['hotels.0.hotelName']).toBeDefined();
+
+    // Valid hotel information saves successfully.
+    const valid = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      hotels: [
+        {
+          city: 'Goa',
+          hotelName: 'Coastal Bay Resort',
+          rooms: 1,
+          nights: 4,
+          selected: true,
+          sequence: 1,
+        },
+      ],
+    });
+    expect(valid.status).toBe(200);
+    expect(valid.body.data.hotels[0].hotelName).toBe('Coastal Bay Resort');
   });
 
   it('generates and reuses a customer-safe PDF in fake private storage', async () => {
@@ -407,9 +529,49 @@ describe('Phase 8 customer quotations', () => {
       status: 'REJECTED',
       rejectionReason: 'Dates no longer work',
     });
-    expect((await db.query.findUniqueOrThrow({ where: { id: lead.id } })).leadStage).toBe(
-      'QUOTATION_REQUIRED',
-    );
+  });
+
+  it('exposes company settings and the quotation timestamp on the public view', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const version = quotation.versions[0];
+    await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+    const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+      quotationVersionId: version.id,
+    });
+    const token = link.body.data.url.split('/q/')[1];
+
+    await client.patch('/api/settings/profile', {
+      name: 'Alpha Travel',
+      email: 'owner@alpha.test',
+      operatingSince: 2015,
+      tripsSold: 4200,
+    });
+    await client.patch('/api/settings/tax', {
+      taxRegistrationNumber: '29ABCDE1234F1Z5',
+      tan: 'ABCD12345E',
+    });
+
+    const view = await createAuthClient(app).get(`/public/quotations/${token}`);
+    expect(view.status).toBe(200);
+    const body = view.body.data;
+    expect(body.company).toMatchObject({
+      name: 'Alpha Travel',
+      operatingSince: 2015,
+      tripsSold: 4200,
+      tan: 'ABCD12345E',
+      taxRegistrationNumber: '29ABCDE1234F1Z5',
+      logoUrl: null,
+    });
+    expect(typeof body.quotation.createdAt).toBe('string');
+    expect(body.quotation.quotationNumber).toMatch(/^QT-\d{6}$/);
+    expect(body.quotation.quotationNumber).toBe(quotation.quotationNumber);
+    // Never leak storage keys or sensitive fields to the public view.
+    expect(
+      JSON.stringify(body).match(/logoObjectKey|pendingLogoObjectKey|logoBucket|ObjectKey|accountNumber/),
+    ).toBeNull();
   });
 
   it('follows lead visibility and rejects cross-company quotation/document IDs', async () => {

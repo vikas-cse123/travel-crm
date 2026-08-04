@@ -133,8 +133,6 @@ describe('Phase 13D master pages', () => {
       'Vehicles',
       'Sightseeing',
       'Add-On Services',
-      'Visa Types',
-      'Testimonials',
     ]);
     expect(masters?.children?.find((item) => item.label === 'Sightseeing')?.to).toBe(
       '/masters/sightseeing',
@@ -152,6 +150,8 @@ describe('Phase 13D master pages', () => {
     stubApi();
     renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
 
+    // Destination groups are collapsed by default; expand to reveal the rows.
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
     expect((await screen.findAllByText('Gobustan Rock Art Tour')).length).toBeGreaterThan(0);
     // Destination and city group headers.
     expect(screen.getAllByText('Azerbaijan').length).toBeGreaterThan(0);
@@ -162,6 +162,34 @@ describe('Phase 13D master pages', () => {
     expect(screen.getByText('10:00 AM')).toBeInTheDocument();
     // Description rendered as plain text, not raw HTML.
     expect(screen.getByText(/Begin your exploration of Qobustan\./)).toBeInTheDocument();
+  });
+
+  it('renders sightseeing rows in ascending sequence order within a city', async () => {
+    const base = (id: string, title: string, sequence: number) => ({
+      ...sightseeing,
+      id,
+      title,
+      sequence,
+    });
+    stubApi({
+      sightseeing: page([base('a', 'Garden', 1), base('b', 'Zoo', 2), base('c', 'Museum', 3)]),
+    });
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    await waitFor(() =>
+      expect(document.querySelector('table tbody tr')?.textContent ?? '').toContain('Garden'),
+    );
+    // Desktop table rows follow ascending sequence (1, 2, 3), top to bottom.
+    const table = document.querySelector('table');
+    const titles = [...(table?.querySelectorAll('tbody tr td:nth-child(2) a') ?? [])].map(
+      (link) => link.textContent,
+    );
+    expect(titles).toEqual(['Garden', 'Zoo', 'Museum']);
+    const sequences = [
+      ...(table?.querySelectorAll('tbody tr td:nth-child(4) span') ?? []),
+    ].map((badge) => badge.textContent);
+    expect(sequences).toEqual(['1', '2', '3']);
   });
 
   it('renders the sightseeing summary statistics', async () => {

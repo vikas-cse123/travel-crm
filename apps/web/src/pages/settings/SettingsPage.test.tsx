@@ -19,9 +19,12 @@ const settings = (overrides: Record<string, unknown> = {}) => ({
     phone: '+91 90000 00000',
     website: 'https://interscale.test',
     address: '1 MG Road',
+    operatingSince: 2015,
+    totalReviews: 120,
+    tripsSold: 3400,
   },
   branding: { primaryColor: '#2563eb', hasLogo: false, logoMimeType: null, logoFileSize: null },
-  tax: { taxRegistrationNumber: '29ABCDE1234F1Z5' },
+  tax: { taxRegistrationNumber: '29ABCDE1234F1Z5', tan: 'ABC12345E' },
   preferences: { timezone: 'Asia/Kolkata', defaultCurrency: 'INR' },
   defaultTerms: { quotationTerms: 'Pay in 7 days', bookingTerms: 'No refunds' },
   bankAccount: { exists: false },
@@ -59,11 +62,15 @@ describe('Phase 18 settings page', () => {
     renderWithProviders(<SettingsPage />);
     expect(await screen.findByRole('heading', { name: 'Company Settings' })).toBeInTheDocument();
     expect(screen.getByLabelText('Company name')).toHaveValue('Interscale Travel');
+    expect(screen.getByLabelText('Operating Since')).toHaveValue(2015);
+    expect(screen.getByLabelText('Total Reviews')).toHaveValue(120);
+    expect(screen.getByLabelText('Trips Sold')).toHaveValue(3400);
 
     await userEvent.click(screen.getByRole('button', { name: 'Branding' }));
     expect(await screen.findByLabelText('Primary colour hex')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Tax' }));
-    expect(await screen.findByLabelText('Tax registration number')).toHaveValue('29ABCDE1234F1Z5');
+    expect(await screen.findByLabelText('GSTIN')).toHaveValue('29ABCDE1234F1Z5');
+    expect(screen.getByLabelText('TAN')).toHaveValue('ABC12345E');
     await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
     expect(await screen.findByLabelText('Timezone')).toHaveValue('Asia/Kolkata');
     await userEvent.click(screen.getByRole('button', { name: 'Default Terms' }));
@@ -78,12 +85,21 @@ describe('Phase 18 settings page', () => {
     await screen.findByLabelText('Company name');
     await userEvent.clear(screen.getByLabelText('Company name'));
     await userEvent.type(screen.getByLabelText('Company name'), 'Renamed Co');
+    await userEvent.clear(screen.getByLabelText('Total Reviews'));
+    await userEvent.type(screen.getByLabelText('Total Reviews'), '250');
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     await waitFor(() =>
       expect(
-        mock.mock.calls.some(
-          ([url, o]) => String(url).endsWith('/settings/profile') && o?.method === 'PATCH',
-        ),
+        mock.mock.calls.some(([url, o]) => {
+          const body = o?.body ? JSON.parse(String(o.body)) : null;
+          return (
+            String(url).endsWith('/settings/profile') &&
+            o?.method === 'PATCH' &&
+            body?.totalReviews === 250 &&
+            body?.operatingSince === 2015 &&
+            body?.tripsSold === 3400
+          );
+        }),
       ).toBe(true),
     );
   });
@@ -102,6 +118,31 @@ describe('Phase 18 settings page', () => {
       expect(mock.mock.calls.some(([url]) => String(url).endsWith('/settings/preferences'))).toBe(
         true,
       ),
+    );
+  });
+
+  it('saves GSTIN and TAN together and renders field-specific errors', async () => {
+    const mock = stub(settings());
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tax' }));
+    await userEvent.clear(screen.getByLabelText('GSTIN'));
+    await userEvent.type(screen.getByLabelText('GSTIN'), '07AAKCT5864G1ZX');
+    await userEvent.clear(screen.getByLabelText('TAN'));
+    await userEvent.type(screen.getByLabelText('TAN'), 'ABCD12345E');
+    await userEvent.click(screen.getByRole('button', { name: 'Save tax settings' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url, o]) => {
+          const body = o?.body ? JSON.parse(String(o.body)) : null;
+          return (
+            String(url).endsWith('/settings/tax') &&
+            o?.method === 'PATCH' &&
+            body?.taxRegistrationNumber === '07AAKCT5864G1ZX' &&
+            body?.tan === 'ABCD12345E'
+          );
+        }),
+      ).toBe(true),
     );
   });
 

@@ -285,6 +285,65 @@ describe('Sightseeing master', () => {
     });
     expect(atBoundary.status).toBe(200);
     expect(atBoundary.body.data.sequence).toBe(1);
+
+    // Moving the first record down swaps with the next one.
+    const movedDown = await client.patch(`/api/masters/sightseeing/${first.id}/reorder`, {
+      direction: 'DOWN',
+    });
+    expect(movedDown.body.data.sequence).toBe(2);
+    const boundary = await client.patch(`/api/masters/sightseeing/${first.id}/reorder`, {
+      direction: 'DOWN',
+    });
+    expect(boundary.status).toBe(200);
+    expect(boundary.body.data.sequence).toBe(2);
+  });
+
+  it('lists sightseeing ascending by sequence within each city', async () => {
+    const client = await owner();
+    const geo = await createGeo(client); // Baku / Azerbaijan
+    // All created with the default sequence: auto-assigned 1, 2, 3.
+    await createSightseeing(client, geo, { title: 'Garden' });
+    await createSightseeing(client, geo, { title: 'Zoo' });
+    await createSightseeing(client, geo, { title: 'Museum' });
+
+    const list = await client.get('/api/masters/sightseeing');
+    const rows = list.body.data.data;
+    expect(rows.map((row: { title: string }) => row.title)).toEqual([
+      'Garden',
+      'Zoo',
+      'Museum',
+    ]);
+    expect(rows.map((row: { sequence: number }) => row.sequence)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps each city sequence independent and starting from 1', async () => {
+    const client = await owner();
+    const baku = await createGeo(client, 'Baku', 'Azerbaijan');
+    const dubai = await createGeo(client, 'Dubai', 'UAE');
+    await createSightseeing(client, baku, { title: 'B1' });
+    await createSightseeing(client, baku, { title: 'B2' });
+    await createSightseeing(client, dubai, { title: 'D1' });
+
+    const list = await client.get('/api/masters/sightseeing');
+    const bakuRows = list.body.data.data.filter(
+      (row: { city: { name: string } }) => row.city.name === 'Baku',
+    );
+    const dubaiRows = list.body.data.data.filter(
+      (row: { city: { name: string } }) => row.city.name === 'Dubai',
+    );
+    expect(bakuRows.map((row: { sequence: number }) => row.sequence)).toEqual([1, 2]);
+    expect(dubaiRows.map((row: { sequence: number }) => row.sequence)).toEqual([1]);
+  });
+
+  it('assigns the next sequence number to a new sightseeing in its city', async () => {
+    const client = await owner();
+    const geo = await createGeo(client);
+    const first = await createSightseeing(client, geo, { title: 'One', sequence: 1 });
+    expect(first.sequence).toBe(1);
+    const second = await createSightseeing(client, geo, { title: 'Two' });
+    expect(second.sequence).toBe(2);
+    const third = await createSightseeing(client, geo, { title: 'Three' });
+    expect(third.sequence).toBe(3);
   });
 
   it('archives, filters by status and restores', async () => {

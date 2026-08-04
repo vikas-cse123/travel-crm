@@ -92,6 +92,9 @@ export const settingsService = {
         phone: company.phone,
         website: company.website,
         address: company.address,
+        operatingSince: company.operatingSinceYear,
+        totalReviews: company.totalReviews,
+        tripsSold: company.tripsSold,
       },
       branding: {
         primaryColor: company.primaryColor,
@@ -100,7 +103,7 @@ export const settingsService = {
         logoMimeType: company.logoConfirmedAt ? company.logoMimeType : null,
         logoFileSize: company.logoConfirmedAt ? company.logoFileSize : null,
       },
-      tax: { taxRegistrationNumber: company.taxRegistrationNumber },
+      tax: { taxRegistrationNumber: company.taxRegistrationNumber, tan: company.tan },
       preferences: { timezone: company.timezone, defaultCurrency: company.defaultCurrency },
       defaultTerms: {
         quotationTerms: company.defaultQuotationTerms,
@@ -137,6 +140,9 @@ export const settingsService = {
           phone: input.phone ?? null,
           website: input.website ?? null,
           address: input.address ?? null,
+          operatingSinceYear: input.operatingSince ?? null,
+          totalReviews: input.totalReviews ?? null,
+          tripsSold: input.tripsSold ?? null,
         },
       }),
       prisma.activityLog.create({
@@ -163,12 +169,16 @@ export const settingsService = {
     await prisma.$transaction([
       prisma.company.update({
         where: { id: auth.companyId },
-        data: { taxRegistrationNumber: input.taxRegistrationNumber ?? null },
+        data: {
+          taxRegistrationNumber: input.taxRegistrationNumber ?? null,
+          tan: input.tan ?? null,
+        },
       }),
       // Presence only, never the value itself.
       prisma.activityLog.create({
         data: audit(auth, 'COMPANY_TAX_SETTINGS_UPDATED', context, {
           hasTaxRegistration: Boolean(input.taxRegistrationNumber),
+          hasTan: Boolean(input.tan),
         }),
       }),
     ]);

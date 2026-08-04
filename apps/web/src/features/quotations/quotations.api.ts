@@ -146,12 +146,16 @@ export interface SightseeingActivity {
   sightseeingId?: string | null;
   name?: string | null;
   startTime?: string | null;
+  duration?: string | null;
+  city?: string | null;
   description?: string | null;
   imageUrl?: string | null;
+  sequence?: number | null;
 }
 export interface SightseeingDay {
   dayNumber: number;
   title?: string | null;
+  titleTouched?: boolean;
   city?: string | null;
   date?: string | null;
   meals: { breakfast: boolean; lunch: boolean; dinner: boolean };

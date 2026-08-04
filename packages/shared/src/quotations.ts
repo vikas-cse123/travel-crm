@@ -147,6 +147,34 @@ export const quotationTemplateUpdateSchema = quotationTemplateInputSchema
 
 export const FLIGHT_JOURNEY_TYPES = ['ROUND_TRIP', 'ONEWAY_OUTBOUND', 'ONEWAY_RETURN'] as const;
 
+/**
+ * User-facing label for a cabin-luggage option. The stored/API value stays
+ * "10kg" for backward compatibility with existing quotations; it is displayed
+ * as "10 kg+". Every other value renders unchanged.
+ */
+export function cabinLuggageLabel(value: string | null | undefined): string {
+  return value === '10kg' ? '10 kg+' : (value ?? '');
+}
+
+/**
+ * Calendar-night difference between a hotel's check-in and check-out dates.
+ * Times are ignored (calendar-date comparison), so a stay from 10 Aug 14:00 to
+ * 12 Aug 12:00 is 2 nights. Returns null when either date is missing/invalid or
+ * when check-out is not strictly after check-in.
+ */
+export function hotelStayNights(
+  checkIn: string | Date | null | undefined,
+  checkOut: string | Date | null | undefined,
+): number | null {
+  if (!checkIn || !checkOut) return null;
+  const from = new Date(checkIn);
+  const to = new Date(checkOut);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  const day = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const diff = Math.round((day(to) - day(from)) / 86_400_000);
+  return diff > 0 ? diff : null;
+}
+
 /** Reference "Flight" tab — one segment (leg/connection) of a journey. */
 export const flightSegmentSchema = z
   .object({
@@ -209,13 +237,19 @@ export const sightseeingActivitySchema = z.object({
   sightseeingId: z.string().uuid().nullable().optional(),
   name: optionalText(300),
   startTime: optionalText(20),
+  duration: optionalText(40),
+  city: optionalText(120),
   description: optionalText(8000),
   imageUrl: optionalText(1000),
+  sequence: z.number().int().min(1).max(500).nullable().optional(),
 });
 
 export const sightseeingDaySchema = z.object({
   dayNumber: z.coerce.number().int().min(1).max(365),
   title: optionalText(300),
+  // True once the user manually edits the day title, so automatic prefill and
+  // primary-activity changes never overwrite it.
+  titleTouched: z.boolean().optional(),
   city: optionalText(120),
   date: optionalText(20),
   meals: z

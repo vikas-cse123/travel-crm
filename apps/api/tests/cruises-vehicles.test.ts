@@ -173,6 +173,25 @@ describe('Cruise master', () => {
     expect(one.roomTypeCount).toBe(2);
   });
 
+  it('returns the selected cruise room types on the list for the quotation builder', async () => {
+    const client = await owner();
+    const created = await createCruise(client, 'Dream Genting Cruise', [{ name: 'Balcony' }]);
+
+    const list = await client.get('/api/masters/cruises');
+    expect(list.status).toBe(200);
+    const row = list.body.data.data.find((entry: { id: string }) => entry.id === created.id);
+    expect(row.roomTypes).toEqual([
+      expect.objectContaining({ id: expect.any(String), name: 'Balcony', status: 'ACTIVE' }),
+    ]);
+    // No tenant internals or private media keys leak through the room types.
+    expect(JSON.stringify(row)).not.toContain('companyId');
+    expect(JSON.stringify(row)).not.toContain('ObjectKey');
+
+    // Room types from another company are never returned.
+    const other = await owner('other@room-types.test', 'Other Room Types Co');
+    expect((await other.get('/api/masters/cruises')).body.data.data).toHaveLength(0);
+  });
+
   it('archives, filters by status and restores', async () => {
     const client = await owner();
     const cruise = await createCruise(client, 'Archivable');

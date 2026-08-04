@@ -157,11 +157,17 @@ describe('Phase 18 company settings', () => {
       phone: '+91 90000 00000',
       website: 'https://interscale.test',
       address: '1 MG Road, Bengaluru',
+      operatingSince: 1998,
+      totalReviews: 250,
+      tripsSold: 12000,
     });
     expect(ok.status).toBe(200);
     expect(ok.body.data.profile).toMatchObject({
       name: 'Interscale Demo',
       website: 'https://interscale.test',
+      operatingSince: 1998,
+      totalReviews: 250,
+      tripsSold: 12000,
     });
     expect((await client.patch('/api/settings/profile', { name: 'X', email: 'bad' })).status).toBe(
       400,
@@ -172,6 +178,25 @@ describe('Phase 18 company settings', () => {
           name: 'X Co',
           email: 'ok@x.test',
           website: 'not-a-url',
+        })
+      ).status,
+    ).toBe(400);
+    // Profile metrics reject out-of-range values.
+    expect(
+      (
+        await client.patch('/api/settings/profile', {
+          name: 'X Co',
+          email: 'ok@x.test',
+          totalReviews: -5,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await client.patch('/api/settings/profile', {
+          name: 'X Co',
+          email: 'ok@x.test',
+          operatingSince: 1799,
         })
       ).status,
     ).toBe(400);
@@ -220,6 +245,49 @@ describe('Phase 18 company settings', () => {
     expect(d.tax.taxRegistrationNumber).toBe('29ABCDE1234F1Z5');
     expect(d.defaultTerms.quotationTerms).toBe('Payment due in 7 days.');
     expect(d.defaultTerms.bookingTerms).toBe('Cancellation as per policy.');
+  });
+
+  it('saves GSTIN and TAN trimmed/uppercased and clears each independently', async () => {
+    const client = await owner();
+    // Save both; whitespace trimmed, letters uppercased.
+    const both = await client.patch('/api/settings/tax', {
+      taxRegistrationNumber: ' 29abcde1234f1z5 ',
+      tan: ' abc12345e ',
+    });
+    expect(both.status).toBe(200);
+    expect(both.body.data.tax).toMatchObject({
+      taxRegistrationNumber: '29ABCDE1234F1Z5',
+      tan: 'ABC12345E',
+    });
+
+    // Clear TAN only; GSTIN is preserved.
+    const tanCleared = await client.patch('/api/settings/tax', {
+      taxRegistrationNumber: '29ABCDE1234F1Z5',
+      tan: null,
+    });
+    expect(tanCleared.status).toBe(200);
+    expect(tanCleared.body.data.tax).toMatchObject({
+      taxRegistrationNumber: '29ABCDE1234F1Z5',
+      tan: null,
+    });
+
+    // Clear GSTIN only; TAN is preserved.
+    const gstinCleared = await client.patch('/api/settings/tax', {
+      taxRegistrationNumber: null,
+      tan: 'ABC12345E',
+    });
+    expect(gstinCleared.status).toBe(200);
+    expect(gstinCleared.body.data.tax).toMatchObject({
+      taxRegistrationNumber: null,
+      tan: 'ABC12345E',
+    });
+
+    // Overlength values are rejected with a field-specific error.
+    const tooLong = await client.patch('/api/settings/tax', {
+      taxRegistrationNumber: 'X'.repeat(41),
+    });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error.fields.taxRegistrationNumber).toBeDefined();
   });
 
   it('handles the logo upload, confirm, url, replace and remove flow', async () => {

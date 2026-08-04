@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import { cabinLuggageLabel, hotelStayNights } from '@interscale/shared';
 import { drawHeaderLogo } from '../../services/pdf/company-branding.js';
 
 const safe = (value: unknown) => String(value ?? '—');
@@ -107,6 +108,8 @@ export async function renderQuotationPdf(input: {
       nights: number;
       selected: boolean;
       notes: string | null;
+      checkInDate?: Date | string | null;
+      checkOutDate?: Date | string | null;
     }>;
     itinerary: Array<{
       dayNumber: number;
@@ -201,7 +204,7 @@ export async function renderQuotationPdf(input: {
         .text(`${hotel.hotelName}${hotel.category ? ` • ${hotel.category}` : ''}`)
         .font('Helvetica')
         .text(
-          `${hotel.city} • ${hotel.nights} nights • ${safe(hotel.roomType)} • ${safe(hotel.mealPlan)}${hotel.selected ? ' • Selected' : ' • Alternative'}`,
+          `${hotel.city} • ${hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights} nights • ${safe(hotel.roomType)} • ${safe(hotel.mealPlan)}${hotel.selected ? ' • Selected' : ' • Alternative'}`,
         ),
     );
   }
@@ -302,9 +305,12 @@ export async function renderQuotationPdf(input: {
         if (s.cabinLuggage || s.checkInLuggage)
           doc
             .fillColor('#475569')
-            .text(`Baggage: Cabin ${s.cabinLuggage ?? '-'} / Check-in ${s.checkInLuggage ?? '-'}`, {
-              indent: 20,
-            })
+            .text(
+              `Baggage: Cabin ${cabinLuggageLabel(s.cabinLuggage) ?? '-'} / Check-in ${s.checkInLuggage ?? '-'}`,
+              {
+                indent: 20,
+              },
+            )
             .fillColor('#0f172a');
         const noteLines = htmlToLines(s.notes);
         if (noteLines.length) {

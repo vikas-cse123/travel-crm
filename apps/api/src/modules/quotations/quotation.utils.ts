@@ -10,22 +10,29 @@ export async function nextCompanyNumber(
 ) {
   // One lifetime counter keeps IDs compact and prevents yearly resets.
   const year = 0;
-  const counter = await tx.quotationCounter.upsert({
-    where: { companyId_year: { companyId, year } },
-    create: {
-      companyId,
-      year,
-      quotationValue: kind === 'quotation' ? 1 : 0,
-      templateValue: kind === 'template' ? 1 : 0,
-    },
-    update:
-      kind === 'quotation'
-        ? { quotationValue: { increment: 1 } }
-        : { templateValue: { increment: 1 } },
-    select: { quotationValue: true, templateValue: true },
-  });
-  const value = kind === 'quotation' ? counter.quotationValue : counter.templateValue;
-  return `${kind === 'quotation' ? 'QT' : 'QTP'}-${String(value).padStart(6, '0')}`;
+  const quotation = kind === 'quotation';
+  // Atomic upsert. New quotation sequences start at QT-001000; template
+  // sequences still start at QTP-000001. Existing counters increment their own
+  // kind and the quotation value is floored so a legacy counter below 1000
+  // jumps straight to QT-001000 without moving backwards or issuing duplicates.
+  const rows = await tx.$queryRaw<Array<{ quotationValue: number; templateValue: number }>>`
+    INSERT INTO "quotation_counters" ("companyId", "year", "quotationValue", "templateValue")
+    VALUES (${companyId}::uuid, ${year}::int, ${quotation ? 1000 : 0}, ${quotation ? 0 : 1})
+    ON CONFLICT ("companyId", "year") DO UPDATE SET
+      "quotationValue" = CASE
+        WHEN ${quotation} THEN GREATEST("quotation_counters"."quotationValue" + 1, 1000)
+        ELSE "quotation_counters"."quotationValue"
+      END,
+      "templateValue" = CASE
+        WHEN ${quotation} THEN "quotation_counters"."templateValue"
+        ELSE GREATEST("quotation_counters"."templateValue" + 1, 1)
+      END
+    RETURNING "quotationValue", "templateValue";
+  `;
+  const counter = rows[0];
+  if (!counter) throw new Error('Quotation counter allocation returned no row.');
+  const value = quotation ? counter.quotationValue : counter.templateValue;
+  return `${quotation ? 'QT' : 'QTP'}-${String(value).padStart(6, '0')}`;
 }
 
 export function quotationAudit(

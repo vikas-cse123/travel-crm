@@ -918,9 +918,16 @@ model Company {
   timezone              String           @default("Asia/Kolkata") @db.VarChar(64)
   // Company-level settings (Phase 18). All additive; existing rows keep defaults.
   taxRegistrationNumber String?          @db.VarChar(40)
+  // Tax Deduction Account Number (Phase 22). Optional; legacy rows keep null.
+  tan                   String?          @db.VarChar(40)
   defaultCurrency       String           @default("INR") @db.VarChar(3)
   defaultQuotationTerms String?          @db.Text
   defaultBookingTerms   String?          @db.Text
+  // Public-facing company profile metrics (Settings → Company Profile).
+  // All optional; existing rows keep null until a value is set.
+  operatingSinceYear    Int?
+  totalReviews          Int?
+  tripsSold             Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -88,11 +88,44 @@ describe('Phase 21 visa type and testimonial pages', () => {
     auth.permissions = new Set(ALL);
   });
 
-  it('lists Visa Types and Testimonials under the Masters nav', () => {
+  it('hides Visa Types but keeps the other Masters navigation items', () => {
     const masters = NAV_ITEMS.find((item) => item.label === 'Masters');
     const labels = masters?.children?.map((item) => item.label) ?? [];
-    expect(labels).toContain('Visa Types');
-    expect(labels).toContain('Testimonials');
+    // Visa Types is temporarily hidden from the sidebar navigation.
+    expect(labels).not.toContain('Visa Types');
+    // The remaining Masters items are all present.
+    for (const label of [
+      'Cities',
+      'Destinations',
+      'Hotels',
+      'Airlines',
+      'Cruises',
+      'Vehicles',
+      'Sightseeing',
+      'Add-On Services',
+    ]) {
+      expect(labels).toContain(label);
+    }
+    // Add-On Services ends the Masters list (no trailing/empty entry).
+    expect(labels[labels.length - 1]).toBe('Add-On Services');
+  });
+
+  it('keeps the Visa Types route renderable even though its nav item is hidden', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) =>
+        String(request).includes('/masters/destinations')
+          ? response(page([destination]))
+          : response(page([visaType])),
+      ),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/masters/visa-types" element={<VisaTypesPage />} />
+      </Routes>,
+      { route: '/masters/visa-types' },
+    );
+    expect((await screen.findAllByText('Tourist Visa')).length).toBeGreaterThan(0);
   });
 
   it('renders the visa type list, the # sections and destination filter, and archive action', async () => {

@@ -17,6 +17,9 @@ export interface CompanySettings {
     phone: string | null;
     website: string | null;
     address: string | null;
+    operatingSince: number | null;
+    totalReviews: number | null;
+    tripsSold: number | null;
   };
   branding: {
     primaryColor: string;
@@ -25,7 +28,7 @@ export interface CompanySettings {
     logoMimeType: string | null;
     logoFileSize: number | null;
   };
-  tax: { taxRegistrationNumber: string | null };
+  tax: { taxRegistrationNumber: string | null; tan: string | null };
   preferences: { timezone: string; defaultCurrency: string };
   defaultTerms: { quotationTerms: string | null; bookingTerms: string | null };
   bankAccount: {

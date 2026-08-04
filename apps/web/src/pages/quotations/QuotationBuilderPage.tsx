@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-form';
@@ -16,11 +16,14 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   PERMISSIONS,
+  cabinLuggageLabel,
+  hotelStayNights,
   labelForLookup,
   quotationVersionInputSchema,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { MasterSelect } from '@/components/ui/MasterSelect';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import {
   SightseeingSection,
@@ -34,10 +37,13 @@ import {
   hotelImageUrl,
   useAddOnServices,
   useAirlines,
+  useCruises,
+  useDestinations,
   useHotel,
   useHotels,
   useSightseeingList,
   useVehicles,
+  type Destination,
   type Sightseeing,
 } from '@/features/masters/masters.api';
 import {
@@ -85,6 +91,11 @@ const CHECKIN_LUGGAGE_OPTIONS = ['0kg', '15kg', '20kg', '23kg', '25kg', '30kg', 
 // Alternative combinations remain fully supported by the data model and save path.
 // Keep this false to hide only the Hotel Options UI until the feature is needed again.
 const SHOW_HOTEL_OPTIONS = false;
+
+// Visa is temporarily hidden from the quotation builder UI. Set this back to
+// true to restore the Visa tab and panel; all Visa backend/schema/data paths
+// are untouched and existing quotations keep their saved Visa values.
+const SHOW_VISA_QUOTATION_TAB = false;
 
 /** "Xh Ym" flight duration from date+time strings, or '' if incomputable/negative. */
 const computeDuration = (
@@ -184,7 +195,7 @@ interface VehicleDraft {
 
 const defaultVehicleDraft = (): VehicleDraft => ({
   include: true,
-  sectionTitle: 'Transport Details',
+  sectionTitle: 'Transportation',
   amount: 0,
   vehicleType: '',
   vehicleId: '',
@@ -204,7 +215,7 @@ const TABS: TabDef[] = [
   { key: 'sightseeing', label: 'Sightseeing', required: true },
   { key: 'cruise', label: 'Cruise', types: ['CRUISE'] },
   { key: 'vehicle', label: 'Vehicle', types: ['VEHICLE_TRANSFER'], required: true },
-  { key: 'visa', label: 'Visa', required: true },
+  ...(SHOW_VISA_QUOTATION_TAB ? [{ key: 'visa', label: 'Visa', required: true }] : []),
   { key: 'addon', label: 'Add-on Services', types: ADDON_TYPES },
   { key: 'inclusions', label: 'Inclusions & Exclusions' },
   { key: 'summary', label: 'Summary & Pricing' },
@@ -302,6 +313,146 @@ const emptyHotel = (
   ...seed,
 });
 
+/** True when a quotation hotel row's city matches a Hotel Master's city or destination. */
+const hotelCityMatches = (
+  rowCity: string,
+  hotel: { city: { name: string }; destination: { name: string } },
+) => {
+  const city = rowCity.trim().toLowerCase();
+  const hotelCity = hotel.city.name.trim().toLowerCase();
+  const destination = hotel.destination.name.trim().toLowerCase();
+  return (
+    hotelCity === city || destination === city || hotelCity.includes(city) || city.includes(hotelCity)
+  );
+};
+
+type DefaultHotelMaster = {
+  id: string;
+  name: string;
+  status: string;
+  isDefaultForCity: boolean;
+  starCategory: number | null;
+  city: { name: string };
+  destination: { name: string };
+};
+
+/** The active default hotel matching a row's city/destination, if any. */
+const matchDefaultHotel = (rowCity: string, masters: DefaultHotelMaster[]) => {
+  const city = rowCity.trim().toLowerCase();
+  if (!city) return undefined;
+  return masters.find(
+    (hotel) => hotel.status === 'ACTIVE' && hotel.isDefaultForCity && hotelCityMatches(city, hotel),
+  );
+};
+
+/**
+ * Map lead-generated hotel rows through their destination's default hotel.
+ * When at least one default exists, only matched rows are kept (no invalid
+ * empty rows); when none exist, the existing empty lead rows are untouched.
+ */
+const autoPrefillLeadRows = (rows: HotelInputRow[], masters: DefaultHotelMaster[]): HotelInputRow[] => {
+  if (!rows.length || !masters.length) return rows;
+  const built: HotelInputRow[] = [];
+  for (const row of rows) {
+    const defaultHotel = matchDefaultHotel(row.city, masters);
+    if (!defaultHotel) continue;
+    built.push({
+      ...row,
+      hotelId: defaultHotel.id,
+      hotelRoomTypeId: null,
+      hotelMealPlanId: null,
+      hotelName: defaultHotel.name,
+      city: defaultHotel.city.name,
+      category: defaultHotel.starCategory ? `${defaultHotel.starCategory} Star` : null,
+    });
+  }
+  return built.length ? built : rows;
+};
+
+/** A clean, empty Cruise service row; the section title defaults to "Cruise Details". */
+const newCruiseServiceRow = (sequence: number) => ({
+  serviceType: 'CRUISE' as const,
+  ...CLEARED_SERVICE_MASTERS,
+  name: '',
+  description: null,
+  dayNumber: null,
+  city: null,
+  quantity: 1,
+  internalCost: 0,
+  sellingPrice: 0,
+  taxCategory: 'Cruise Details',
+  notes: null,
+  sequence,
+});
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/**
+ * Combine one policy across ordered destinations: single content is used as-is;
+ * multiple distinct contents are joined under escaped destination headings.
+ * Identical content from later destinations is dropped.
+ */
+const combineDestinationPolicy = (
+  entries: Array<{ destination: string; content: string }>,
+): string | null => {
+  const seen = new Set<string>();
+  const kept = entries.filter(({ content }) => {
+    if (seen.has(content)) return false;
+    seen.add(content);
+    return true;
+  });
+  if (!kept.length) return null;
+  if (kept.length === 1) return kept[0]!.content;
+  return kept
+    .map(({ destination, content }) => `<h3>${escapeHtml(destination)}</h3>${content}`)
+    .join('\n');
+};
+
+/** Destination policy → quotation policy field mapping. */
+const DESTINATION_POLICY_MAP = [
+  ['inclusionsHtml', 'inclusions'],
+  ['exclusionsHtml', 'exclusions'],
+  ['paymentPolicies', 'paymentPolicies'],
+  ['cancellationPolicies', 'cancellationPolicies'],
+  ['bookingTerms', 'bookingTerms'],
+] as const;
+
+type PolicyKey =
+  | 'inclusionsHtml'
+  | 'exclusionsHtml'
+  | 'paymentPolicies'
+  | 'cancellationPolicies'
+  | 'bookingTerms';
+
+/** Build quotation-policy prefills from the destination masters in lead order. */
+const buildDestinationPolicyPrefill = (
+  destinations: Destination[],
+  destinationNames: string[],
+): Partial<Record<PolicyKey, string>> => {
+  const ordered = destinationNames
+    .map((name) => {
+      const key = name.trim().toLowerCase();
+      return destinations.find((d) => d.name.trim().toLowerCase() === key);
+    })
+    .filter((d): d is Destination => Boolean(d));
+  if (!ordered.length) return {};
+  const result: Partial<Record<PolicyKey, string>> = {};
+  for (const [quoteKey, destField] of DESTINATION_POLICY_MAP) {
+    const combined = combineDestinationPolicy(
+      ordered
+        .map((d) => ({ destination: d.name, content: (d[destField] ?? '').trim() }))
+        .filter((entry) => entry.content.length > 0),
+    );
+    if (combined) result[quoteKey] = combined;
+  }
+  return result;
+};
+
 function HotelPreview({ hotelId }: { hotelId?: string | null | undefined }) {
   const hotel = useHotel(hotelId ?? undefined);
   const image = useQuery({
@@ -366,15 +517,59 @@ export function QuotationBuilderPage() {
   const hotelMasters = useHotels(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
+  const cruiseMasters = useCruises(
+    useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
+  );
+  const destinationMasters = useDestinations(
+    useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
+  );
+  // Automatic default-hotel prefill state. Automatic initialization is tracked
+  // separately from an explicit user choice so Hotel is never re-enabled after
+  // the user turns it off.
+  const autoHotelRef = useRef<{ userToggledHotel: boolean; enabledByAuto: boolean }>({
+    userToggledHotel: false,
+    enabledByAuto: false,
+  });
   const vehicleMasters = useVehicles(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
   const [activeTab, setActiveTab] = useState('flight');
-  const [excluded, setExcluded] = useState<Record<string, boolean>>({});
+  // If the temporarily hidden Visa tab is somehow the active tab, fall back to
+  // the nearest visible tab instead of showing a blank panel.
+  useEffect(() => {
+    if (!SHOW_VISA_QUOTATION_TAB && activeTab === 'visa') setActiveTab('vehicle');
+  }, [activeTab]);
+  // Cruise starts excluded: the user explicitly enables it (auto-creating the
+  // first entry). Saved quotations with Cruise rows re-enable it on load.
+  const [excluded, setExcluded] = useState<Record<string, boolean>>({ cruise: true });
+  // Tracks whether the user has explicitly toggled the Cruise checkbox so the
+  // init-time sync never re-enables it after a manual choice.
+  const autoCruiseRef = useRef<{ userToggled: boolean }>({ userToggled: false });
+  // Keep the resolver in sync with the latest include/exclude state without
+  // re-creating the whole form. Hotel is the only tab that always carries a
+  // default empty row, so excluding it must bypass hotel validation entirely.
+  const excludedRef = useRef(excluded);
+  useEffect(() => {
+    excludedRef.current = excluded;
+  }, [excluded]);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(defaultVehicleDraft);
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const form = useForm<QuotationVersionInput>({
-    resolver: zodResolver(quotationVersionInputSchema),
+    resolver: async (values, context, options) => {
+      // When a section is excluded, its rows must not be required. Hotel rows
+      // and Cruise service rows are normalised away so an empty default row
+      // never blocks a draft save.
+      let prepared: QuotationVersionInput = values;
+      if (excludedRef.current.hotel) prepared = { ...prepared, hotels: [] };
+      if (excludedRef.current.cruise)
+        prepared = {
+          ...prepared,
+          services: (prepared.services ?? []).filter(
+            (service) => service.serviceType !== 'CRUISE',
+          ),
+        };
+      return zodResolver(quotationVersionInputSchema)(prepared, context, options);
+    },
     defaultValues: defaults,
   });
   const itinerary = useFieldArray({ control: form.control, name: 'itinerary' });
@@ -425,7 +620,10 @@ export function QuotationBuilderPage() {
       return day.toISOString().slice(0, 10);
     };
     const returnStr = leadTotalNights > 0 && startStr ? addDays(startStr, leadTotalNights) : endStr;
-    // Prefill a day-per-night sightseeing itinerary (+1 departure day) from the lead.
+    // Prefill a day-per-night sightseeing itinerary (+1 departure day) from the
+    // lead. Each day receives at most ONE primary activity, taken from the
+    // active master in ascending sequence order and preferring the day's city;
+    // the remaining attractions stay available in the activity selector.
     const leadCities: string[] = [];
     for (const row of quotation.data?.query?.itinerary ?? [])
       for (let n = 0; n < (row.nights ?? 0); n += 1) leadCities.push(row.destination);
@@ -434,41 +632,57 @@ export function QuotationBuilderPage() {
       { length: sightDayCount },
       (_, i) => leadCities[i] ?? leadCities[leadCities.length - 1] ?? '',
     );
-    // Group the sightseeing master by city, then split each city's attractions
-    // (in sequence order) evenly across the days assigned to that city, so every
-    // day is pre-loaded with real master activities the agent can trim or reorder.
     const cityKey = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
-    const masterByCity = new Map<string, Sightseeing[]>();
-    for (const row of sightseeingMasters.data?.data ?? []) {
-      const key = cityKey(row.city?.name);
-      if (!key) continue;
-      const list = masterByCity.get(key) ?? [];
-      list.push(row);
-      masterByCity.set(key, list);
-    }
-    for (const list of masterByCity.values())
-      list.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
-    const daysPerCity = new Map<string, number>();
-    for (const city of dayCities)
-      daysPerCity.set(cityKey(city), (daysPerCity.get(cityKey(city)) ?? 0) + 1);
-    // Contiguous buckets: the first day in a city gets the earliest attractions.
-    const bucketsByCity = new Map<string, Sightseeing[][]>();
-    for (const [key, list] of masterByCity) {
-      const dayCount = daysPerCity.get(key) ?? 0;
-      if (dayCount <= 0) continue;
-      const per = Math.ceil(list.length / dayCount);
-      bucketsByCity.set(
-        key,
-        Array.from({ length: dayCount }, (_, i) => list.slice(i * per, (i + 1) * per)),
+    const destinationToken = (quotation.data?.destinationSummary ?? '')
+      .split(/[•(→>,]/)[0]
+      ?.trim()
+      ?.toLowerCase();
+    const destinationMatch = (row: Sightseeing) => {
+      if (!destinationToken) return true;
+      return [row.destination?.name, row.destination?.countryName]
+        .map((value) => value?.toLowerCase())
+        .some((value) => Boolean(value && value.includes(destinationToken)));
+    };
+    const orderedMasters = (sightseeingMasters.data?.data ?? [])
+      .filter((row) => row.status === 'ACTIVE' && destinationMatch(row))
+      .sort(
+        (a, b) =>
+          (a.sequence ?? 0) - (b.sequence ?? 0) ||
+          a.createdAt.localeCompare(b.createdAt) ||
+          a.id.localeCompare(b.id),
       );
-    }
-    const bucketCursor = new Map<string, number>();
+    const usedIds = new Set<string>();
+    let sequenceCursor = 0;
+    const nextForDay = (city: string): Sightseeing | null => {
+      const key = cityKey(city);
+      const cityMatch = orderedMasters.find(
+        (row) => !usedIds.has(row.id) && cityKey(row.city?.name) === key,
+      );
+      if (cityMatch) {
+        usedIds.add(cityMatch.id);
+        return cityMatch;
+      }
+      while (
+        sequenceCursor < orderedMasters.length &&
+        usedIds.has(orderedMasters[sequenceCursor]!.id)
+      )
+        sequenceCursor += 1;
+      const next = orderedMasters[sequenceCursor];
+      if (next) {
+        usedIds.add(next.id);
+        sequenceCursor += 1;
+      }
+      return next ?? null;
+    };
     const toActivity = (row: Sightseeing) => ({
       sightseeingId: row.id,
       name: row.title,
       startTime: row.suggestedStartTime ?? '09:00',
+      duration: row.estimatedHours != null ? `${row.estimatedHours} hours` : null,
+      city: row.city?.name ?? null,
       description: row.description ?? null,
       imageUrl: null,
+      sequence: 1,
     });
     const prefilledSightseeing = {
       include: true,
@@ -476,23 +690,16 @@ export function QuotationBuilderPage() {
       amount: 0,
       description: null,
       days: dayCities.map((city, i) => {
-        const isLast = i === sightDayCount - 1 && leadCities.length > 0;
-        const title = (
-          i === 0
-            ? `Day 1: Arrival in ${city}`
-            : isLast
-              ? `Day ${i + 1}: Departure from ${city}`
-              : `Day ${i + 1}: ${city}`
-        ).trim();
-        const key = cityKey(city);
-        const cursor = bucketCursor.get(key) ?? 0;
-        bucketCursor.set(key, cursor + 1);
-        const bucket = bucketsByCity.get(key)?.[cursor] ?? [];
+        const primary = nextForDay(city);
         return emptySightseeingDay(i + 1, {
-          title,
+          title: primary
+            ? `Day ${i + 1}: ${primary.title}`
+            : city
+              ? `Day ${i + 1}: ${city}`
+              : `Day ${i + 1}`,
           city: city || null,
           date: addDays(startStr, i),
-          activities: bucket.length ? bucket.map(toActivity) : [emptySightseeingActivity()],
+          activities: primary ? [toActivity(primary)] : [emptySightseeingActivity()],
         });
       }),
     };
@@ -578,7 +785,7 @@ export function QuotationBuilderPage() {
       // only persisted once a model is selected, so this does not create an
       // empty service row.
       include: true,
-      sectionTitle: savedVehicle?.taxCategory?.trim() || 'Transport Details',
+      sectionTitle: savedVehicle?.taxCategory?.trim() || 'Transportation',
       amount: Number(savedVehicle?.unitSellingPrice ?? 0),
       vehicleType: savedVehicle?.city ?? '',
       vehicleId: savedVehicle?.vehicleId ?? '',
@@ -594,6 +801,14 @@ export function QuotationBuilderPage() {
       destCity && quotation.data?.customerName
         ? `${destCity} Package for ${quotation.data.customerName}`
         : version.title;
+    // Policy prefill from the lead's Destination Masters, in destination order.
+    // Saved quotation policy values always win over destination content.
+    const destinationPolicyPrefill = buildDestinationPolicyPrefill(
+      destinationMasters.data?.data ?? [],
+      (quotation.data?.query?.itinerary ?? [])
+        .map((stay) => stay.destination?.trim())
+        .filter(Boolean) as string[],
+    );
     form.reset({
       title:
         legacyTitle === legacyDestinationTitle || legacyTitle === legacyPrimaryDestinationTitle
@@ -621,11 +836,12 @@ export function QuotationBuilderPage() {
       markServiceChargesOutside: version.markServiceChargesOutside ?? false,
       hidePricing: version.hidePricing ?? false,
       showIndividualPricing: version.showIndividualPricing ?? false,
-      inclusionsHtml: version.inclusionsHtml ?? null,
-      exclusionsHtml: version.exclusionsHtml ?? null,
-      paymentPolicies: version.paymentPolicies ?? null,
-      cancellationPolicies: version.cancellationPolicies ?? null,
-      bookingTerms: version.bookingTerms ?? null,
+      inclusionsHtml: version.inclusionsHtml ?? destinationPolicyPrefill.inclusionsHtml ?? null,
+      exclusionsHtml: version.exclusionsHtml ?? destinationPolicyPrefill.exclusionsHtml ?? null,
+      paymentPolicies: version.paymentPolicies ?? destinationPolicyPrefill.paymentPolicies ?? null,
+      cancellationPolicies:
+        version.cancellationPolicies ?? destinationPolicyPrefill.cancellationPolicies ?? null,
+      bookingTerms: version.bookingTerms ?? destinationPolicyPrefill.bookingTerms ?? null,
       includeVisa: version.includeVisa ?? true,
       visaSectionTitle: version.visaSectionTitle ?? null,
       visaAmount: Number(version.visaAmount ?? 0),
@@ -690,7 +906,7 @@ export function QuotationBuilderPage() {
               sellingPrice: row.sellingPrice ? Number(row.sellingPrice) : 0,
             };
           })
-        : leadHotelRows,
+        : autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? []),
       services: version.services.map((row) => ({
         serviceType: row.serviceType as ServiceType,
         airlineId: row.airlineId ?? null,
@@ -714,7 +930,34 @@ export function QuotationBuilderPage() {
       exclusions: version.exclusions,
       terms: version.terms,
     });
-  }, [version, form, quotation.data, sightseeingMasters.data]);
+    // A brand-new quotation with a prefilled default hotel keeps the Hotel
+    // section included unless the user explicitly turned it off.
+    const prefilledHotelRows = !version.hotels.length
+      ? autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? [])
+      : [];
+    if (
+      prefilledHotelRows.some((row) => row.hotelId) &&
+      !autoHotelRef.current.userToggledHotel
+    ) {
+      autoHotelRef.current.enabledByAuto = true;
+      setExcluded((current) => ({ ...current, hotel: false }));
+    }
+    // Saved quotations with Cruise rows keep Cruise enabled; otherwise it stays
+    // excluded (unchecked) until the user explicitly enables it.
+    if (!autoCruiseRef.current.userToggled) {
+      setExcluded((current) => ({
+        ...current,
+        cruise: !version.services.some((row) => row.serviceType === 'CRUISE'),
+      }));
+    }
+  }, [
+    version,
+    form,
+    quotation.data,
+    sightseeingMasters.data,
+    hotelMasters.data,
+    destinationMasters.data,
+  ]);
 
   // Recover the display snapshot for older drafts that only saved a vehicle id.
   useEffect(() => {
@@ -745,6 +988,54 @@ export function QuotationBuilderPage() {
   const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
   const applyService = (index: number, patch: ServiceRowPatch) =>
     applyPatch('services', index, patch);
+
+  // Prefill default hotels for untouched hotel rows that appear after
+  // initialization (e.g. "Add Hotel"), without ever touching a row the user
+  // has selected or edited.
+  useEffect(() => {
+    const state = autoHotelRef.current;
+    if (state.userToggledHotel) return;
+    if (!hotelMasters.data) return;
+    // Automatic prefill only applies to brand-new quotations; saved snapshots
+    // are never rewritten.
+    if ((version?.hotels?.length ?? 0) > 0) return;
+    const rows = watchedHotels ?? [];
+    let matched = false;
+    rows.forEach((row, index) => {
+      if (row.hotelId || row.hotelName?.trim()) return;
+      // A hotel for this destination already exists → no duplicate default.
+      const city = row.city.trim().toLowerCase();
+      const covered = city
+        ? rows.some(
+            (other, otherIndex) =>
+              otherIndex !== index &&
+              Boolean(other.hotelId) &&
+              other.city.trim().toLowerCase() === city,
+          )
+        : false;
+      if (covered) return;
+      const defaultHotel = matchDefaultHotel(row.city, hotelMasters.data?.data ?? []);
+      if (!defaultHotel) return;
+      matched = true;
+      // Same mapping as a manual master selection (see HotelMasterFields).
+      for (const [key, patchValue] of Object.entries({
+        hotelId: defaultHotel.id,
+        hotelRoomTypeId: null,
+        hotelMealPlanId: null,
+        hotelName: defaultHotel.name,
+        city: defaultHotel.city.name,
+        category: defaultHotel.starCategory ? `${defaultHotel.starCategory} Star` : null,
+      })) {
+        form.setValue(`hotels.${index}.${key}` as 'hotels.0.hotelName', patchValue as never, {
+          shouldDirty: true,
+        });
+      }
+    });
+    if (matched && !state.enabledByAuto) {
+      state.enabledByAuto = true;
+      setExcluded((current) => ({ ...current, hotel: false }));
+    }
+  }, [watchedHotels, hotelMasters.data, version, form]);
 
   const appendHotel = (selected: boolean, seed: Partial<HotelInputRow> = {}) => {
     const start = quotation.data?.travelStartDate;
@@ -941,7 +1232,7 @@ export function QuotationBuilderPage() {
               sellingPrice: Number(vehicleDraft.amount) || 0,
               // Section title and usage are preserved in the two existing
               // customer-safe snapshot fields.
-              taxCategory: vehicleDraft.sectionTitle.trim() || 'Transport Details',
+              taxCategory: vehicleDraft.sectionTitle.trim() || 'Transportation',
               notes: vehicleDraft.usage.trim() || null,
               sequence: nonVehicleServices.length + 1,
             }
@@ -949,13 +1240,23 @@ export function QuotationBuilderPage() {
       const submittedServices = vehicleService
         ? [...nonVehicleServices, vehicleService]
         : nonVehicleServices;
+      // Excluded sections are removed from the persisted snapshot (vehicle uses
+      // its draft flag; Cruise uses the tab's include checkbox).
+      const persistedServices = excluded.cruise
+        ? submittedServices.filter((service) => service.serviceType !== 'CRUISE')
+        : submittedServices;
       save.mutate(
         {
           ...value,
           flightDetails,
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
-          hotels: seq(value.hotels),
-          services: seq(submittedServices),
+          hotels: seq(value.hotels).map((hotel) => ({
+            ...hotel,
+            // Persist the calendar-date-derived nights whenever valid dates
+            // exist, so re-saving repairs historical incorrect night counts.
+            nights: hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights,
+          })),
+          services: seq(persistedServices),
           inclusions: seq(value.inclusions),
           exclusions: seq(value.exclusions),
           terms: seq(value.terms),
@@ -985,8 +1286,49 @@ export function QuotationBuilderPage() {
   );
 
   const isIncluded = (key: string) => !excluded[key];
-  const toggleInclude = (key: string) =>
-    setExcluded((current) => ({ ...current, [key]: !current[key] }));
+  const toggleInclude = (key: string) => {
+    // Any explicit toggle on the Hotel checkbox is a user choice: automatic
+    // prefill must never re-enable it afterwards.
+    if (key === 'hotel') autoHotelRef.current.userToggledHotel = true;
+    const next = !excluded[key];
+    setExcluded((current) => ({ ...current, [key]: next }));
+    // Turning Hotel off (`next === true` → excluded) must drop any stale Hotel
+    // field errors immediately so an empty hidden row cannot keep blocking a
+    // draft save. Other sections' errors are left untouched.
+    if (key === 'hotel' && next) {
+      form.clearErrors(['hotels', 'hotelDetails']);
+      setInvalidFields((current) =>
+        current.filter((entry) => !/^(hotels|hotelDetails)(\.|:)/.test(entry)),
+      );
+    }
+    // Turning Cruise on auto-creates exactly one clean entry when none exist;
+    // turning it off clears its service-row errors (only the CRUISE rows).
+    if (key === 'cruise') {
+      autoCruiseRef.current.userToggled = true;
+      if (!next) {
+        if (!(watchedServices ?? []).some((service) => service.serviceType === 'CRUISE')) {
+          services.append(newCruiseServiceRow(services.fields.length + 1));
+        }
+      } else {
+        const cruiseIndexes = (services.fields ?? [])
+          .map((_, index) => index)
+          .filter((index) => watchedServices?.[index]?.serviceType === 'CRUISE');
+        if (cruiseIndexes.length) {
+          form.clearErrors(
+            cruiseIndexes.map(
+              (index) => `services.${index}` as FieldPath<QuotationVersionInput>,
+            ),
+          );
+          setInvalidFields((current) =>
+            current.filter((entry) => {
+              const match = entry.match(/^services\.(\d+)/);
+              return !(match && cruiseIndexes.includes(Number(match[1])));
+            }),
+          );
+        }
+      }
+    }
+  };
 
   /** A coloured section header bar like the reference tabs' bodies. */
   const IncludeBar = ({ tabKey, label }: { tabKey: string; label: string }) => (
@@ -1291,9 +1633,19 @@ export function QuotationBuilderPage() {
     ({ index }) => watchedHotels?.[index]?.selected === false,
   );
 
-  const hotelCard = (index: number, rowId: string, optionNumber?: number) => {
+  const hotelCard = (index: number, rowId: string) => {
     const hotel = watchedHotels?.[index];
-    const selected = hotel?.selected !== false;
+    // Nights are derived from the hotel's own check-in/check-out calendar dates
+    // and written back to the snapshot whenever either date changes.
+    const setStayDate = (field: 'checkInDate' | 'checkOutDate', value: Date | null) => {
+      form.setValue(`hotels.${index}.${field}`, value, { shouldDirty: true });
+      const checkIn = field === 'checkInDate' ? value : (hotel?.checkInDate ?? null);
+      const checkOut = field === 'checkOutDate' ? value : (hotel?.checkOutDate ?? null);
+      const computed = hotelStayNights(checkIn, checkOut);
+      if (computed !== null)
+        form.setValue(`hotels.${index}.nights`, computed, { shouldDirty: true });
+    };
+    const displayNights = hotelStayNights(hotel?.checkInDate, hotel?.checkOutDate) ?? hotel?.nights ?? '';
     return (
       <article
         key={rowId}
@@ -1301,9 +1653,7 @@ export function QuotationBuilderPage() {
       >
         <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
           <div>
-            <h4 className="font-semibold text-slate-800">
-              {selected ? 'Hotel for Default Option' : `Hotel Option ${optionNumber ?? 1}`}
-            </h4>
+            <h4 className="font-semibold text-slate-800">Hotel Stay</h4>
             <p className="text-xs text-slate-500">Choose the hotel, stay dates and room details.</p>
           </div>
           <Button size="sm" variant="ghost" onClick={() => hotels.remove(index)}>
@@ -1327,7 +1677,7 @@ export function QuotationBuilderPage() {
               />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
               <label className="text-sm font-semibold text-slate-800">
                 City
                 <input
@@ -1344,10 +1694,9 @@ export function QuotationBuilderPage() {
                   type="date"
                   value={toDate(hotel?.checkInDate)}
                   onChange={(event) =>
-                    form.setValue(
-                      `hotels.${index}.checkInDate`,
+                    setStayDate(
+                      'checkInDate',
                       event.target.value ? new Date(event.target.value) : null,
-                      { shouldDirty: true },
                     )
                   }
                   className={`${field} mt-1`}
@@ -1360,13 +1709,21 @@ export function QuotationBuilderPage() {
                   type="date"
                   value={toDate(hotel?.checkOutDate)}
                   onChange={(event) =>
-                    form.setValue(
-                      `hotels.${index}.checkOutDate`,
+                    setStayDate(
+                      'checkOutDate',
                       event.target.value ? new Date(event.target.value) : null,
-                      { shouldDirty: true },
                     )
                   }
                   className={`${field} mt-1`}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Nights
+                <input
+                  aria-label="Hotel nights"
+                  readOnly
+                  value={String(displayNights)}
+                  className={`${field} mt-1 bg-slate-100`}
                 />
               </label>
             </div>
@@ -1387,6 +1744,192 @@ export function QuotationBuilderPage() {
           <HotelPreview hotelId={hotel?.hotelId} />
         </div>
       </article>
+    );
+  };
+
+  /**
+   * Reference Cruise tab: Include checkbox, section Title + Amount, then one
+   * labelled card per cruise entry (Name, Duration, Room Type, Description).
+   * Multiple cruises remain supported; each row is its own card.
+   */
+  const cruiseTab = () => {
+    const cruiseRows = services.fields
+      .map((row, index) => ({ row, index }))
+      .filter(({ index }) => watchedServices?.[index]?.serviceType === 'CRUISE');
+    const currency = form.watch('currency');
+    const masters = cruiseMasters.data?.data ?? [];
+    const primaryIndex = cruiseRows[0]?.index;
+    const primary = primaryIndex !== undefined ? watchedServices?.[primaryIndex] : undefined;
+    return (
+      <div className="space-y-5">
+        <IncludeBar tabKey="cruise" label="Cruise" />
+        {isIncluded('cruise') && (
+          <>
+            {primaryIndex !== undefined && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-semibold text-slate-800">
+                  Section Title
+                  <input
+                    aria-label="Cruise section title"
+                    maxLength={80}
+                    value={primary?.taxCategory ?? ''}
+                    onChange={(event) =>
+                      applyService(primaryIndex, { taxCategory: event.target.value || null })
+                    }
+                    className={`${field} mt-1`}
+                  />
+                </label>
+                <label className="text-sm font-semibold text-slate-800">
+                  Amount
+                  <div className="mt-1 flex rounded-lg border border-slate-300 bg-card focus-within:ring-2 focus-within:ring-brand-500">
+                    <span className="flex items-center border-r px-3 text-sm text-slate-500">
+                      {currency}
+                    </span>
+                    <input
+                      aria-label="Cruise amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={primary?.sellingPrice ?? 0}
+                      onChange={(event) =>
+                        applyService(primaryIndex, {
+                          sellingPrice: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                      className="w-full rounded-r-lg bg-transparent px-3 py-2 text-sm outline-none"
+                    />
+                  </div>
+                </label>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => services.append(newCruiseServiceRow(services.fields.length + 1))}
+              >
+                <Plus className="h-4 w-4" /> Add Cruise
+              </Button>
+            </div>
+
+            {cruiseRows.length === 0 && (
+              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">
+                No cruise added yet. Add the first cruise below.
+              </p>
+            )}
+
+            <div className="space-y-4">
+              {cruiseRows.map(({ row, index }) => {
+                const cruise = watchedServices?.[index];
+                const cruiseMaster = masters.find((m) => m.id === cruise?.cruiseId);
+                // Active options for new selections; a saved historical room type
+                // (now inactive/removed) is kept so reopening never loses it.
+                const allRoomTypes = cruiseMaster?.roomTypes ?? [];
+                const activeRoomTypes = allRoomTypes.filter(
+                  (room) => room.status === 'ACTIVE',
+                );
+                const savedRoomType = allRoomTypes.find(
+                  (room) => room.id === cruise?.cruiseRoomTypeId,
+                );
+                const roomOptions =
+                  savedRoomType && !activeRoomTypes.some((room) => room.id === savedRoomType.id)
+                    ? [...activeRoomTypes, savedRoomType]
+                    : activeRoomTypes;
+                return (
+                  <article
+                    key={row.id}
+                    className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm"
+                  >
+                    <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
+                      <h4 className="font-semibold text-slate-800">Cruise Stay</h4>
+                      <Button size="sm" variant="ghost" onClick={() => services.remove(index)}>
+                        <Trash2 className="h-4 w-4 text-red-600" /> Remove
+                      </Button>
+                    </header>
+                    <div className="space-y-4 p-4">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <label className="text-sm font-semibold text-slate-800">
+                          Cruise Name <span className="text-red-500">*</span>
+                          <div className="mt-1">
+                            <MasterSelect
+                              ariaLabel="Cruise master"
+                              placeholder="Link a cruise"
+                              options={masters.map((m) => ({ id: m.id, label: m.name }))}
+                              value={cruise?.cruiseId}
+                              loading={cruiseMasters.isPending}
+                              fallbackLabel={masters.find((m) => m.id === cruise?.cruiseId)?.name}
+                              onSelect={(option) =>
+                                applyService(index, {
+                                  cruiseId: option?.id ?? null,
+                                  cruiseRoomTypeId: null,
+                                  ...(option ? { name: option.label } : {}),
+                                })
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="text-sm font-semibold text-slate-800">
+                          Duration
+                          <input
+                            aria-label="Cruise duration"
+                            placeholder="e.g. 2 nights"
+                            value={cruise?.notes ?? ''}
+                            onChange={(event) =>
+                              applyService(index, { notes: event.target.value || null })
+                            }
+                            className={`${field} mt-1`}
+                          />
+                        </label>
+                        <label className="text-sm font-semibold text-slate-800">
+                          Room Type
+                          <div className="mt-1">
+                            <MasterSelect
+                              ariaLabel="Cruise room type master"
+                              placeholder={
+                                !cruise?.cruiseId
+                                  ? 'Select cruise first'
+                                  : roomOptions.length > 0
+                                    ? 'Select room type'
+                                    : 'No room types configured'
+                              }
+                              options={roomOptions.map((room) => ({ id: room.id, label: room.name }))}
+                              value={cruise?.cruiseRoomTypeId}
+                              disabled={!cruise?.cruiseId}
+                              loading={cruiseMasters.isPending}
+                              fallbackLabel={savedRoomType?.name}
+                              onSelect={(option) => {
+                                const room = roomOptions.find((entry) => entry.id === option?.id);
+                                applyService(index, {
+                                  cruiseRoomTypeId: option?.id ?? null,
+                                  // Price is absent for viewers without costing.
+                                  ...(room && room.price != null ? { sellingPrice: Number(room.price) } : {}),
+                                });
+                              }}
+                            />
+                          </div>
+                        </label>
+                      </div>
+                      <label className="block text-sm font-semibold text-slate-800">
+                        Description
+                        <div className="mt-1">
+                          <RichTextEditor
+                            ariaLabel="Cruise description"
+                            value={cruise?.description ?? ''}
+                            onChange={(html) =>
+                              applyService(index, { description: html || null })
+                            }
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     );
   };
 
@@ -1556,7 +2099,9 @@ export function QuotationBuilderPage() {
               Cabin Luggage
               <select className={`${field} mt-1`} {...form.register(fp(`${base}.cabinLuggage`))}>
                 {CABIN_LUGGAGE_OPTIONS.map((value) => (
-                  <option key={value}>{value}</option>
+                  <option key={value} value={value}>
+                    {cabinLuggageLabel(value)}
+                  </option>
                 ))}
               </select>
             </label>
@@ -1773,16 +2318,25 @@ export function QuotationBuilderPage() {
                       />
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800">{master.name}</td>
-                    <td className="px-4 py-3">
+                    <td className="min-w-[18rem] px-4 py-3">
                       {included ? (
-                        <textarea
-                          aria-label={`${master.name} description`}
-                          rows={2}
-                          {...form.register(`services.${index}.description`)}
-                          className={field}
+                        <RichTextEditor
+                          ariaLabel={`${master.name} description`}
+                          value={(watchedServices?.[index]?.description as string) ?? ''}
+                          onChange={(html) =>
+                            form.setValue(
+                              `services.${index}.description` as 'services.0.description',
+                              html as never,
+                              { shouldDirty: true },
+                            )
+                          }
+                          placeholder="Describe this add-on for the customer…"
                         />
                       ) : (
-                        <p className="text-slate-500">{master.description || '—'}</p>
+                        <p className="text-slate-500">
+                          {master.description?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() ||
+                            '—'}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -2022,7 +2576,7 @@ export function QuotationBuilderPage() {
       {/* Tab panels — only the active tab is mounted (RHF keeps field values). */}
       <section className="rounded-xl border bg-card p-5">
         {TABS.filter(
-          (t) => t.types && t.key === activeTab && !['addon', 'vehicle'].includes(t.key),
+          (t) => t.types && t.key === activeTab && !['addon', 'vehicle', 'cruise'].includes(t.key),
         ).map((tab) => (
           <div key={tab.key}>{serviceTab(tab)}</div>
         ))}
@@ -2037,10 +2591,13 @@ export function QuotationBuilderPage() {
         {activeTab === 'addon' && addonTable()}
 
         {/* Visa — dedicated section. */}
-        {activeTab === 'visa' && visaSection()}
+        {SHOW_VISA_QUOTATION_TAB && activeTab === 'visa' && visaSection()}
 
         {/* Vehicle — reference single-vehicle layout. */}
         {activeTab === 'vehicle' && vehicleTab()}
+
+        {/* Cruise — reference layout with section title, amount, name, duration, room type, description. */}
+        {activeTab === 'cruise' && cruiseTab()}
 
         {/* Hotel */}
         {activeTab === 'hotel' && (
@@ -2112,7 +2669,7 @@ export function QuotationBuilderPage() {
                 <section className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h3 className="font-semibold text-slate-900">Default Hotel Option</h3>
+                      <h3 className="font-semibold text-slate-900">Hotel Options</h3>
                     </div>
                     <Button
                       size="sm"
@@ -2144,9 +2701,7 @@ export function QuotationBuilderPage() {
                         No alternative hotel option added.
                       </p>
                     )}
-                    {alternativeHotelRows.map(({ row, index }, optionIndex) =>
-                      hotelCard(index, row.id, optionIndex + 1),
-                    )}
+                    {alternativeHotelRows.map(({ row, index }) => hotelCard(index, row.id))}
                   </section>
                 )}
               </>

@@ -194,6 +194,13 @@ export interface ServiceRowPatch {
   addOnServiceId?: string | null | undefined;
   name?: string;
   sellingPrice?: number;
+  description?: string | null;
+  notes?: string | null;
+  taxCategory?: string | null;
+  dayNumber?: number | null;
+  city?: string | null;
+  quantity?: number;
+  internalCost?: number;
 }
 
 export const SERVICE_MASTER_KEYS = [
@@ -297,7 +304,13 @@ function CruiseFields({
       />
       <MasterSelect
         ariaLabel="Cruise room type master"
-        placeholder={value.cruiseId ? 'Link a cabin' : 'Select a cruise first'}
+        placeholder={
+          !value.cruiseId
+            ? 'Select cruise first'
+            : roomTypes.length > 0
+              ? 'Select room type'
+              : 'No room types configured'
+        }
         options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
         value={value.cruiseRoomTypeId}
         disabled={!value.cruiseId}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
+import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import {
   useRemoveLogo,
@@ -58,6 +59,15 @@ function ProfileTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boo
   const [form, setForm] = useState(data.profile);
   useEffect(() => setForm(data.profile), [data.profile]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [operatingSince, setOperatingSince] = useState(data.profile.operatingSince?.toString() ?? '');
+  const [totalReviews, setTotalReviews] = useState(data.profile.totalReviews?.toString() ?? '');
+  const [tripsSold, setTripsSold] = useState(data.profile.tripsSold?.toString() ?? '');
+  useEffect(() => {
+    setOperatingSince(data.profile.operatingSince?.toString() ?? '');
+    setTotalReviews(data.profile.totalReviews?.toString() ?? '');
+    setTripsSold(data.profile.tripsSold?.toString() ?? '');
+  }, [data.profile.operatingSince, data.profile.totalReviews, data.profile.tripsSold]);
+  const intOrNull = (value: string) => (value.trim() === '' ? null : Number(value));
   return (
     <section className={card}>
       <h2 className="font-semibold">Company Profile</h2>
@@ -102,6 +112,38 @@ function ProfileTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boo
           onChange={(e) => set('address', e.target.value)}
         />
       </Field>
+      <Field label="Operating Since">
+        <input
+          aria-label="Operating Since"
+          type="number"
+          min={1900}
+          max={2100}
+          placeholder="e.g. 2015"
+          className={input}
+          value={operatingSince}
+          onChange={(e) => setOperatingSince(e.target.value)}
+        />
+      </Field>
+      <Field label="Total Reviews">
+        <input
+          aria-label="Total Reviews"
+          type="number"
+          min={0}
+          className={input}
+          value={totalReviews}
+          onChange={(e) => setTotalReviews(e.target.value)}
+        />
+      </Field>
+      <Field label="Trips Sold">
+        <input
+          aria-label="Trips Sold"
+          type="number"
+          min={0}
+          className={input}
+          value={tripsSold}
+          onChange={(e) => setTripsSold(e.target.value)}
+        />
+      </Field>
       {canUpdate && (
         <Button
           isLoading={mutation.isPending}
@@ -112,6 +154,9 @@ function ProfileTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boo
               phone: form.phone || null,
               website: form.website || null,
               address: form.address || null,
+              operatingSince: intOrNull(operatingSince),
+              totalReviews: intOrNull(totalReviews),
+              tripsSold: intOrNull(tripsSold),
             })
           }
         >
@@ -206,18 +251,39 @@ function BrandingTab({ data, canUpdate }: { data: CompanySettings; canUpdate: bo
 
 function TaxTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boolean }) {
   const mutation = useUpdateTax();
-  const [value, setValue] = useState(data.tax.taxRegistrationNumber ?? '');
-  useEffect(() => setValue(data.tax.taxRegistrationNumber ?? ''), [data.tax.taxRegistrationNumber]);
+  const [gstin, setGstin] = useState(data.tax.taxRegistrationNumber ?? '');
+  const [tan, setTan] = useState(data.tax.tan ?? '');
+  useEffect(() => {
+    setGstin(data.tax.taxRegistrationNumber ?? '');
+    setTan(data.tax.tan ?? '');
+  }, [data.tax.taxRegistrationNumber, data.tax.tan]);
+  const errorFields = mutation.error instanceof ApiError ? mutation.error.fields : undefined;
+  const fieldError = (key: string) =>
+    errorFields?.[key]?.map((message) => (
+      <p key={message} role="alert" className="text-sm text-red-700">
+        {message}
+      </p>
+    ));
   return (
     <section className={card}>
       <h2 className="font-semibold">Tax</h2>
-      <Field label="GSTIN / Tax Registration Number">
+      <Field label="GSTIN">
         <input
-          aria-label="Tax registration number"
+          aria-label="GSTIN"
           className={input}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          value={gstin}
+          onChange={(e) => setGstin(e.target.value)}
         />
+        {fieldError('taxRegistrationNumber')}
+      </Field>
+      <Field label="TAN">
+        <input
+          aria-label="TAN"
+          className={input}
+          value={tan}
+          onChange={(e) => setTan(e.target.value)}
+        />
+        {fieldError('tan')}
       </Field>
       <p className="text-xs text-slate-500">
         Printed on Tax Invoices when configured. GST and TCS amounts are still entered per booking —
@@ -226,7 +292,12 @@ function TaxTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boolean
       {canUpdate && (
         <Button
           isLoading={mutation.isPending}
-          onClick={() => mutation.mutate({ taxRegistrationNumber: value || null })}
+          onClick={() =>
+            mutation.mutate({
+              taxRegistrationNumber: gstin || null,
+              tan: tan || null,
+            })
+          }
         >
           Save tax settings
         </Button>

@@ -12,7 +12,7 @@ import {
   TicketCheck,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { labelForLookup, PERMISSIONS } from '@interscale/shared';
+import { labelForLookup, PERMISSIONS, hotelStayNights } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
@@ -226,7 +226,7 @@ export function QuotationDetailsPage() {
                   <article key={hotel.id} className="rounded-lg bg-slate-50 p-3">
                     <strong>{hotel.hotelName}</strong>
                     <p className="text-sm text-slate-600">
-                      {hotel.city} · {hotel.nights} nights · {hotel.roomType || 'Room open'} ·{' '}
+                      {hotel.city} · {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights} nights · {hotel.roomType || 'Room open'} ·{' '}
                       {hotel.mealPlan || 'Meal plan open'}
                     </p>
                   </article>

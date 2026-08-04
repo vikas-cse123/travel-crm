@@ -235,9 +235,12 @@ export const cruisesService = {
         where,
         ...toPrismaPagination(pagination),
         orderBy,
-        include: canViewCosting
-          ? { ...cruiseListInclude, roomTypes: { select: { price: true, status: true } } }
-          : cruiseListInclude,
+        // Room types ride along so the quotation builder can populate the Room
+        // Type selector from this same tenant-scoped list call. presentRoomType
+        // redacts price/currency when the caller lacks costing access and drops
+        // tenant internals; status is kept so archived room types can still be
+        // restored for existing quotations.
+        include: { ...cruiseListInclude, roomTypes: { orderBy: { sortOrder: 'asc' as const } } },
       }),
       prisma.cruise.count({ where }),
     ]);
@@ -246,17 +249,11 @@ export const cruisesService = {
       data: rows.map((row) => {
         const record = row as unknown as Record<string, unknown> & {
           _count?: { roomTypes: number };
-          roomTypes?: { price: Prisma.Decimal | null; status: MasterStatus }[];
         };
-        const prices = (record.roomTypes ?? [])
-          .map((entry) => num(entry.price))
-          .filter((value): value is number => value !== null);
-        const { roomTypes, _count, ...rest } = record;
-        void roomTypes;
+        const { _count, ...rest } = record;
         return {
           ...presentCruise(rest, canViewCosting),
           roomTypeCount: _count?.roomTypes ?? 0,
-          priceRange: prices.length ? { min: Math.min(...prices), max: Math.max(...prices) } : null,
         };
       }),
       pagination: buildPaginationMeta(pagination, total),

@@ -17,6 +17,15 @@ const optionalTrimmed = (max: number) =>
     .transform((value) => (value ? value : null))
     .nullable()
     .optional();
+/** Optional field normalised to uppercase (GSTIN, TAN); empty becomes null. */
+const optionalTrimmedUpper = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((value) => (value ? value.toUpperCase() : null))
+    .nullable()
+    .optional();
 
 /** A curated, extensible list of IANA zones surfaced in the selector. */
 export const SETTINGS_TIMEZONES = [
@@ -80,6 +89,25 @@ const hexColor = z
 
 export const LOGO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 
+/** Optional non-negative whole-number metric (e.g. reviews, trips sold). */
+const optionalCount = (max: number) =>
+  z
+    .number()
+    .int()
+    .min(0)
+    .max(max)
+    .nullable()
+    .optional();
+
+/** Year the company started operating (company profile). */
+const optionalOperatingSince = z
+  .number()
+  .int()
+  .min(1900)
+  .max(2100)
+  .nullable()
+  .optional();
+
 export const settingsProfileSchema = z.object({
   name: trimmed(120).min(2, 'Company name is required.'),
   email: z.string().trim().email().max(255),
@@ -90,6 +118,9 @@ export const settingsProfileSchema = z.object({
     .nullable()
     .optional(),
   address: optionalTrimmed(1000),
+  operatingSince: optionalOperatingSince,
+  totalReviews: optionalCount(100_000_000),
+  tripsSold: optionalCount(100_000_000),
 });
 
 export const settingsBrandingSchema = z.object({
@@ -97,8 +128,12 @@ export const settingsBrandingSchema = z.object({
 });
 
 export const settingsTaxSchema = z.object({
-  // Optional; supports Indian GSTIN and other registration formats alike.
-  taxRegistrationNumber: optionalTrimmed(40),
+  // Optional GSTIN, stored uppercase in the legacy taxRegistrationNumber column
+  // so existing PDF/document rendering keeps working. Supports Indian GSTIN and
+  // other registration formats alike.
+  taxRegistrationNumber: optionalTrimmedUpper(40),
+  // Optional TAN (Tax Deduction Account Number), stored uppercase.
+  tan: optionalTrimmedUpper(40),
 });
 
 export const settingsPreferencesSchema = z.object({
