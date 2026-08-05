@@ -1231,6 +1231,158 @@ describe('Phase 8 quotation pages', () => {
     expect(section.querySelector('.bg-emerald-50')).toBeNull();
   });
 
+  it('does not render a duplicate Services & Experiences block on the public page', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000007', customerName: 'Aarav Mehta', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'No Duplicate Block',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '200000',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        flightDetails: {
+          include: true,
+          sectionTitle: 'Flight Details',
+          amount: 0,
+          journeyType: 'ONEWAY_OUTBOUND',
+          outbound: {
+            fromCity: 'Delhi',
+            toCity: 'Singapore',
+            travelClass: 'Economy',
+            segments: [
+              {
+                airlineId: 'air-1',
+                airlineName: 'Air India',
+                flightNumber: 'AI101',
+                travelClass: 'Economy',
+                from: 'Delhi',
+                to: 'Singapore',
+                departureDate: '2026-09-10',
+                departureTime: '10:00',
+                arrivalDate: '2026-09-10',
+                arrivalTime: '12:00',
+                duration: '2h 0m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '20kg',
+                notes: null,
+                connectionVia: null,
+              },
+            ],
+          },
+          returnJourney: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] },
+        },
+        hotels: [
+          { id: 'h1', hotelName: 'Marina Bay Sands', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 3, checkInDate: null, checkOutDate: null, sellingPrice: '20000', selected: true, notes: null, sequence: 1 },
+        ],
+        services: [
+          { id: 's-sight', serviceType: 'SIGHTSEEING', name: 'City Tour', description: null, dayNumber: 1, city: 'Singapore', quantity: '1', unitSellingPrice: '3000', totalSellingPrice: '3000', sellingPrice: '3000', taxCategory: 'Sightseeing', notes: null, sequence: 1 },
+          { id: 's-cruise', serviceType: 'CRUISE', name: 'Harbour Cruise', description: null, dayNumber: 2, city: 'Singapore', quantity: '1', unitSellingPrice: '5000', totalSellingPrice: '5000', sellingPrice: '5000', taxCategory: 'Cruise', notes: null, sequence: 2 },
+          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: 1, city: 'Singapore', quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: 'Transportation', notes: null, sequence: 3 },
+          { id: 's-addon', serviceType: 'TRAVEL_INSURANCE', name: 'Travel Insurance', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: 'Add-on', notes: null, sequence: 4 },
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('No Duplicate Block');
+
+    // The duplicate block is gone entirely.
+    expect(screen.queryByRole('heading', { name: 'Services & Experiences' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Services & Experiences')).not.toBeInTheDocument();
+    // No duplicate standalone row for the non-addon sightseeing service (the
+    // only kind the old block would have shown without a dedicated section).
+    expect(screen.queryByText('City Tour')).not.toBeInTheDocument();
+
+    // Dedicated sections still render.
+    expect(screen.getByRole('heading', { name: 'Services Include' })).toBeInTheDocument();
+    expect(screen.getByText('Marina Bay Sands')).toBeInTheDocument();
+    expect(screen.getByText('Air India')).toBeInTheDocument();
+    expect(screen.getByText('Harbour Cruise')).toBeInTheDocument();
+
+    // Add-ons still render under "Additional Services".
+    const addonsHeading = screen.getByRole('heading', { name: 'Additional Services' });
+    const addonsSection = addonsHeading.closest('section') as HTMLElement;
+    expect(within(addonsSection).getByText('Travel Insurance')).toBeInTheDocument();
+  });
+
+  it('does not resurrect the block for legacy generic service names', async () => {
+    const service = (id: string, serviceType: string, name: string) => ({
+      id,
+      serviceType,
+      name,
+      description: null,
+      dayNumber: null,
+      city: null,
+      quantity: '1',
+      unitSellingPrice: '0',
+      totalSellingPrice: '0',
+      sellingPrice: '0',
+      taxCategory: null,
+      notes: null,
+      sequence: 1,
+    });
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000008', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Legacy Generic Services',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [
+          service('s1', 'SIGHTSEEING', 'sightseeing'),
+          service('s2', 'CRUISE', 'cruise'),
+          service('s3', 'VEHICLE_TRANSFER', 'vehicle'),
+          service('s4', 'FLIGHT', 'flight'),
+          service('s5', 'TRAVEL_INSURANCE', 'visa'),
+          service('s6', 'SIGHTSEEING', 'hotel'),
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Legacy Generic Services');
+
+    // No "Services & Experiences" block, and no bare duplicate value rows for
+    // values that only the old block ever displayed (no dedicated section).
+    expect(screen.queryByRole('heading', { name: 'Services & Experiences' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Services & Experiences')).not.toBeInTheDocument();
+    expect(screen.queryByText('hotel', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText('sightseeing', { exact: true })).not.toBeInTheDocument();
+    // Legacy cruise/vehicle values still render inside their dedicated sections.
+    expect(screen.getByText('cruise', { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('vehicle', { exact: true })).toBeInTheDocument();
+    // The legacy add-on value still renders as an add-on under "Additional Services".
+    const addonsHeading = screen.getByRole('heading', { name: 'Additional Services' });
+    const addonsSection = addonsHeading.closest('section') as HTMLElement;
+    expect(within(addonsSection).getByText('visa')).toBeInTheDocument();
+  });
+
   it('shows the Sightseeing service card from saved sightseeing details', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -1341,6 +1493,99 @@ describe('Phase 8 quotation pages', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('removes the old generic itinerary card but keeps the detailed sightseeing timeline', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Itinerary Check',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [],
+        // The old generic itinerary snapshot must no longer be rendered.
+        itinerary: [
+          { id: 'd1', dayNumber: 1, title: 'Singapore', destination: 'Singapore', description: '4 night stay in Singapore.', overnightLocation: 'Singapore', meals: null, transfers: null, sequence: 1 },
+        ],
+        // The detailed sightseeing timeline must still render.
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            { dayNumber: 1, title: 'City Tour', city: 'Singapore', meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+          ],
+        },
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async () => response(publicData),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Itinerary Check');
+
+    // The old generic itinerary card is gone (no generic title, description, or overnight line).
+    expect(screen.queryByText(/4 night stay in Singapore/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overnight: Singapore/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Day 1: Singapore/)).not.toBeInTheDocument();
+    // The detailed sightseeing timeline still renders.
+    expect(screen.getByRole('heading', { name: 'Your Itinerary' })).toBeInTheDocument();
+    expect(screen.getByText('Merlion Park')).toBeInTheDocument();
+  });
+
+  it('does not render any itinerary fallback when there is no detailed sightseeing', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'No Itinerary',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [],
+        itinerary: [
+          { id: 'd1', dayNumber: 1, title: 'Singapore', destination: 'Singapore', description: '4 night stay in Singapore.', overnightLocation: 'Singapore', meals: null, transfers: null, sequence: 1 },
+        ],
+        sightseeingDetails: null,
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async () => response(publicData),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('No Itinerary');
+
+    // No generic fallback itinerary card and no "Your Itinerary" heading.
+    expect(screen.queryByRole('heading', { name: 'Your Itinerary' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/4 night stay in Singapore/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Day 1: Singapore/)).not.toBeInTheDocument();
+  });
+
   it('renders the Your Itinerary timeline with deduplicated titles, metadata and badges', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -1391,7 +1636,8 @@ describe('Phase 8 quotation pages', () => {
     await screen.findByText('Singapore Escape');
 
     expect(screen.getByRole('heading', { name: 'Your Itinerary' })).toBeInTheDocument();
-    // Section intro renders sanitized rich text (no raw <p>).
+    // Section intro renders sanitized rich text inside the Instructions info box.
+    expect(screen.getByText('Instructions')).toBeInTheDocument();
     expect(screen.getByText('Explore the highlights.')).toBeInTheDocument();
     expect(screen.queryByText(/<p>/)).not.toBeInTheDocument();
     // Deduplicated day title (never "Day 1: Day 1: …").
@@ -1413,6 +1659,401 @@ describe('Phase 8 quotation pages', () => {
     expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
     expect(within(article).getByText(/Meals:/)).toBeInTheDocument();
     expect(within(article).getByText('Breakfast (Hotel)')).toBeInTheDocument();
+  });
+
+  it('renders independent per-meal modes and transfer details in the Meals summary', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000005', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Per Meal Options',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: true, dinner: true },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              mealPreferences: {
+                breakfast: { mode: 'NO_TRANSFER', transferDetails: null },
+                lunch: { mode: 'INCLUDE_AT_HOTEL', transferDetails: null },
+                dinner: { mode: 'WITH_TRANSFER', transferDetails: 'at the Taj Hotel' },
+              },
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Per Meal Options');
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    expect(
+      within(article).getByText('Breakfast (No Transfer), Lunch (Hotel), Dinner (With Transfer: at the Taj Hotel)'),
+    ).toBeInTheDocument();
+    // Daily transfer badge stays independent of the meal-transfer configuration.
+    expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
+  });
+
+  it('falls back to the shared mealMode when no per-meal preferences exist', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000006', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Legacy Meals',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, dinner: true },
+              mealMode: 'WITH_TRANSFER',
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Legacy Meals');
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    // The shared legacy WITH_TRANSFER mode now renders per meal.
+    expect(
+      within(article).getByText('Breakfast (With Transfer), Dinner (With Transfer)'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows With Transfer without details and hides the Meals row when nothing is selected', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000011', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'No Detail Meal',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: true },
+              mealMode: 'NO_TRANSFER',
+              mealPreferences: {
+                dinner: { mode: 'WITH_TRANSFER', transferDetails: '' },
+              },
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('No Detail Meal');
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    // WITH_TRANSFER with blank details renders without a trailing colon.
+    expect(within(article).getByText('Dinner (With Transfer)')).toBeInTheDocument();
+    // Unselected meals (Breakfast/Lunch) are never shown.
+    expect(within(article).queryByText(/Breakfast/)).not.toBeInTheDocument();
+    expect(within(article).queryByText(/Lunch/)).not.toBeInTheDocument();
+  });
+
+  it('normalizes legacy meal-mode variants instead of falling back to Hotel', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000012', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Legacy Variants',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: true, dinner: true },
+              mealMode: 'INCLUDE AT HOTEL',
+              mealPreferences: {
+                breakfast: { mode: 'NO TRANSFER', transferDetails: null },
+                lunch: { mode: 'no-transfer', transferDetails: null },
+                dinner: { mode: 'HOTEL', transferDetails: null },
+              },
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Legacy Variants');
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    // Each variant normalizes to its canonical label; none becomes (Hotel).
+    expect(
+      within(article).getByText('Breakfast (No Transfer), Lunch (No Transfer), Dinner (Hotel)'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not fall back to Hotel for an unknown per-meal mode', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000013', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Unknown Mode',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              mealPreferences: {
+                breakfast: { mode: 'PICNIC', transferDetails: null },
+              },
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Unknown Mode');
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    // A present-but-unknown per-meal mode shows no suffix (never (Hotel)).
+    expect(within(article).getByText('Meals:')).toBeInTheDocument();
+    expect(within(article).getByText('Breakfast')).toBeInTheDocument();
+    expect(within(article).queryByText('Breakfast (Hotel)')).not.toBeInTheDocument();
+  });
+
+  it('shows a thumbnail for every activity and matches them to the correct activity', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000009', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Thumbnails',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                { name: 'Arrival in Singapore & Hotel Check-in', description: '<p>Check in.</p>', startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/arrival.jpg' },
+                { name: 'Night Safari – Singapore', description: null, startTime: null, sightseeingId: 'sg-ns', imageUrl: null },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      sightseeingPresentations: {
+        'sg-ns': { imageUrl: 'https://storage.example.test/night-safari.jpg' },
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Thumbnails');
+
+    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
+    // First activity uses its snapshot image; second resolves its signed presentation.
+    const arrival = within(article).getByAltText('Arrival in Singapore & Hotel Check-in');
+    expect(arrival).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
+    expect(arrival).toHaveClass('object-cover');
+    const safari = within(article).getByAltText('Night Safari – Singapore');
+    expect(safari).toHaveAttribute('src', 'https://storage.example.test/night-safari.jpg');
+    // The large day image uses the first valid activity image too.
+    const mainImages = within(article).getAllByRole('img');
+    expect(mainImages[0]).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
+  });
+
+  it('shows a neutral thumbnail placeholder when an activity has no image', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000010', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'No Thumbnails',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                { name: 'Free Walking', description: null, startTime: null, sightseeingId: null, imageUrl: null },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('No Thumbnails');
+    // No broken image icon for the activity without an image.
+    expect(screen.queryByAltText('Free Walking')).not.toBeInTheDocument();
+    expect(screen.getByText('Free Walking')).toBeInTheDocument();
   });
 
   it('falls back to the primary activity title when the day title is missing', async () => {
@@ -1465,6 +2106,106 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.queryByText('Shared Transfer')).not.toBeInTheDocument();
     expect(screen.queryByText('Private Transfer')).not.toBeInTheDocument();
     expect(screen.queryByText(/Meals:/)).not.toBeInTheDocument();
+  });
+
+  it('renders the light-blue Instructions box with formatted rich text', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Instructions Box',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description:
+            '<p>Meet your guide at the <strong>lobby</strong>.</p><p>Carry:</p><ul><li>Passport</li><li>Water bottle</li></ul><p>More at <a href="https://example.test">the site</a>.</p>',
+          days: [
+            { dayNumber: 1, title: 'Day 1: City Tour', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Instructions Box');
+
+    const box = screen.getByText('Instructions').closest('div')?.parentElement as HTMLElement;
+    // The info icon + Instructions heading render inside the box.
+    expect(within(box).getByText('Instructions')).toBeInTheDocument();
+    // Rich formatting: bold, lists and links are preserved, no raw tags.
+    expect(box).toHaveTextContent('Meet your guide at the lobby.');
+    expect(box).toHaveTextContent('Passport');
+    expect(box).toHaveTextContent('Water bottle');
+    expect(box.querySelector('strong')).toBeInTheDocument();
+    expect(box.querySelector('ul')).toBeInTheDocument();
+    expect(box.querySelector('a')).toHaveAttribute('href', 'https://example.test');
+    expect(screen.queryByText(/<p>/)).not.toBeInTheDocument();
+    // Unsafe scripts are sanitized away.
+    expect(screen.queryByText(/alert/)).not.toBeInTheDocument();
+    // The green itinerary timeline remains directly below the box.
+    expect(screen.getByRole('heading', { name: 'Your Itinerary' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Day 1: City Tour' })).toBeInTheDocument();
+  });
+
+  it('hides the Instructions box when the section description is empty', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000004', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Empty Instructions',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: '<p><br></p>',
+          days: [
+            { dayNumber: 1, title: 'Day 1: City Tour', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Empty Instructions');
+
+    expect(screen.queryByText('Instructions')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your Itinerary' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Day 1: City Tour' })).toBeInTheDocument();
   });
 
   it('hides empty sightseeing days and renders multiple activities in one card', async () => {
@@ -1591,6 +2332,130 @@ describe('Phase 8 quotation pages', () => {
     expect(document.querySelector('script')).toBeNull();
   });
 
+  it('single activity: omits thumbnail, keeps full-width title and description, transfer inside panel, meals below', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Ladakh', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Ladakh Trip',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Pangong',
+              city: 'Leh',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                { name: 'Pangong Lake Visit', description: '<p>Beautiful lake at high altitude</p>', startTime: null, sightseeingId: null, imageUrl: null },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Ladakh Trip');
+    const article = screen.getByRole('heading', { name: 'Day 1: Pangong' }).closest('article') as HTMLElement;
+    // Header exists
+    expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
+    // Activity name rendered without a dedicated thumbnail img
+    expect(within(article).getByText('Pangong Lake Visit')).toBeInTheDocument();
+    expect(within(article).queryByAltText('Pangong Lake Visit')).not.toBeInTheDocument();
+    // Description visible
+    expect(within(article).getByText('Beautiful lake at high altitude')).toBeInTheDocument();
+    // Transfer badge appears inside the panel
+    expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
+    // Meals appear once below the panel
+    expect(within(article).getByText('Breakfast (Hotel)')).toBeInTheDocument();
+  });
+
+  it('multiple activities: shows thumbnails, dividers, transfer per activity, meals once below panel', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000004', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Goa Beach Holiday',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: North Goa',
+              city: 'Goa',
+              date: null,
+              meals: { breakfast: false, lunch: true, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'PRIVATE',
+              activities: [
+                { name: 'Fort Aguada', description: null, startTime: null, sightseeingId: null, imageUrl: null },
+                { name: 'Calangute Beach', description: '<p>Relax by the shore</p>', startTime: null, sightseeingId: null, imageUrl: null },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa Beach Holiday');
+    const article = screen.getByRole('heading', { name: 'Day 1: North Goa' }).closest('article') as HTMLElement;
+    expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
+    expect(within(article).getByText('Fort Aguada')).toBeInTheDocument();
+    expect(within(article).getByText('Calangute Beach')).toBeInTheDocument();
+    expect(within(article).getByText('Relax by the shore')).toBeInTheDocument();
+    // Divider between activities
+    expect(article.querySelector('hr')).toBeInTheDocument();
+    // Transfer badge inside panel (per activity: Private Transfer appears twice)
+    const transferBadges = within(article).getAllByText('Private Transfer');
+    expect(transferBadges.length).toBe(2);
+    // Meals appear only once below the panel
+    const mealsMatches = within(article).getAllByText('Lunch (Hotel)');
+    expect(mealsMatches.length).toBe(1);
+  });
+
   it('renders legacy sightseeing snapshot shapes without crashing', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -1639,8 +2504,8 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByRole('heading', { name: 'Day 3: Legacy Day' })).toBeInTheDocument();
     expect(screen.getByText('Legacy Activity')).toBeInTheDocument();
     expect(screen.getByText('Private Transfer')).toBeInTheDocument();
-    // Array meals normalize to booleans; WITH_TRANSFER adds no (Hotel) suffix.
-    expect(screen.getByText('Breakfast, Dinner')).toBeInTheDocument();
+    // Array meals normalize to booleans; the shared WITH_TRANSFER mode renders per meal.
+    expect(screen.getByText('Breakfast (With Transfer), Dinner (With Transfer)')).toBeInTheDocument();
     const img = screen.getByAltText('Day 3: Legacy Day');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/legacy.jpg');
   });
@@ -2369,7 +3234,7 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Singapore Package for Vikas Singh');
 
-    const single = encodeURIComponent('QT-000034 - Singapore Package for Vikas Singh');
+    const single = encodeURIComponent('QT-34 - Singapore Package for Vikas Singh');
     const duplicate = encodeURIComponent('for Vikas Singh for Vikas Singh');
 
     const whatsappHref = screen.getByRole('link', { name: /WhatsApp/ }).getAttribute('href') ?? '';
@@ -2377,7 +3242,7 @@ describe('Phase 8 quotation pages', () => {
     expect(whatsappHref).not.toContain(duplicate);
 
     const emailHref = screen.getByRole('link', { name: /Email/ }).getAttribute('href') ?? '';
-    expect(emailHref).toContain(encodeURIComponent('Quotation Inquiry (ID: QT-000034 - Singapore Package for Vikas Singh)'));
+    expect(emailHref).toContain(encodeURIComponent('Quotation Inquiry (ID: QT-34 - Singapore Package for Vikas Singh)'));
     expect(emailHref).not.toContain(duplicate);
   });
 
@@ -3116,6 +3981,84 @@ describe('Phase 8 quotation pages', () => {
     const nightsRowB = within(cardB).getByText('Nights:').parentElement as HTMLElement;
     expect(nightsRowB).toHaveTextContent('4');
   });
+
+  it('renders sections in the required order on the public page', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel', email: 'a@b.test', phone: '+91 90000 00000', website: null,
+        address: '1 MG Road, Bengaluru', primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000100', customerName: 'Priya Sharma',
+        destinationSummary: 'Singapore', travelStartDate: '2026-10-23', travelEndDate: '2026-10-29',
+        adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Section Order Test', versionNumber: 1, currency: 'INR', finalAmount: '45000',
+        notes: null, perAdultPrice: '22500', perChildWithBedPrice: '0', perChildWithoutBedPrice: '0',
+        perInfantPrice: '0', taxNote: 'Inclusive of GST', initialPaymentAmount: '5000',
+        paymentLink: 'https://rzp.io/l/test',
+        inclusionsHtml: null, exclusionsHtml: null, paymentPolicies: '<p>Policy</p>',
+        cancellationPolicies: '<p>Cancellation</p>', bookingTerms: '<p>Terms</p>',
+        includeVisa: true, visaSectionTitle: 'Visa', visaAmount: '2000', visaDestination: 'Singapore',
+        visaType: 'e-Visa', visaServiceCharge: '500', visaGstPercent: '18', visaVfsCharge: '300',
+        sightseeingDetails: {
+          include: true, sectionTitle: 'Sightseeing', amount: 0, description: null,
+          days: [{ dayNumber: 1, title: 'Day 1', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: null }] }],
+        },
+        flightDetails: {
+          include: true, journeyType: 'ROUND_TRIP',
+          outbound: { fromCity: 'DEL', toCity: 'SIN', segments: [{ airlineName: 'IndiGo', flightNumber: '6E101', from: 'DEL', to: 'SIN', departureDate: '2026-10-23', departureTime: '06:00', arrivalDate: '2026-10-23', arrivalTime: '12:00', duration: '6h' }] },
+          returnJourney: { fromCity: 'SIN', toCity: 'DEL', segments: [{ airlineName: 'IndiGo', flightNumber: '6E102', from: 'SIN', to: 'DEL', departureDate: '2026-10-29', departureTime: '14:00', arrivalDate: '2026-10-29', arrivalTime: '20:00', duration: '6h 30m' }] },
+        },
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [{ id: 'h1', hotelName: 'Marina Bay Sands', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', nights: 6, selected: true, notes: null, sequence: 1 }],
+        itinerary: [],
+        services: [
+          { serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, city: 'Singapore', quantity: '1', unitSellingPrice: '3000', notes: null },
+          { serviceType: 'CRUISE', name: 'River Cruise', description: 'Cruise.', city: 'Singapore', quantity: '1', unitSellingPrice: '1500', notes: null },
+          { serviceType: 'OTHER_ADD_ON', name: 'Travel Insurance', description: 'Cover.', city: null, quantity: '1', unitSellingPrice: '800', notes: null },
+        ],
+        inclusions: [{ content: 'Inclusion A' }],
+        exclusions: [{ content: 'Exclusion A' }],
+        terms: [{ content: 'Term A' }],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes><Route path="/q/:token" element={<PublicQuotationPage />} /></Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Section Order Test');
+
+    const headingNames = [
+      'Secure Your Booking Now',
+      'Services Include',
+      'Your Itinerary',
+      'Your Hotels',
+      'Flight Details',
+      'Transportation',
+      'Cruise Details',
+      'Additional Services',
+      'Policies',
+      'Contact Us',
+    ];
+
+    const headings = headingNames.map((name) =>
+      screen.getByRole('heading', { name }),
+    );
+
+    // Verify ascending DOM position confirms the required order
+    for (let i = 1; i < headings.length; i += 1) {
+      expect(
+        headings[i - 1]!.compareDocumentPosition(headings[i]!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -3215,6 +4158,26 @@ const addOn = {
   status: 'ACTIVE',
 };
 
+/** Build the activities response shape for the sightseeing/activities endpoint from a page of sightseeing rows. */
+function sightseeingActivitiesFrom(data: { data: unknown[] }) {
+  const rows = data.data as Array<Record<string, unknown>>;
+  const first = rows[0];
+  return {
+    destination: first?.destination ?? null,
+    city: first?.city ?? null,
+    activities: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      sequence: row.sequence,
+      estimatedHours: row.estimatedHours ?? null,
+      suggestedStartTime: row.suggestedStartTime ?? null,
+      description: row.description ?? null,
+      destination: row.destination,
+      city: row.city,
+    })),
+  };
+}
+
 /** Route master lookups by URL so one stub can serve every selector. */
 function masterFetch(base: unknown, extra: Record<string, unknown> = {}) {
   const routes: Record<string, unknown> = {
@@ -3225,14 +4188,27 @@ function masterFetch(base: unknown, extra: Record<string, unknown> = {}) {
     '/masters/cruises': page([cruise]),
     '/masters/vehicles': page([vehicle]),
     '/masters/sightseeing': page([sightseeing]),
+    '/masters/sightseeing/activities': sightseeingActivitiesFrom(page([sightseeing])),
+    '/masters/sightseeing/presentations': {},
     '/masters/add-on-services': page([addOn]),
     ...extra,
   };
+  // When a caller overrides /masters/sightseeing, also create the matching
+  // /masters/sightseeing/activities response from the same data.
+  const sightseeingExtra = extra['/masters/sightseeing'];
+  if (sightseeingExtra && !extra['/masters/sightseeing/activities']) {
+    if (typeof sightseeingExtra === 'object' && sightseeingExtra !== null && 'data' in sightseeingExtra) {
+      routes['/masters/sightseeing/activities'] = sightseeingActivitiesFrom(
+        sightseeingExtra as { data: Array<Record<string, unknown>> },
+      );
+    }
+  }
   return vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
     void _options;
     const url = String(input);
-    // Detail routes carry an id segment, so they are matched before the list.
-    for (const [prefix, body] of Object.entries(routes))
+    // Most specific prefixes (longest) are matched first so image download-url
+    // routes beat their parent list routes.
+    for (const [prefix, body] of Object.entries(routes).sort(([a], [b]) => b.length - a.length))
       if (prefix.endsWith('/') ? url.includes(prefix) && !url.includes('?') : url.includes(prefix))
         return response(body);
     return response(base);
@@ -3292,6 +4268,20 @@ const renderBuilderPage = () =>
 /** Activate a builder tab by its nav-button label (tabs mount only when active). */
 const openTab = async (name: string) =>
   userEvent.click(await screen.findByRole('button', { name }));
+
+/** Open the sightseeing activity combobox and wait for an option label. */
+const openActivityPicker = async (picker: HTMLElement, label: string) => {
+  fireEvent.focus(picker);
+  await waitFor(() => {
+    const listbox = screen.getByRole('listbox', {
+      name: picker.getAttribute('aria-label') ?? '',
+    });
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
+    expect(labels.some((text) => text.includes(label))).toBe(true);
+  });
+};
 
 describe('Phase 14 master selectors', () => {
   beforeEach(() => {
@@ -3682,6 +4672,59 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Cruise section title')).toHaveValue('My Cruise Title');
   });
 
+  it('defaults the Cruise section title for snapshots that never stored one', async () => {
+    const quotation = builderQuotation({
+      services: [
+        {
+          id: 's-cruise',
+          serviceType: 'CRUISE',
+          name: 'Legacy Cruise',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '1000',
+          totalSellingPrice: '1000',
+          sellingPrice: '1000',
+          taxCategory: null,
+          notes: null,
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Cruise');
+    expect(await screen.findByLabelText('Cruise master')).toBeInTheDocument();
+    // The legacy snapshot has no stored title, so the field gets the default.
+    expect(screen.getByLabelText('Cruise section title')).toHaveValue('Cruise Details');
+  });
+
+  it('refills an empty Cruise section title on re-enable but preserves a custom one', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Cruise');
+    const includeCruise = () => screen.getByLabelText('Include Cruise in Quotation');
+    await userEvent.click(includeCruise());
+    const title = await screen.findByLabelText('Cruise section title');
+    expect(title).toHaveValue('Cruise Details');
+    // Empty the title, uncheck, then re-check: the default is restored.
+    await userEvent.clear(title);
+    await userEvent.click(includeCruise());
+    expect(screen.queryByLabelText('Cruise section title')).not.toBeInTheDocument();
+    await userEvent.click(includeCruise());
+    expect(await screen.findByLabelText('Cruise section title')).toHaveValue('Cruise Details');
+
+    // A custom title is preserved across uncheck/re-check.
+    await userEvent.clear(screen.getByLabelText('Cruise section title'));
+    await userEvent.type(screen.getByLabelText('Cruise section title'), 'Luxury Cruise Experience');
+    await userEvent.click(includeCruise());
+    await userEvent.click(includeCruise());
+    expect(await screen.findByLabelText('Cruise section title')).toHaveValue(
+      'Luxury Cruise Experience',
+    );
+  });
+
   it('shows the selected cruise room type options and preserves a historical value', async () => {
     const quotation = builderQuotation({
       services: [
@@ -3972,13 +5015,7 @@ describe('Phase 14 master selectors', () => {
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
     // Wait for the destination-scoped master options to load, then select one.
-    await waitFor(() => {
-      const list = document.querySelector(`datalist[id="${picker.getAttribute('list')}"]`);
-      const labels = Array.from(list?.querySelectorAll('option') ?? []).map((option) =>
-        option.getAttribute('value'),
-      );
-      expect(labels).toContain('City Tour');
-    });
+    await openActivityPicker(picker, 'City Tour');
     fireEvent.change(picker, { target: { value: 'City Tour' } });
     await waitFor(() =>
       expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('City Tour'),
@@ -3988,6 +5025,816 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent(
       'Guided tour of the city.',
     );
+  });
+
+  it('shows the selected sightseeing master image in the builder via the batched presentation', async () => {
+    const withImage = {
+      id: 'sg-img-1',
+      title: 'Marina Bay',
+      sequence: 2,
+      status: 'ACTIVE',
+      hasImage: true,
+      estimatedHours: 2,
+      suggestedStartTime: '10:00',
+      description: '<p>Bay lights.</p>',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const noImage = {
+      id: 'sg-no-img',
+      title: 'Legacy Walk',
+      sequence: 1,
+      status: 'ACTIVE',
+      hasImage: false,
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing': page([noImage, withImage]),
+      '/masters/sightseeing/presentations': {
+        'sg-img-1': { imageUrl: 'https://storage.example.test/signed/marina-bay.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    // The prefilled activity is the first master (no image), so selecting the
+    // image master later always fires a real change.
+    expect(picker).toHaveValue('Legacy Walk');
+    await openActivityPicker(picker, 'Marina Bay');
+    fireEvent.change(picker, { target: { value: 'Marina Bay' } });
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/signed/marina-bay.jpg');
+    expect(img).toHaveClass('object-cover');
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Marina Bay');
+    // The expiring signed URL is resolved for display only, never fetched via
+    // the single download-url endpoint or persisted.
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes('/masters/sightseeing/sg-img-1/image/download-url'),
+      ),
+    ).toBe(false);
+  });
+
+  it('changes the preview when the activity changes, falls back without an image and on load failure', async () => {
+    const withImage = {
+      id: 'sg-img-1',
+      title: 'Marina Bay',
+      sequence: 2,
+      status: 'ACTIVE',
+      hasImage: true,
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const noImage = {
+      id: 'sg-no-img',
+      title: 'Legacy Walk',
+      sequence: 1,
+      status: 'ACTIVE',
+      hasImage: false,
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing': page([noImage, withImage]),
+      '/masters/sightseeing/presentations': {
+        'sg-img-1': { imageUrl: 'https://storage.example.test/signed/marina-bay.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    await openActivityPicker(picker, 'Marina Bay');
+    fireEvent.change(picker, { target: { value: 'Marina Bay' } });
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/signed/marina-bay.jpg');
+    // Switching to a master without an image clears the preview back to the placeholder.
+    fireEvent.change(picker, { target: { value: 'Legacy Walk' } });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Legacy Walk');
+      expect(screen.queryByAltText('Activity')).not.toBeInTheDocument();
+    });
+    // Clearing the master removes the preview entirely.
+    fireEvent.change(picker, { target: { value: '' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''),
+    );
+    expect(screen.queryByAltText('Activity')).not.toBeInTheDocument();
+    // And a load failure on an image falls back to the neutral placeholder.
+    fireEvent.change(picker, { target: { value: 'Marina Bay' } });
+    const imgAgain = await screen.findByAltText('Activity');
+    fireEvent.error(imgAgain);
+    await waitFor(() => expect(screen.queryByAltText('Activity')).not.toBeInTheDocument());
+  });
+
+  it('renders existing selected activities with their master image on load', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: Marina Bay',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: 'sg-img-1',
+                name: 'Marina Bay',
+                description: null,
+                startTime: '10:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 1,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing/presentations': {
+        'sg-img-1': { imageUrl: 'https://storage.example.test/signed/marina-bay.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    // The legacy snapshot has no imageUrl — the master presentation resolves it.
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/signed/marina-bay.jpg');
+  });
+
+  it('resolves each of multiple selected activities to its own image', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: Marina Bay',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: 'sg-img-1',
+                name: 'Marina Bay',
+                description: null,
+                startTime: '10:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 1,
+              },
+              {
+                sightseeingId: 'sg-img-2',
+                name: 'City Tour',
+                description: null,
+                startTime: '14:00',
+                duration: '3 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 2,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing/presentations': {
+        'sg-img-1': { imageUrl: 'https://storage.example.test/signed/marina-bay.jpg' },
+        'sg-img-2': { imageUrl: 'https://storage.example.test/signed/city-tour.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const images = await screen.findAllByAltText('Activity');
+    expect(images).toHaveLength(2);
+    const srcs = images.map((img) => img.getAttribute('src')).sort();
+    expect(srcs).toEqual([
+      'https://storage.example.test/signed/city-tour.jpg',
+      'https://storage.example.test/signed/marina-bay.jpg',
+    ]);
+  });
+
+  it('does not issue duplicate image requests for duplicate sightseeing ids', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: 'sg-img-1',
+                name: 'Marina Bay',
+                description: null,
+                startTime: '10:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 1,
+              },
+              {
+                sightseeingId: 'sg-img-1',
+                name: 'Marina Bay Again',
+                description: null,
+                startTime: '12:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 2,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing/presentations': {
+        'sg-img-1': { imageUrl: 'https://storage.example.test/signed/marina-bay.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const images = await screen.findAllByAltText('Activity');
+    expect(images).toHaveLength(2);
+    expect(images[0]).toHaveAttribute(
+      'src',
+      'https://storage.example.test/signed/marina-bay.jpg',
+    );
+    const presentationCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/masters/sightseeing/presentations'),
+    );
+    expect(presentationCalls.length).toBe(1);
+  });
+
+  it('uses the saved image snapshot when no master presentation exists', async () => {
+    const quotation = builderQuotation({
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: Marina Bay',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: 'sg-img-1',
+                name: 'Marina Bay',
+                description: null,
+                startTime: '10:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: 'https://storage.example.test/signed/snapshot.jpg',
+                sequence: 1,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/signed/snapshot.jpg');
+  });
+
+  it('does not persist expiring signed URLs into the quotation save payload', async () => {
+    const withImage = {
+      id: '11111111-1111-4111-8111-111111111111',
+      title: 'Marina Bay',
+      sequence: 1,
+      status: 'ACTIVE',
+      hasImage: true,
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing': page([withImage]),
+      '/masters/sightseeing/presentations': {
+        '11111111-1111-4111-8111-111111111111': {
+          imageUrl: 'https://storage.example.test/signed/marina-bay.jpg?X-Amz-Signature=abc',
+        },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    await openActivityPicker(picker, 'Marina Bay');
+    fireEvent.change(picker, { target: { value: 'Marina Bay' } });
+    await screen.findByAltText('Activity');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    const days = body.sightseeingDetails.days;
+    const urls = JSON.stringify(days);
+    expect(urls).not.toContain('X-Amz-Signature');
+    expect(urls).not.toContain('storage.example.test');
+    const activity = days[0].activities[0];
+    expect(activity.sightseeingId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(activity.imageUrl).toBeNull();
+  });
+
+  it('shows special options and grouped master options in the activity dropdown', async () => {
+    const singaporeMaster = {
+      id: 'sg-1',
+      title: 'City Tour',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: City Tour',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, { '/masters/sightseeing': page([singaporeMaster]) }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    const texts = within(listbox).getAllByRole('option').map((option) => option.textContent ?? '');
+    // Reference quick options are always present.
+    expect(texts.some((text) => text.includes('Day at Leisure'))).toBe(true);
+    expect(texts.some((text) => text.includes('Custom Sightseeing'))).toBe(true);
+    expect(texts.some((text) => text.includes('Arrival and Check-in'))).toBe(true);
+    // Grouped master heading uses the day city.
+    expect(within(listbox).getByText('Activities in Singapore')).toBeInTheDocument();
+    expect(texts.some((text) => text.includes('City Tour'))).toBe(true);
+  });
+
+  it('handles Day at Leisure, Custom Sightseeing and Arrival and Check-in', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+
+    fireEvent.focus(picker);
+    await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    fireEvent.change(picker, { target: { value: 'Day at Leisure' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Day at Leisure'),
+    );
+    // Day at Leisure needs no master id; no image shows (placeholder).
+    expect(screen.queryByAltText('Activity')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Sightseeing day 1 title')).toHaveValue('Day 1: Day at Leisure');
+
+    fireEvent.change(picker, { target: { value: 'Custom Sightseeing' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''),
+    );
+
+    fireEvent.change(picker, { target: { value: 'Arrival and Check-in' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Arrival and Check-in'),
+    );
+  });
+
+  it('excludes wrong-destination activities and sorts master options by sequence', async () => {
+    const singaporeMaster = {
+      id: 'sg-2',
+      title: 'Singapore Zoo',
+      sequence: 2,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const kualaMaster = {
+      id: 'sg-1',
+      title: 'Batu Caves',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-my', name: 'Malaysia', countryName: 'Malaysia' },
+      city: { id: 'city-kl', name: 'Kuala Lumpur' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([singaporeMaster, kualaMaster]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
+    // Wrong-destination master never appears; the right one is sorted (only one here).
+    expect(labels.some((text) => text.includes('Batu Caves'))).toBe(false);
+    expect(labels.some((text) => text.includes('Singapore Zoo'))).toBe(true);
+  });
+
+  it('falls back to destination masters for a Cruise day and uses the destination heading', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([sgMaster('sg-2', 'Singapore Zoo', 3), sgMaster('sg-1', 'Singapore City Tour', 1)]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    // The heading uses the quotation destination, not the day city.
+    expect(within(listbox).getByText('Activities in Singapore')).toBeInTheDocument();
+    expect(within(listbox).queryByText('Activities in Cruise')).not.toBeInTheDocument();
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
+    expect(labels.some((text) => text.includes('Singapore Zoo'))).toBe(true);
+    expect(labels.some((text) => text.includes('Singapore City Tour'))).toBe(true);
+    // Sorted by master sequence ascending.
+    expect(
+      labels.indexOf(labels.find((text) => text.includes('Singapore City Tour'))!),
+    ).toBeLessThan(labels.indexOf(labels.find((text) => text.includes('Singapore Zoo'))!));
+    // No empty state while destination masters exist.
+    expect(within(listbox).queryByText(/No matching activities/)).not.toBeInTheDocument();
+  });
+
+  it('keeps an existing selected activity in a Cruise day without duplicating it', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: 'sg-1',
+                name: 'Singapore City Tour',
+                description: '<p>Guided tour.</p>',
+                startTime: '09:00',
+                duration: '2 hours',
+                city: 'Singapore',
+                imageUrl: null,
+                sequence: 1,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, { '/masters/sightseeing': page([sgMaster('sg-1', 'Singapore City Tour', 1)]) }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    // The selected activity stays visible even though the day city is Cruise.
+    expect(picker).toHaveValue('Singapore City Tour');
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Singapore City Tour');
+    expect(screen.getByLabelText('Day 1 activity 1 start time')).toHaveValue('09:00');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
+    // Exactly one entry for the selected activity.
+    expect(labels.filter((text) => text.includes('Singapore City Tour')).length).toBe(1);
+  });
+
+  it('uses the same corrected dropdown for activities added to a Cruise day', async () => {
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([sgMaster('sg-1', 'Singapore City Tour', 1), sgMaster('sg-2', 'Singapore Zoo', 2)]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await userEvent.click(screen.getByRole('button', { name: 'Add Activity' }));
+    const picker = await screen.findByLabelText('Day 1 activity 2');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 2' });
+    expect(within(listbox).getByText('Activities in Singapore')).toBeInTheDocument();
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
+    expect(labels.some((text) => text.includes('Singapore Zoo'))).toBe(true);
+    expect(labels.some((text) => text.includes('Singapore City Tour'))).toBe(true);
+  });
+
+  it('searches destination masters case-insensitively', async () => {
+    const fullDaySentosa = { ...sgMaster('sg-1', 'Full Day Sentosa', 1), description: '<p>Sentosa island.</p>' };
+    const fullDayExpress = { ...sgMaster('sg-2', 'Full Day Universal Studios Tour with Express Pass', 2) };
+    const zoo = sgMaster('sg-3', 'Singapore Zoo', 3);
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([fullDaySentosa, fullDayExpress, zoo]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    fireEvent.change(picker, { target: { value: 'FULL DAY' } });
+    await waitFor(() => {
+      const listbox = screen.getByRole('listbox', { name: 'Day 1 activity 1' });
+      const labels = within(listbox)
+        .getAllByRole('option')
+        .map((option) => option.textContent ?? '');
+      expect(labels.some((text) => text.includes('Full Day Sentosa'))).toBe(true);
+      expect(
+        labels.some((text) => text.includes('Full Day Universal Studios Tour with Express Pass')),
+      ).toBe(true);
+      expect(labels.some((text) => text.includes('Singapore Zoo'))).toBe(false);
+    });
+  });
+
+  it('selecting a master in a Cruise day fills description, time, duration and image', async () => {
+    const cityTour = {
+      ...sgMaster('sg-1', 'Singapore City Tour', 1),
+      description: '<p>Guided city tour.</p>',
+    };
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing': page([cityTour]),
+      '/masters/sightseeing/presentations': {
+        'sg-1': { imageUrl: 'https://storage.example.test/city-tour.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    await openActivityPicker(picker, 'Singapore City Tour');
+    fireEvent.change(picker, { target: { value: 'Singapore City Tour' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Singapore City Tour'),
+    );
+    expect(screen.getByLabelText('Day 1 activity 1 start time')).toHaveValue('09:00');
+    expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent(
+      'Guided city tour.',
+    );
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/city-tour.jpg');
+  });
+
+  it('keeps two activities in one day separate', async () => {
+    const first = {
+      id: 'sg-1',
+      title: 'Singapore City Tour',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      suggestedStartTime: '09:00',
+      description: '<p>First tour.</p>',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const second = {
+      id: 'sg-2',
+      title: 'Night Safari',
+      sequence: 2,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      suggestedStartTime: '18:00',
+      description: '<p>Night tour.</p>',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, { '/masters/sightseeing': page([first, second]) }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await userEvent.click(screen.getByRole('button', { name: 'Add Activity' }));
+    const picker1 = await screen.findByLabelText('Day 1 activity 1');
+    const picker2 = await screen.findByLabelText('Day 1 activity 2');
+    await openActivityPicker(picker1, 'Singapore City Tour');
+    fireEvent.change(picker1, { target: { value: 'Singapore City Tour' } });
+    await openActivityPicker(picker2, 'Night Safari');
+    fireEvent.change(picker2, { target: { value: 'Night Safari' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Singapore City Tour'),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 2 name')).toHaveValue('Night Safari'),
+    );
+    expect(screen.getByLabelText('Day 1 activity 1 start time')).toHaveValue('09:00');
+    expect(screen.getByLabelText('Day 1 activity 2 start time')).toHaveValue('18:00');
+    // Each activity keeps its own description.
+    expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent('First tour.');
+    expect(screen.getByLabelText('Day 1 activity 2 description')).toHaveTextContent('Night tour.');
   });
 
   it('adds and removes sightseeing activities and days', async () => {
@@ -4003,6 +5850,67 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Sightseeing day 1 title')).not.toBeInTheDocument();
   });
 
+  it('supports independent per-meal transfer options in the builder', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await screen.findByLabelText('Day 1 activity 1 name');
+
+    // Breakfast is included by default and shows its own meal-option row.
+    expect(screen.getByRole('checkbox', { name: 'breakfast' })).toBeChecked();
+    const breakfastOptions = screen.getByRole('group', { name: 'breakfast meal options' });
+    expect(within(breakfastOptions).getByRole('radio', { name: 'No Transfer' })).toBeChecked();
+    expect(
+      within(breakfastOptions).getByRole('radio', { name: 'Include At Hotel' }),
+    ).not.toBeChecked();
+    // Unselected meals show no option row and no transfer input.
+    expect(screen.queryByRole('group', { name: 'lunch meal options' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'dinner meal options' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('breakfast transfer details')).not.toBeInTheDocument();
+
+    // Checking Lunch adds its own row (default NO_TRANSFER) without touching breakfast.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'lunch' }));
+    const lunchOptions = await screen.findByRole('group', { name: 'lunch meal options' });
+    expect(within(lunchOptions).getByRole('radio', { name: 'No Transfer' })).toBeChecked();
+    expect(
+      within(screen.getByRole('group', { name: 'breakfast meal options' })).getByRole('radio', {
+        name: 'No Transfer',
+      }),
+    ).toBeChecked();
+
+    // WITH_TRANSFER on lunch only: transfer input appears for lunch only.
+    await userEvent.click(within(lunchOptions).getByRole('radio', { name: 'With Transfer' }));
+    const lunchDetails = await screen.findByLabelText('lunch transfer details');
+    await userEvent.type(lunchDetails, 'at the Taj Hotel');
+    expect(lunchDetails).toHaveValue('at the Taj Hotel');
+    expect(screen.queryByLabelText('breakfast transfer details')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('dinner transfer details')).not.toBeInTheDocument();
+    // Breakfast row is still independent.
+    expect(
+      within(screen.getByRole('group', { name: 'breakfast meal options' })).getByRole('radio', {
+        name: 'No Transfer',
+      }),
+    ).toBeChecked();
+
+    // Switching lunch away from WITH_TRANSFER hides its details input.
+    await userEvent.click(within(lunchOptions).getByRole('radio', { name: 'No Transfer' }));
+    expect(screen.queryByLabelText('lunch transfer details')).not.toBeInTheDocument();
+
+    // Unchecking lunch removes its row entirely.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'lunch' }));
+    expect(screen.queryByRole('group', { name: 'lunch meal options' })).not.toBeInTheDocument();
+
+    // Daily Transfer remains a separate, independent control.
+    expect(screen.getByRole('radio', { name: 'Shared Transfer' })).toBeChecked();
+    await userEvent.click(screen.getByRole('radio', { name: 'Private Transfer' }));
+    expect(screen.getByRole('radio', { name: 'Private Transfer' })).toBeChecked();
+    expect(
+      within(screen.getByRole('group', { name: 'breakfast meal options' })).getByRole('radio', {
+        name: 'No Transfer',
+      }),
+    ).toBeChecked();
+  });
+
   it('does not require sightseeing fields when the section is disabled', async () => {
     const fetchMock = masterFetch(builderQuotation());
     vi.stubGlobal('fetch', fetchMock);
@@ -4011,8 +5919,40 @@ describe('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByLabelText('Include Sightseeing in Quotation'));
     await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => {
+
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
+    });
+  });
+
+  it('persists each meal mode and transfer details on save', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await screen.findByLabelText('Day 1 activity 1 name');
+
+    // Breakfast default = No Transfer; set Lunch to With Transfer + details.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'lunch' }));
+    const lunchOptions = await screen.findByRole('group', { name: 'lunch meal options' });
+    await userEvent.click(within(lunchOptions).getByRole('radio', { name: 'With Transfer' }));
+    const lunchDetails = await screen.findByLabelText('lunch transfer details');
+    await userEvent.type(lunchDetails, 'pokemon sabji');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    const day = body.sightseeingDetails.days[0];
+    expect(day.meals.breakfast).toBe(true);
+    expect(day.mealPreferences.breakfast).toMatchObject({ mode: 'NO_TRANSFER' });
+    expect(day.meals.lunch).toBe(true);
+    expect(day.mealPreferences.lunch).toMatchObject({
+      mode: 'WITH_TRANSFER',
+      transferDetails: 'pokemon sabji',
     });
   });
 
@@ -4886,19 +6826,21 @@ describe('Phase 14 master selectors', () => {
     });
   });
 
-  it('does not prefill when the destination has no default hotel or it is inactive', async () => {
+  it('selects the best available hotel when no default exists, skips inactive default', async () => {
     const quotation = stayQuotation([{ destination: 'Singapore', nights: 2 }]);
-    // Not marked default.
+    // Not marked default — best available active hotel should still be selected.
     let fetchMock = masterFetch(quotation, {
       '/masters/hotels': page([{ ...singaporeDefaultHotel(), isDefaultForCity: false }]),
     });
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await waitFor(() => expect(screen.getByLabelText('Hotel master')).toHaveValue(''));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott'),
+    );
     cleanup();
 
-    // Marked default but inactive.
+    // Marked default but inactive — no active hotel exists, so hotel is blank.
     fetchMock = masterFetch(quotation, {
       '/masters/hotels': page([{ ...singaporeDefaultHotel(), status: 'INACTIVE' }]),
     });
@@ -4908,7 +6850,7 @@ describe('Phase 14 master selectors', () => {
     await waitFor(() => expect(screen.getByLabelText('Hotel master')).toHaveValue(''));
   });
 
-  it('adds one default hotel row per destination and skips destinations without a default', async () => {
+  it('creates a row for every hotel-required city with or without a default', async () => {
     const quotation = stayQuotation([
       { destination: 'Singapore', nights: 2 },
       { destination: 'Dubai', nights: 2 },
@@ -4924,7 +6866,8 @@ describe('Phase 14 master selectors', () => {
     expect(masters[0]).toHaveValue('Aloft Singapore Novena by Marriott');
     expect(masters[1]).toHaveValue('Burj View Hotel');
 
-    // Only Singapore has a default → the Dubai row is not created at all.
+    // Both city rows remain even when only one has a default; the second gets
+    // the best available hotel or an empty row if none exist.
     cleanup();
     const partialMock = masterFetch(quotation, {
       '/masters/hotels': page([singaporeDefaultHotel()]),
@@ -4932,10 +6875,82 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', partialMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(1));
-    expect(screen.getByLabelText('Hotel master')).toHaveValue(
-      'Aloft Singapore Novena by Marriott',
-    );
+    await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(2));
+    const m2 = screen.getAllByLabelText('Hotel master');
+    expect(m2[0]).toHaveValue('Aloft Singapore Novena by Marriott');
+    // Dubai has no hotel master in the mock, so it stays blank
+    expect(m2[1]).toHaveValue('');
+  });
+
+  it('single hotel city with Cruise in between covers full quotation nights', async () => {
+    const quotation = {
+      ...builderQuotation({
+        destinationSummary: 'Singapore • Cruise • Singapore',
+        hotels: [],
+        sightseeingDetails: null,
+      }),
+      travelStartDate: '2026-08-14',
+      travelEndDate: '2026-08-20',
+      rooms: 1,
+      query: {
+        id: 'lead-cruise',
+        queryNumber: 'QRY-000010',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 's1', country: 'Singapore', destination: 'Singapore', nights: 2, sequence: 1 },
+          { id: 's2', country: 'International', destination: 'Cruise', nights: 2, sequence: 2 },
+          { id: 's3', country: 'Singapore', destination: 'Singapore', nights: 2, sequence: 3 },
+        ],
+      },
+    };
+    vi.stubGlobal('fetch', masterFetch(quotation, {
+      '/masters/hotels': page([singaporeDefaultHotel()]),
+    }));
+    renderBuilderPage();
+    await openTab('Hotel');
+    // Exactly one Hotel Stay row despite Singapore appearing twice
+    expect(await screen.findAllByLabelText('Hotel master')).toHaveLength(1);
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
+    expect(screen.getByLabelText('Hotel city')).toHaveValue('Singapore');
+    // 6 total nights (2+2+2), not merged land nights (2+2=4)
+    expect(screen.getByLabelText('Hotel nights')).toHaveValue('6');
+    expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-08-14');
+    expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-08-20');
+  });
+
+  it('single hotel city with full nights preserves the correct hotel selection', async () => {
+    const quotation = {
+      ...builderQuotation({
+        destinationSummary: 'Singapore',
+        hotels: [],
+        sightseeingDetails: null,
+      }),
+      travelStartDate: '2026-08-14',
+      travelEndDate: '2026-08-20',
+      rooms: 1,
+      query: {
+        id: 'lead-sg-only',
+        queryNumber: 'QRY-000011',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 's1', country: 'Singapore', destination: 'Singapore', nights: 6, sequence: 1 },
+        ],
+      },
+    };
+    vi.stubGlobal('fetch', masterFetch(quotation, {
+      '/masters/hotels': page([singaporeDefaultHotel()]),
+    }));
+    renderBuilderPage();
+    await openTab('Hotel');
+    expect(await screen.findAllByLabelText('Hotel master')).toHaveLength(1);
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
+    expect(screen.getByLabelText('Hotel nights')).toHaveValue('6');
+    expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-08-14');
+    expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-08-20');
   });
 
   it('preserves a saved hotel snapshot and a manually selected hotel', async () => {
@@ -5038,6 +7053,279 @@ describe('Phase 14 master selectors', () => {
     });
   });
 
+  it('sends destination and city by name to the activities lookup endpoint', async () => {
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    const baseFetch = masterFetch(quotation);
+    let activitiesUrl = '';
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/sightseeing/activities')) {
+        activitiesUrl = url;
+      }
+      return baseFetch(input, init);
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await screen.findByLabelText('Day 1 activity 1');
+    expect(activitiesUrl).toMatch(/destination=Singapore/);
+  });
+
+  it('shows loading state when sightseeing master data is pending', async () => {
+    const quotation = builderQuotation();
+    const baseFetch = masterFetch(quotation);
+    const pending = new Promise<Response>(() => { /* never resolves */ });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/sightseeing/activities')) {
+        return pending;
+      }
+      return baseFetch(input, init);
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(listbox).getByText('Day at Leisure')).toBeInTheDocument();
+    expect(within(listbox).getByText('Loading activities...')).toBeInTheDocument();
+  });
+
+  it('shows error state when sightseeing master request fails', async () => {
+    const quotation = builderQuotation();
+    const baseFetch = masterFetch(quotation);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/sightseeing/activities')) {
+        return { ok: false, status: 500, headers: new Headers(), json: async () => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'error' } }) } as unknown as Response;
+      }
+      return baseFetch(input, init);
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(listbox).getByText('Unable to load sightseeing activities.')).toBeInTheDocument();
+  });
+
+  it('shows empty state when no active master records exist for the destination', async () => {
+    const quotation = builderQuotation({ destinationSummary: 'Singapore' });
+    vi.stubGlobal('fetch', masterFetch(quotation, {
+      '/masters/sightseeing': page([]),
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(listbox).getByText('Day at Leisure')).toBeInTheDocument();
+    expect(within(listbox).getByText('No sightseeing activities found for Singapore.')).toBeInTheDocument();
+  });
+
+  it('uses destination fallback when day city is Cruise for a Singapore quotation', async () => {
+    const singaporeMaster = {
+      id: 'sg-1',
+      title: 'Sentosa Tour',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const quotation = builderQuotation({
+      destinationSummary: 'Singapore',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing',
+        amount: '0',
+        description: null,
+        days: [{
+          dayNumber: 1, title: 'Day 1', city: 'Cruise', date: null,
+          meals: { breakfast: true, lunch: false, dinner: false },
+          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
+          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+        }],
+      },
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation, {
+      '/masters/sightseeing': page([singaporeMaster]),
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    // Heading uses destination (Singapore) since Cruise is not a matching city.
+    expect(within(listbox).getByText('Activities in Singapore')).toBeInTheDocument();
+    expect(within(listbox).getByText('Sentosa Tour')).toBeInTheDocument();
+  });
+
+  it('prefills the final day with a departure master regardless of sequence', async () => {
+    const departureMaster = {
+      id: 'sg-departure',
+      title: 'Departure from Singapore',
+      sequence: 53,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      suggestedStartTime: '10:00',
+      description: '<p>Check-out and airport transfer.</p>',
+      estimatedHours: 2,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const zooMaster = {
+      id: 'sg-zoo',
+      title: 'Singapore Zoo',
+      sequence: 7,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const quotation = {
+      ...builderQuotation({
+        destinationSummary: 'Singapore',
+        sightseeingDetails: null,
+      }),
+      travelStartDate: '2026-10-23',
+      travelEndDate: '2026-10-29',
+      rooms: 1,
+      query: {
+        id: 'lead-1',
+        queryNumber: 'QRY-000001',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 's1', country: 'Singapore', destination: 'Singapore', nights: 3, sequence: 1 },
+          { id: 's2', country: 'Singapore', destination: 'Singapore', nights: 3, sequence: 2 },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([zooMaster, departureMaster]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    // Day 7 (final) gets the departure master
+    const day7Title = (await screen.findByLabelText('Sightseeing day 7 title')) as HTMLInputElement;
+    expect(day7Title.value).toBe('Day 7: Departure from Singapore');
+    const day7Activity = screen.getByLabelText('Day 7 activity 1');
+    fireEvent.focus(day7Activity);
+    const day7Listbox = screen.getByRole('listbox', { name: 'Day 7 activity 1' });
+    // High-sequence departure master appears as the selected option
+    expect(within(day7Listbox).queryByText('Departure from Singapore')).toBeInTheDocument();
+    // Day 7 activity name field is pre-populated
+    expect(screen.getByLabelText('Day 7 activity 1 name')).toHaveValue('Departure from Singapore');
+    expect(screen.getByLabelText('Day 7 activity 1 start time')).toHaveValue('10:00');
+  });
+
+  it('uses departure master for the final day and never assigns a non-departure by sequence', async () => {
+    const departureMaster = {
+      id: 'sg-dep',
+      title: 'Departure from Singapore',
+      sequence: 99,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const normalMasters = [
+      { id: 'sg-n1', title: 'City Tour', sequence: 1, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'sg-n2', title: 'Sentosa', sequence: 2, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const quotation = {
+      ...builderQuotation({
+        destinationSummary: 'Singapore',
+        sightseeingDetails: null,
+      }),
+      travelStartDate: '2026-10-23',
+      travelEndDate: '2026-10-25',
+      rooms: 1,
+      query: {
+        id: 'lead-2',
+        queryNumber: 'QRY-000002',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 's1', country: 'Singapore', destination: 'Singapore', nights: 2, sequence: 1 },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([...normalMasters, departureMaster]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    // 3 day trip: Day 1 = City Tour, Day 2 = Sentosa, Day 3 = Departure
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('City Tour');
+    expect(screen.getByLabelText('Day 2 activity 1 name')).toHaveValue('Sentosa');
+    expect(screen.getByLabelText('Day 3 activity 1 name')).toHaveValue('Departure from Singapore');
+    // Normal day never gets the departure master
+    expect(screen.getByLabelText('Day 1 activity 1 name')).not.toHaveValue('Departure from Singapore');
+  });
+
+  it('does not use a departure master on non-final days', async () => {
+    const departureMaster = {
+      id: 'sg-d1',
+      title: 'Departure from Singapore',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const normalMasters = [
+      { id: 'sg-ct', title: 'City Tour', sequence: 2, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'sg-gb', title: 'Gardens by the Bay', sequence: 3, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'sg-ss', title: 'Sentosa', sequence: 4, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const quotation = {
+      ...builderQuotation({
+        destinationSummary: 'Singapore',
+        sightseeingDetails: null,
+      }),
+      travelStartDate: '2026-10-23',
+      travelEndDate: '2026-10-26',
+      rooms: 1,
+      query: {
+        id: 'lead-3',
+        queryNumber: 'QRY-000003',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 's1', country: 'Singapore', destination: 'Singapore', nights: 3, sequence: 1 },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([departureMaster, ...normalMasters]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    // 4 day trip: departure master is reserved for Day 4 only
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('City Tour');
+    expect(screen.getByLabelText('Day 2 activity 1 name')).toHaveValue('Gardens by the Bay');
+    expect(screen.getByLabelText('Day 3 activity 1 name')).toHaveValue('Sentosa');
+    expect(screen.getByLabelText('Day 4 activity 1 name')).toHaveValue('Departure from Singapore');
+  });
+
   it('offers the same pickers in the template builder', async () => {
     vi.stubGlobal('fetch', masterFetch(template));
     renderWithProviders(<QuotationTemplateFormPage />);
@@ -5101,52 +7389,52 @@ describe('public quotation contact message helpers', () => {
 
   it('builds the full quotation description', () => {
     expect(buildQuotationDescription('QT-000001', 'Singapore Package', 'Alma Desouza')).toBe(
-      'QT-000001 - Singapore Package for Alma Desouza',
+      'QT-1 - Singapore Package for Alma Desouza',
     );
   });
 
   it('does not repeat a lead name that the title already contains', () => {
     expect(buildQuotationDescription('QT-000034', 'Singapore Package for Vikas Singh', 'Vikas Singh')).toBe(
-      'QT-000034 - Singapore Package for Vikas Singh',
+      'QT-34 - Singapore Package for Vikas Singh',
     );
   });
 
   it('avoids the duplicate even when the title capitalisation differs', () => {
     expect(
       buildQuotationDescription('QT-000034', 'Singapore Package for VIKAS SINGH', 'Vikas Singh'),
-    ).toBe('QT-000034 - Singapore Package for VIKAS SINGH');
+    ).toBe('QT-34 - Singapore Package for VIKAS SINGH');
   });
 
   it('avoids the duplicate with extra surrounding and internal whitespace', () => {
     expect(
       buildQuotationDescription('QT-000034', 'Singapore Package for Vikas  Singh', '  Vikas Singh '),
-    ).toBe('QT-000034 - Singapore Package for Vikas  Singh');
+    ).toBe('QT-34 - Singapore Package for Vikas  Singh');
   });
 
   it('appends the lead name when the title does not contain it', () => {
     expect(buildQuotationDescription('QT-000034', 'Singapore Holiday', 'Vikas Singh')).toBe(
-      'QT-000034 - Singapore Holiday for Vikas Singh',
+      'QT-34 - Singapore Holiday for Vikas Singh',
     );
   });
 
   it('drops a missing lead name cleanly', () => {
     expect(buildQuotationDescription('QT-000001', 'Singapore Package', null)).toBe(
-      'QT-000001 - Singapore Package',
+      'QT-1 - Singapore Package',
     );
   });
 
   it('drops a missing title cleanly', () => {
     expect(buildQuotationDescription('QT-000001', null, 'Alma Desouza')).toBe(
-      'QT-000001 for Alma Desouza',
+      'QT-1 for Alma Desouza',
     );
   });
 
   it('falls back to the quotation id only', () => {
-    expect(buildQuotationDescription('QT-000001', null, null)).toBe('QT-000001');
+    expect(buildQuotationDescription('QT-000001', null, null)).toBe('QT-1');
   });
 
   it('never emits undefined, null, dangling hyphens or dangling "for"', () => {
-    expect(buildQuotationDescription('QT-000001', '  ', '')).toBe('QT-000001');
+    expect(buildQuotationDescription('QT-000001', '  ', '')).toBe('QT-1');
     expect(buildQuotationDescription('  ', 'Kerala Package', 'Mira Shah')).toBe(
       'Kerala Package for Mira Shah',
     );
@@ -5159,5 +7447,478 @@ describe('public quotation contact message helpers', () => {
     expect(normalizeWhatsAppPhone('90000 00000')).toBe('9000000000');
     expect(normalizeWhatsAppPhone(null)).toBe('');
     expect(normalizeWhatsAppPhone('')).toBe('');
+  });
+});
+
+// The reference "Summary & Pricing" case used throughout: 2 Adults, 1 CWB,
+// 1 CWOB, 1 Infant at 10,000 / 2,000 / 1,000 / 7,000 → 30,000 total.
+const TAX_NOTE_OPTIONS = [
+  '-- No change (keep existing) --',
+  'Do not show',
+  'Inclusive of all taxes',
+  'Inclusive of all taxes, excluding TCS',
+  'Inclusive of GST and TCS',
+  'Excluding all taxes',
+  'Excluding GST and TCS',
+];
+
+describe('Summary & Pricing — package pricing, tax note and secure booking', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('scrollTo', vi.fn());
+    auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
+  });
+
+  const pricingBase = (versionOverrides: Record<string, unknown> = {}) => ({
+    ...builderQuotation(versionOverrides),
+    adults: 2,
+    childrenWithBed: 1,
+    childrenWithoutBed: 1,
+    infants: 1,
+  });
+
+  const fillReferencePrices = async () => {
+    await userEvent.type(screen.getByLabelText('Per Adult Price'), '10000');
+    await userEvent.type(screen.getByLabelText('Per CWB Price'), '2000');
+    await userEvent.type(screen.getByLabelText('Per CWOB Price'), '1000');
+    await userEvent.type(screen.getByLabelText('Per Infant Price'), '7000');
+  };
+
+  it('computes the total, margin and breakdown live with no NaN', async () => {
+    vi.stubGlobal('fetch', masterFetch(pricingBase()));
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    // Empty state first.
+    expect(screen.getByText('Enter prices to see the breakdown.')).toBeInTheDocument();
+    await fillReferencePrices();
+    const total = screen.getByLabelText('Total Package Price') as HTMLInputElement;
+    await waitFor(() => expect(total.value).toContain('30,000'));
+    expect(total.value).not.toMatch(/NaN/);
+    // Margin = Total − Net.
+    await userEvent.type(screen.getByLabelText('Net Amount'), '10000');
+    const margin = screen.getByLabelText('Margin') as HTMLInputElement;
+    await waitFor(() => expect(margin.value).toContain('20,000'));
+    // Breakdown lines, in order, plus a bold total line.
+    expect(screen.getByText(/Adults: 2 ×/)).toBeInTheDocument();
+    expect(screen.getByText(/CWB: 1 ×/)).toBeInTheDocument();
+    expect(screen.getByText(/CWOB: 1 ×/)).toBeInTheDocument();
+    expect(screen.getByText(/Infants: 1 ×/)).toBeInTheDocument();
+    expect(screen.getByText(/Total Package Price:/)).toBeInTheDocument();
+    // Traveller counts are read-only and driven by the quotation snapshot.
+    expect(screen.getByLabelText('Adults')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('Adults')).toHaveValue('2');
+    expect(screen.getByLabelText('Total Package Price')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('Margin')).toHaveAttribute('readonly');
+  });
+
+  it('hides breakdown categories whose traveller count is zero', async () => {
+    vi.stubGlobal(
+      'fetch',
+      masterFetch({
+        ...builderQuotation(),
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    await userEvent.type(screen.getByLabelText('Per Adult Price'), '10000');
+    expect(await screen.findByText(/Adults: 2 ×/)).toBeInTheDocument();
+    expect(screen.queryByText(/CWB: /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/CWOB: /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Infants: /)).not.toBeInTheDocument();
+  });
+
+  it('renders the exact tax-note options and omits the removed pricing controls', async () => {
+    vi.stubGlobal('fetch', masterFetch(pricingBase()));
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    const taxSelect = screen.getByLabelText('Tax note');
+    expect(
+      within(taxSelect)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(TAX_NOTE_OPTIONS);
+    expect(screen.queryByText(/Show Service Charges Separately/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Mark Service Charges as Outside/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hide Pricing in Weblink/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Show Individual Pricing/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Service Sections Pricing/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the saved tax note on "no change" and saves the initial amount and link', async () => {
+    const fetchMock = masterFetch(
+      pricingBase({ taxNote: 'Inclusive of GST and TCS', initialPaymentAmount: '0', paymentLink: null }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    await userEvent.type(screen.getByLabelText('Initial amount for booking'), '2000');
+    await userEvent.type(screen.getByLabelText('Payment link'), 'https://pay.example.com/abc');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      const body = JSON.parse(String(patch![1]!.body));
+      expect(body.taxNote).toBe('Inclusive of GST and TCS');
+      expect(body.initialPaymentAmount).toBe(2000);
+      expect(body.paymentLink).toBe('https://pay.example.com/abc');
+    });
+  });
+
+  it('persists a null tax note when "Do not show" is chosen', async () => {
+    const fetchMock = masterFetch(pricingBase({ taxNote: 'Inclusive of all taxes' }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    await userEvent.selectOptions(screen.getByLabelText('Tax note'), 'Do not show');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      expect(JSON.parse(String(patch![1]!.body)).taxNote).toBeNull();
+    });
+  });
+
+  it('rejects an invalid payment link and blocks the save', async () => {
+    const fetchMock = masterFetch(pricingBase());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Summary & Pricing');
+    await userEvent.type(screen.getByLabelText('Payment link'), 'not-a-url');
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect((await screen.findAllByText(/valid URL starting with/i)).length).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
+  });
+
+  const publicPayload = (
+    versionOverrides: Record<string, unknown> = {},
+    quotationOverrides: Record<string, unknown> = {},
+  ) => ({
+    company: {
+      name: 'Alpha Travel',
+      email: 'a@b.test',
+      phone: null,
+      website: null,
+      address: null,
+      primaryColor: '#2563eb',
+    },
+    quotation: {
+      quotationNumber: 'QT-2026-000009',
+      customerName: 'Vikas Singh',
+      destinationSummary: 'Singapore',
+      travelStartDate: null,
+      travelEndDate: null,
+      adults: 2,
+      childrenWithBed: 1,
+      childrenWithoutBed: 1,
+      infants: 1,
+      rooms: 1,
+      validUntil: null,
+      status: 'VIEWED',
+      ...quotationOverrides,
+    },
+    version: {
+      title: 'Singapore Package',
+      versionNumber: 1,
+      currency: 'INR',
+      finalAmount: '30000',
+      perAdultPrice: '10000',
+      perChildWithBedPrice: '2000',
+      perChildWithoutBedPrice: '1000',
+      perInfantPrice: '7000',
+      taxNote: 'Inclusive of all taxes, excluding TCS',
+      initialPaymentAmount: '2000',
+      paymentLink: 'https://pay.example.com/abc',
+      hotels: [],
+      services: [],
+      itinerary: [],
+      inclusions: [],
+      exclusions: [],
+      terms: [],
+      ...versionOverrides,
+    },
+    downloadUrl: null,
+  });
+
+  const renderPublic = (payload: unknown) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(payload)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+  };
+
+  it('renders the total, exact tax note and plural traveller breakdown', async () => {
+    renderPublic(publicPayload());
+    await screen.findByText('Singapore Package');
+    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getAllByText(/30,000/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Inclusive of all taxes, excluding TCS')).toBeInTheDocument();
+    expect(screen.getByText(/2 Adults ×/)).toBeInTheDocument();
+    expect(screen.getByText(/1 CWB ×/)).toBeInTheDocument();
+    expect(screen.getByText(/1 CWOB ×/)).toBeInTheDocument();
+    expect(screen.getByText(/1 Infant ×/)).toBeInTheDocument();
+    // Internal profitability is never exposed publicly.
+    expect(screen.queryByText(/Margin/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Net Amount/)).not.toBeInTheDocument();
+  });
+
+  it('uses singular labels and hides zero-count categories publicly', async () => {
+    renderPublic(
+      publicPayload(
+        { perChildWithBedPrice: '0', perChildWithoutBedPrice: '0' },
+        { adults: 1, childrenWithBed: 0, childrenWithoutBed: 0, infants: 1 },
+      ),
+    );
+    await screen.findByText('Singapore Package');
+    expect(screen.getByText(/1 Adult ×/)).toBeInTheDocument();
+    expect(screen.getByText(/1 Infant ×/)).toBeInTheDocument();
+    expect(screen.queryByText(/CWB ×/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/CWOB ×/)).not.toBeInTheDocument();
+  });
+
+  it('hides the tax note and never shows the control values publicly', async () => {
+    renderPublic(publicPayload({ taxNote: null }));
+    await screen.findByText('Singapore Package');
+    expect(screen.queryByText(/Inclusive of/)).not.toBeInTheDocument();
+    cleanup();
+    renderPublic(publicPayload({ taxNote: '-- No change (keep existing) --' }));
+    await screen.findByText('Singapore Package');
+    expect(screen.queryByText('-- No change (keep existing) --')).not.toBeInTheDocument();
+    cleanup();
+    renderPublic(publicPayload({ taxNote: 'Do not show' }));
+    await screen.findByText('Singapore Package');
+    expect(screen.queryByText('Do not show')).not.toBeInTheDocument();
+  });
+
+  it('shows the Secure Your Booking card only with a valid amount and link', async () => {
+    renderPublic(publicPayload());
+    await screen.findByText('Singapore Package');
+    const heading = screen.getByRole('heading', { name: 'Secure Your Booking Now' });
+    const card = heading.closest('section') as HTMLElement;
+    expect(card).toHaveTextContent('Make an initial payment of');
+    expect(card).toHaveTextContent(/2,000\.00/);
+    expect(card).toHaveTextContent('to confirm your booking.');
+    expect(card).toHaveTextContent('The remaining balance can be paid as per the payment policy.');
+    const pay = screen.getByRole('link', { name: /Pay Now/ });
+    expect(pay).toHaveAttribute('href', 'https://pay.example.com/abc');
+    expect(pay).toHaveAttribute('target', '_blank');
+    expect(pay).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('hides the Secure Your Booking card for every invalid combination', async () => {
+    const secure = () => screen.queryByRole('heading', { name: 'Secure Your Booking Now' });
+    for (const override of [
+      { initialPaymentAmount: '0' }, // zero amount + valid link
+      { paymentLink: null }, // amount + empty link
+      { paymentLink: 'not-a-url' }, // amount + invalid link
+      { initialPaymentAmount: '0', paymentLink: null }, // both empty
+    ]) {
+      renderPublic(publicPayload(override));
+      await screen.findByText('Singapore Package');
+      expect(secure()).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('renders the Secure Your Booking card as a white card with Pay Now button on the right', async () => {
+    renderPublic(publicPayload());
+    await screen.findByText('Singapore Package');
+    const heading = screen.getByRole('heading', { name: 'Secure Your Booking Now' });
+    const card = heading.closest('section') as HTMLElement;
+    // White background, no green card background
+    expect(card.className).toContain('bg-white');
+    expect(card.querySelector('.bg-emerald-50')).toBeNull();
+    expect(card.querySelector('.border-emerald-200')).toBeNull();
+    // Gray border, subtle shadow, rounded
+    expect(card.className).toContain('border-slate-200');
+    expect(card.className).toContain('rounded-md');
+    expect(card.className).toContain('shadow-sm');
+    // No old large circular lock icon
+    expect(card.querySelector('.rounded-full.bg-emerald-600')).toBeNull();
+    // Pay Now button has Lock icon inside it
+    const pay = screen.getByRole('link', { name: /Pay Now/ });
+    const lockSvg = pay.querySelector('svg');
+    expect(lockSvg).not.toBeNull();
+    // Lock icon's parent is the link itself
+    expect(lockSvg!.closest('a')).toBe(pay);
+  });
+
+  it('Secure Your Booking card hides when amount is zero', async () => {
+    renderPublic(publicPayload({ initialPaymentAmount: '0' }));
+    await screen.findByText('Singapore Package');
+    expect(screen.queryByRole('heading', { name: 'Secure Your Booking Now' })).not.toBeInTheDocument();
+  });
+
+  it('Secure Your Booking card hides when payment link is invalid', async () => {
+    renderPublic(publicPayload({ paymentLink: 'not-a-url' }));
+    await screen.findByText('Singapore Package');
+    expect(screen.queryByRole('heading', { name: 'Secure Your Booking Now' })).not.toBeInTheDocument();
+  });
+
+  it('raw payment URL is not visible', async () => {
+    renderPublic(publicPayload());
+    await screen.findByText('Singapore Package');
+    const card = screen.getByRole('heading', { name: 'Secure Your Booking Now' }).closest('section') as HTMLElement;
+    expect(card.textContent).not.toContain('https://');
+  });
+});
+
+describe('Generate PDF button — real request, open, loading and error states', () => {
+  const finalizedVersion = {
+    id: 'version-1',
+    versionNumber: 1,
+    title: 'Goa proposal',
+    introduction: null,
+    destinationSummary: 'Goa',
+    travelStartDate: null,
+    travelEndDate: null,
+    currency: 'INR',
+    subtotalSellingPrice: '25000',
+    markupMode: 'NONE',
+    markupValue: '0',
+    totalMarkup: '0',
+    taxRate: '0',
+    taxAmount: '0',
+    discountAmount: '0',
+    finalAmount: '25000',
+    pricingMode: 'ITEMIZED',
+    notes: null,
+    status: 'FINALIZED',
+    finalizedAt: '2026-07-21T00:00:00.000Z',
+    createdAt: '2026-07-21T00:00:00.000Z',
+    createdBy: person,
+    itinerary: [],
+    hotels: [],
+    services: [],
+    inclusions: [],
+    exclusions: [],
+    terms: [],
+  };
+  const detail = {
+    id: 'quotation-1',
+    quotationNumber: 'QT-2026-000001',
+    queryId: 'lead-1',
+    currentVersionId: 'version-1',
+    status: 'SENT',
+    customerName: 'Aarav Mehta',
+    customerEmail: 'aarav@example.test',
+    customerPhone: '+91 90000 00000',
+    destinationSummary: 'Goa',
+    travelStartDate: null,
+    travelEndDate: null,
+    adults: 2,
+    childrenWithBed: 0,
+    childrenWithoutBed: 0,
+    infants: 0,
+    rooms: 1,
+    validUntil: null,
+    lastSentAt: '2026-07-21T00:00:00.000Z',
+    lastViewedAt: null,
+    acceptedAt: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    createdAt: '2026-07-21T00:00:00.000Z',
+    updatedAt: '2026-07-21T00:00:00.000Z',
+    createdBy: person,
+    query: {
+      id: 'lead-1',
+      queryNumber: 'QRY-1',
+      leadStage: 'QUOTATION_SENT',
+      assignedToId: 'user-1',
+      createdById: 'user-1',
+    },
+    versions: [finalizedVersion],
+    documents: [],
+    emailLogs: [],
+    activityTimeline: [],
+  };
+  const errorResponse = () =>
+    ({
+      ok: false,
+      status: 500,
+      json: async () => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'boom' } }),
+    }) as Response;
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.permissions = new Set(['quotations.view', 'quotations.generate_pdf']);
+  });
+
+  const renderDetails = () =>
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+
+  it('generates the PDF for the exact current version and opens it in a new tab', async () => {
+    const openSpy = vi.fn(() => ({}) as Window);
+    vi.stubGlobal('open', openSpy);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf'))
+        return response({ id: 'doc-new', fileName: 'qt-2026-000001-aarav-mehta-v1-quotation.pdf' });
+      if (url.endsWith('/download-url'))
+        return response({ url: 'https://files.example.test/quotation.pdf' });
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://files.example.test/quotation.pdf',
+        '_blank',
+        'noopener,noreferrer',
+      ),
+    );
+    const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
+    expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true);
+  });
+
+  it('shows a loading label and disables the button while generating', async () => {
+    vi.stubGlobal('open', vi.fn(() => ({}) as Window));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf')) return new Promise<Response>(() => {});
+      if (url.endsWith('/download-url')) return response({ url: 'https://files.example.test/q.pdf' });
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    const busy = await screen.findByRole('button', { name: /Generating PDF/ });
+    expect(busy).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(1);
+  });
+
+  it('shows an error and restores the button when generation fails', async () => {
+    vi.stubGlobal('open', vi.fn(() => ({}) as Window));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf')) return errorResponse();
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'PDF generation failed. Please try again.',
+    );
+    expect(screen.getByRole('button', { name: 'Generate PDF' })).toBeEnabled();
   });
 });

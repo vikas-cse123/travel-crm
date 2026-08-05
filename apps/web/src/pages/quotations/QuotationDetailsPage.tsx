@@ -17,10 +17,25 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   uploadQuotationAttachment,
+  useGenerateQuotationPdf,
   useQuotation,
   useQuotationAction,
   useSendQuotation,
 } from '@/features/quotations/quotations.api';
+
+/** Open a generated document URL in a new tab, falling back to a same-tab
+ *  navigation when a popup blocker prevents the new window. */
+function openDocumentUrl(url: string) {
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (opened) return;
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function QuotationDetailsPage() {
@@ -28,6 +43,7 @@ export function QuotationDetailsPage() {
   const { hasPermission } = useAuth();
   const query = useQuotation(quotationId);
   const action = useQuotationAction(quotationId);
+  const generatePdf = useGenerateQuotationPdf(quotationId);
   const send = useSendQuotation(quotationId);
   const [sendOpen, setSendOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -35,6 +51,7 @@ export function QuotationDetailsPage() {
   const [includePublicLink, setIncludePublicLink] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [pdfError, setPdfError] = useState('');
   if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
     return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
@@ -55,6 +72,18 @@ export function QuotationDetailsPage() {
         },
       },
     );
+  // Generate the PDF for the currently displayed version and open it. The
+  // button's own loading state (isPending) blocks duplicate clicks.
+  const handleGeneratePdf = () => {
+    if (!current || generatePdf.isPending) return;
+    setPdfError('');
+    generatePdf.mutate(current.id, {
+      onSuccess: ({ url }) => {
+        if (url) openDocumentUrl(url);
+      },
+      onError: () => setPdfError('PDF generation failed. Please try again.'),
+    });
+  };
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -164,12 +193,11 @@ export function QuotationDetailsPage() {
               hasPermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF) && (
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    action.mutate({ path: `versions/${current.id}/generate-pdf`, body: {} })
-                  }
+                  isLoading={generatePdf.isPending}
+                  onClick={handleGeneratePdf}
                 >
                   <FileText className="h-4 w-4" />
-                  Generate PDF
+                  {generatePdf.isPending ? 'Generating PDF…' : 'Generate PDF'}
                 </Button>
               )}
             {current?.status !== 'DRAFT' && (
@@ -180,6 +208,11 @@ export function QuotationDetailsPage() {
             )}
           </div>
         </div>
+        {pdfError && (
+          <p role="alert" className="mt-2 text-sm text-red-700">
+            {pdfError}
+          </p>
+        )}
         <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <dt className="text-xs text-slate-500">Contact</dt>

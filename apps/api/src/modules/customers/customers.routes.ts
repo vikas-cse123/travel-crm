@@ -10,7 +10,6 @@ import {
   customerCommunicationUpdateSchema,
   customerDocumentUploadSchema,
   customerDuplicateCheckSchema,
-  customerInputSchema,
   customerMergeSchema,
   customerNoteInputSchema,
   customerNoteUpdateSchema,
@@ -86,13 +85,9 @@ router.get(
   validateRequest({ query: customerDuplicateCheckSchema }),
   asyncHandler(c.duplicates),
 );
-router.post(
-  '/',
-  requirePermission(PERMISSIONS.CUSTOMERS_CREATE),
-  validateRequest({ body: customerInputSchema }),
-  asyncHandler(c.create),
-);
-
+// Standalone customer creation has been removed. Customers are created only
+// through the booking-domain workflow (server-side, inside the booking
+// transaction) so a single customer-creation path is enforced.
 router.get('/tags', requirePermission(PERMISSIONS.CUSTOMERS_VIEW), asyncHandler(c.tags));
 router.post(
   '/tags',

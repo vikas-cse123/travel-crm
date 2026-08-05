@@ -1,7 +1,16 @@
 import { config } from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { vi } from 'vitest';
 import { assertIsTestDatabase, resolveTestDatabaseUrl } from './helpers/test-database.js';
+
+vi.mock('argon2', () => ({
+  default: {
+    hash: vi.fn(async (p: string) => `hashed:${p}`),
+    verify: vi.fn(async (h: string, p: string) => h === `hashed:${p}`),
+    argon2id: 2,
+  },
+}));
 
 /**
  * Per-file setup, executed BEFORE the test module and therefore before

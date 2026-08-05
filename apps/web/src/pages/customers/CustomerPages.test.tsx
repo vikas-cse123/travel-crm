@@ -172,4 +172,25 @@ describe('Phase 10 customer pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Payments' }));
     expect(await screen.findByText('INR 10000.00 · PAY-2026-000001')).toBeInTheDocument();
   });
+
+  it('does not offer a standalone Add Customer action on the Customers List', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/analytics'))
+          return response({
+            total: 1,
+            active: 1,
+            newThisMonth: 0,
+            possibleDuplicateGroups: 0,
+            repeatPercentage: 0,
+          });
+        return response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } });
+      }),
+    );
+    renderWithProviders(<CustomersPage />);
+    await screen.findByText('Customer List');
+    expect(screen.queryByRole('link', { name: /Add Customer/ })).not.toBeInTheDocument();
+  });
 });

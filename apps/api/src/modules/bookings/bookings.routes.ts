@@ -11,6 +11,7 @@ import {
   bookingCostUpdateSchema,
   bookingDocumentUploadSchema,
   bookingEmailInputSchema,
+  bookingFromLeadInputSchema,
   bookingItineraryInputSchema,
   bookingItineraryReorderSchema,
   bookingItineraryUpdateSchema,
@@ -94,6 +95,22 @@ router.post(
   requirePermission(PERMISSIONS.BOOKINGS_CREATE),
   validateRequest({ body: bookingManualInputSchema }),
   asyncHandler(c.create),
+);
+// Lead-based "Create Booking from Lead" workflow. Registered before the
+// /:bookingId route so the fixed from-lead paths are not captured.
+router.get(
+  '/from-lead/preview',
+  requirePermission(PERMISSIONS.BOOKINGS_CREATE),
+  validateRequest({
+    query: z.object({ leadId: z.string().uuid(), quotationId: z.string().uuid() }),
+  }),
+  asyncHandler(c.previewFromLead),
+);
+router.post(
+  '/from-lead',
+  requirePermission(PERMISSIONS.BOOKINGS_CREATE),
+  validateRequest({ body: bookingFromLeadInputSchema }),
+  asyncHandler(c.createFromLead),
 );
 router.get(
   '/:bookingId',

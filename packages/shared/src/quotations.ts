@@ -15,6 +15,48 @@ export const QUOTATION_VERSION_STATUSES = ['DRAFT', 'FINALIZED', 'SUPERSEDED'] a
 export const PRICING_MODES = ['PER_PERSON', 'PACKAGE_TOTAL', 'ITEMIZED'] as const;
 export const MARKUP_MODES = ['NONE', 'FIXED', 'PERCENTAGE'] as const;
 
+/**
+ * "Tax Note on Total Price" dropdown (reference Summary & Pricing).
+ *
+ * The visible label IS the customer-facing note, so the selected label is what
+ * gets stored — except for two control values:
+ *  - the sentinel keeps the previously saved note (never persisted itself);
+ *  - "Do not show" persists as null so the public card renders no tax line.
+ */
+export const QUOTATION_TAX_NOTE_SENTINEL = '-- No change (keep existing) --';
+export const QUOTATION_TAX_NOTE_HIDDEN = 'Do not show';
+export const QUOTATION_TAX_NOTE_OPTIONS = [
+  QUOTATION_TAX_NOTE_SENTINEL,
+  QUOTATION_TAX_NOTE_HIDDEN,
+  'Inclusive of all taxes',
+  'Inclusive of all taxes, excluding TCS',
+  'Inclusive of GST and TCS',
+  'Excluding all taxes',
+  'Excluding GST and TCS',
+] as const;
+
+/**
+ * Resolve a tax-note dropdown choice into the value to persist, given the
+ * previously saved note. Returns `undefined` when the field must be left
+ * unchanged (the sentinel), `null` to hide it, or the literal note text.
+ */
+export function resolveTaxNoteChoice(
+  choice: string,
+  previous: string | null | undefined,
+): string | null | undefined {
+  if (choice === QUOTATION_TAX_NOTE_SENTINEL) return previous ?? null;
+  if (choice === QUOTATION_TAX_NOTE_HIDDEN) return null;
+  return choice;
+}
+
+/** Whether a stored tax note should render publicly (never the control values). */
+export function isPublicTaxNote(taxNote: string | null | undefined): taxNote is string {
+  const value = taxNote?.trim();
+  return Boolean(
+    value && value !== QUOTATION_TAX_NOTE_SENTINEL && value !== QUOTATION_TAX_NOTE_HIDDEN,
+  );
+}
+
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 const optionalDate = z.coerce.date().nullable().optional();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);
@@ -232,6 +274,21 @@ export const flightDetailsSchema = z.object({
 export const SIGHTSEEING_MEAL_MODES = ['NO_TRANSFER', 'INCLUDE_AT_HOTEL', 'WITH_TRANSFER'] as const;
 export const SIGHTSEEING_TRANSFER_MODES = ['PRIVATE', 'SHARED', 'NO_TRANSFER'] as const;
 
+/** Per-meal sightseeing preference: independent mode + optional transfer details. */
+export const sightseeingMealPreferenceSchema = z.object({
+  mode: z.enum(SIGHTSEEING_MEAL_MODES).default('NO_TRANSFER'),
+  transferDetails: optionalText(300),
+});
+
+/** Per-meal preferences keyed by meal; absent entries mean "not configured". */
+export const sightseeingMealPreferencesSchema = z
+  .object({
+    breakfast: sightseeingMealPreferenceSchema.optional(),
+    lunch: sightseeingMealPreferenceSchema.optional(),
+    dinner: sightseeingMealPreferenceSchema.optional(),
+  })
+  .default({});
+
 /** Reference "Sightseeing" tab — one attraction/activity within a day. */
 export const sightseeingActivitySchema = z.object({
   sightseeingId: z.string().uuid().nullable().optional(),
@@ -260,6 +317,9 @@ export const sightseeingDaySchema = z.object({
     })
     .default({ breakfast: false, lunch: false, dinner: false }),
   mealMode: z.enum(SIGHTSEEING_MEAL_MODES).default('INCLUDE_AT_HOTEL'),
+  // Independent per-meal mode + transfer details. `mealMode` is retained for
+  // legacy snapshots that predate per-meal preferences.
+  mealPreferences: sightseeingMealPreferencesSchema,
   dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).default('SHARED'),
   activities: z.array(sightseeingActivitySchema).max(20).default([]),
 });
@@ -282,6 +342,7 @@ export const quotationVersionInputSchema = z
   .object({
     title: z.string().trim().min(2).max(200),
     introduction: optionalText(4000),
+    weblinkHeading: optionalText(200),
     destinationSummary: z.string().trim().min(2).max(500),
     travelStartDate: optionalDate,
     travelEndDate: optionalDate,
@@ -303,7 +364,20 @@ export const quotationVersionInputSchema = z
     taxNote: optionalText(200),
     netAmount: optionalMoney,
     initialPaymentAmount: optionalMoney,
-    paymentLink: optionalText(500),
+    // Optional, but when present must be an absolute http(s) URL (any gateway).
+    paymentLink: optionalText(500).refine(
+      (value) => {
+        const trimmed = value?.trim();
+        if (!trimmed) return true;
+        try {
+          const url = new URL(trimmed);
+          return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Enter a valid URL starting with http:// or https://' },
+    ),
     showServiceChargesSeparately: z.boolean().optional(),
     markServiceChargesOutside: z.boolean().optional(),
     hidePricing: z.boolean().optional(),

@@ -1,11 +1,30 @@
-import { useMemo } from 'react';
-import { useFieldArray, type FieldPath, type UseFormReturn } from 'react-hook-form';
+import { useMemo, useState } from 'react';
+import {
+  useFieldArray,
+  useWatch,
+  type FieldPath,
+  type UseFormReturn,
+} from 'react-hook-form';
 import { Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
 import type { QuotationVersionInput } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
-import { MasterSelect } from '@/components/ui/MasterSelect';
-import { useSightseeingList, type Sightseeing } from '@/features/masters/masters.api';
+import { SightseeingActivitySelect, type SightseeingSelectOption } from '@/components/ui/SightseeingActivitySelect';
+import {
+  useSightseeingActivities,
+  useSightseeingPresentations,
+  type SightseeingActivity,
+  type SightseeingPresentationMap,
+} from '@/features/masters/masters.api';
+
+/** Reference quick options shown above the master list in the activity picker. */
+const SPECIAL_SIGHTSEEING_OPTIONS: SightseeingSelectOption[] = [
+  { id: 'special:day_at_leisure', label: 'Day at Leisure' },
+  { id: 'special:custom_sightseeing', label: 'Custom Sightseeing' },
+  { id: 'special:arrival_checkin', label: 'Arrival and Check-in' },
+];
+const SPECIAL_DAY_AT_LEISURE_DESCRIPTION = '<p>Relax and enjoy the day at your own pace.</p>';
+const SPECIAL_ARRIVAL_CHECKIN_DESCRIPTION = '<p>Arrival and hotel check-in.</p>';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 const labelCls = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
@@ -32,22 +51,27 @@ export const emptySightseeingDay = (dayNumber: number, seed?: Partial<SightDay>)
   date: null,
   meals: { breakfast: true, lunch: false, dinner: false },
   mealMode: 'INCLUDE_AT_HOTEL',
+  // Persist the default-checked breakfast's displayed mode so the public page
+  // never falls back to the shared legacy mealMode and shows "(Hotel)".
+  mealPreferences: { breakfast: { mode: 'NO_TRANSFER', transferDetails: null } },
   dailyTransfer: 'SHARED',
   activities: [emptySightseeingActivity()],
   ...seed,
 });
 
 const cityKey = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
-const durationLabel = (row: Sightseeing) =>
+const durationLabel = (row: SightseeingActivity) =>
   row.estimatedHours != null ? `${row.estimatedHours} hours` : null;
 
 /** Compact fixed-size activity thumbnail; never grows with the description. */
 function ActivityThumb({ imageUrl }: { imageUrl?: string | null }) {
-  if (imageUrl)
+  const [failed, setFailed] = useState(false);
+  if (imageUrl && !failed)
     return (
       <img
         src={imageUrl}
         alt="Activity"
+        onError={() => setFailed(true)}
         className="h-full w-full rounded-md object-cover object-center"
       />
     );
@@ -63,11 +87,18 @@ function DayCard({
   form,
   dayIndex,
   attractions,
+  presentations,
+  destinationLabel,
+  attractionsStatus,
   onRemove,
 }: {
   form: Form;
   dayIndex: number;
-  attractions: Sightseeing[];
+  attractions: SightseeingActivity[];
+  presentations: SightseeingPresentationMap;
+  /** Display name of the resolved quotation destination, e.g. "Singapore". */
+  destinationLabel: string;
+  attractionsStatus: { loading: boolean; error: boolean };
   onRemove: () => void;
 }) {
   const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
@@ -81,48 +112,131 @@ function DayCard({
   const dayTitle = (form.watch(fp(`${base}.title`)) as string | null) ?? '';
   const titleTouched = form.watch(fp(`${base}.titleTouched`)) ?? false;
 
-  const dayOptions = useMemo(() => {
-    const cityMatches = attractions.filter((row) => cityKey(row.city?.name) === cityKey(dayCity));
+  // City-specific activities win; otherwise (service cities such as Cruise,
+  // Airport, In Transit, Transfer, Leisure, or zero city matches) fall back to
+  // every active master of the quotation destination.
+  const dayContext = useMemo(() => {
+    const cityMatches = attractions.filter(
+      (row) => cityKey(row.city?.name) === cityKey(dayCity),
+    );
     const pool = cityMatches.length ? cityMatches : attractions;
-    return [...pool].sort(
+    const options = [...pool].sort(
       (a, b) =>
         (a.sequence ?? 0) - (b.sequence ?? 0) ||
-        a.createdAt.localeCompare(b.createdAt) ||
-        a.id.localeCompare(b.id),
+        a.title.localeCompare(b.title),
     );
+    return { options, cityHasMatch: cityMatches.length > 0 };
   }, [attractions, dayCity]);
 
-  const pickActivity = (
-    abase: string,
-    option: { id: string; label: string } | null,
-  ) => {
-    const picked = attractions.find((row) => row.id === option?.id) ?? null;
-    form.setValue(fp(`${abase}.sightseeingId`), (option?.id ?? null) as never, {
+  const groupLabel = dayContext.cityHasMatch
+    ? dayCity.trim()
+      ? `Activities in ${dayCity.trim()}`
+      : destinationLabel
+        ? `Activities in ${destinationLabel}`
+        : 'Activities'
+    : destinationLabel
+      ? `Activities in ${destinationLabel}`
+      : 'Activities';
+
+  const masterOptions = useMemo(
+    () =>
+      dayContext.options.map((row) => ({
+        id: row.id,
+        label: row.title,
+        hint: [row.city?.name, durationLabel(row)].filter(Boolean).join(' • '),
+        searchText: [
+          row.title,
+          row.city?.name,
+          row.destination?.name,
+          (row.description ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      })),
+    [dayContext.options],
+  );
+
+  // "Day {N}: {name}" without duplicating a leading "Day {N}:" prefix.
+  const autoDayTitle = (activityName: string | null): string => {
+    const cleaned = (activityName ?? '')
+      .trim()
+      .replace(new RegExp(`^day\\s+${dayIndex + 1}(?:\\s*:)?\\s*`, 'i'), '')
+      .trim();
+    return cleaned ? `Day ${dayIndex + 1}: ${cleaned}` : `Day ${dayIndex + 1}`;
+  };
+
+  const clearActivity = (abase: string) => {
+    form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.name`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.description`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.city`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.startTime`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.duration`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.sequence`), null as never, { shouldDirty: true });
+  };
+
+  const pickSpecial = (abase: string, option: SightseeingSelectOption) => {
+    form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.city`), (dayCity || null) as never, { shouldDirty: true });
+    const name =
+      option.id === 'special:day_at_leisure'
+        ? 'Day at Leisure'
+        : option.id === 'special:arrival_checkin'
+          ? 'Arrival and Check-in'
+          : null;
+    form.setValue(fp(`${abase}.name`), name as never, { shouldDirty: true });
+    const description =
+      option.id === 'special:day_at_leisure'
+        ? SPECIAL_DAY_AT_LEISURE_DESCRIPTION
+        : option.id === 'special:arrival_checkin'
+          ? SPECIAL_ARRIVAL_CHECKIN_DESCRIPTION
+          : null;
+    form.setValue(fp(`${abase}.description`), description as never, { shouldDirty: true });
+    if (!titleTouched && name)
+      form.setValue(fp(`${base}.title`), autoDayTitle(name), { shouldDirty: true });
+  };
+
+  const pickMaster = (abase: string, option: SightseeingSelectOption) => {
+    const picked = attractions.find((row) => row.id === option.id) ?? null;
+    form.setValue(fp(`${abase}.sightseeingId`), (picked?.id ?? null) as never, {
       shouldDirty: true,
     });
     form.setValue(fp(`${abase}.name`), (picked?.title ?? null) as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
     if (picked) {
-      if (picked.description)
-        form.setValue(fp(`${abase}.description`), picked.description as never, {
-          shouldDirty: true,
-        });
-      if (picked.city?.name)
-        form.setValue(fp(`${abase}.city`), picked.city.name as never, { shouldDirty: true });
-      if (picked.suggestedStartTime)
-        form.setValue(fp(`${abase}.startTime`), picked.suggestedStartTime as never, {
-          shouldDirty: true,
-        });
-      form.setValue(
-        fp(`${abase}.duration`),
-        (durationLabel(picked) ?? null) as never,
-        { shouldDirty: true },
-      );
+      form.setValue(fp(`${abase}.description`), (picked.description ?? null) as never, {
+        shouldDirty: true,
+      });
+      form.setValue(fp(`${abase}.city`), (picked.city?.name ?? null) as never, {
+        shouldDirty: true,
+      });
+      form.setValue(fp(`${abase}.startTime`), (picked.suggestedStartTime ?? null) as never, {
+        shouldDirty: true,
+      });
+      form.setValue(fp(`${abase}.duration`), (durationLabel(picked) ?? null) as never, {
+        shouldDirty: true,
+      });
       form.setValue(fp(`${abase}.sequence`), 1 as never, { shouldDirty: true });
       if (!titleTouched)
-        form.setValue(fp(`${base}.title`), `Day ${dayIndex + 1}: ${picked.title}`, {
-          shouldDirty: true,
-        });
+        form.setValue(fp(`${base}.title`), autoDayTitle(picked.title), { shouldDirty: true });
     }
+  };
+
+  const applyActivitySelection = (
+    abase: string,
+    option: SightseeingSelectOption | null,
+  ) => {
+    if (!option) {
+      clearActivity(abase);
+      return;
+    }
+    if (option.id.startsWith('special:')) {
+      pickSpecial(abase, option);
+      return;
+    }
+    pickMaster(abase, option);
   };
 
   return (
@@ -159,32 +273,43 @@ function DayCard({
       <div className="space-y-4">
         {activities.fields.map((activity, aIndex) => {
           const abase = `${base}.activities.${aIndex}`;
-          const imageUrl = (form.watch(fp(`${abase}.imageUrl`)) as string | null) ?? null;
+          const snapshotUrl = (form.watch(fp(`${abase}.imageUrl`)) as string | null) ?? null;
+          const sightseeingId = (form.watch(fp(`${abase}.sightseeingId`)) as string | null) ?? null;
+          const activityName = (form.watch(fp(`${abase}.name`)) as string | null) ?? null;
+          // Fresh master presentation first (never persisted); the saved
+          // snapshot is only a fallback for legacy/custom rows.
+          const resolvedUrl =
+            (sightseeingId ? presentations[sightseeingId]?.imageUrl : null) ?? snapshotUrl;
           return (
             <div
               key={activity.id}
               className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-[200px_1fr]"
             >
               <div className="aspect-[16/9] w-full overflow-hidden rounded-md md:aspect-auto md:h-28">
-                <ActivityThumb imageUrl={imageUrl} />
+                <ActivityThumb key={resolvedUrl ?? ''} imageUrl={resolvedUrl} />
               </div>
               <div className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-[1fr_150px]">
                   <label className={labelCls}>
                     Attraction / Activity
                     <div className="mt-1">
-                      <MasterSelect
+                      <SightseeingActivitySelect
                         ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
                         placeholder="Select or type an attraction"
-                        options={dayOptions.map((row) => ({
-                          id: row.id,
-                          label: row.title,
-                          hint: [row.city?.name, durationLabel(row)].filter(Boolean).join(' • '),
-                        }))}
-                        value={(form.watch(fp(`${abase}.sightseeingId`)) as string | null) ?? null}
-                        loading={false}
-                        fallbackLabel={(form.watch(fp(`${abase}.name`)) as string | null) ?? undefined}
-                        onSelect={(option) => pickActivity(abase, option)}
+                        groupLabel={groupLabel}
+                        specialOptions={SPECIAL_SIGHTSEEING_OPTIONS}
+                        masterOptions={masterOptions}
+                        value={sightseeingId}
+                        displayLabel={activityName}
+                        onSelect={(option) => applyActivitySelection(abase, option)}
+                        status={{
+                          loading: attractionsStatus.loading,
+                          error: attractionsStatus.error,
+                          empty:
+                            !attractionsStatus.loading &&
+                            !attractionsStatus.error &&
+                            masterOptions.length === 0,
+                        }}
                       />
                     </div>
                   </label>
@@ -248,27 +373,83 @@ function DayCard({
         <div>
           <p className={labelCls}>Meals Included</p>
           <div className="mt-2 flex flex-wrap gap-4">
-            {meals.map((meal) => (
-              <label key={meal} className="flex items-center gap-2 text-sm capitalize">
-                <input type="checkbox" {...form.register(fp(`${base}.meals.${meal}`))} />
-                {meal}
-              </label>
-            ))}
+            {meals.map((meal) => {
+              const mealPath = `${base}.meals.${meal}`;
+              const prefPath = `${base}.mealPreferences.${meal}`;
+              const prefMode = (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ?? null;
+              return (
+                <label key={meal} className="flex items-center gap-2 text-sm capitalize">
+                  <input
+                    type="checkbox"
+                    checked={(form.watch(fp(mealPath)) as boolean | undefined) ?? false}
+                    onChange={(event) => {
+                      form.setValue(fp(mealPath), event.target.checked as never, { shouldDirty: true });
+                      if (event.target.checked && !prefMode)
+                        form.setValue(fp(`${prefPath}.mode`), 'NO_TRANSFER' as never, { shouldDirty: true });
+                    }}
+                  />
+                  {meal}
+                </label>
+              );
+            })}
           </div>
-          <div className="mt-2 flex flex-wrap gap-4 text-sm">
-            {(
-              [
-                ['NO_TRANSFER', 'No Transfer'],
-                ['INCLUDE_AT_HOTEL', 'Include At Hotel'],
-                ['WITH_TRANSFER', 'With Transfer'],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="flex items-center gap-2">
-                <input type="radio" value={value} {...form.register(fp(`${base}.mealMode`))} />
-                {label}
-              </label>
-            ))}
-          </div>
+          {meals
+            .filter((meal) => (form.watch(fp(`${base}.meals.${meal}`)) as boolean | undefined) ?? false)
+            .map((meal) => {
+              const prefPath = `${base}.mealPreferences.${meal}`;
+              const mode =
+                (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ?? 'NO_TRANSFER';
+              const transferDetails =
+                (form.watch(fp(`${prefPath}.transferDetails`)) as string | null | undefined) ?? '';
+              return (
+                <div
+                  key={meal}
+                  role="group"
+                  aria-label={`${meal} meal options`}
+                  className="mt-3 rounded-md border border-slate-200 bg-card p-3"
+                >
+                  <p className="text-sm font-semibold capitalize text-slate-700">{meal}</p>
+                  <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                    {(
+                      [
+                        ['NO_TRANSFER', 'No Transfer'],
+                        ['INCLUDE_AT_HOTEL', 'Include At Hotel'],
+                        ['WITH_TRANSFER', 'With Transfer'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <label key={value} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={`${base}-${meal}-meal-mode`}
+                          value={value}
+                          checked={mode === value}
+                          onChange={() =>
+                            form.setValue(fp(`${prefPath}.mode`), value as never, { shouldDirty: true })
+                          }
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  {mode === 'WITH_TRANSFER' && (
+                    <label className="mt-3 block">
+                      <span className={labelCls}>Transfer Details</span>
+                      <input
+                        aria-label={`${meal} transfer details`}
+                        className={`${field} mt-1`}
+                        placeholder="Enter transfer or meal-location details"
+                        value={transferDetails}
+                        onChange={(event) =>
+                          form.setValue(fp(`${prefPath}.transferDetails`), event.target.value || null, {
+                            shouldDirty: true,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+                </div>
+              );
+            })}
         </div>
         <div>
           <p className={labelCls}>Daily Transfer</p>
@@ -294,25 +475,48 @@ function DayCard({
 
 /** Reference "Sightseeing" tab — day-wise activity itinerary. */
 export function SightseeingSection({ form }: { form: Form }) {
-  const attractionsQuery = useSightseeingList(
-    useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '200' }), []),
-  );
   const destinationSummary = (form.watch('destinationSummary') as string) ?? '';
-  const destinationToken = destinationSummary.split(/[•(→>,]/)[0]?.trim()?.toLowerCase();
-  // Options are scoped to the quotation's destination (tenant + active filtering
-  // already happens server-side) so unrelated attractions never appear.
-  const attractions: Sightseeing[] = useMemo(() => {
-    const rows = (attractionsQuery.data?.data ?? []).filter((row) => row.status === 'ACTIVE');
-    if (!destinationToken) return rows;
-    return rows.filter((row) =>
-      [row.destination?.name, row.destination?.countryName]
-        .map((value) => value?.toLowerCase())
-        .some((value) => Boolean(value && value.includes(destinationToken))),
-    );
-  }, [attractionsQuery.data, destinationToken]);
+  const destinationToken = destinationSummary.split(/[•(→>,]/)[0]?.trim() ?? '';
+  // Resolve active sightseeing records by exact destination name, never by text
+  // search or paginated admin list. The backend resolves the name to a
+  // destination ID and returns all matching records (tenant-scoped, no limit).
+  const attractionsQuery = useSightseeingActivities(
+    destinationToken || undefined,
+    undefined,
+  );
+  const attractionsStatus = {
+    loading: attractionsQuery.isLoading,
+    error: attractionsQuery.isError,
+  };
+  const attractions: SightseeingActivity[] =
+    attractionsQuery.data?.activities ?? [];
+  // Display name for the dropdown heading, e.g. "Singapore".
+  const destinationLabel = useMemo(
+    () =>
+      destinationToken
+        ? destinationToken.charAt(0).toUpperCase() + destinationToken.slice(1)
+        : '',
+    [destinationToken],
+  );
   const days = useFieldArray({ control: form.control, name: 'sightseeingDetails.days' });
   const include = form.watch('sightseeingDetails.include') ?? true;
   const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
+  // Resolve every selected master's current display URL in one batched request
+  // (unique ids only), so the builder never issues N per-activity requests.
+  const watchedDays = useWatch({
+    control: form.control,
+    name: 'sightseeingDetails.days',
+  });
+  const selectedSightseeingIds = useMemo(() => {
+    const rows = (watchedDays ?? []) as Array<{
+      activities?: Array<{ sightseeingId?: string | null }>;
+    }>;
+    return rows.flatMap((day) =>
+      (day?.activities ?? []).map((activity) => activity?.sightseeingId ?? null),
+    );
+  }, [watchedDays]);
+  const presentationsQuery = useSightseeingPresentations(selectedSightseeingIds);
+  const presentations = (presentationsQuery.data ?? {}) as SightseeingPresentationMap;
 
   return (
     <div className="space-y-5">
@@ -368,6 +572,9 @@ export function SightseeingSection({ form }: { form: Form }) {
                 form={form}
                 dayIndex={index}
                 attractions={attractions}
+                presentations={presentations}
+                destinationLabel={destinationLabel}
+                attractionsStatus={attractionsStatus}
                 onRemove={() => days.remove(index)}
               />
             ))}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import type {
   AirlineInput,
   AirlineLogoUploadInput,
@@ -761,7 +762,74 @@ const sightseeingKeys = {
   all: ['masters', 'sightseeing'] as const,
   one: (id: string) => ['masters', 'sightseeing', id] as const,
   summary: ['masters', 'sightseeing', 'summary'] as const,
+  presentations: (ids: string) => ['masters', 'sightseeing', 'presentations', ids] as const,
+  activities: (destination: string, city: string) =>
+    ['masters', 'sightseeing', 'activities', destination, city] as const,
 };
+
+export type SightseeingPresentationMap = Record<string, { imageUrl: string | null }>;
+
+/** Batch short-lived display URLs for sightseeing master ids (deduped). */
+export async function sightseeingPresentations(ids: Array<string | null | undefined>) {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (!unique.length) return {} as SightseeingPresentationMap;
+  return apiClient.get<SightseeingPresentationMap>(
+    `/masters/sightseeing/presentations?ids=${encodeURIComponent(unique.join(','))}`,
+  );
+}
+
+/** Resolve current display URLs for a set of sightseeing master ids in one request. */
+export function useSightseeingPresentations(ids: Array<string | null | undefined>) {
+  const unique = useMemo(
+    () => [...new Set(ids.filter((id): id is string => Boolean(id)))],
+    [ids],
+  );
+  const key = useMemo(() => [...unique].sort().join(','), [unique]);
+  return useQuery({
+    queryKey: sightseeingKeys.presentations(key),
+    queryFn: () => sightseeingPresentations(unique),
+    enabled: unique.length > 0,
+    staleTime: 60 * 1000,
+  });
+}
+
+export interface SightseeingActivity {
+  id: string;
+  title: string;
+  sequence: number;
+  estimatedHours: number | null;
+  suggestedStartTime: string | null;
+  description: string | null;
+  destination: { id: string; name: string };
+  city: { id: string; name: string };
+}
+
+export interface SightseeingActivities {
+  destination: { id: string; name: string } | null;
+  city: { id: string; name: string } | null;
+  activities: SightseeingActivity[];
+}
+
+/**
+ * Quotation builder sightseeing dropdown feed — resolves destination/city
+ * by exact name match, not by text search or pagination. Lightweight,
+ * permission-compatible with quotation editing.
+ */
+export function useSightseeingActivities(destination?: string, city?: string) {
+  const params = new URLSearchParams();
+  if (destination) params.set('destination', destination);
+  if (city) params.set('city', city);
+  const query = params.toString();
+  return useQuery({
+    queryKey: sightseeingKeys.activities(destination ?? '', city ?? ''),
+    queryFn: ({ signal }) =>
+      apiClient.get<SightseeingActivities>(
+        `/masters/sightseeing/activities${query ? `?${query}` : ''}`,
+        signal,
+      ),
+    enabled: Boolean(destination?.trim()),
+  });
+}
 
 export function useSightseeingList(params = new URLSearchParams()) {
   const query = masterListQuery(params);

@@ -348,6 +348,30 @@ export function useArchiveLead(id: string) {
   });
 }
 
+export type LeadInlineField = 'leadType' | 'leadStage';
+
+/**
+ * Inline update of a single lead field (Type or Stage) straight from a list.
+ * Type reuses the generic update endpoint; Stage reuses the dedicated stage
+ * endpoint so all transition rules, history and activity logging are preserved.
+ * The API response is treated as the source of truth.
+ */
+export function useUpdateLeadField(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ field, value }: { field: LeadInlineField; value: string }) =>
+      field === 'leadStage'
+        ? apiClient.patch<Lead>(`/queries/${id}/stage`, { stage: value })
+        : apiClient.patch<Lead>(`/queries/${id}`, { leadType: value }),
+    onSuccess: (lead) => {
+      // Re-fetch list, analytics and counters; cache the returned lead as fresh.
+      void qc.invalidateQueries({ queryKey: queryKeys.all });
+      void qc.invalidateQueries({ queryKey: queryKeys.analytics });
+      qc.setQueryData(queryKeys.detail(lead.id), lead);
+    },
+  });
+}
+
 export interface BulkResult {
   updatedCount: number;
   unchangedCount: number;

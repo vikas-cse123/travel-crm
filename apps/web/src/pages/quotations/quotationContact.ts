@@ -2,6 +2,14 @@
  * Shared text helpers for the public quotation contact card (WhatsApp + Email).
  */
 
+/** Format the customer-facing quotation ID by stripping unnecessary leading zeros. */
+export function displayQuotationId(value: string | null | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return '';
+  const match = raw.match(/^([A-Z]+-?)0*(\d+)$/i);
+  return match ? `${match[1]}${match[2]}` : raw;
+}
+
 /**
  * Build the shared "ID - Title for Name" description used by the WhatsApp and
  * Email prefills. Missing values are dropped cleanly, never shown as
@@ -18,7 +26,7 @@ export function buildQuotationDescription(
   title: string | null | undefined,
   leadName: string | null | undefined,
 ): string {
-  const id = quotationId?.trim();
+  const id = displayQuotationId(quotationId);
   const t = title?.trim();
   const name = leadName?.trim();
   const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();

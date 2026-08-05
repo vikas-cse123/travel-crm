@@ -26,6 +26,23 @@ export const bookingsController = {
       'Quotation converted to booking.',
       201,
     ),
+  previewFromLead: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.previewFromLead(
+        auth(req),
+        String(req.query.leadId),
+        String(req.query.quotationId),
+      ),
+      'Booking preview ready.',
+    ),
+  createFromLead: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await bookingsService.createFromLead(auth(req), req.body, context(req)),
+      'Booking created from lead.',
+      201,
+    ),
   list: async (req: Request, res: Response) =>
     sendSuccess(res, await bookingsService.list(auth(req), req.query)),
   analytics: async (req: Request, res: Response) =>

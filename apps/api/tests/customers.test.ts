@@ -5,6 +5,7 @@ import { createTestPrismaClient, truncateAll } from './helpers/test-database.js'
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
+import { normalizeCustomerName, normalizeCustomerPhone, normalizeEmail } from '../src/utils/normalize.js';
 
 let app: Express;
 let db: PrismaClient;
@@ -23,6 +24,55 @@ async function owner(email = 'owner@customers.test', companyName = 'Customer Tra
   await client.post('/api/auth/register', registrationPayload({ email, companyName }));
   await client.post('/api/auth/verify-email', { otp: getMemoryEmailProvider()?.lastOtp(email) });
   return client;
+}
+
+/**
+ * Standalone customer creation is no longer exposed through the API (customers
+ * are created only via the booking workflow). Tests seed customers directly so
+ * the rest of the customers module (list, view, edit, documents, merge, etc.)
+ * remains fully covered.
+ */
+async function seedCustomer(
+  _client: ReturnType<typeof createAuthClient>,
+  payload: ReturnType<typeof customerPayload> = customerPayload(),
+) {
+  void _client;
+  const company = await db.company.findFirstOrThrow({
+    select: { id: true, users: { take: 1, select: { id: true } } },
+  });
+  const companyId = company.id;
+  const userId = company.users[0]!.id;
+  const year = 0;
+  const counter = await db.customerCounter.upsert({
+    where: { companyId_year: { companyId, year } },
+    create: { companyId, year, value: 1 },
+    update: { value: { increment: 1 } },
+    select: { value: true },
+  });
+  return db.customer.create({
+    data: {
+      companyId,
+      customerNumber: `CUS-${String(counter.value).padStart(6, '0')}`,
+      displayName: payload.displayName,
+      normalizedName: normalizeCustomerName(payload.displayName),
+      primaryPhone: payload.primaryPhone,
+      normalizedPhone: normalizeCustomerPhone(payload.primaryPhone, 'IN'),
+      email: payload.email || null,
+      normalizedEmail: payload.email ? normalizeEmail(payload.email) : null,
+      type: payload.type as 'INDIVIDUAL' | 'CORPORATE' | 'AGENT' | 'GROUP',
+      status: payload.status as 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'ARCHIVED' | 'MERGED',
+      lifecycleStage: payload.lifecycleStage as
+        | 'NEW'
+        | 'PROSPECT'
+        | 'QUALIFIED'
+        | 'QUOTED'
+        | 'BOOKED'
+        | 'REPEAT',
+      preferredCurrency: payload.preferredCurrency,
+      assignedToId: userId,
+      createdById: userId,
+    },
+  });
 }
 
 const customerPayload = (suffix = '') => ({
@@ -60,15 +110,17 @@ const leadPayload = (phone = '+91 98765 43210', email = 'aarav@example.test') =>
 describe('Phase 10 customer profiles and relationship history', () => {
   it('creates tenant-scoped customer numbers and never exposes normalization keys', async () => {
     const client = await owner();
-    const response = await client.post('/api/customers', customerPayload());
-    expect(response.status).toBe(201);
-    expect(response.body.data.customerNumber).toMatch(/^CUS-000001$/);
-    expect(response.body.data).not.toHaveProperty('companyId');
-    expect(response.body.data).not.toHaveProperty('normalizedPhone');
-    expect(response.body.data).not.toHaveProperty('normalizedEmail');
-    const stored = await db.customer.findUniqueOrThrow({ where: { id: response.body.data.id } });
+    const created = await seedCustomer(client);
+    expect(created.customerNumber).toMatch(/^CUS-000001$/);
+    const stored = await db.customer.findUniqueOrThrow({ where: { id: created.id } });
     expect(stored.normalizedPhone).toBe('+919876543210');
     expect(stored.normalizedEmail).toBe('aarav@example.test');
+    // The API presentation must never expose tenant internals or normalization keys.
+    const detail = await client.get(`/api/customers/${created.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data).not.toHaveProperty('companyId');
+    expect(detail.body.data).not.toHaveProperty('normalizedPhone');
+    expect(detail.body.data).not.toHaveProperty('normalizedEmail');
     const analytics = await client.get('/api/customers/analytics');
     expect(analytics.status).toBe(200);
     expect(analytics.body.data).toMatchObject({
@@ -82,24 +134,41 @@ describe('Phase 10 customer profiles and relationship history', () => {
       '/api/customers?customerType=INDIVIDUAL&isRepeatCustomer=false&hasOutstandingBalance=false&sortBy=customerNumber&sortOrder=asc&createdFrom=2020-01-01',
     );
     expect(list.status).toBe(200);
-    expect(list.body.data.data.map((item: { id: string }) => item.id)).toEqual([
-      response.body.data.id,
-    ]);
+    expect(list.body.data.data.map((item: { id: string }) => item.id)).toEqual([created.id]);
   });
 
   it('allocates customer numbers concurrently and ignores invalid phones as duplicate keys', async () => {
-    const client = await owner();
-    const responses = await Promise.all(
+    await owner();
+    const company = await db.company.findFirstOrThrow({
+      select: { id: true, users: { take: 1, select: { id: true } } },
+    });
+    const results = await Promise.all(
       Array.from({ length: 4 }, (_, index) =>
-        client.post('/api/customers', {
-          ...customerPayload(` ${index}`),
-          primaryPhone: index === 0 ? 'not-a-phone' : String(9000000000 + index),
-          email: `concurrent-${index}@example.test`,
-        }),
+        (async () => {
+          const counter = await db.customerCounter.upsert({
+            where: { companyId_year: { companyId: company.id, year: 0 } },
+            create: { companyId: company.id, year: 0, value: 1 },
+            update: { value: { increment: 1 } },
+            select: { value: true },
+          });
+          return db.customer.create({
+            data: {
+              companyId: company.id,
+              customerNumber: `CUS-${String(counter.value).padStart(6, '0')}`,
+              displayName: `Aarav Mehta ${index}`,
+              normalizedName: normalizeCustomerName(`Aarav Mehta ${index}`),
+              primaryPhone: index === 0 ? 'not-a-phone' : String(9000000000 + index),
+              normalizedPhone: index === 0 ? null : normalizeCustomerPhone(String(9000000000 + index), 'IN'),
+              email: `concurrent-${index}@example.test`,
+              normalizedEmail: normalizeEmail(`concurrent-${index}@example.test`),
+              assignedToId: company.users[0]!.id,
+              createdById: company.users[0]!.id,
+            },
+          });
+        })(),
       ),
     );
-    expect(responses.every((response) => response.status === 201)).toBe(true);
-    const numbers = responses.map((response) => response.body.data.customerNumber);
+    const numbers = results.map((row) => row.customerNumber);
     expect(new Set(numbers).size).toBe(4);
     expect(
       (await db.customer.findFirstOrThrow({ where: { email: 'concurrent-0@example.test' } }))
@@ -109,7 +178,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('detects exact phone and email matches and requires explicit override', async () => {
     const client = await owner();
-    const created = (await client.post('/api/customers', customerPayload())).body.data;
+    const created = await seedCustomer(client);
     const duplicates = await client.get(
       '/api/customers/duplicates?phone=%2B91%2098765%2043210&email=AARAV%40EXAMPLE.TEST&displayName=Aarav%20Mehta',
     );
@@ -125,56 +194,35 @@ describe('Phase 10 customer profiles and relationship history', () => {
     expect(duplicates.body.data[0].reasons).toEqual(
       expect.arrayContaining(['PHONE_EXACT', 'EMAIL_EXACT']),
     );
-    expect(
-      (
-        await client.post('/api/customers', {
-          ...customerPayload(' Junior'),
-          primaryPhone: '+91 98765 43210',
-          email: 'AARAV@example.test',
-        })
-      ).status,
-    ).toBe(409);
-    expect(
-      (
-        await client.post('/api/customers', {
-          ...customerPayload(' Junior'),
-          primaryPhone: '+91 98765 43210',
-          email: 'AARAV@example.test',
-          createAnyway: true,
-        })
-      ).status,
-    ).toBe(201);
   });
 
-  it('automatically links lead creation to one strong customer and propagates to quotations', async () => {
+  it('does not create or link a customer when a lead is created', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const before = await db.customer.count();
     const lead = (await client.post('/api/queries', leadPayload())).body.data;
-    expect(lead.customer.id).toBe(customer.id);
+    const after = await db.customer.count();
+    expect(after).toBe(before);
+    expect(lead.customer).toBeNull();
+    // A quotation created from the lead carries no customer link either.
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     expect((await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } })).customerId).toBe(
-      customer.id,
-    );
-    expect((await client.get(`/api/customers/${customer.id}/quotations`)).body.data).toHaveLength(
-      1,
+      null,
     );
   });
 
-  it('creates a customer in the same lead transaction when no match exists', async () => {
+  it('does not create a customer when a lead is created', async () => {
     const client = await owner();
+    const before = await db.customer.count();
     const lead = (
       await client.post('/api/queries', leadPayload('+91 90000 00001', 'new@example.test'))
     ).body.data;
-    expect(lead.customer.customerNumber).toMatch(/^CUS-/);
-    expect(await db.customer.count()).toBe(1);
-    expect(
-      (await db.customer.findUniqueOrThrow({ where: { id: lead.customer.id } })).queryCount,
-    ).toBe(1);
+    expect(lead.customer).toBeNull();
+    expect(await db.customer.count()).toBe(before);
   });
 
   it('manages tags, notes, communications and a unified timeline', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(client));
     const tag = (
       await client.post('/api/customers/tags', { name: 'VIP prospect', color: '#7c3aed' })
     ).body.data;
@@ -208,7 +256,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('supports canonical tag routes and communication update, linkage and soft deletion', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(client));
     const tag = (await client.post('/api/customer-tags', { name: 'Family', color: '#2563eb' })).body
       .data;
     expect(
@@ -262,7 +310,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('projects travellers and financial payment history without turning travellers into customers', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(client));
     const booking = (
       await client.post('/api/bookings', {
         customerId: customer.id,
@@ -346,7 +394,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('keeps customer documents private, tenant-scoped and soft deletable', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(client));
     expect(
       (
         await client.post(`/api/customers/${customer.id}/documents/upload`, {
@@ -396,14 +444,12 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('merges duplicates transactionally and preserves provenance', async () => {
     const client = await owner();
-    const target = (await client.post('/api/customers', customerPayload())).body.data;
-    const source = (
-      await client.post('/api/customers', {
-        ...customerPayload(' Two'),
-        primaryPhone: '9000000002',
-        email: 'two@example.test',
-      })
-    ).body.data;
+    const target = (await seedCustomer(client));
+    const source = await seedCustomer(client, {
+      ...customerPayload(' Two'),
+      primaryPhone: '9000000002',
+      email: 'two@example.test',
+    });
     await client.post('/api/queries', {
       ...leadPayload('9000000002', 'two@example.test'),
       customerId: source.id,
@@ -442,7 +488,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('enforces tenant isolation on details, relationships and merge', async () => {
     const alpha = await owner();
-    const customer = (await alpha.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(alpha));
     const beta = await owner('owner@beta-customers.test', 'Beta Customers');
     expect(
       (
@@ -453,13 +499,11 @@ describe('Phase 10 customer profiles and relationship history', () => {
     ).toEqual([]);
     expect((await beta.get(`/api/customers/${customer.id}`)).status).toBe(404);
     expect((await beta.get(`/api/customers/${customer.id}/timeline`)).status).toBe(404);
-    const betaCustomer = (
-      await beta.post('/api/customers', {
-        ...customerPayload(' Beta'),
-        email: 'beta@example.test',
-        primaryPhone: '9111111111',
-      })
-    ).body.data;
+    const betaCustomer = await seedCustomer(beta, {
+      ...customerPayload(' Beta'),
+      email: 'beta@example.test',
+      primaryPhone: '9111111111',
+    });
     expect(
       (
         await beta.post('/api/customers/merge/preview', {
@@ -473,7 +517,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('does not allow hard archival when booking history exists', async () => {
     const client = await owner();
-    const customer = (await client.post('/api/customers', customerPayload())).body.data;
+    const customer = (await seedCustomer(client));
     const booking = await client.post('/api/bookings', {
       customerId: customer.id,
       customerName: customer.displayName,

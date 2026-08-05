@@ -581,6 +581,42 @@ export const sightseeingService = {
     };
   },
 
+  /**
+   * Batch short-lived display URLs for many sightseeing masters (deduped).
+   * Used by the quotation builder so it can render every selected activity's
+   * image with a single request instead of N per-activity calls. The returned
+   * URLs are transient presigned links and are never persisted.
+   */
+  async presentations(auth: AuthContext, ids: string[]) {
+    const uniqueIds = [...new Set(ids)].filter(
+      (id) => typeof id === 'string' && /^[0-9a-fA-F-]{36}$/.test(id),
+    );
+    if (!uniqueIds.length) return {};
+    const rows = await prisma.sightseeing.findMany({
+      where: { id: { in: uniqueIds }, companyId: auth.companyId, deletedAt: null },
+      select: { id: true, imageObjectKey: true, imageFileName: true, imageConfirmedAt: true },
+    });
+    return Object.fromEntries(
+      await Promise.all(
+        rows.map(async (row) => {
+          let imageUrl: string | null = null;
+          if (row.imageObjectKey && row.imageConfirmedAt) {
+            try {
+              imageUrl = await storageService.createDownloadUrl(
+                row.imageObjectKey,
+                row.imageFileName ?? 'sightseeing',
+                PRESIGN_TTL,
+              );
+            } catch {
+              imageUrl = null;
+            }
+          }
+          return [row.id, { imageUrl }] as const;
+        }),
+      ),
+    );
+  },
+
   async deleteImage(auth: AuthContext, sightseeingId: string, context: MastersRequestContext) {
     const row = await getSightseeing(auth, sightseeingId, true);
     const keys = [row.imageObjectKey, row.pendingImageObjectKey].filter((value): value is string =>
@@ -609,5 +645,92 @@ export const sightseeingService = {
     });
     await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+
+  /**
+   * Quotation builder dropdown feed — resolves destination/city by name (exact
+   * normalised match) and returns active sightseeing records scoped to that
+   * destination, optionally filtered by city. Falls back to all destination
+   * records when the city has no match. No pagination; expects fewer than 100
+   * rows per destination.
+   */
+  async activities(
+    auth: AuthContext,
+    destinationName: string | undefined,
+    cityName: string | undefined,
+  ) {
+    const normName = (value: string | undefined) =>
+      value
+        ?.trim()
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ') || '';
+
+    const destName = normName(destinationName);
+    if (!destName) return { activities: [], destination: null, city: null };
+
+    const destination = await prisma.destination.findFirst({
+      where: {
+        companyId: auth.companyId,
+        normalizedName: destName,
+        deletedAt: null,
+        status: 'ACTIVE',
+      },
+      select: { id: true, name: true },
+    });
+    if (!destination) return { activities: [], destination: null, city: null };
+
+    const cityNameNorm = normName(cityName);
+    let cityId: string | null = null;
+    let cityNameResolved: string | null = null;
+    if (cityNameNorm) {
+      const city = await prisma.city.findFirst({
+        where: {
+          companyId: auth.companyId,
+          name: { equals: cityNameNorm, mode: 'insensitive' },
+          destinationLinks: { some: { destinationId: destination.id } },
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
+        select: { id: true, name: true },
+      });
+      if (city) {
+        cityId = city.id;
+        cityNameResolved = city.name;
+      }
+    }
+
+    const where: Prisma.SightseeingWhereInput = {
+      companyId: auth.companyId,
+      status: 'ACTIVE',
+      deletedAt: null,
+      destinationId: destination.id,
+      ...(cityId ? { cityId } : {}),
+    };
+
+    const rows = await prisma.sightseeing.findMany({
+      where,
+      orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        title: true,
+        sequence: true,
+        estimatedHours: true,
+        suggestedStartTime: true,
+        description: true,
+        destination: { select: { id: true, name: true } },
+        city: { select: { id: true, name: true } },
+      },
+    });
+
+    return {
+      destination: { id: destination.id, name: destination.name },
+      city: cityId ? { id: cityId, name: cityNameResolved } : null,
+      activities: rows.map((row) => ({
+        ...row,
+        estimatedHours: num(row.estimatedHours),
+      })),
+    };
   },
 };

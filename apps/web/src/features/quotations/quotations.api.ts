@@ -152,6 +152,16 @@ export interface SightseeingActivity {
   imageUrl?: string | null;
   sequence?: number | null;
 }
+export type SightseeingMealMode = 'NO_TRANSFER' | 'INCLUDE_AT_HOTEL' | 'WITH_TRANSFER';
+export interface SightseeingMealPreference {
+  mode: SightseeingMealMode;
+  transferDetails?: string | null;
+}
+export interface SightseeingMealPreferences {
+  breakfast?: SightseeingMealPreference;
+  lunch?: SightseeingMealPreference;
+  dinner?: SightseeingMealPreference;
+}
 export interface SightseeingDay {
   dayNumber: number;
   title?: string | null;
@@ -159,7 +169,8 @@ export interface SightseeingDay {
   city?: string | null;
   date?: string | null;
   meals: { breakfast: boolean; lunch: boolean; dinner: boolean };
-  mealMode: 'NO_TRANSFER' | 'INCLUDE_AT_HOTEL' | 'WITH_TRANSFER';
+  mealMode: SightseeingMealMode;
+  mealPreferences?: SightseeingMealPreferences;
   dailyTransfer: 'PRIVATE' | 'SHARED' | 'NO_TRANSFER';
   activities: SightseeingActivity[];
 }
@@ -175,6 +186,7 @@ export interface QuotationVersion {
   versionNumber: number;
   title: string;
   introduction: string | null;
+  weblinkHeading: string | null;
   destinationSummary: string;
   travelStartDate: string | null;
   travelEndDate: string | null;
@@ -448,6 +460,30 @@ export function useQuotationAction(id: string) {
             ? apiClient.patch(`/quotations/${id}/${path}`, body)
             : apiClient.post(`/quotations/${id}/${path}`, body),
     onSuccess: refresh,
+  });
+}
+/**
+ * Generate the PDF for an exact quotation version, then resolve a short-lived
+ * download URL for it. Two server calls, one user action: the button stays in a
+ * single loading state until a real, openable PDF URL is ready. Returns the URL
+ * plus the server-sanitised filename so the caller can open or download it.
+ */
+export function useGenerateQuotationPdf(quotationId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (versionId: string) => {
+      const document = await apiClient.post<{ id: string; fileName: string }>(
+        `/quotations/${quotationId}/versions/${versionId}/generate-pdf`,
+        {},
+      );
+      const { url } = await apiClient.get<{ url: string }>(
+        `/quotations/${quotationId}/documents/${document.id}/download-url`,
+      );
+      return { url, fileName: document.fileName };
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: quotationKeys.quotation(quotationId) });
+    },
   });
 }
 export function useUpdateQuotationVersion(quotationId: string, versionId: string) {

@@ -12,6 +12,7 @@ import {
   type BookingDocumentUpload,
   type BookingEmailInput,
   type BookingFinancialsInput,
+  type BookingFromLeadInput,
   type BookingItineraryInput,
   type BookingManualInput,
   type BookingNoteInput,
@@ -73,6 +74,10 @@ import { validateServiceMasterRefs } from './booking-master-refs.service.js';
 import { localDayBounds } from '../../utils/timezone.js';
 import { createPayableForBooking, recalculateVendor } from '../vendors/vendors.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
+import {
+  findMatchingCustomerForLead,
+  matchOrCreateCustomerForBooking,
+} from '../customers/customers.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
 const bookingInclude = {
@@ -1064,6 +1069,307 @@ export const bookingsService = {
       return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: bookingInclude });
     });
     return presentBooking(created, await financialAccess(auth));
+  },
+
+  /** Load the source lead and its explicitly selected finalized quotation version. */
+  async resolveLeadQuotation(
+    auth: AuthContext,
+    leadId: string,
+    quotationId: string,
+  ) {
+    const lead = await getVisibleLead(auth, leadId);
+    if (lead.leadType !== 'HOT')
+      throw new ValidationError('Lead type must be Hot before creating a booking.');
+    if (lead.leadStage !== 'BOOKING_CONFIRMED')
+      throw new ValidationError('Lead stage must be Booking Confirmed before creating a booking.');
+    if (['LOST', 'CANCELLED', 'INVALID'].includes(lead.leadStage))
+      throw new ConflictError('This lead cannot be booked because it is terminal.');
+    const quotation = await prisma.quotation.findFirst({
+      where: {
+        id: quotationId,
+        companyId: auth.companyId,
+        queryId: leadId,
+        deletedAt: null,
+        status: { not: 'ARCHIVED' },
+      },
+      include: { query: true, versions: { include: versionInclude } },
+    });
+    if (!quotation)
+      throw new NotFoundError('A finalized quotation is required before creating a booking.');
+    const preferredId = quotation.acceptedVersionId ?? quotation.currentVersionId;
+    const version =
+      quotation.versions.find((row) => row.id === preferredId && row.status === 'FINALIZED') ??
+      quotation.versions.find((row) => row.status === 'FINALIZED');
+    if (!version)
+      throw new ConflictError('A finalized quotation is required before creating a booking.');
+    return { lead, quotation, version };
+  },
+
+  /** Read-only booking preview: lead + finalized quotation + customer match. */
+  async previewFromLead(auth: AuthContext, leadId: string, quotationId: string) {
+    const { lead, quotation, version } = await this.resolveLeadQuotation(auth, leadId, quotationId);
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { timezone: true, defaultGstRate: true, defaultGstMode: true },
+    });
+    const customer = await findMatchingCustomerForLead(auth, {
+      phone: lead.phone,
+      email: lead.email ?? null,
+    });
+    return {
+      lead: {
+        id: lead.id,
+        customerName: lead.customerName,
+        phone: lead.phone,
+        email: lead.email,
+        travelStartDate: lead.travelStartDate,
+        travelEndDate: lead.travelEndDate,
+        adults: lead.adults,
+        childrenWithBed: lead.childrenWithBed,
+        childrenWithoutBed: lead.childrenWithoutBed,
+        infants: lead.infants,
+        rooms: lead.rooms,
+        travellerSummary: lead.travellerSummary,
+        assignedToId: lead.assignedToId,
+        assignedToName: lead.assignedTo?.fullName ?? null,
+      },
+      quotation: {
+        id: quotation.id,
+        quotationNumber: quotation.quotationNumber,
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        title: version.title,
+        currency: version.currency,
+        finalAmount: version.finalAmount.toFixed(2),
+        destinationSummary: version.destinationSummary,
+        servicesCount: version.services.length,
+        itineraryCount: version.itinerary.length,
+      },
+      customer,
+      company: {
+        timezone: company.timezone,
+        defaultGstRate: company.defaultGstRate,
+        defaultGstMode: company.defaultGstMode,
+      },
+    };
+  },
+
+  async createFromLead(auth: AuthContext, input: BookingFromLeadInput, context: RequestContext) {
+    const { lead, quotation, version } = await this.resolveLeadQuotation(
+      auth,
+      input.leadId,
+      input.quotationId,
+    );
+    await assertAssignable(auth, lead.assignedToId ?? auth.userId);
+    // Application-level duplicate guard (a unique constraint protects the
+    // transaction level).
+    if (
+      await prisma.booking.findFirst({
+        where: { companyId: auth.companyId, queryId: input.leadId, deletedAt: null },
+        select: { id: true },
+      })
+    )
+      throw new ConflictError('A booking already exists for this lead.');
+
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { timezone: true, defaultGstRate: true, defaultGstMode: true },
+    });
+    const gstRate = input.gstRate ?? company.defaultGstRate;
+    const gstMode = input.gstMode ?? company.defaultGstMode;
+    const placeOfSupply = input.placeOfSupply?.trim() || null;
+    const canViewFinancials = await financialAccess(auth);
+
+    const created = await prisma.$transaction(async (tx) => {
+      // Transaction-level duplicate guard.
+      const existing = await tx.booking.findFirst({
+        where: { companyId: auth.companyId, queryId: input.leadId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing) throw new ConflictError('A booking already exists for this lead.');
+
+      const customerMatch = await matchOrCreateCustomerForBooking(tx, auth, {
+        displayName: lead.customerName,
+        phone: lead.phone,
+        email: lead.email ?? null,
+        alternatePhone: lead.alternatePhone ?? null,
+        source: lead.leadSource,
+        assignedToId: lead.assignedToId ?? auth.userId,
+        createdById: auth.userId,
+      });
+
+      const bookingNumber = await nextBookingNumber(tx, auth.companyId, 'booking');
+      const booking = await tx.booking.create({
+        data: {
+          companyId: auth.companyId,
+          customerId: customerMatch.customerId,
+          bookingNumber,
+          queryId: lead.id,
+          quotationId: quotation.id,
+          quotationVersionId: version.id,
+          title: input.title,
+          customerName: lead.customerName,
+          customerEmail: lead.email ?? null,
+          customerPhone: lead.phone,
+          destinationSummary: version.destinationSummary,
+          travelStartDate: lead.travelStartDate ?? version.travelStartDate,
+          travelEndDate: lead.travelEndDate ?? version.travelEndDate,
+          rooms: lead.rooms,
+          adults: lead.adults,
+          childrenWithBed: lead.childrenWithBed,
+          childrenWithoutBed: lead.childrenWithoutBed,
+          infants: lead.infants,
+          currency: version.currency,
+          totalSellingAmount: input.totalSellingAmount,
+          gstAmount: 0,
+          tcsAmount: 0,
+          tcsExempt: input.tcsExempt,
+          gstRate,
+          gstMode,
+          placeOfSupply,
+          totalCustomerOutstanding: input.totalSellingAmount,
+          grossProfit: input.totalSellingAmount,
+          bookedById: auth.userId,
+          assignedToId: lead.assignedToId ?? auth.userId,
+          sourceTitle: version.title,
+          sourceTerms: version.terms.map((row) => row.content),
+          internalNotes: input.notes?.trim() || null,
+        },
+      });
+
+      // Import finalized quotation services as stable booking snapshots.
+      const services: Array<Prisma.BookingServiceCreateManyInput> = [];
+      let sequence = 1;
+      for (const hotel of version.hotels.filter((row) => row.selected)) {
+        services.push({
+          companyId: auth.companyId,
+          bookingId: booking.id,
+          serviceType: 'HOTEL',
+          hotelId: hotel.hotelId,
+          hotelRoomTypeId: hotel.hotelRoomTypeId,
+          hotelMealPlanId: hotel.hotelMealPlanId,
+          name: hotel.hotelName,
+          description:
+            [hotel.category, hotel.roomType, hotel.mealPlan].filter(Boolean).join(' • ') || null,
+          city: hotel.city,
+          startDate: hotel.checkInDate,
+          endDate: hotel.checkOutDate,
+          customerSellingAmount: hotel.sellingPrice,
+          internalCostSnapshot: hotel.internalCost,
+          notes: hotel.notes,
+          sequence: sequence++,
+        });
+      }
+      for (const service of version.services) {
+        services.push({
+          companyId: auth.companyId,
+          bookingId: booking.id,
+          serviceType: service.serviceType,
+          airlineId: service.airlineId,
+          cruiseId: service.cruiseId,
+          cruiseRoomTypeId: service.cruiseRoomTypeId,
+          vehicleId: service.vehicleId,
+          sightseeingId: service.sightseeingId,
+          addOnServiceId: service.addOnServiceId,
+          name: service.name,
+          description: service.description,
+          city: service.city,
+          customerSellingAmount: service.totalSellingPrice,
+          internalCostSnapshot: service.totalCost,
+          notes: service.notes,
+          sequence: sequence++,
+        });
+      }
+      if (services.length) await tx.bookingService.createMany({ data: services });
+      if (version.itinerary.length)
+        await tx.bookingItineraryDay.createMany({
+          data: version.itinerary.map((day) => ({
+            companyId: auth.companyId,
+            bookingId: booking.id,
+            dayNumber: day.dayNumber,
+            date: day.date,
+            title: day.title,
+            destination: day.destination,
+            description: day.description,
+            meals: day.meals,
+            overnightLocation: day.overnightLocation,
+            sequence: day.sequence,
+          })),
+        });
+
+      // Booking reminders before travel start.
+      const travelStart = booking.travelStartDate;
+      if (travelStart && input.reminders.length) {
+        const seenOffsets = new Set<number>();
+        for (const reminder of input.reminders) {
+          if (seenOffsets.has(reminder.daysBefore))
+            throw new ValidationError('Duplicate reminder offsets are not allowed.');
+          seenOffsets.add(reminder.daysBefore);
+          const offsetMs = reminder.daysBefore * 86_400_000;
+          const raw = new Date(new Date(travelStart).getTime() - offsetMs);
+          const [hh, mm] = reminder.dueTime.split(':').map(Number);
+          const scheduledAt = new Date(raw);
+          scheduledAt.setHours(hh ?? 0, mm ?? 0, 0, 0);
+          if (scheduledAt.getTime() < Date.now())
+            throw new ValidationError('A booking reminder cannot be scheduled in the past.');
+          await tx.bookingReminder.create({
+            data: {
+              companyId: auth.companyId,
+              bookingId: booking.id,
+              assignedToId: lead.assignedToId ?? auth.userId,
+              daysBefore: reminder.daysBefore,
+              dueTime: reminder.dueTime,
+              scheduledAt,
+            },
+          });
+        }
+      }
+
+      await recalculateBookingFinancials(tx, auth.companyId, booking.id);
+      await tx.bookingStatusHistory.create({
+        data: {
+          companyId: auth.companyId,
+          bookingId: booking.id,
+          newStatus: 'PENDING_CONFIRMATION',
+          changedById: auth.userId,
+        },
+      });
+      await tx.activityLog.create({
+        data: bookingAudit(auth, 'BOOKING_CREATED', 'Booking', booking.id, context, {
+          queryId: lead.id,
+          quotationId: quotation.id,
+          source: 'lead',
+          customerCreated: customerMatch.created,
+        }),
+      });
+      if (customerMatch.created)
+        await tx.activityLog.create({
+          data: {
+            companyId: auth.companyId,
+            actorUserId: auth.userId,
+            action: 'CUSTOMER_CREATED',
+            entityType: 'Customer',
+            entityId: customerMatch.customerId,
+            metadata: { source: 'BOOKING_CREATION', customerNumber: customerMatch.customerNumber },
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+          },
+        });
+      await tx.queryStageHistory.create({
+        data: {
+          companyId: auth.companyId,
+          queryId: lead.id,
+          previousStage: lead.leadStage,
+          newStage: lead.leadStage,
+          changedById: auth.userId,
+          reason: 'Booking created from lead',
+        },
+      });
+      return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: bookingInclude });
+    });
+
+    reminderProcessor.scheduleEvent(auth.companyId, ['BOOKING_TRAVEL', 'CUSTOMER_PAYMENT']);
+    return { ...presentBooking(created, canViewFinancials), customerCreated: undefined };
   },
 
   async create(auth: AuthContext, input: BookingManualInput, context: RequestContext) {

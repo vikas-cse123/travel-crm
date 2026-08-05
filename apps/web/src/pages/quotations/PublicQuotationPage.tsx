@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Ban,
   Building2,
@@ -12,6 +12,7 @@ import {
   FileText,
   Image as ImageIcon,
   Info as InfoIcon,
+  Lock,
   MapPin,
   Phone,
   Ship,
@@ -21,7 +22,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
-import { cabinLuggageLabel, hotelStayNights } from '@interscale/shared';
+import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote } from '@interscale/shared';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import type {
@@ -33,6 +34,7 @@ import type {
 import { PublicQuotationContact } from './PublicQuotationContact';
 import { PublicQuotationFooter } from './PublicQuotationFooter';
 import { serviceCardIcon, type ServiceCard } from './serviceCards';
+import { displayQuotationId } from './quotationContact';
 
 interface PublicQuotation {
   company: {
@@ -372,6 +374,19 @@ const TRANSFER_CANONICAL: Record<string, string> = {
 };
 
 /** Normalize the many historical sightseeing snapshot shapes into one view model. */
+/** Normalize legacy meal-mode variants ("NO TRANSFER", "no_transfer", "hotel", …). */
+function normalizeSightseeingMealMode(value: unknown): string | null {
+  const raw = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_./-]+/g, '');
+  if (raw === 'NOTRANSFER' || raw === 'NONE') return 'NO_TRANSFER';
+  if (raw === 'INCLUDEATHOTEL' || raw === 'HOTEL' || raw === 'INHOTEL')
+    return 'INCLUDE_AT_HOTEL';
+  if (raw === 'WITHTRANSFER') return 'WITH_TRANSFER';
+  return null;
+}
+
 function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
   const day = (raw ?? {}) as AnyRecord;
   const activitiesRaw = Array.isArray(day.activities)
@@ -406,18 +421,35 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
         lunch: Boolean((mealsRaw as AnyRecord | undefined)?.lunch),
         dinner: Boolean((mealsRaw as AnyRecord | undefined)?.dinner),
       };
-  const transferKey = String(day.dailyTransfer ?? '').toUpperCase();
-  const mealKey = String(day.mealMode ?? '').toUpperCase();
+  const itineraryTransferKey = String(day.dailyTransfer ?? '').toUpperCase();
+  const prefsRaw = (day.mealPreferences as AnyRecord | undefined) ?? {};
+  const mealPreferences = (Object.fromEntries(
+    (['breakfast', 'lunch', 'dinner'] as const).map((key) => {
+      const entry = prefsRaw[key];
+      if (!entry || typeof entry !== 'object') return [key, null] as const;
+      return [
+        key,
+        {
+          mode: normalizeSightseeingMealMode((entry as AnyRecord).mode),
+          transferDetails: ((entry as AnyRecord).transferDetails ?? null) as string | null,
+        },
+      ] as const;
+    }),
+  ) as Record<
+    'breakfast' | 'lunch' | 'dinner',
+    { mode: string | null; transferDetails: string | null } | null
+  >);
   return {
     dayNumber: Number(day.dayNumber) || fallbackNumber,
     title: (day.dayTitle ?? day.title ?? null) as string | null,
     city: (day.city ?? null) as string | null,
     date: (day.date ?? null) as string | null,
     meals,
-    mealMode: ['NO_TRANSFER', 'INCLUDE_AT_HOTEL', 'WITH_TRANSFER'].includes(mealKey)
-      ? mealKey
-      : 'INCLUDE_AT_HOTEL',
-    dailyTransfer: TRANSFER_CANONICAL[transferKey] ?? 'NO_TRANSFER',
+    // Shared legacy mode, normalized without forcing a default: a missing or
+    // unknown legacy mode must never silently become INCLUDE_AT_HOTEL.
+    mealMode: normalizeSightseeingMealMode(day.mealMode),
+    mealPreferences,
+    dailyTransfer: TRANSFER_CANONICAL[itineraryTransferKey] ?? 'NO_TRANSFER',
     activities,
   };
 }
@@ -449,15 +481,34 @@ function itineraryDateLabel(date: string | null | undefined): string | null {
   }).format(parsed);
 }
 
+function itineraryMealLabel(
+  pref: { mode: string | null; transferDetails: string | null } | null,
+  legacyMode: string | null,
+): string | null {
+  // Each meal reads its own saved preference. The shared legacy mode is used
+  // only when the meal has no per-meal preference at all — never as a fallback
+  // for a present-but-unknown mode, so a bad value cannot become "(Hotel)".
+  const mode = pref ? pref.mode : legacyMode;
+  if (mode === 'WITH_TRANSFER') {
+    const details = (pref?.transferDetails ?? '').trim();
+    return details ? `With Transfer: ${details}` : 'With Transfer';
+  }
+  if (mode === 'INCLUDE_AT_HOTEL') return 'Hotel';
+  if (mode === 'NO_TRANSFER') return 'No Transfer';
+  return null;
+}
+
 function itineraryMealsLabel(day: ReturnType<typeof normalizeItineraryDay>): string | null {
-  const list = [
-    day.meals.breakfast && 'Breakfast',
-    day.meals.lunch && 'Lunch',
-    day.meals.dinner && 'Dinner',
-  ].filter(Boolean);
-  if (!list.length) return null;
-  const hotelSuffix = day.mealMode === 'INCLUDE_AT_HOTEL' ? ' (Hotel)' : '';
-  return `${list.join(', ')}${hotelSuffix}`;
+  const keys = ['breakfast', 'lunch', 'dinner'] as const;
+  const selected = keys.filter((key) => day.meals[key]);
+  if (!selected.length) return null;
+  return selected
+    .map((key) => {
+      const name = key.charAt(0).toUpperCase() + key.slice(1);
+      const label = itineraryMealLabel(day.mealPreferences[key], day.mealMode);
+      return label ? `${name} (${label})` : name;
+    })
+    .join(', ');
 }
 
 function itineraryDayHasMeaning(day: ReturnType<typeof normalizeItineraryDay>): boolean {
@@ -500,6 +551,25 @@ function ItineraryImage({ src, alt }: { src: string | null; alt: string }) {
   );
 }
 
+/** Small per-activity thumbnail with a safe neutral fallback. */
+function ItineraryThumb({ src, alt }: { src: string | null; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed)
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300">
+        <ImageIcon className="h-4 w-4" />
+      </div>
+    );
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className="h-full w-full object-cover object-center"
+    />
+  );
+}
+
 /** Reference "Your Itinerary" — compact timeline of day cards. */
 function SightseeingItineraryView({
   days,
@@ -528,8 +598,14 @@ function SightseeingItineraryView({
     <section>
       <SectionTitle>Your Itinerary</SectionTitle>
       {sectionIntro && (
-        <div className="mb-5 max-w-3xl text-sm leading-relaxed text-slate-600">
-          <ItineraryRichText html={description ?? ''} />
+        <div className="mb-5 rounded-md border border-sky-200 border-l-4 border-l-cyan-500 bg-sky-50 p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-cyan-900">
+            <InfoIcon className="h-4 w-4 shrink-0 text-cyan-600" aria-hidden="true" />
+            Instructions
+          </p>
+          <div className="mt-2 text-sm leading-relaxed text-slate-700">
+            <ItineraryRichText html={description ?? ''} />
+          </div>
         </div>
       )}
       <div className="relative">
@@ -583,45 +659,133 @@ function SightseeingItineraryView({
                         </span>
                       )}
                     </div>
-                    {validActivities.length > 0 && (
-                      <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                        <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
-                          Activities &amp; Details
-                        </p>
-                        <div className="space-y-3 bg-white p-3">
-                          {validActivities.map((activity, activityIndex) => (
-                            <div key={`${activity.sightseeingId ?? activityIndex}`}>
-                              <p className="flex items-center gap-2 font-semibold text-slate-800">
-                                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                {activity.name}
-                              </p>
-                              {activity.description && (
-                                <div className="mt-1 pl-6">
-                                  <ItineraryRichText html={activity.description} />
+                    {validActivities.length === 1
+                      ? (() => {
+                          const activity = validActivities[0];
+                          if (!activity) return null;
+                          return (
+                            <>
+                              <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                                <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
+                                  Activities &amp; Details
+                                </p>
+                                <div className="bg-white p-3">
+                                  <p className="flex items-center gap-2 font-semibold text-slate-800">
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                    {activity.name}
+                                  </p>
+                                  {activity.description && (
+                                    <div className="mt-1 pl-6">
+                                      <ItineraryRichText html={activity.description} />
+                                    </div>
+                                  )}
+                                  {day.dailyTransfer !== 'NO_TRANSFER' && (
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                      <span
+                                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                        style={{ backgroundColor: color }}
+                                      >
+                                        <Car className="h-3.5 w-3.5" />
+                                        {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {mealsLabel && (
+                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                                  <Utensils className="h-4 w-4 text-slate-400" />
+                                  <span className="font-semibold">Meals:</span> {mealsLabel}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()
+                      : validActivities.length >= 2
+                        ? (
+                            <>
+                              <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                                <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
+                                  Activities &amp; Details
+                                </p>
+                                <div className="bg-white p-3">
+                                  {validActivities.map((activity, activityIndex) => {
+                                    const thumb =
+                                      activity.imageUrl ??
+                                      (activity.sightseeingId
+                                        ? images[activity.sightseeingId]?.imageUrl
+                                        : null) ??
+                                      null;
+                                    const isLast = activityIndex === validActivities.length - 1;
+                                    return (
+                                      <Fragment
+                                        key={`${activity.sightseeingId ?? activityIndex}`}
+                                      >
+                                        <div className="flex gap-3">
+                                          <div className="h-14 w-20 shrink-0 overflow-hidden rounded-md">
+                                            <ItineraryThumb
+                                              src={thumb}
+                                              alt={activity.name ?? 'Activity'}
+                                            />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="flex items-center gap-2 font-semibold text-slate-800">
+                                              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                              {activity.name}
+                                            </p>
+                                            {activity.description && (
+                                              <div className="mt-1 pl-6">
+                                                <ItineraryRichText html={activity.description} />
+                                              </div>
+                                            )}
+                                            {day.dailyTransfer !== 'NO_TRANSFER' && (
+                                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <span
+                                                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                                  style={{ backgroundColor: color }}
+                                                >
+                                                  <Car className="h-3.5 w-3.5" />
+                                                  {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                        {!isLast && <hr className="my-3 border-slate-200" />}
+                                      </Fragment>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              {mealsLabel && (
+                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                                  <Utensils className="h-4 w-4 text-slate-400" />
+                                  <span className="font-semibold">Meals:</span> {mealsLabel}
+                                </p>
+                              )}
+                            </>
+                          )
+                        : (
+                            <>
+                              {day.dailyTransfer !== 'NO_TRANSFER' && (
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                    style={{ backgroundColor: color }}
+                                  >
+                                    <Car className="h-3.5 w-3.5" />
+                                    {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
+                                  </span>
                                 </div>
                               )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {day.dailyTransfer !== 'NO_TRANSFER' && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                          style={{ backgroundColor: color }}
-                        >
-                          <Car className="h-3.5 w-3.5" />
-                          {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
-                        </span>
-                      )}
-                    </div>
-                    {mealsLabel && (
-                      <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
-                        <Utensils className="h-4 w-4 text-slate-400" />
-                        <span className="font-semibold">Meals:</span> {mealsLabel}
-                      </p>
-                    )}
+                              {mealsLabel && (
+                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                                  <Utensils className="h-4 w-4 text-slate-400" />
+                                  <span className="font-semibold">Meals:</span> {mealsLabel}
+                                </p>
+                              )}
+                            </>
+                          )}
                   </div>
                 </article>
               </div>
@@ -686,6 +850,9 @@ export function PublicQuotationPage() {
       currency: v.currency,
       maximumFractionDigits: 0,
     }).format(value);
+  // Exact (2-decimal) money for the initial-payment sentence, e.g. ₹2,000.00.
+  const fmtExact = (value: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: v.currency }).format(value);
 
   const selectedHotels = v.hotels.filter((hotel) => hotel.selected);
   const visibleHotels = selectedHotels.length > 0 ? selectedHotels : v.hotels;
@@ -711,14 +878,17 @@ export function PublicQuotationPage() {
     .filter(Boolean)
     .join(', ');
 
+  // Traveller-mix breakdown lines. CWB/CWOB keep their exact labels; Adult and
+  // Infant switch to singular for a count of one. Zero-count / zero-price rows
+  // are dropped so the card never shows noise.
   const perPaxLines = (
     [
-      [q.adults, 'Adults', v.perAdultPrice],
-      [q.childrenWithBed, 'CWB', v.perChildWithBedPrice],
-      [q.childrenWithoutBed, 'CWOB', v.perChildWithoutBedPrice],
-      [q.infants, 'Infants', v.perInfantPrice],
+      [q.adults, 'Adult', 'Adults', v.perAdultPrice],
+      [q.childrenWithBed, 'CWB', 'CWB', v.perChildWithBedPrice],
+      [q.childrenWithoutBed, 'CWOB', 'CWOB', v.perChildWithoutBedPrice],
+      [q.infants, 'Infant', 'Infants', v.perInfantPrice],
     ] as const
-  ).filter(([count, , price]) => Number(count) > 0 && Number(price ?? 0) > 0);
+  ).filter(([count, , , price]) => Number(count) > 0 && Number(price ?? 0) > 0);
 
   const packageTotal =
     Number(v.perAdultPrice ?? 0) * q.adults +
@@ -726,6 +896,13 @@ export function PublicQuotationPage() {
     Number(v.perChildWithoutBedPrice ?? 0) * q.childrenWithoutBed +
     Number(v.perInfantPrice ?? 0) * q.infants;
   const finalTotal = packageTotal > 0 ? packageTotal : Number(v.finalAmount);
+  // Public tax note: never the control values ("Do not show" / the sentinel).
+  const taxNoteText = isPublicTaxNote(v.taxNote) ? v.taxNote.trim() : null;
+  // "Secure Your Booking Now" shows only with a real amount AND a valid link.
+  const initialAmount = Number(v.initialPaymentAmount ?? 0);
+  const rawPaymentLink = v.paymentLink?.trim() ?? '';
+  const validPaymentLink = /^https?:\/\//i.test(rawPaymentLink) ? rawPaymentLink : null;
+  const showSecureBooking = initialAmount > 0 && Boolean(validPaymentLink);
   const addonTotal = v.services
     .filter((service) => ADDON_SERVICE_TYPES.has(service.serviceType))
     .reduce(
@@ -746,13 +923,6 @@ export function PublicQuotationPage() {
   const svcOf = (type: string) => v.services.filter((service) => service.serviceType === type);
   const cruises = svcOf('CRUISE');
   const vehicles = svcOf('VEHICLE_TRANSFER');
-  const experiences = v.services.filter(
-    (service) =>
-      !ADDON_SERVICE_TYPES.has(service.serviceType) &&
-      service.serviceType !== 'FLIGHT' &&
-      service.serviceType !== 'CRUISE' &&
-      service.serviceType !== 'VEHICLE_TRANSFER',
-  );
   const addonServices = v.services.filter((service) =>
     ADDON_SERVICE_TYPES.has(service.serviceType),
   );
@@ -856,7 +1026,11 @@ export function PublicQuotationPage() {
           }
         >
         <div className="mx-auto max-w-5xl">
-          <h1 className="text-4xl font-bold sm:text-5xl">{q.destinationSummary}</h1>
+          <h1 className="text-4xl font-bold sm:text-5xl">
+            {v.weblinkHeading?.trim() ||
+              q.destinationSummary.split(/[•→>,/]/)[0]?.trim() ||
+              q.destinationSummary}
+          </h1>
           {duration && <p className="mt-2 text-lg text-white/80">{duration}</p>}
           <p className="mt-4 text-2xl font-semibold">{v.title}</p>
           {heroIntroduction && (
@@ -878,8 +1052,12 @@ export function PublicQuotationPage() {
                 label="Rooms"
                 value={q.rooms ? `${q.rooms} Room${q.rooms > 1 ? 's' : ''}` : '—'}
               />
-              <Info label="Quotation ID" value={q.quotationNumber} />
-              <Info label="Destinations" value={q.destinationSummary} full />
+              <Info label="Quotation ID" value={displayQuotationId(q.quotationNumber)} />
+              <Info
+                label="Destinations"
+                value={q.destinationSummary.replace(/•/g, '→')}
+                full
+              />
               {preparedBy && (
                 <div className="sm:col-span-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -904,31 +1082,23 @@ export function PublicQuotationPage() {
             <p className="text-center text-sm font-medium uppercase tracking-wide text-white/85">
               Total Package Price
             </p>
-            {v.hidePricing ? (
-              <p className="mt-3 text-center text-lg font-medium">
-                Pricing shared separately by the travel team.
-              </p>
-            ) : (
-              <>
-                <p className="mt-1 text-center text-4xl font-bold">{fmt(finalTotal)}</p>
-                <p className="mt-1 text-center text-xs italic text-white/80">
-                  {v.taxNote || 'Inclusive of all taxes'}
-                </p>
-                {perPaxLines.length > 0 && (
-                  <div className="mt-3 space-y-1 text-center text-sm text-white/90">
-                    {perPaxLines.map(([count, label, price]) => (
-                      <p key={label}>
-                        {count} {label} × {fmt(Number(price ?? 0))}
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {addonTotal > 0 && (
-                  <p className="mt-2 text-center text-xs text-white/80">
-                    + {fmt(addonTotal)} add-ons (optional)
+            <p className="mt-1 text-center text-4xl font-bold">{fmt(finalTotal)}</p>
+            {taxNoteText && (
+              <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
+            )}
+            {perPaxLines.length > 0 && (
+              <div className="mt-3 space-y-1 text-center text-sm text-white/90">
+                {perPaxLines.map(([count, singular, plural, price]) => (
+                  <p key={plural}>
+                    {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
                   </p>
-                )}
-              </>
+                ))}
+              </div>
+            )}
+            {addonTotal > 0 && (
+              <p className="mt-2 text-center text-xs text-white/80">
+                + {fmt(addonTotal)} add-ons (optional)
+              </p>
             )}
             {company.phone && (
               <a
@@ -940,6 +1110,34 @@ export function PublicQuotationPage() {
             )}
           </div>
         </section>
+
+        {/* Secure Your Booking Now — only with a real initial amount and link. */}
+        {showSecureBooking && validPaymentLink && (
+          <section className="flex flex-col items-start gap-5 rounded-md border border-slate-200 bg-white p-7 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-8">
+            <div className="min-w-0">
+              <h2 className="text-2xl font-bold text-slate-800">Secure Your Booking Now</h2>
+              <p className="mt-2 text-base text-slate-700">
+                Make an initial payment of{' '}
+                <span className="font-semibold text-slate-800">
+                  {fmtExact(initialAmount)}
+                </span>{' '}
+                to confirm your booking.
+              </p>
+              <p className="mt-1 text-[15px] text-slate-500">
+                The remaining balance can be paid as per the payment policy.
+              </p>
+            </div>
+            <a
+              href={validPaymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Pay Now — opens the secure payment page in a new tab"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md bg-emerald-600 px-6 py-[14px] font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 sm:self-center"
+            >
+              <Lock className="h-5 w-5" aria-hidden="true" /> Pay Now
+            </a>
+          </section>
+        )}
 
         {/* Services Include */}
         {includedServices.length > 0 && (
@@ -963,37 +1161,15 @@ export function PublicQuotationPage() {
           </section>
         )}
 
-        {/* Itinerary */}
-        {v.itinerary.length > 0 && (
-          <section>
-            <SectionTitle>Your Itinerary</SectionTitle>
-            <div className="space-y-4">
-              {v.itinerary.map((day) => (
-                <article key={day.id} className="rounded-2xl bg-card p-6 shadow-sm">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
-                    <h3 className="text-lg font-semibold text-slate-800">
-                      Day {day.dayNumber}: {day.title}
-                    </h3>
-                    <p className="text-sm font-medium" style={{ color }}>
-                      {day.destination}
-                      {dateShort(day.date) ? ` · ${dateShort(day.date)}` : ''}
-                    </p>
-                  </div>
-                  <p className="mt-3 text-sm font-semibold text-slate-700">
-                    Activities &amp; Details
-                  </p>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-600">
-                    {day.description}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                    {day.transfers && <span>🚗 {day.transfers}</span>}
-                    {day.meals && <span>🍽 Meals: {day.meals}</span>}
-                    {day.overnightLocation && <span>🏨 Overnight: {day.overnightLocation}</span>}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+        {/* Your Itinerary — day-wise sightseeing activities. */}
+        {sightseeingDays.length > 0 && (
+          <SightseeingItineraryView
+            days={sightseeingDays}
+            color="#16a34a"
+            images={data.sightseeingPresentations ?? {}}
+            description={v.sightseeingDetails?.description ?? null}
+            destinationImage={data.heroImageUrl ?? null}
+          />
         )}
 
         {/* Hotels */}
@@ -1141,17 +1317,6 @@ export function PublicQuotationPage() {
           </section>
         )}
 
-        {/* Your Itinerary — day-wise sightseeing activities. */}
-        {sightseeingDays.length > 0 && (
-          <SightseeingItineraryView
-            days={sightseeingDays}
-            color="#16a34a"
-            images={data.sightseeingPresentations ?? {}}
-            description={v.sightseeingDetails?.description ?? null}
-            destinationImage={data.heroImageUrl ?? null}
-          />
-        )}
-
         {/* Transportation — one reference-style card per configured vehicle. */}
         {vehicles.length > 0 && (
           <section>
@@ -1263,22 +1428,6 @@ export function PublicQuotationPage() {
             </div>
           </section>
         )}
-        {experiences.length > 0 && (
-          <section className="rounded-2xl bg-card p-6 shadow-sm">
-            <h2 className="font-semibold text-slate-800">Services &amp; Experiences</h2>
-            <div className="mt-3 space-y-3">
-              {experiences.map((service) => (
-                <div key={service.id} className="border-b pb-2 last:border-0">
-                  <strong className="text-slate-800">{service.name}</strong>
-                  {service.description && (
-                    <p className="text-sm text-slate-600">{service.description}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* Additional Services — included add-on services rendered as cards. */}
         {addonServices.length > 0 && (
           <section>

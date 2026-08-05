@@ -697,7 +697,7 @@ export function LeadForm({
             Select at least one service required for this lead, or check Add-on Service:
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {CREATE_LEAD_SERVICES.map((value) => {
+            {CREATE_LEAD_SERVICES.filter((value) => value !== 'VISA').map((value) => {
               const Icon = SERVICE_ICONS[value] ?? PackagePlus;
               const label =
                 SERVICE_LABELS[value] ??

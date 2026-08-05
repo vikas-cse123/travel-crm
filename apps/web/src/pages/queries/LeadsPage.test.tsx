@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
@@ -183,6 +183,113 @@ describe('Phase 6 lead pages', () => {
     expect(screen.queryByLabelText('Destination 2')).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('Flight'));
     expect(screen.getByText(/1 Room, 1 Adult/)).toBeInTheDocument();
+  });
+  it('hides the Visa service checkbox in the create lead form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(lookups)));
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    // Visa is not offered as a selectable service.
+    expect(screen.queryByRole('checkbox', { name: 'VISA' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Visa/i })).not.toBeInTheDocument();
+    // The remaining services stay visible and selectable (labels load with lookups).
+    expect(await screen.findByRole('checkbox', { name: 'Flight' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'HOTEL' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'CRUISE' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Vehicle/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'SIGHTSEEING' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Add-on Service/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Flight' }));
+    expect(screen.getByRole('checkbox', { name: 'Flight' })).toBeChecked();
+  });
+  it('creates a new lead without adding Visa', async () => {
+    authState.permissions.delete('queries.assign');
+    const destination = {
+      id: 'dest-1',
+      name: 'Singapore',
+      status: 'ACTIVE',
+      cities: [{ id: 'dc-1', sequence: 1, city: { name: 'Singapore' } }],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/destinations'))
+        return response({
+          data: [destination],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        });
+      if (url.endsWith('/queries') && options?.method === 'POST')
+        return { ok: true, status: 201, json: async () => ({ success: true, data: lead }) } as Response;
+      return response(lookups);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    await userEvent.type(screen.getByLabelText('Name'), 'Test Lead');
+    await userEvent.type(screen.getByLabelText('Phone'), '9876543210');
+    fireEvent.change(screen.getByLabelText('Travel Date *'), { target: { value: '2026-09-10' } });
+    await waitFor(() => {
+      const destination = screen.getByLabelText('Destination 1');
+      expect(
+        Array.from(destination.querySelectorAll('option')).some(
+          (option) => option.textContent === 'Singapore',
+        ),
+      ).toBe(true);
+    });
+    await userEvent.selectOptions(screen.getByLabelText('Destination 1'), 'Singapore');
+    await waitFor(() => expect(screen.getByLabelText('City 1')).toBeEnabled());
+    await userEvent.selectOptions(screen.getByLabelText('City 1'), 'Singapore');
+    await userEvent.click(screen.getByRole('button', { name: /Create Lead/i }));
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, options]) => options?.method === 'POST');
+      expect(post).toBeDefined();
+      const body = JSON.parse(String(post![1]!.body));
+      expect(body.services).not.toContain('VISA');
+      expect(body.services).toContain('HOTEL');
+      expect(body.services).toContain('SIGHTSEEING');
+    });
+  });
+  it('hides Visa in the edit form and preserves a stored Visa selection on save', async () => {
+    const editLead = {
+      ...lead,
+      services: [{ serviceType: 'FLIGHT' }, { serviceType: 'HOTEL' }, { serviceType: 'VISA' }],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/queries/lookups')) return response(lookups);
+      if (url.includes(`/queries/${editLead.id}`)) {
+        if (options?.method === 'PATCH')
+          return { ok: true, status: 200, json: async () => ({ success: true, data: editLead }) } as Response;
+        return response(editLead);
+      }
+      return response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/queries/:queryId/edit" element={<LeadFormPage />} />
+      </Routes>,
+      { route: `/queries/${editLead.id}/edit` },
+    );
+    await screen.findByRole('heading', { name: 'Edit lead' });
+    // Visa checkbox is hidden even though the lead stores it.
+    expect(screen.queryByRole('checkbox', { name: 'VISA' })).not.toBeInTheDocument();
+    // Other stored services remain checked.
+    expect(screen.getByRole('checkbox', { name: 'Flight' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'HOTEL' })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      const body = JSON.parse(String(patch![1]!.body));
+      expect(body.services).toContain('VISA');
+    });
+  });
+  it('keeps the minimum-one-service validation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(lookups)));
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'HOTEL' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'SIGHTSEEING' }));
+    expect(await screen.findByText('Select at least one service.')).toBeInTheDocument();
   });
   it('validates the form and only autofills a duplicate after explicit confirmation', async () => {
     authState.permissions.delete('queries.assign');
@@ -730,5 +837,354 @@ describe('Phase 17 lead workspace tabs', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Booking' }));
     expect(await screen.findByText(/created from an accepted quotation/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Convert to booking' })).toBeInTheDocument();
+  });
+});
+
+describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
+  const pickOption = (listboxName: string, label: string) => {
+    const listbox = screen.getByRole('listbox', { name: listboxName });
+    const li = within(listbox).getByRole('option', { name: label });
+    fireEvent.click(li.querySelector('button')!);
+  };
+  const patchStub = (rows: unknown[], updated?: (i: unknown, url: string) => unknown) => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const mock = vi.fn(
+      async (input: RequestInfo | URL, options?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/analytics')) return response(analytics);
+        if (url.includes('/lookups')) return response(lookups);
+        if (options?.method === 'PATCH') {
+          const body = JSON.parse(String(options.body));
+          calls.push({ url, body });
+          if (updated) return response(updated(rows[0], url));
+          return response(rows[0]);
+        }
+        return response({ data: rows, pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 } });
+      },
+    );
+    vi.stubGlobal('fetch', mock);
+    return { mock, calls };
+  };
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.update']);
+  });
+
+  it('renders a clickable Type badge with Create-Lead options for an authorized user', async () => {
+    patchStub([lead]);
+    renderWithProviders(<LeadsPage />);
+    const typeBadge = await screen.findByRole('button', { name: 'Change lead type from Hot' });
+    await userEvent.click(typeBadge);
+    const listbox = screen.getByRole('listbox', { name: 'Change lead type' });
+    const optionTexts = within(listbox).getAllByRole('option').map((o) => o.textContent ?? '');
+    // Options match Create Lead exactly (same lookups source / order).
+    expect(optionTexts).toEqual(['Fresh', 'Hot']);
+  });
+
+  it('renders a static Type badge for an unauthorized user', async () => {
+    authState.permissions = new Set(['queries.view']);
+    patchStub([lead]);
+    renderWithProviders(<LeadsPage />);
+    // Wait for the lead row to render; there is no clickable Type button.
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryByRole('button', { name: 'Change lead type from Hot' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox', { name: 'Change lead type' })).not.toBeInTheDocument();
+  });
+
+  it('sends the correct stored Type value when a different option is selected', async () => {
+    const { calls } = patchStub([{ ...lead, leadType: 'HOT' }]);
+    renderWithProviders(<LeadsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
+    pickOption('Change lead type', 'Fresh');
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain(`/queries/${lead.id}`);
+    expect(calls[0]!.body).toEqual({ leadType: 'FRESH' });
+  });
+
+  it('selecting the current Type sends no request', async () => {
+    const { calls } = patchStub([lead]);
+    renderWithProviders(<LeadsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
+    pickOption('Change lead type', 'Hot');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('renders a clickable Stage badge with Create-Lead options', async () => {
+    const richLookups = {
+      ...lookups,
+      leadStages: [
+        { value: 'NEW_LEAD', label: 'New Lead' },
+        { value: 'CONTACTED', label: 'Contacted' },
+      ],
+    };
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(richLookups);
+      return response({ data: [lead], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    const stageBadge = await screen.findByRole('button', { name: 'Change lead stage from New Lead' });
+    await userEvent.click(stageBadge);
+    const listbox = screen.getByRole('listbox', { name: 'Change lead stage' });
+    expect(within(listbox).getByRole('option', { name: 'New Lead' })).toBeInTheDocument();
+    expect(within(listbox).getByRole('option', { name: 'Contacted' })).toBeInTheDocument();
+  });
+
+  it('sends the correct stored Stage value when a different option is selected', async () => {
+    const richLookups = {
+      ...lookups,
+      leadStages: [
+        { value: 'NEW_LEAD', label: 'New Lead' },
+        { value: 'CONTACTED', label: 'Contacted' },
+      ],
+    };
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(richLookups);
+      if (options?.method === 'PATCH') {
+        calls.push({ url, body: JSON.parse(String(options.body)) });
+        return response({ ...lead, leadStage: 'CONTACTED' });
+      }
+      return response({ data: [{ ...lead, leadStage: 'NEW_LEAD' }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead stage from New Lead' }));
+    pickOption('Change lead stage', 'Contacted');
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain(`/queries/${lead.id}/stage`);
+    expect(calls[0]!.body).toEqual({ stage: 'CONTACTED' });
+  });
+
+  it('only one dropdown stays open after opening a second badge', async () => {
+    patchStub([lead]);
+    renderWithProviders(<LeadsPage />);
+    const typeBadge = await screen.findByRole('button', { name: 'Change lead type from Hot' });
+    await userEvent.click(typeBadge);
+    expect(screen.getByRole('listbox', { name: 'Change lead type' })).toBeInTheDocument();
+    // Opening Stage should close Type.
+    const stageBadge = await screen.findByRole('button', { name: 'Change lead stage from New Lead' });
+    await userEvent.click(stageBadge);
+    expect(screen.queryByRole('listbox', { name: 'Change lead type' })).not.toBeInTheDocument();
+  });
+
+  it('restores the previous badge value and shows an error when the update fails', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      if (options?.method === 'PATCH') {
+        return { ok: false, status: 400, json: async () => ({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid stage transition.' } }) } as unknown as Response;
+      }
+      return response({ data: [lead], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
+    pickOption('Change lead type', 'Fresh');
+    // No optimistic update: the badge still shows the previous value.
+    expect(await screen.findByRole('button', { name: 'Change lead type from Hot' })).toBeInTheDocument();
+    // Failure message is surfaced.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid stage transition|Unable to update type/);
+  });
+});
+
+describe('Phase 6 Create Booking action on the Leads List', () => {
+  const pickOption = (listboxName: string, label: string) => {
+    const listbox = screen.getByRole('listbox', { name: listboxName });
+    const li = within(listbox).getByRole('option', { name: label });
+    fireEvent.click(li.querySelector('button')!);
+  };
+  const bookingStub = (initial: Record<string, unknown> & { id: string }) => {
+    const current: Record<string, unknown> & { id: string } = { ...initial };
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+        if (url.endsWith('/stage')) current.leadStage = String(body.stage);
+        else if (body.leadType) current.leadType = String(body.leadType);
+        return response({ ...current });
+      }
+      // Return a fresh copy so React Query detects the change after an update.
+      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    return current;
+  };
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.update', 'bookings.create']);
+  });
+
+  it('shows Create Booking for Hot + Booking Confirmed + no booking', async () => {
+    bookingStub({
+      ...lead,
+      leadType: 'HOT',
+      leadStage: 'BOOKING_CONFIRMED',
+      bookingSummary: null,
+      quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
+    });
+    renderWithProviders(<LeadsPage />);
+    const links = await screen.findAllByRole('link', { name: /Create booking for/ });
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0]).toHaveAttribute(
+      'href',
+      `/bookings/new?leadId=${lead.id}&quotationId=quote-1`,
+    );
+  });
+
+  it('shows View Booking instead of Create Booking when a booking already exists', async () => {
+    bookingStub({
+      ...lead,
+      leadType: 'HOT',
+      leadStage: 'BOOKING_CONFIRMED',
+      bookingSummary: { bookingId: 'b-1', bookingNumber: 'BK-1', bookingStatus: 'CONFIRMED', operationalStatus: 'CONFIRMED' },
+    });
+    renderWithProviders(<LeadsPage />);
+    expect((await screen.findAllByText('BK-1')).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+
+  it('does not show Create Booking when Stage is not Booking Confirmed', async () => {
+    bookingStub({ ...lead, leadType: 'HOT', leadStage: 'NEW_LEAD', bookingSummary: null });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+
+  it('does not show Create Booking when Type is not Hot', async () => {
+    bookingStub({ ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+
+  it('does not show Create Booking for Fresh + New Lead', async () => {
+    bookingStub({ ...lead, leadType: 'FRESH', leadStage: 'NEW_LEAD', bookingSummary: null });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+
+  it('hides Create Booking for a user without bookings.create permission', async () => {
+    authState.permissions = new Set(['queries.view']);
+    bookingStub({ ...lead, leadType: 'HOT', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+
+  it('Create Booking appears after an inline Type update to Hot', async () => {
+    const current = bookingStub({
+      ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null,
+      quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
+    });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Fresh' }));
+    pickOption('Change lead type', 'Hot');
+    // Refetch returns the lead with leadType HOT → action appears.
+    await waitFor(() =>
+      expect(screen.queryAllByRole('link', { name: /Create booking for/ }).length).toBeGreaterThan(0),
+    );
+    void current;
+  });
+
+  it('Create Booking appears after an inline Stage update to Booking Confirmed', async () => {
+    const current = bookingStub({
+      ...lead, leadType: 'HOT', leadStage: 'NEW_LEAD', bookingSummary: null,
+      quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
+    });
+    void current;
+    const richLookups = {
+      ...lookups,
+      leadStages: [
+        { value: 'NEW_LEAD', label: 'New Lead' },
+        { value: 'BOOKING_CONFIRMED', label: 'Booking Confirmed' },
+      ],
+    };
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(richLookups);
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+        current.leadStage = String(body.stage);
+        return response({ ...current });
+      }
+      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead stage from New Lead' }));
+    pickOption('Change lead stage', 'Booking Confirmed');
+    expect((await screen.findAllByRole('link', { name: /Create booking for/ })).length).toBeGreaterThan(0);
+  });
+
+  it('Create Booking disappears after an inline Type update away from Hot', async () => {
+    const current = bookingStub({
+      ...lead, leadType: 'HOT', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null,
+      quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
+    });
+    void current;
+    const richLookups = {
+      ...lookups,
+      leadTypes: [
+        { value: 'FRESH', label: 'Fresh' },
+        { value: 'HOT', label: 'Hot' },
+        { value: 'WARM', label: 'Warm' },
+      ],
+    };
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(richLookups);
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+        current.leadType = String(body.leadType);
+        return response({ ...current });
+      }
+      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    expect((await screen.findAllByRole('link', { name: /Create booking for/ })).length).toBeGreaterThan(0);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
+    pickOption('Change lead type', 'Warm');
+    await waitFor(() =>
+      expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0),
+    );
+  });
+
+  it('a failed inline update does not change the Booking column', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      if (options?.method === 'PATCH') {
+        return { ok: false, status: 400, json: async () => ({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid transition.' } }) } as unknown as Response;
+      }
+      return response({ data: [{ ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+    // Attempt an inline Type update to Hot; it fails, so the action must not appear.
+    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Fresh' }));
+    pickOption('Change lead type', 'Hot');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
   });
 });

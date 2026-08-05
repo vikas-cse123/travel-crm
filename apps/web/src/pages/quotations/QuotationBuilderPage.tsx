@@ -16,10 +16,14 @@ import {
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   PERMISSIONS,
+  QUOTATION_TAX_NOTE_OPTIONS,
+  QUOTATION_TAX_NOTE_SENTINEL,
+  SETTINGS_CURRENCIES,
   cabinLuggageLabel,
   hotelStayNights,
   labelForLookup,
   quotationVersionInputSchema,
+  resolveTaxNoteChoice,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -336,6 +340,19 @@ type DefaultHotelMaster = {
   destination: { name: string };
 };
 
+/** Segments that do not require hotel accommodation. */
+const NON_HOTEL_CITIES = new Set([
+  'cruise', 'at sea', 'at-sea', 'at_sea',
+  'airport', 'transfer', 'in transit', 'in-transit', 'in_transit',
+  'bus journey', 'bus-journey', 'bus_journey',
+  'fly', 'flight', 'departure', 'arrival',
+]);
+
+const isHotelStay = (city: string | null | undefined): boolean => {
+  const key = (city ?? '').trim().toLowerCase().replace(/[\s-]+/g, '');
+  return key.length > 0 && !NON_HOTEL_CITIES.has(key);
+};
+
 /** The active default hotel matching a row's city/destination, if any. */
 const matchDefaultHotel = (rowCity: string, masters: DefaultHotelMaster[]) => {
   const city = rowCity.trim().toLowerCase();
@@ -345,28 +362,43 @@ const matchDefaultHotel = (rowCity: string, masters: DefaultHotelMaster[]) => {
   );
 };
 
+/** The best available active hotel for a city (first by name). */
+const matchBestCityHotel = (city: string, masters: DefaultHotelMaster[]) => {
+  const c = city.trim().toLowerCase();
+  if (!c) return undefined;
+  const active = masters.filter(
+    (hotel) => hotel.status === 'ACTIVE' && hotel.city.name.trim().toLowerCase() === c,
+  );
+  if (!active.length) return undefined;
+  active.sort((a, b) => a.name.localeCompare(b.name));
+  return active[0];
+};
+
 /**
- * Map lead-generated hotel rows through their destination's default hotel.
- * When at least one default exists, only matched rows are kept (no invalid
- * empty rows); when none exist, the existing empty lead rows are untouched.
+ * Map lead-generated hotel rows through their destination's default hotel,
+ * then fall back to the best available hotel for each city. Rows with no hotel
+ * in the city keep their city/dates but have no hotel selected.
  */
 const autoPrefillLeadRows = (rows: HotelInputRow[], masters: DefaultHotelMaster[]): HotelInputRow[] => {
-  if (!rows.length || !masters.length) return rows;
+  if (!rows.length) return rows;
   const built: HotelInputRow[] = [];
   for (const row of rows) {
-    const defaultHotel = matchDefaultHotel(row.city, masters);
-    if (!defaultHotel) continue;
+    const cityName = (row.city ?? '').trim();
+    if (!cityName) continue;
+    const defaultHotel = matchDefaultHotel(cityName, masters);
+    const bestHotel = defaultHotel ?? matchBestCityHotel(cityName, masters);
+    const selected = bestHotel;
     built.push({
       ...row,
-      hotelId: defaultHotel.id,
+      hotelId: selected?.id ?? null,
       hotelRoomTypeId: null,
       hotelMealPlanId: null,
-      hotelName: defaultHotel.name,
-      city: defaultHotel.city.name,
-      category: defaultHotel.starCategory ? `${defaultHotel.starCategory} Star` : null,
+      hotelName: selected?.name ?? row.hotelName ?? '',
+      city: selected ? selected.city.name : cityName,
+      category: selected?.starCategory ? `${selected.starCategory} Star` : null,
     });
   }
-  return built.length ? built : rows;
+  return built;
 };
 
 /** A clean, empty Cruise service row; the section title defaults to "Cruise Details". */
@@ -554,6 +586,9 @@ export function QuotationBuilderPage() {
   }, [excluded]);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(defaultVehicleDraft);
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
+  // "Tax Note on Total Price" is a control dropdown: it defaults to the sentinel
+  // (keep the saved note) and only writes `taxNote` when a real option is picked.
+  const [taxNoteChoice, setTaxNoteChoice] = useState<string>(QUOTATION_TAX_NOTE_SENTINEL);
   const form = useForm<QuotationVersionInput>({
     resolver: async (values, context, options) => {
       // When a section is excluded, its rows must not be required. Hotel rows
@@ -651,9 +686,38 @@ export function QuotationBuilderPage() {
           a.createdAt.localeCompare(b.createdAt) ||
           a.id.localeCompare(b.id),
       );
+
+    /** Detect a departure activity by normalized title. */
+    const normTitle = (value: string | null | undefined) =>
+      (value ?? '').trim().toLowerCase().replace(/[\s-]+/g, ' ');
+    const isDepartureTitle = (title: string | null | undefined) => {
+      const n = normTitle(title);
+      return (
+        n.includes('departure') ||
+        /check[\s-]?out\s+and\s+departure/i.test(n)
+      );
+    };
+
+    // Resolve the departure master for the final destination: exact city match
+    // first, then any active departure master for the destination, then by
+    // sequence then title.
+    const finalCity = dayCities[dayCities.length - 1] ?? '';
+    const departureMasters = orderedMasters.filter(
+      (row) => isDepartureTitle(row.title),
+    );
+    const departureMaster =
+      departureMasters.find(
+        (row) => cityKey(row.city?.name) === cityKey(finalCity),
+      ) ??
+      departureMasters[0] ??
+      null;
+
     const usedIds = new Set<string>();
+    // Reserve the departure master so it is never consumed by earlier days.
+    if (departureMaster) usedIds.add(departureMaster.id);
     let sequenceCursor = 0;
-    const nextForDay = (city: string): Sightseeing | null => {
+    const nextForDay = (city: string, isLastDay: boolean): Sightseeing | null => {
+      if (isLastDay && departureMaster) return departureMaster;
       const key = cityKey(city);
       const cityMatch = orderedMasters.find(
         (row) => !usedIds.has(row.id) && cityKey(row.city?.name) === key,
@@ -690,7 +754,8 @@ export function QuotationBuilderPage() {
       amount: 0,
       description: null,
       days: dayCities.map((city, i) => {
-        const primary = nextForDay(city);
+        const isLastDay = i === dayCities.length - 1;
+        const primary = nextForDay(city, isLastDay);
         return emptySightseeingDay(i + 1, {
           title: primary
             ? `Day ${i + 1}: ${primary.title}`
@@ -703,26 +768,45 @@ export function QuotationBuilderPage() {
         });
       }),
     };
-    // Some leads store only the trip start date plus nights on each itinerary stay.
-    // Walk those stays in order so the hotel dates remain prefilled even when the
-    // itinerary itself has no explicit arrival/departure dates.
+    // Build hotel stay rows from the lead itinerary.  Non-hotel segments
+    // (Cruise, Airport, Transfer, etc.) are excluded.  Consecutive same-city
+    // segments are merged into a single continuous stay.
     let stayCursor = startStr ? new Date(startStr) : null;
-    const itineraryHotelRows: HotelInputRow[] = (quotation.data?.query?.itinerary ?? [])
-      .filter((stay) => stay.nights > 0)
-      .map((stay, index) => {
-        const checkIn = stay.arrivalDate ? new Date(stay.arrivalDate) : stayCursor;
-        const derivedCheckOut = checkIn ? new Date(checkIn) : null;
-        if (derivedCheckOut) derivedCheckOut.setDate(derivedCheckOut.getDate() + stay.nights);
-        const checkOut = stay.departureDate ? new Date(stay.departureDate) : derivedCheckOut;
-        if (checkOut) stayCursor = new Date(checkOut);
-        return emptyHotel(index + 1, true, {
-          city: stay.destination,
-          rooms: Math.max(1, quotation.data?.rooms ?? 1),
-          nights: stay.nights,
-          checkInDate: checkIn ? new Date(checkIn) : null,
-          checkOutDate: checkOut,
-        });
+    const rawStays = (quotation.data?.query?.itinerary ?? [])
+      .filter((stay) => stay.nights > 0 && isHotelStay(stay.destination));
+    const mergedStays: typeof rawStays = [];
+    for (const stay of rawStays) {
+      const prev = mergedStays[mergedStays.length - 1];
+      if (
+        prev &&
+        prev.destination.trim().toLowerCase() === stay.destination.trim().toLowerCase()
+      ) {
+        prev.nights += stay.nights;
+      } else {
+        mergedStays.push({ ...stay });
+      }
+    }
+    // When the itinerary produces exactly one hotel city (even when it
+    // appears multiple times interrupted by Cruise etc.), that single
+    // Hotel Stay must cover the quotation's complete total nights, not
+    // only the land-segment nights.
+    const itineraryHotelRows: HotelInputRow[] = mergedStays.map((stay, index) => {
+      const isSingleHotelCity =
+        mergedStays.length === 1 && leadTotalNights > (stay.nights ?? 0);
+      const nightsForStay = isSingleHotelCity ? leadTotalNights : (stay.nights ?? 0);
+      const checkIn = stay.arrivalDate ? new Date(stay.arrivalDate) : stayCursor;
+      const derivedCheckOut = checkIn ? new Date(checkIn) : null;
+      if (derivedCheckOut) derivedCheckOut.setDate(derivedCheckOut.getDate() + nightsForStay);
+      const checkOut = stay.departureDate ? new Date(stay.departureDate) : derivedCheckOut;
+      if (checkOut) stayCursor = new Date(checkOut);
+      return emptyHotel(index + 1, true, {
+        city: stay.destination,
+        rooms: Math.max(1, quotation.data?.rooms ?? 1),
+        nights: nightsForStay,
+        checkInDate: checkIn ? new Date(checkIn) : null,
+        checkOutDate: checkOut,
       });
+    });
     const fallbackNights =
       startStr && endStr
         ? Math.max(
@@ -809,12 +893,16 @@ export function QuotationBuilderPage() {
         .map((stay) => stay.destination?.trim())
         .filter(Boolean) as string[],
     );
+    // A freshly loaded version keeps its saved tax note; the dropdown starts on
+    // the "keep existing" sentinel until the user deliberately changes it.
+    setTaxNoteChoice(QUOTATION_TAX_NOTE_SENTINEL);
     form.reset({
       title:
         legacyTitle === legacyDestinationTitle || legacyTitle === legacyPrimaryDestinationTitle
           ? leadTitle
           : version.title,
       introduction: version.introduction,
+      weblinkHeading: version.weblinkHeading ?? null,
       destinationSummary: version.destinationSummary,
       travelStartDate: version.travelStartDate ? new Date(version.travelStartDate) : null,
       travelEndDate: version.travelEndDate ? new Date(version.travelEndDate) : null,
@@ -922,7 +1010,13 @@ export function QuotationBuilderPage() {
         quantity: Number(row.quantity),
         internalCost: row.unitCost ? Number(row.unitCost) : 0,
         sellingPrice: Number(row.unitSellingPrice),
-        taxCategory: row.taxCategory,
+        // Cruise rows default their section title to "Cruise Details" when the
+        // snapshot never stored one (legacy/custom rows), while custom titles
+        // are always preserved.
+        taxCategory:
+          row.serviceType === 'CRUISE' && !(row.taxCategory ?? '').trim()
+            ? 'Cruise Details'
+            : row.taxCategory,
         notes: row.notes,
         sequence: row.sequence,
       })),
@@ -1176,6 +1270,22 @@ export function QuotationBuilderPage() {
     perPax.infant * pax.infants;
   const packageMargin = packageTotal - Number(form.watch('netAmount') ?? 0);
   const currency = form.watch('currency');
+  // Currency-aware money formatting (₹10,000.00, $10,000.00, …). Indian
+  // grouping for INR; the runtime default locale for every other currency.
+  const formatMoney = (value: number, digits = 2) => {
+    const code = (currency || 'INR').toUpperCase();
+    const safe = Number.isFinite(value) ? value : 0;
+    try {
+      return new Intl.NumberFormat(code === 'INR' ? 'en-IN' : undefined, {
+        style: 'currency',
+        currency: code,
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(safe);
+    } catch {
+      return `${code} ${safe.toFixed(digits)}`;
+    }
+  };
 
   const submit = form.handleSubmit(
     (value) => {
@@ -1301,13 +1411,23 @@ export function QuotationBuilderPage() {
         current.filter((entry) => !/^(hotels|hotelDetails)(\.|:)/.test(entry)),
       );
     }
-    // Turning Cruise on auto-creates exactly one clean entry when none exist;
-    // turning it off clears its service-row errors (only the CRUISE rows).
+    // Turning Cruise on auto-creates exactly one clean entry when none exist,
+    // or fills the empty section title of an existing entry; turning it off
+    // clears its service-row errors (only the CRUISE rows).
     if (key === 'cruise') {
       autoCruiseRef.current.userToggled = true;
       if (!next) {
-        if (!(watchedServices ?? []).some((service) => service.serviceType === 'CRUISE')) {
+        const cruiseIndexes = (services.fields ?? [])
+          .map((_, index) => index)
+          .filter((index) => watchedServices?.[index]?.serviceType === 'CRUISE');
+        if (!cruiseIndexes.length) {
           services.append(newCruiseServiceRow(services.fields.length + 1));
+        } else {
+          // Never replace a custom title — only fill an empty/whitespace one.
+          const primaryIndex = cruiseIndexes[0]!;
+          const current = watchedServices?.[primaryIndex]?.taxCategory;
+          if (!(current ?? '').trim())
+            applyService(primaryIndex, { taxCategory: 'Cruise Details' });
         }
       } else {
         const cruiseIndexes = (services.fields ?? [])
@@ -2534,6 +2654,18 @@ export function QuotationBuilderPage() {
             <input aria-label="Title" {...form.register('title')} className={`${field} mt-1`} />
           </label>
           <label className="text-sm font-semibold text-slate-800">
+            Weblink Heading
+            <input
+              aria-label="Weblink Heading"
+              placeholder="e.g. Singapore Family Holiday"
+              {...form.register('weblinkHeading')}
+              className={`${field} mt-1`}
+            />
+            <p className="mt-1 text-xs font-normal text-slate-400">
+              Optional override for the large hero heading on the public weblink.
+            </p>
+          </label>
+          <label className="text-sm font-semibold text-slate-800">
             Version
             <input
               value={version.versionNumber}
@@ -2865,11 +2997,22 @@ export function QuotationBuilderPage() {
               <div className="space-y-5 p-5">
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
                   Currency <span className="text-red-500">*</span>
-                  <input
+                  <select
                     aria-label="Currency"
                     {...form.register('currency')}
                     className={`${field} mt-1`}
-                  />
+                  >
+                    {(SETTINGS_CURRENCIES.includes(
+                      currency as (typeof SETTINGS_CURRENCIES)[number],
+                    )
+                      ? SETTINGS_CURRENCIES
+                      : [currency, ...SETTINGS_CURRENCIES]
+                    ).map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <div className="grid gap-4 md:grid-cols-4">
@@ -2917,18 +3060,37 @@ export function QuotationBuilderPage() {
                     Total Package Price
                     <input
                       readOnly
-                      value={`${currency} ${packageTotal.toFixed(2)}`}
+                      aria-label="Total Package Price"
+                      value={formatMoney(packageTotal)}
                       className={`${field} mt-1 bg-slate-100`}
                     />
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
                     Tax Note on Total Price
-                    <input
+                    <select
                       aria-label="Tax note"
-                      placeholder="e.g. Inclusive of GST"
-                      {...form.register('taxNote')}
+                      value={taxNoteChoice}
+                      onChange={(event) => {
+                        const choice = event.target.value;
+                        setTaxNoteChoice(choice);
+                        if (choice === QUOTATION_TAX_NOTE_SENTINEL) return;
+                        form.setValue(
+                          'taxNote',
+                          resolveTaxNoteChoice(choice, form.getValues('taxNote')) ?? null,
+                          { shouldDirty: true },
+                        );
+                      }}
                       className={`${field} mt-1`}
-                    />
+                    >
+                      {QUOTATION_TAX_NOTE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-xs font-normal text-slate-500">
+                      Current: {form.watch('taxNote')?.trim() || 'not shown publicly'}
+                    </span>
                   </label>
                 </div>
 
@@ -2956,12 +3118,12 @@ export function QuotationBuilderPage() {
                       Margin
                       <input
                         readOnly
-                        value={`${currency} ${packageMargin.toFixed(2)}`}
+                        aria-label="Margin"
+                        value={formatMoney(packageMargin)}
                         className={`${field} mt-1 bg-slate-100`}
                       />
                       <span className="mt-1 block text-xs font-normal text-slate-500">
-                        Total Package Price − Net Amount. Internal cost {currency}{' '}
-                        {estimate.cost.toFixed(2)}.
+                        Total Package Price − Net Amount. Internal cost {formatMoney(estimate.cost)}.
                       </span>
                     </label>
                   </div>
@@ -2974,49 +3136,33 @@ export function QuotationBuilderPage() {
               {packageTotal === 0 ? (
                 <p className="mt-1 text-sm text-white/80">Enter prices to see the breakdown.</p>
               ) : (
-                <dl className="mt-3 grid gap-1 text-sm sm:grid-cols-2">
+                <div className="mt-3 space-y-1 text-sm">
                   {(
                     [
-                      [`Adult × ${pax.adults}`, perPax.adult * pax.adults],
-                      [`CWB × ${pax.cwb}`, perPax.cwb * pax.cwb],
-                      [`CWOB × ${pax.cwob}`, perPax.cwob * pax.cwob],
-                      [`Infant × ${pax.infants}`, perPax.infant * pax.infants],
+                      ['Adults', pax.adults, perPax.adult],
+                      ['CWB', pax.cwb, perPax.cwb],
+                      ['CWOB', pax.cwob, perPax.cwob],
+                      ['Infants', pax.infants, perPax.infant],
                     ] as const
-                  ).map(([label, value]) => (
-                    <div key={label} className="flex justify-between border-b border-white/20 py-1">
-                      <dt>{label}</dt>
-                      <dd>
-                        {currency} {value.toFixed(2)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                  )
+                    .filter(([, count, price]) => count > 0 && price > 0)
+                    .map(([label, count, price]) => (
+                      <div
+                        key={label}
+                        className="flex justify-between border-b border-white/20 py-1"
+                      >
+                        <span>
+                          {label}: {count} × {formatMoney(price)}
+                        </span>
+                        <span>{formatMoney(price * count)}</span>
+                      </div>
+                    ))}
+                  <div className="flex justify-between pt-2 font-bold">
+                    <span>Total Package Price:</span>
+                    <span>{formatMoney(packageTotal)}</span>
+                  </div>
+                </div>
               )}
-            </div>
-
-            <div className="space-y-3 rounded-xl border p-5">
-              {(
-                [
-                  [
-                    'showServiceChargesSeparately',
-                    'Show Service Charges Separately in PDF (does not affect final total)',
-                  ],
-                  [
-                    'markServiceChargesOutside',
-                    'Mark Service Charges as Outside Land Package Cost (does not affect final total)',
-                  ],
-                  ['hidePricing', 'Hide Pricing in Weblink and PDFs'],
-                  ['showIndividualPricing', 'Show Individual Pricing Prominently'],
-                ] as const
-              ).map(([name, label]) => (
-                <label
-                  key={name}
-                  className="flex items-start gap-2 text-sm font-semibold text-slate-800"
-                >
-                  <input type="checkbox" className="mt-0.5" {...form.register(name)} />
-                  {label}
-                </label>
-              ))}
             </div>
 
             <section className="rounded-xl border p-5">
@@ -3043,9 +3189,17 @@ export function QuotationBuilderPage() {
                   <input
                     aria-label="Payment link"
                     placeholder="https://example.com/pay"
-                    {...form.register('paymentLink')}
+                    {...form.register('paymentLink', {
+                      setValueAs: (value: unknown) =>
+                        typeof value === 'string' ? value.trim() || null : (value ?? null),
+                    })}
                     className={`${field} mt-1`}
                   />
+                  {form.formState.errors.paymentLink && (
+                    <span className="mt-1 block text-xs font-normal text-red-600">
+                      {form.formState.errors.paymentLink.message as string}
+                    </span>
+                  )}
                 </label>
               </div>
             </section>

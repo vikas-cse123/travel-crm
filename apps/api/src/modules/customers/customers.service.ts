@@ -152,6 +152,125 @@ async function assertAssignable(auth: AuthContext, userId: string | null | undef
   if (!user) throw new ValidationError('The assignee must be an active user in this company.');
 }
 
+/**
+ * Match an existing customer by exact normalized phone (primary rule) or exact
+ * normalized email (fallback), scoped to the authenticated tenant. Creates a
+ * new customer only when no match exists. Runs inside the booking transaction
+ * so a failed booking rolls back the customer. Multiple exact matches are a
+ * conflict; a customer is never picked arbitrarily.
+ */
+/**
+ * Read-only customer match for the Create Booking preview. Returns a matching
+ * customer by exact normalized phone (primary) or exact normalized email, or
+ * null when none exists. Never creates a customer.
+ */
+export async function findMatchingCustomerForLead(
+  auth: AuthContext,
+  input: { phone: string; email?: string | null },
+) {
+  const normalizedPhone = normalizeCustomerPhone(input.phone, env.DEFAULT_PHONE_COUNTRY);
+  const normalizedEmail = input.email ? normalizeEmail(input.email) : null;
+  if (!normalizedPhone && !normalizedEmail) return null;
+  const where = {
+    companyId: auth.companyId,
+    deletedAt: null,
+    status: { not: 'MERGED' as const },
+    OR: [
+      ...(normalizedPhone ? [{ normalizedPhone }] : []),
+      ...(normalizedEmail ? [{ normalizedEmail }] : []),
+    ],
+  };
+  const rows = await prisma.customer.findMany({
+    where,
+    select: { id: true, customerNumber: true, displayName: true },
+    orderBy: { createdAt: 'asc' },
+    take: 2,
+  });
+  if (rows.length > 1) return { conflict: true as const };
+  return rows[0] ? { customerId: rows[0].id, customerNumber: rows[0].customerNumber, displayName: rows[0].displayName } : null;
+}
+
+export async function matchOrCreateCustomerForBooking(
+  tx: Prisma.TransactionClient,
+  auth: AuthContext,
+  input: {
+    displayName: string;
+    phone: string;
+    email?: string | null;
+    alternatePhone?: string | null;
+    dateOfBirth?: Date | null;
+    source?: string | null;
+    assignedToId?: string | null;
+    createdById: string;
+  },
+) {
+  const normalizedPhone = normalizeCustomerPhone(input.phone, env.DEFAULT_PHONE_COUNTRY);
+  const normalizedEmail = input.email ? normalizeEmail(input.email) : null;
+
+  const matchByPhone = async (): Promise<{ id: string; displayName: string } | null> => {
+    if (!normalizedPhone) return null;
+    const rows = await tx.customer.findMany({
+      where: {
+        companyId: auth.companyId,
+        deletedAt: null,
+        status: { not: 'MERGED' },
+        normalizedPhone,
+      },
+      select: { id: true, displayName: true },
+    });
+    if (rows.length > 1)
+      throw new ConflictError(
+        'Multiple customers match this lead. Resolve the duplicate customers before creating the booking.',
+      );
+    return rows[0] ?? null;
+  };
+
+  const matchByEmail = async (): Promise<{ id: string; displayName: string } | null> => {
+    if (!normalizedEmail) return null;
+    const rows = await tx.customer.findMany({
+      where: {
+        companyId: auth.companyId,
+        deletedAt: null,
+        status: { not: 'MERGED' },
+        normalizedEmail,
+      },
+      select: { id: true, displayName: true },
+    });
+    if (rows.length > 1)
+      throw new ConflictError(
+        'Multiple customers match this lead. Resolve the duplicate customers before creating the booking.',
+      );
+    return rows[0] ?? null;
+  };
+
+  const phoneMatch = await matchByPhone();
+  const match = phoneMatch ?? (await matchByEmail());
+
+  if (match)
+    return { customerId: match.id, created: false, customerNumber: null, displayName: match.displayName };
+
+  const customerNumber = await nextCustomerNumber(tx, auth.companyId);
+  const customer = await tx.customer.create({
+    data: {
+      companyId: auth.companyId,
+      customerNumber,
+      displayName: input.displayName,
+      normalizedName: normalizeCustomerName(input.displayName),
+      primaryPhone: input.phone,
+      normalizedPhone,
+      alternatePhone: input.alternatePhone ?? null,
+      email: input.email || null,
+      normalizedEmail,
+      dateOfBirth: input.dateOfBirth ?? null,
+      source: input.source ?? null,
+      assignedToId: input.assignedToId ?? null,
+      createdById: input.createdById,
+    },
+    select: { id: true, displayName: true },
+  });
+  return { customerId: customer.id, created: true, customerNumber, displayName: customer.displayName };
+}
+
 function compact(value: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }

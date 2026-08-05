@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { InlineLeadField } from './InlineLeadField';
 import {
   useBulkAssign,
   useBulkStage,
@@ -142,11 +143,32 @@ function QuotationCell({ lead }: { lead: Lead }) {
   );
 }
 
-function BookingCell({ lead }: { lead: Lead }) {
+function BookingCell({ lead, canCreateBooking }: { lead: Lead; canCreateBooking: boolean }) {
   const summary = lead.bookingSummary;
   if (lead.bookingSummary === undefined) return <span className="text-slate-300">—</span>;
-  if (!summary)
+  if (!summary) {
+    // Hot + Booking Confirmed + no booking + a finalized quotation → offer the
+    // lead-based booking flow. The backend re-validates eligibility.
+    const quotationId = lead.quotationSummary?.quotationId;
+    if (
+      canCreateBooking &&
+      lead.leadType === 'HOT' &&
+      lead.leadStage === 'BOOKING_CONFIRMED' &&
+      quotationId
+    ) {
+      return (
+        <Link
+          aria-label={`Create booking for ${lead.queryNumber}`}
+          title="Create booking for this lead"
+          className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+          to={`/bookings/new?leadId=${encodeURIComponent(lead.id)}&quotationId=${encodeURIComponent(quotationId)}`}
+        >
+          <Plus className="h-3.5 w-3.5" /> Create Booking
+        </Link>
+      );
+    }
     return <span className="text-xs text-slate-500">{lead.quotationRequired ? 'Quote Required' : 'None'}</span>;
+  }
   return (
     <div className="text-xs">
       <Link className="font-medium text-brand-700" to={`/bookings/${summary.bookingId}`}>
@@ -214,6 +236,7 @@ export function LeadsPage() {
   const canAssign = hasPermission('queries.assign');
   const canUpdate = hasPermission('queries.update');
   const canExport = hasPermission('queries.export');
+  const canCreateBooking = hasPermission('bookings.create');
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<null | 'assign' | 'stage'>(null);
@@ -595,7 +618,7 @@ export function LeadsPage() {
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs">
                     <QuotationCell lead={lead} />
-                    <BookingCell lead={lead} />
+                    <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
                   </div>
                   <QuickActions lead={lead} canEdit={canUpdate} />
                 </article>
@@ -654,14 +677,28 @@ export function LeadsPage() {
                       <td className="border-r px-3 py-4"><TravellersInfoCell lead={lead} /></td>
                       <td className="border-r px-3 py-4"><ServicesCell lead={lead} /></td>
                       <td className="border-r px-3 py-4"><QuotationCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><BookingCell lead={lead} /></td>
+                      <td className="border-r px-3 py-4"><BookingCell lead={lead} canCreateBooking={canCreateBooking} /></td>
                       <td className="border-r px-3 py-4 text-xs text-slate-500">{lead.webLinkPlaceholder || 'Not Generated'}</td>
                       <td className="border-r px-3 py-4"><Link aria-label={`Open logging for ${lead.queryNumber}`} to={`/queries/${lead.id}?tab=follow-ups`} className="inline-flex rounded bg-cyan-600 px-2 py-1.5 text-xs font-semibold text-white">＋ <Eye className="ml-1 h-3.5 w-3.5" /></Link></td>
                       <td className="min-w-28 border-r px-3 py-4">{lead.assignedTo?.fullName ?? 'Unassigned'}</td>
                       <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—'}</td>
                       <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—'}</td>
-                      <td className="border-r px-3 py-4"><span className="inline-flex whitespace-nowrap rounded bg-sky-600 px-2 py-1 text-xs font-semibold text-white">{labelForLookup(lead.leadType)}</span></td>
-                      <td className="border-r px-3 py-4"><span className="inline-flex whitespace-nowrap rounded bg-sky-600 px-2 py-1 text-xs font-semibold text-white">{labelForLookup(lead.leadStage)}</span></td>
+                      <td className="border-r px-3 py-4">
+                        <InlineLeadField
+                          lead={lead}
+                          field="leadType"
+                          options={lookups?.leadTypes ?? []}
+                          canEdit={canUpdate}
+                        />
+                      </td>
+                      <td className="border-r px-3 py-4">
+                        <InlineLeadField
+                          lead={lead}
+                          field="leadStage"
+                          options={lookups?.leadStages ?? []}
+                          canEdit={canUpdate}
+                        />
+                      </td>
                       <td className="whitespace-nowrap border-r px-3 py-4">{leadDate(lead.createdAt)}</td>
                       <td className="px-3 py-4">
                         <QuickActions lead={lead} canEdit={canUpdate} />

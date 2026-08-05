@@ -923,6 +923,9 @@ model Company {
   defaultCurrency       String           @default("INR") @db.VarChar(3)
   defaultQuotationTerms String?          @db.Text
   defaultBookingTerms   String?          @db.Text
+  // Company default GST configuration used by the Create Booking workflow.
+  defaultGstRate        Int              @default(0)
+  defaultGstMode        String           @default("ADDITIVE") @db.VarChar(16)
   // Public-facing company profile metrics (Settings → Company Profile).
   // All optional; existing rows keep null until a value is set.
   operatingSinceYear    Int?
@@ -966,6 +969,7 @@ model Company {
   quotationEmailLogs           QuotationEmailLog[]
   bookingCounters              BookingCounter[]
   bookings                     Booking[]
+  bookingReminders             BookingReminder[]
   bookingTravellers            BookingTraveller[]
   bookingServices              BookingService[]
   bookingItineraries           BookingItineraryDay[]
@@ -1134,6 +1138,7 @@ model User {
   quotationEmailsSent         QuotationEmailLog[]        @relation("QuotationEmailSentBy")
   bookingsCreated             Booking[]                  @relation("BookingBookedBy")
   bookingsAssigned            Booking[]                  @relation("BookingAssignedTo")
+  bookingRemindersAssigned    BookingReminder[]          @relation("BookingReminderAssignedTo")
   bookingTravellersCreated    BookingTraveller[]         @relation("BookingTravellerCreatedBy")
   bookingSchedulesCreated     BookingPaymentSchedule[]   @relation("BookingScheduleCreatedBy")
   bookingPaymentsRecorded     BookingPayment[]           @relation("BookingPaymentRecordedBy")
@@ -2935,6 +2940,7 @@ model QuotationVersion {
   versionNumber                Int
   title                        String                 @db.VarChar(200)
   introduction                 String?                @db.VarChar(4000)
+  weblinkHeading               String?                @db.VarChar(200)
   destinationSummary           String                 @db.VarChar(500)
   travelStartDate              DateTime?              @db.Date
   travelEndDate                DateTime?              @db.Date
@@ -3598,6 +3604,12 @@ model Booking {
   bookedById               String               @db.Uuid
   assignedToId             String?              @db.Uuid
   sourceTitle              String?              @db.VarChar(200)
+  // Lead-based "Create Booking from Lead" fields.
+  title                    String?              @db.VarChar(200)
+  tcsExempt                Boolean              @default(false)
+  gstRate                  Int?
+  gstMode                  String?              @db.VarChar(16)
+  placeOfSupply            String?              @db.VarChar(80)
   sourceTerms              Json?
   manualCreationReason     String?              @db.VarChar(2000)
   acceptedAt               DateTime?
@@ -3632,6 +3644,7 @@ model Booking {
   customerCommunications CustomerCommunication[]
   vendorPayables         VendorPayable[]
   reminders              QueryFollowUp[]
+  bookingReminders       BookingReminder[]
 
   @@unique([companyId, bookingNumber])
   @@index([companyId, queryId, deletedAt])
@@ -3643,6 +3656,29 @@ model Booking {
   @@index([companyId, travelStartDate])
   @@index([companyId, createdAt])
   @@map("bookings")
+}
+
+model BookingReminder {
+  id           String         @id @default(uuid()) @db.Uuid
+  companyId    String         @db.Uuid
+  bookingId    String         @db.Uuid
+  assignedToId String?        @db.Uuid
+  daysBefore   Int
+  dueTime      String         @db.VarChar(5)
+  scheduledAt  DateTime
+  status       FollowUpStatus @default(PENDING)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  booking    Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  assignedTo User?   @relation("BookingReminderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@unique([bookingId, daysBefore])
+  @@index([companyId, bookingId, deletedAt])
+  @@index([companyId, status, scheduledAt])
+  @@map("booking_reminders")
 }
 
 model BookingTraveller {

@@ -24,7 +24,7 @@ import {
 import { templateInclude } from '../quotation-templates/quotation-templates.service.js';
 import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
-import { renderQuotationPdf } from './pdf.service.js';
+import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
 import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import {
   quotationObjectKey,
@@ -295,6 +295,7 @@ function versionCreateData(
     scalar: {
       title: normalized.title,
       introduction: normalized.introduction ?? null,
+      weblinkHeading: normalized.weblinkHeading ?? null,
       destinationSummary: normalized.destinationSummary,
       travelStartDate: normalized.travelStartDate ?? null,
       travelEndDate: normalized.travelEndDate ?? null,
@@ -802,6 +803,29 @@ async function createVersion(
   // Single choke point for version creation: initial version, added revision,
   // duplication and template application all funnel through here.
   await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
+
+  // Require a departure-type sightseeing activity on the final itinerary day
+  // so every generated quotation ends with a dedicated departure day.  The
+  // frontend prefill already picks the correct master; this server-side check
+  // catches manually edited rows that replace the departure activity.
+  if (input.sightseeingDetails?.include && input.sightseeingDetails.days?.length) {
+    const lastDay = input.sightseeingDetails.days[input.sightseeingDetails.days.length - 1];
+    const lastActivity = lastDay?.activities?.[0];
+    const activityName = (lastActivity?.name ?? '').trim();
+    if (activityName) {
+      const normName = activityName.toLowerCase().replace(/[\s-]+/g, ' ');
+      const isDeparture =
+        normName.includes('departure') || /check\s*out\s+and\s+departure/i.test(normName);
+      if (!isDeparture) {
+        const destName =
+          input.destinationSummary.split(/[•(→>,]/)[0]?.trim() || 'this destination';
+        throw new ValidationError(
+          `A departure sightseeing activity is not configured for ${destName}. Add an active departure activity in Sightseeing Masters before creating the quotation.`,
+        );
+      }
+    }
+  }
+
   const data = versionCreateData(input, auth.companyId, allowCosting, pax);
   const version = await tx.quotationVersion.create({
     data: {
@@ -1453,10 +1477,144 @@ export const quotationsService = {
       primaryColor: branding.primaryColor,
       logo: branding.logo,
     };
-    const pdf = await renderQuotationPdf({ company, quotation, version });
+
+    // --- PDF image resolution: server-side buffers, never signed URLs ----------
+    let images: QuotationPdfInput['images'] | undefined;
+    try {
+      const imageCache = new Map<string, Buffer | null>();
+      const fetchImage = async (key: string | null | undefined): Promise<Buffer | null> => {
+        if (!key) return null;
+        const cached = imageCache.get(key);
+        if (cached !== undefined) return cached;
+        try {
+          const buf = await storageService.getObject(key);
+          imageCache.set(key, buf);
+          return buf;
+        } catch {
+          imageCache.set(key, null);
+          return null;
+        }
+      };
+
+      // Destination cover
+      let coverImage: Buffer | null = null;
+      const places = quotation.destinationSummary
+        .split(/[,•→>\\-|/]/)
+        .map((s: string) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const destMatch = await prisma.destination.findFirst({
+        where: {
+          companyId: auth.companyId,
+          normalizedName: { in: places },
+          imageObjectKey: { not: null },
+          imageConfirmedAt: { not: null },
+        },
+        select: { imageObjectKey: true },
+      });
+      if (destMatch?.imageObjectKey) {
+        coverImage = await fetchImage(destMatch.imageObjectKey);
+      }
+
+      // Hotel images
+      const hotelIds = version.hotels
+        .map((h) => h.hotelId)
+        .filter((id): id is string => Boolean(id));
+      const hotelImageMap = new Map<string, Buffer | null>();
+      if (hotelIds.length) {
+        const hotelMasters = await prisma.hotel.findMany({
+          where: { companyId: auth.companyId, id: { in: hotelIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          select: { id: true, imageObjectKey: true },
+        });
+        for (const h of hotelMasters) {
+          hotelImageMap.set(h.id, await fetchImage(h.imageObjectKey));
+        }
+      }
+      const hotelImages = version.hotels.map((h) =>
+        h.hotelId ? (hotelImageMap.get(h.hotelId) ?? null) : null,
+      );
+
+      // Sightseeing activity images
+      const sightseeingIds: string[] = [];
+      const ssData = version.sightseeingDetails as Record<string, unknown> | null;
+      if (ssData?.days && Array.isArray(ssData.days)) {
+        for (const day of ssData.days as Array<Record<string, unknown>>) {
+          const acts = Array.isArray(day.activities) ? (day.activities as Array<Record<string, unknown>>) : [];
+          for (const act of acts) {
+            const sid = act.sightseeingId;
+            if (sid && typeof sid === 'string') sightseeingIds.push(sid);
+          }
+        }
+      }
+      const sightseeingImageMap = new Map<string, Buffer | null>();
+      if (sightseeingIds.length) {
+        const uniqueIds = [...new Set(sightseeingIds)];
+        const ssMasters = await prisma.sightseeing.findMany({
+          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          select: { id: true, imageObjectKey: true },
+        });
+        for (const s of ssMasters) {
+          sightseeingImageMap.set(s.id, await fetchImage(s.imageObjectKey));
+        }
+      }
+      const sightseeingImages = Object.fromEntries(sightseeingImageMap);
+
+      // Service images (vehicles, cruises)
+      const serviceImageMap = new Map<string, Buffer | null>();
+      const vehicleIds = version.services
+        .filter((s) => s.vehicleId)
+        .map((s) => s.vehicleId as string);
+      const cruiseIds = version.services
+        .filter((s) => s.cruiseId)
+        .map((s) => s.cruiseId as string);
+      if (vehicleIds.length) {
+        const uniqueIds = [...new Set(vehicleIds)];
+        const vehicleMasters = await prisma.vehicle.findMany({
+          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          select: { id: true, imageObjectKey: true },
+        });
+        for (const v of vehicleMasters) {
+          serviceImageMap.set(v.id, await fetchImage(v.imageObjectKey));
+        }
+      }
+      if (cruiseIds.length) {
+        const uniqueIds = [...new Set(cruiseIds)];
+        const cruiseMasters = await prisma.cruise.findMany({
+          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          select: { id: true, imageObjectKey: true },
+        });
+        for (const c of cruiseMasters) {
+          serviceImageMap.set(c.id, await fetchImage(c.imageObjectKey));
+        }
+      }
+      const serviceImages = version.services.map((s) => {
+        const masterId = s.vehicleId ?? s.cruiseId ?? null;
+        return masterId ? (serviceImageMap.get(masterId) ?? null) : null;
+      });
+
+      images = {
+        cover: coverImage,
+        hotels: hotelImages,
+        services: serviceImages,
+        sightseeing: sightseeingImages,
+      };
+    } catch {
+      // Image resolution is best-effort; never block PDF generation.
+      images = undefined;
+    }
+
+    const pdf = await renderQuotationPdf(
+      images ? { company, quotation, version, images } : { company, quotation, version },
+    );
     const checksum = createHash('sha256').update(pdf).digest('hex');
     const documentId = crypto.randomUUID();
-    const fileName = sanitizeFileName(`${quotation.quotationNumber}-v${version.versionNumber}.pdf`);
+    // Meaningful filename: <quotation-number>-<customer-slug>-v<version>-quotation.pdf.
+    const customerSlug = quotation.customerName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const fileName = sanitizeFileName(
+      `${quotation.quotationNumber}-${customerSlug ? `${customerSlug}-` : ''}v${version.versionNumber}-quotation.pdf`,
+    );
     const objectKey = quotationObjectKey({
       companyId: auth.companyId,
       quotationId: id,

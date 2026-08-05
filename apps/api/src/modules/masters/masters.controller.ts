@@ -480,11 +480,22 @@ export const sightseeingController = {
     ),
   imageDownload: async (req: Request, res: Response) =>
     sendSuccess(res, await sightseeingService.imageDownload(auth(req), req.params.sightseeingId!)),
+  presentations: async (req: Request, res: Response) =>
+    sendSuccess(res, await sightseeingService.presentations(auth(req), (req.query.ids as string[]) ?? [])),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
       await sightseeingService.deleteImage(auth(req), req.params.sightseeingId!, context(req)),
       'Sightseeing image deleted.',
+    ),
+  activities: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.activities(
+        auth(req),
+        req.query.destination as string | undefined,
+        req.query.city as string | undefined,
+      ),
     ),
 };
 

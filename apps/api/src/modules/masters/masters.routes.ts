@@ -632,6 +632,43 @@ router.get(
   }),
   asyncHandler(sightseeing.lookups),
 );
+router.get(
+  '/sightseeing/presentations',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
+  validateRequest({
+    query: z.object({
+      ids: z
+        .string()
+        .max(4000)
+        .transform((value) =>
+          value
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean),
+        ),
+    }),
+  }),
+  asyncHandler(sightseeing.presentations),
+);
+
+/**
+ * Quotation builder sightseeing dropdown feed — lighter than the admin list.
+ * Resolves destination/city by name (text) so the builder does not need to
+ * know master IDs. Uses quotation update permission (not master view) because
+ * the call comes from the quotation builder tab.
+ */
+router.get(
+  '/sightseeing/activities',
+  requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),
+  validateRequest({
+    query: z.object({
+      destination: z.string().trim().max(200).optional(),
+      city: z.string().trim().max(200).optional(),
+    }),
+  }),
+  asyncHandler(sightseeing.activities),
+);
+
 router.post(
   '/sightseeing',
   requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_CREATE),

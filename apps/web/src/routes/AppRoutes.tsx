@@ -49,6 +49,7 @@ import { QuotationBuilderPage } from '@/pages/quotations/QuotationBuilderPage';
 import { PublicQuotationPage } from '@/pages/quotations/PublicQuotationPage';
 import { BookingsPage } from '@/pages/bookings/BookingsPage';
 import { NewBookingPage } from '@/pages/bookings/NewBookingPage';
+import { BookingCreateFlow } from '@/pages/bookings/CreateBookingFromLeadPage';
 import { BookingWorkspacePage } from '@/pages/bookings/BookingWorkspacePage';
 import { CustomersPage } from '@/pages/customers/CustomersPage';
 import { CustomerFormPage } from '@/pages/customers/CustomerFormPage';
@@ -335,7 +336,7 @@ export function AppRoutes() {
             path="/bookings/new"
             element={
               <PermissionRoute permission={PERMISSIONS.BOOKINGS_CREATE}>
-                <NewBookingPage />
+                <BookingCreateFlow />
               </PermissionRoute>
             }
           />
@@ -360,14 +361,6 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.CUSTOMERS_VIEW}>
                 <CustomersPage />
-              </PermissionRoute>
-            }
-          />
-          <Route
-            path="/customers/new"
-            element={
-              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_CREATE}>
-                <CustomerFormPage />
               </PermissionRoute>
             }
           />

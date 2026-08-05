@@ -1,6 +1,6 @@
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { BookingManualInput } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useQuotation } from '@/features/quotations/quotations.api';
@@ -21,11 +21,13 @@ type ManualFields = Omit<BookingManualInput, 'services' | 'itinerary' | 'payment
 
 export function NewBookingPage() {
   const { quotationId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const quotation = useQuotation(quotationId);
   const convert = useConvertQuotation(quotationId ?? '');
   const create = useCreateBooking();
   const lookups = useBookingLookups();
+  const linkedLeadId = searchParams.get('queryId')?.trim() ?? '';
   const {
     register,
     handleSubmit,
@@ -39,6 +41,7 @@ export function NewBookingPage() {
       childrenWithoutBed: 0,
       infants: 0,
       totalSellingAmount: 0,
+      queryId: linkedLeadId || null,
     },
   });
   if (quotationId) {

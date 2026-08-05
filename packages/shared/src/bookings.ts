@@ -442,3 +442,32 @@ export type BookingRefundInput = z.infer<typeof bookingRefundInputSchema>;
 export type BookingRefundReversal = z.infer<typeof bookingRefundReversalSchema>;
 export type BookingServiceCommercialInput = z.infer<typeof bookingServiceCommercialSchema>;
 export type CreatePayableFromBookingInput = z.infer<typeof createPayableFromBookingSchema>;
+
+// ---------------------------------------------------------------------------
+// Lead-based "Create Booking from Lead" workflow.
+// ---------------------------------------------------------------------------
+
+export const GST_CALCULATION_MODES = ['NONE', 'ADDITIVE', 'INCLUSIVE'] as const;
+export type GstCalculationMode = (typeof GST_CALCULATION_MODES)[number];
+
+/** Booking reminders to schedule before travel start. */
+export const bookingReminderInputSchema = z.object({
+  daysBefore: z.coerce.number().int().min(1).max(60),
+  dueTime: z.string().trim().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24-hour format'),
+});
+
+export const bookingFromLeadInputSchema = z.object({
+  leadId: z.string().uuid(),
+  quotationId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  notes: optionalText(4000),
+  totalSellingAmount: money,
+  tcsExempt: z.boolean().default(false),
+  // GST: null means "use company default". When a rate is chosen, mode is required.
+  gstRate: z.coerce.number().int().min(0).max(100).nullable().optional(),
+  gstMode: z.enum(GST_CALCULATION_MODES).nullable().optional(),
+  placeOfSupply: optionalText(80),
+  reminders: z.array(bookingReminderInputSchema).max(20).default([]),
+});
+
+export type BookingFromLeadInput = z.infer<typeof bookingFromLeadInputSchema>;

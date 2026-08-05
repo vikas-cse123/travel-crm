@@ -4,7 +4,6 @@ import {
   IndianRupee,
   Pencil,
   Phone,
-  Plus,
   Search,
   Trash2,
   UserRoundCheck,
@@ -134,13 +133,6 @@ export function CustomersPage() {
       <section className="overflow-hidden rounded-md border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
           <h2 className="text-lg font-medium">Customer List</h2>
-          {hasPermission(PERMISSIONS.CUSTOMERS_CREATE) && (
-            <Link to="/customers/new">
-              <Button className="rounded-md bg-blue-600 hover:bg-blue-700">
-                <Plus className="h-4 w-4" /> Add Customer
-              </Button>
-            </Link>
-          )}
         </div>
 
         <div className="grid gap-4 border-b p-5 md:grid-cols-3">

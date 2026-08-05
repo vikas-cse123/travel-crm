@@ -514,6 +514,49 @@ describe('Sightseeing master', () => {
     expect((await client.delete(`/api/masters/sightseeing/${row.id}/image`)).status).toBe(200);
   });
 
+  it('resolves batched presentations for sightseeing ids, deduped and tenant-scoped', async () => {
+    const a = await owner('a@sa.test', 'Company A');
+    const b = await owner('b@sa.test', 'Company B');
+    const geo = await createGeo(a);
+    const row = await createSightseeing(a, geo);
+
+    const body = Buffer.from('sightseeing-image');
+    const approval = await a.post(`/api/masters/sightseeing/${row.id}/image/upload`, {
+      fileName: 'Tour.png',
+      mimeType: 'image/png',
+      fileSize: body.length,
+    });
+    expect(approval.status).toBe(201);
+    const pending = await db.sightseeing.findUniqueOrThrow({ where: { id: row.id } });
+    await (storageService as MemoryStorageService).putObject({
+      key: pending.pendingImageObjectKey!,
+      body,
+      contentType: 'image/png',
+    });
+    await a.post(`/api/masters/sightseeing/${row.id}/image/confirm`);
+
+    // Batched presentation resolves a signed display URL; duplicates are harmless.
+    const presentations = await a.get(
+      `/api/masters/sightseeing/presentations?ids=${row.id},${row.id}`,
+    );
+    const presentedUrl = presentations.body.data[row.id]?.imageUrl as string | undefined;
+    expect(typeof presentedUrl).toBe('string');
+    expect(presentedUrl).toBeTruthy();
+    expect(presentedUrl).toMatch(/^(https?|memory):\/\//);
+    // The raw object-key database field is never exposed as its own field.
+    expect(JSON.stringify(presentations.body.data)).not.toContain('imageObjectKey');
+    // Other companies cannot resolve this tenant's image.
+    const other = await b.get(`/api/masters/sightseeing/presentations?ids=${row.id}`);
+    expect(other.body.data).toEqual({});
+    // Empty or malformed id lists resolve to an empty map.
+    const empty = await a.get('/api/masters/sightseeing/presentations?ids=not-a-uuid');
+    expect(empty.body.data).toEqual({});
+    const none = await a.get('/api/masters/sightseeing/presentations?ids=');
+    expect(none.body.data).toEqual({});
+
+    await a.delete(`/api/masters/sightseeing/${row.id}/image`);
+  });
+
   it('writes activity logs for the sightseeing lifecycle', async () => {
     const client = await owner();
     const geo = await createGeo(client);

@@ -3,6 +3,7 @@ import { apiClient } from '@/api/client';
 import type {
   BookingCostInput,
   BookingDocumentUpload,
+  BookingFromLeadInput,
   BookingManualInput,
   BookingNoteInput,
   BookingPaymentInput,
@@ -237,7 +238,72 @@ export const bookingKeys = {
   analytics: ['bookings', 'analytics'] as const,
   one: (id: string) => ['bookings', id] as const,
   timeline: (id: string) => ['bookings', id, 'timeline'] as const,
+  fromLeadPreview: (leadId: string, quotationId: string) =>
+    ['bookings', 'from-lead', 'preview', leadId, quotationId] as const,
 };
+
+export interface BookingFromLeadPreview {
+  lead: {
+    id: string;
+    customerName: string;
+    phone: string;
+    email: string | null;
+    travelStartDate: string | null;
+    travelEndDate: string | null;
+    adults: number;
+    childrenWithBed: number;
+    childrenWithoutBed: number;
+    infants: number;
+    rooms: number;
+    travellerSummary: string;
+    assignedToId: string | null;
+    assignedToName: string | null;
+  };
+  quotation: {
+    id: string;
+    quotationNumber: string;
+    versionId: string;
+    versionNumber: number;
+    title: string;
+    currency: string;
+    finalAmount: string;
+    destinationSummary: string;
+    servicesCount: number;
+    itineraryCount: number;
+  };
+  customer:
+    | { customerId: string; customerNumber: string; displayName: string }
+    | { conflict: true }
+    | null;
+  company: { timezone: string; defaultGstRate: number; defaultGstMode: string };
+}
+
+export function useBookingFromLeadPreview(leadId?: string, quotationId?: string) {
+  return useQuery({
+    queryKey: bookingKeys.fromLeadPreview(leadId ?? '', quotationId ?? ''),
+    queryFn: ({ signal }) =>
+      apiClient.get<BookingFromLeadPreview>(
+        `/bookings/from-lead/preview?leadId=${encodeURIComponent(leadId ?? '')}&quotationId=${encodeURIComponent(quotationId ?? '')}`,
+        signal,
+      ),
+    enabled: Boolean(leadId && quotationId),
+    retry: false,
+  });
+}
+
+export function useCreateBookingFromLead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BookingFromLeadInput) =>
+      apiClient.post<Booking>('/bookings/from-lead', input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: bookingKeys.all });
+      void client.invalidateQueries({ queryKey: ['queries'] });
+      void client.invalidateQueries({ queryKey: ['quotations'] });
+      void client.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
 
 export function useBookings(params = new URLSearchParams()) {
   const query = params.toString();
