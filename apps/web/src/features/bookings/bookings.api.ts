@@ -156,6 +156,7 @@ export interface Booking {
   totalSellingAmount?: string;
   gstAmount?: string;
   tcsAmount?: string;
+  tcsExempt?: boolean;
   totalPayable?: string;
   totalCustomerPaid?: string;
   totalRefunded?: string;
@@ -271,10 +272,18 @@ export interface BookingFromLeadPreview {
     servicesCount: number;
     itineraryCount: number;
   };
+  duration: {
+    travelStart: string | null;
+    travelEnd: string | null;
+    totalNights: number | null;
+    totalDays: number | null;
+    durationLabel: string | null;
+  };
   customer:
-    | { customerId: string; customerNumber: string; displayName: string }
+    | { customerId: string; customerNumber: string; displayName: string; state: string | null }
     | { conflict: true }
     | null;
+  customerState: string | null;
   company: { timezone: string; defaultGstRate: number; defaultGstMode: string };
 }
 

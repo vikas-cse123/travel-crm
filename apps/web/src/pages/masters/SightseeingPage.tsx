@@ -31,7 +31,7 @@ import {
   sightseeingImageUrl,
   type Sightseeing,
 } from '@/features/masters/masters.api';
-import { MasterHeader, RichTextPreview } from './MasterUi';
+import { MasterHeader, RichTextPreview, StatusBadge } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -85,6 +85,7 @@ export function SightseeingPage() {
   const canUpdate = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_DELETE);
   const [openDestinations, setOpenDestinations] = useState<Set<string>>(new Set());
+  const [restoreTarget, setRestoreTarget] = useState<Sightseeing | null>(null);
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -99,6 +100,25 @@ export function SightseeingPage() {
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this sightseeing?')) archive.mutate(id);
   };
+
+  const confirmRestore = (row: Sightseeing) => {
+    restore.mutate(row.id, {
+      onSuccess: () => {
+        setRestoreTarget(null);
+        window.alert('Sightseeing restored successfully.');
+      },
+    });
+  };
+
+  const activeStatus = params.get('status') ?? '';
+  const emptyMessage =
+    activeStatus === 'ARCHIVED'
+      ? 'No archived sightseeing records found.'
+      : activeStatus === 'INACTIVE'
+        ? 'No inactive sightseeing records found.'
+        : activeStatus === 'ACTIVE'
+          ? 'No active sightseeing records found.'
+          : 'No current sightseeing records found.';
 
   /** Group the page into destination → city buckets, preserving server order. */
   const groups = useMemo(() => {
@@ -132,7 +152,7 @@ export function SightseeingPage() {
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b px-5 py-4"><h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>{canCreate && <Link to="/masters/sightseeing/new"><Button size="sm"><Plus className="h-4 w-4" /> Add New Sightseeing</Button></Link>}</div>
-        <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_280px_280px]">
+        <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_220px_220px_160px]">
           <label className="relative">
             <span className="sr-only">Search sightseeing</span>
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -170,6 +190,21 @@ export function SightseeingPage() {
               </option>
             ))}
           </select>
+          {canUpdate ? (
+            <select
+              aria-label="Sightseeing status"
+              className="rounded-lg border px-3 py-2.5 text-sm"
+              value={activeStatus}
+              onChange={(event) => update('status', event.target.value)}
+            >
+              <option value="">Current statuses</option>
+              <option>ACTIVE</option>
+              <option>INACTIVE</option>
+              <option>ARCHIVED</option>
+            </select>
+          ) : (
+            <div />
+          )}
         </div>
 
         {rows.isPending ? (
@@ -183,7 +218,7 @@ export function SightseeingPage() {
             <MapPinned className="mx-auto h-10 w-10 text-slate-300" />
             <h2 className="mt-3 font-semibold">No sightseeing found</h2>
             <p className="text-sm text-slate-500">
-              Adjust the filters or add the first sightseeing entry.
+              {emptyMessage}
             </p>
           </div>
         ) : (
@@ -229,6 +264,7 @@ export function SightseeingPage() {
                             <th>Sequence</th>
                             <th>Duration</th>
                             <th>Start time</th>
+                            <th>Status</th>
                             <th>Actions</th>
                           </tr>
                         </thead>
@@ -280,8 +316,11 @@ export function SightseeingPage() {
                                 )}
                               </td>
                               <td className="px-4 py-2.5">
+                                <StatusBadge value={row.status} />
+                              </td>
+                              <td className="px-4 py-2.5">
                                 <div className="flex gap-1">
-                                  {canUpdate && (
+                                  {canUpdate && row.status !== 'ARCHIVED' && (
                                     <>
                                       <button
                                         aria-label={`Move ${row.title} up`}
@@ -331,7 +370,7 @@ export function SightseeingPage() {
                                   {canUpdate && row.status === 'ARCHIVED' && (
                                     <button
                                       aria-label={`Restore ${row.title}`}
-                                      onClick={() => restore.mutate(row.id)}
+                                      onClick={() => setRestoreTarget(row)}
                                       className="rounded bg-emerald-600 p-1.5 text-white"
                                     >
                                       <RotateCcw className="h-3.5 w-3.5" />
@@ -395,6 +434,35 @@ export function SightseeingPage() {
             ))}
           </dl>
         </section>
+      )}
+
+      {restoreTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="restore-sightseeing-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 id="restore-sightseeing-title" className="text-lg font-semibold text-slate-900">
+              Restore this sightseeing?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This will make the sightseeing active and available for use in quotations again.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setRestoreTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                isLoading={restore.isPending}
+                onClick={() => confirmRestore(restoreTarget)}
+              >
+                Restore Sightseeing
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

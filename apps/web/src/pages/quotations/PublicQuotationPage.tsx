@@ -34,7 +34,7 @@ import type {
 import { PublicQuotationContact } from './PublicQuotationContact';
 import { PublicQuotationFooter } from './PublicQuotationFooter';
 import { serviceCardIcon, type ServiceCard } from './serviceCards';
-import { displayQuotationId } from './quotationContact';
+import { formatPublicQuotationNumber } from './quotationContact';
 
 interface PublicQuotation {
   company: {
@@ -341,7 +341,7 @@ function FlightJourneyView({
                 </div>
               )}
               {s.notes && s.notes.replace(/<[^>]*>/g, '').trim() && (
-                <div className="mt-3 border-t pt-3">
+                <div className="flight-notes mt-3 border-t pt-3">
                   <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-slate-600">
                     ℹ️ Notes:
                   </p>
@@ -903,12 +903,6 @@ export function PublicQuotationPage() {
   const rawPaymentLink = v.paymentLink?.trim() ?? '';
   const validPaymentLink = /^https?:\/\//i.test(rawPaymentLink) ? rawPaymentLink : null;
   const showSecureBooking = initialAmount > 0 && Boolean(validPaymentLink);
-  const addonTotal = v.services
-    .filter((service) => ADDON_SERVICE_TYPES.has(service.serviceType))
-    .reduce(
-      (sum, service) => sum + Number(service.unitSellingPrice ?? 0) * Number(service.quantity ?? 1),
-      0,
-    );
   const visaConsolidated =
     Number(v.visaServiceCharge ?? 0) +
     (Number(v.visaServiceCharge ?? 0) * Number(v.visaGstPercent ?? 0)) / 100 +
@@ -1015,31 +1009,40 @@ export function PublicQuotationPage() {
       <div className="flex-1 pb-16">
         {/* Hero */}
         <header
-          className="relative flex min-h-[300px] items-center overflow-hidden bg-slate-900 bg-cover bg-no-repeat px-6 py-10 text-white sm:min-h-[330px] md:min-h-[360px]"
+          className="relative flex min-h-[300px] items-center overflow-hidden bg-slate-900 bg-cover bg-no-repeat py-12 text-white sm:min-h-[330px] md:min-h-[380px]"
           style={
             data.heroImageUrl
               ? {
-                  backgroundImage: `linear-gradient(to right, rgba(15,23,42,0.5), rgba(15,23,42,0.35)), url(${data.heroImageUrl})`,
+                  backgroundImage: `linear-gradient(90deg, rgba(8,22,45,0.72) 0%, rgba(8,22,45,0.48) 45%, rgba(8,22,45,0.22) 100%), url(${data.heroImageUrl})`,
                   backgroundPosition: 'center 45%',
                 }
               : { background: `linear-gradient(135deg, ${color} 0%, ${color}cc 60%, #0f172a 140%)` }
           }
         >
-        <div className="mx-auto max-w-5xl">
-          <h1 className="text-4xl font-bold sm:text-5xl">
+        <div className="mx-auto w-full max-w-5xl px-5 text-left md:px-4">
+          <h1 className="text-[32px] font-extrabold leading-[1.1] text-white sm:text-[40px] lg:text-[48px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
             {v.weblinkHeading?.trim() ||
               q.destinationSummary.split(/[•→>,/]/)[0]?.trim() ||
               q.destinationSummary}
           </h1>
-          {duration && <p className="mt-2 text-lg text-white/80">{duration}</p>}
-          <p className="mt-4 text-2xl font-semibold">{v.title}</p>
+          {duration && (
+            <p className="mt-2 text-[15px] font-medium text-white/85 sm:text-[17px] lg:text-[19px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
+              {duration}
+            </p>
+          )}
+          <p className="mt-5 max-w-2xl text-[20px] font-bold leading-snug text-white sm:text-[24px] lg:text-[28px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
+            {v.title}
+          </p>
           {heroIntroduction && (
-            <p className="mt-2 max-w-2xl text-white/80">{heroIntroduction}</p>
+            <p className="mt-3 max-w-2xl text-[14px] text-white/80 sm:text-[15px] [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
+              {heroIntroduction}
+            </p>
           )}
         </div>
       </header>
 
-      <div className="relative z-10 mx-auto -mt-6 max-w-5xl space-y-6 px-4 sm:-mt-10 lg:-mt-16">
+      {/* Summary + price cards sit in normal flow below the complete hero. */}
+      <div className="mx-auto mt-8 max-w-5xl space-y-6 px-4">
         {/* Summary + price */}
         <section className="grid gap-4 lg:grid-cols-3">
           <div className="rounded-2xl bg-card p-6 shadow-lg lg:col-span-2">
@@ -1052,7 +1055,7 @@ export function PublicQuotationPage() {
                 label="Rooms"
                 value={q.rooms ? `${q.rooms} Room${q.rooms > 1 ? 's' : ''}` : '—'}
               />
-              <Info label="Quotation ID" value={displayQuotationId(q.quotationNumber)} />
+              <Info label="Quotation ID" value={formatPublicQuotationNumber(q.quotationNumber)} />
               <Info
                 label="Destinations"
                 value={q.destinationSummary.replace(/•/g, '→')}
@@ -1094,11 +1097,6 @@ export function PublicQuotationPage() {
                   </p>
                 ))}
               </div>
-            )}
-            {addonTotal > 0 && (
-              <p className="mt-2 text-center text-xs text-white/80">
-                + {fmt(addonTotal)} add-ons (optional)
-              </p>
             )}
             {company.phone && (
               <a

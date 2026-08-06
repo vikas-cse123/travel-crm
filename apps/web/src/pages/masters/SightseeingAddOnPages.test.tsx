@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
@@ -429,6 +429,92 @@ describe('Phase 13D master pages', () => {
     expect(screen.getAllByText(/3,800/).length).toBeGreaterThan(0);
     expect(screen.getByText('Created By')).toBeInTheDocument();
     expect(screen.getByText('Aditi Rao')).toBeInTheDocument();
+  });
+});
+
+describe('Sightseeing master status filter and restore', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.permissions = new Set(ALL);
+  });
+
+  it('renders the status dropdown with exactly Current statuses, ACTIVE, INACTIVE and ARCHIVED', async () => {
+    stubApi();
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+    const select = screen.getByLabelText('Sightseeing status');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Current statuses',
+      'ACTIVE',
+      'INACTIVE',
+      'ARCHIVED',
+    ]);
+  });
+
+  it('changing status sends the status query parameter', async () => {
+    const mock = vi.fn(async (request: RequestInfo | URL) => {
+      const url = String(request);
+      if (url.includes('/masters/sightseeing/summary')) return response(summary);
+      if (url.includes('/masters/destinations')) return response(page([destination]));
+      if (url.includes('/masters/cities'))
+        return response(page([{ id: cityId, name: 'Baku', status: 'ACTIVE' }]));
+      return response(page([sightseeing]));
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+    await userEvent.selectOptions(screen.getByLabelText('Sightseeing status'), 'ARCHIVED');
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url]) => String(url).includes('status=ARCHIVED')),
+      ).toBe(true),
+    );
+  });
+
+  it('shows an ARCHIVED badge and Restore action for archived rows', async () => {
+    stubApi({
+      sightseeing: page([{ ...sightseeing, status: 'ARCHIVED' }]),
+    });
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    const table = document.querySelector('table') as HTMLTableElement;
+    expect(within(table).getByText('ARCHIVED')).toBeInTheDocument();
+    expect(
+      within(table).getByRole('button', { name: `Restore ${sightseeing.title}` }),
+    ).toBeInTheDocument();
+    // No archive button for an already-archived row.
+    expect(
+      within(table).queryByRole('button', { name: `Archive ${sightseeing.title}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens a restore confirmation modal with the correct text', async () => {
+    stubApi({
+      sightseeing: page([{ ...sightseeing, status: 'ARCHIVED' }]),
+    });
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    await userEvent.click(
+      screen.getByRole('button', { name: `Restore ${sightseeing.title}` }),
+    );
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Restore this sightseeing?')).toBeInTheDocument();
+    expect(
+      screen.getByText(/This will make the sightseeing active and available for use in quotations again/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore Sightseeing' })).toBeInTheDocument();
+  });
+
+  it('does not render the status filter or Restore for an unauthorized user', async () => {
+    auth.permissions = new Set(['masters.sightseeing.view']);
+    stubApi({
+      sightseeing: page([{ ...sightseeing, status: 'ARCHIVED' }]),
+    });
+    renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    expect(screen.queryByLabelText('Sightseeing status')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: `Restore ${sightseeing.title}` }),
+    ).not.toBeInTheDocument();
   });
 });
 

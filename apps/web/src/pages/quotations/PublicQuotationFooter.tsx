@@ -1,4 +1,4 @@
-import { displayQuotationId } from './quotationContact';
+import { formatPublicQuotationNumber } from './quotationContact';
 
 export interface PublicQuotationFooterProps {
   companyName: string;
@@ -46,8 +46,8 @@ export function PublicQuotationFooter({
     gstin?.trim() ? `GSTIN: ${gstin.trim()}` : null,
   ].filter(Boolean);
 
-  const id = displayQuotationId(quotationNumber);
-  const quotation = id ? `Quotation ID: #${id}` : null;
+  const id = formatPublicQuotationNumber(quotationNumber);
+  const quotation = id ? `Quotation ID: ${id}` : null;
   const generated = formatGeneratedDate(generatedAt);
   const rightSide = [quotation, generated ? `Generated: ${generated}` : null]
     .filter(Boolean)

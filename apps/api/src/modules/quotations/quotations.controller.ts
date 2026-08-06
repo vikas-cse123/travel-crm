@@ -171,6 +171,12 @@ export const quotationsController = {
   async emailHistory(req: Request, res: Response) {
     sendSuccess(res, await quotationsService.emailHistory(auth(req), req.params.quotationId!));
   },
+  async weblinkAnalytics(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await quotationsService.weblinkAnalytics(auth(req), req.params.quotationId!),
+    );
+  },
   async publicLink(req: Request, res: Response) {
     sendSuccess(
       res,

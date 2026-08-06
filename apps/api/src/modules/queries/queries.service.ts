@@ -15,6 +15,7 @@ import {
 } from '@interscale/shared';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { prisma } from '../../config/prisma.js';
+import { env } from '../../config/env.js';
 import { normalizeEmail, normalizePhone } from '../../utils/normalize.js';
 import {
   ForbiddenError,
@@ -77,6 +78,8 @@ const leadListInclude = {
       lastSentAt: true,
       acceptedAt: true,
       createdAt: true,
+      publicToken: true,
+      publicTokenExpiresAt: true,
       booking: { select: { id: true, bookingNumber: true } },
       versions: {
         orderBy: { versionNumber: 'desc' as const },
@@ -110,6 +113,19 @@ export interface LeadRowCaps {
   canViewBookingFinancials: boolean;
   canConvertBooking: boolean;
   canScheduleFollowUp: boolean;
+  canCreateWeblink: boolean;
+}
+
+/**
+ * Compact weblink summary for a lead row. Built from the displayed (latest)
+ * quotation and a batch view-count lookup so the table never makes a per-row
+ * analytics request.
+ */
+export interface LeadWeblinkSummary {
+  quotationId: string;
+  publicUrl: string | null;
+  isGenerated: boolean;
+  totalViews: number;
 }
 
 /** A quotation is convertible to a booking only when accepted and not yet booked. */
@@ -129,7 +145,11 @@ export function conversionEligible(quotation: {
  * caller lacks the relevant module permission; booking `paymentStatus` is only
  * present with booking financial permission.
  */
-export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
+export function presentLeadRow(
+  value: LeadListRow,
+  caps: LeadRowCaps,
+  weblinkViews: Map<string, number> = new Map(),
+) {
   const { quotations, bookings, ...rest } = value;
   const base = presentQuery(rest as IncludedQuery);
   const terminal = terminalStages.includes(value.leadStage);
@@ -152,6 +172,26 @@ export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
         }
       : null;
 
+  // Weblink state for the SAME quotation shown in the Quotation column.
+  const weblink: LeadWeblinkSummary | null =
+    caps.canViewQuotations && latestQuotation
+      ? {
+          quotationId: latestQuotation.id,
+          publicUrl:
+            latestQuotation.publicToken &&
+            (!latestQuotation.publicTokenExpiresAt ||
+              latestQuotation.publicTokenExpiresAt >= new Date())
+              ? `${env.WEB_URL}/q/${latestQuotation.publicToken}`
+              : null,
+          isGenerated: Boolean(
+            latestQuotation.publicToken &&
+              (!latestQuotation.publicTokenExpiresAt ||
+                latestQuotation.publicTokenExpiresAt >= new Date()),
+          ),
+          totalViews: weblinkViews.get(latestQuotation.id) ?? 0,
+        }
+      : null;
+
   const bookingSummary =
     caps.canViewBookings && latestBooking
       ? {
@@ -169,6 +209,7 @@ export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
     ...base,
     hasQuotations: caps.canViewQuotations ? quotations.length > 0 : undefined,
     quotationSummary,
+    weblink,
     bookingSummary,
     actions: {
       canCreateQuotation: caps.canCreateQuotation && !terminal,
@@ -176,6 +217,7 @@ export function presentLeadRow(value: LeadListRow, caps: LeadRowCaps) {
       canConvertToBooking: caps.canConvertBooking && eligible && !latestBooking,
       canViewBooking: caps.canViewBookings && Boolean(latestBooking),
       canAddFollowUp: caps.canScheduleFollowUp && !terminal,
+      canCreateWeblink: caps.canCreateWeblink && caps.canViewQuotations && Boolean(latestQuotation),
     },
   };
 }
@@ -276,6 +318,7 @@ export async function leadRowCaps(auth: AuthContext): Promise<LeadRowCaps> {
     canViewBookingFinancials: permissions.includes(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS),
     canConvertBooking: permissions.includes(PERMISSIONS.BOOKINGS_CONVERT_FROM_QUOTATION),
     canScheduleFollowUp: permissions.includes(PERMISSIONS.FOLLOWUPS_CREATE),
+    canCreateWeblink: permissions.includes(PERMISSIONS.QUOTATIONS_UPDATE),
   };
 }
 
@@ -521,8 +564,20 @@ export const queriesService = {
       }),
       prisma.query.count({ where }),
     ]);
+    // One batched aggregation covers every displayed quotation on this page, so
+    // the weblink view counts never trigger a per-row query (no N+1).
+    const quotationIds = data.flatMap((row) => (row.quotations[0] ? [row.quotations[0].id] : []));
+    const weblinkViews = new Map<string, number>();
+    if (quotationIds.length) {
+      const grouped = await prisma.quotationWeblinkView.groupBy({
+        by: ['quotationId'],
+        where: { companyId: auth.companyId, quotationId: { in: quotationIds } },
+        _sum: { viewCount: true },
+      });
+      for (const row of grouped) weblinkViews.set(row.quotationId, row._sum.viewCount ?? 0);
+    }
     return {
-      data: data.map((row) => presentLeadRow(row, caps)),
+      data: data.map((row) => presentLeadRow(row, caps, weblinkViews)),
       pagination: { ...p, total, totalPages: total ? Math.ceil(total / p.pageSize) : 0 },
     };
   },
@@ -883,9 +938,16 @@ export const queriesService = {
     const current = await getVisible(auth, id);
     const { role } = await caller(auth);
     const isPrivileged = role.name === ROLE_NAME.OWNER || role.name === ROLE_NAME.MANAGER;
-    if (terminalStages.includes(current.leadStage) && !isPrivileged)
+    // BOOKING_CONFIRMED is a globally allowed destination: any lead stage may
+    // move directly to it. All other transitions keep the existing rules.
+    if (
+      terminalStages.includes(current.leadStage) &&
+      input.stage !== 'BOOKING_CONFIRMED' &&
+      !isPrivileged
+    )
       throw new ForbiddenError('Only an Owner or Manager can reopen a terminal lead.');
     if (
+      input.stage !== 'BOOKING_CONFIRMED' &&
       !terminalStages.includes(current.leadStage) &&
       !transitionMap[current.leadStage].includes(input.stage)
     )
@@ -1051,9 +1113,15 @@ export const queriesService = {
     // Validate every transition up front so the batch is all-or-nothing.
     for (const row of visible) {
       if (row.leadStage === input.leadStage) continue;
-      if (terminalStages.includes(row.leadStage) && !isPrivileged)
+      // BOOKING_CONFIRMED is a globally allowed destination stage.
+      if (
+        terminalStages.includes(row.leadStage) &&
+        input.leadStage !== 'BOOKING_CONFIRMED' &&
+        !isPrivileged
+      )
         throw new ForbiddenError('Only an Owner or Manager can reopen a terminal lead.');
       if (
+        input.leadStage !== 'BOOKING_CONFIRMED' &&
         !terminalStages.includes(row.leadStage) &&
         !transitionMap[row.leadStage].includes(input.leadStage)
       )

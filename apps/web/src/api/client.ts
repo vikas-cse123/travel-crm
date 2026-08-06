@@ -18,6 +18,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly fields: Record<string, string[]> | undefined;
+  readonly details: unknown;
   readonly requestId: string | undefined;
 
   constructor(
@@ -25,6 +26,7 @@ export class ApiError extends Error {
     status: number,
     code: string,
     fields?: Record<string, string[]>,
+    details?: unknown,
     requestId?: string,
   ) {
     super(message);
@@ -32,6 +34,7 @@ export class ApiError extends Error {
     this.status = status;
     this.code = code;
     this.fields = fields;
+    this.details = details;
     this.requestId = requestId;
   }
 }
@@ -143,6 +146,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       response.status,
       payload.error.code,
       payload.error.fields,
+      payload.error.details,
       payload.error.requestId,
     );
   }

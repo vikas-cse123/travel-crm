@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
 import type { Express } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
@@ -509,6 +510,197 @@ describe('Phase 8 customer quotations', () => {
         })
       ).status,
     ).toBe(409);
+  });
+
+  describe('quotation weblink view analytics', () => {
+    async function readyQuotation() {
+      const { client, lead, template } = await setup();
+      const quotation = (
+        await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+      ).body.data;
+      const version = quotation.versions[0];
+      await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+      const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+        quotationVersionId: version.id,
+      });
+      const token = link.body.data.url.split('/q/')[1];
+      return { client, lead, template, quotation, version, token };
+    }
+
+    const publicGet = (token: string, ip: string) =>
+      request(app).get(`/public/quotations/${token}`).set('X-Forwarded-For', ip);
+
+    it('records one EXTERNAL view per successful public load', async () => {
+      const { token } = await readyQuotation();
+      const view = await publicGet(token, '203.0.113.10');
+      expect(view.status).toBe(200);
+      const rows = await db.quotationWeblinkView.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ ipAddress: '203.0.113.10', type: 'EXTERNAL', viewCount: 1 });
+      expect(rows[0].firstViewedAt).toBeInstanceOf(Date);
+      expect(rows[0].lastViewedAt).toBeInstanceOf(Date);
+    });
+
+    it('increments the same IP row on repeat views', async () => {
+      const { token } = await readyQuotation();
+      await publicGet(token, '203.0.113.10');
+      await publicGet(token, '203.0.113.10');
+      const rows = await db.quotationWeblinkView.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].viewCount).toBe(2);
+      expect(rows[0].type).toBe('EXTERNAL');
+      const analytics = (
+        await db.quotationWeblinkView.aggregate({
+          where: { ipAddress: rows[0].ipAddress },
+          _sum: { viewCount: true },
+          _count: { _all: true },
+        })
+      );
+      expect(analytics._sum.viewCount).toBe(2);
+      expect(analytics._count._all).toBe(1);
+    });
+
+    it('adds a second unique IP and increases totals', async () => {
+      const { token, quotation } = await readyQuotation();
+      await publicGet(token, '203.0.113.10');
+      await publicGet(token, '198.51.100.7');
+      const analytics = await db.quotationWeblinkView.groupBy({
+        by: ['quotationId'],
+        where: { quotationId: quotation.id },
+        _sum: { viewCount: true },
+      });
+      expect(analytics[0]._sum.viewCount).toBe(2);
+      expect(await db.quotationWeblinkView.count()).toBe(2);
+    });
+
+    it('classifies a same-tenant authenticated view as HOME', async () => {
+      const { client, token } = await readyQuotation();
+      const view = await client.get(`/public/quotations/${token}`);
+      expect(view.status).toBe(200);
+      const rows = await db.quotationWeblinkView.findMany();
+      expect(rows[0].type).toBe('HOME');
+      expect(rows[0].viewCount).toBe(1);
+    });
+
+    it('classifies a different-tenant authenticated view as EXTERNAL', async () => {
+      const { token } = await readyQuotation();
+      const other = await owner('other@tenant.test', 'Other Travel');
+      const view = await other.get(`/public/quotations/${token}`);
+      expect(view.status).toBe(200);
+      const rows = await db.quotationWeblinkView.findMany();
+      expect(rows[0].type).toBe('EXTERNAL');
+    });
+
+    it('records nothing for an invalid or expired token', async () => {
+      const before = await db.quotationWeblinkView.count();
+      const missing = await request(app)
+        .get('/public/quotations/0000000000000000000000000000000000000000')
+        .set('X-Forwarded-For', '203.0.113.10');
+      expect(missing.status).toBe(404);
+      expect(await db.quotationWeblinkView.count()).toBe(before);
+    });
+
+    it('returns aggregated analytics with sorted entries and zero defaults', async () => {
+      const { client, lead, template, quotation, token } = await readyQuotation();
+      await publicGet(token, '203.0.113.10');
+      await client.get(`/public/quotations/${token}`); // HOME
+      const res = await client.get(`/api/quotations/${quotation.id}/weblink-analytics`);
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.totalViews).toBe(2);
+      expect(data.externalViews).toBe(1);
+      expect(data.homeIpViews).toBe(1);
+      expect(data.uniqueIps).toBe(2);
+      expect(data.totalViews).toBe(data.externalViews + data.homeIpViews);
+      expect(data.entries).toHaveLength(2);
+      const times = data.entries.map((e: { lastViewedAt: string }) => new Date(e.lastViewedAt).getTime());
+      expect([...times].sort((a, b) => b - a)).toEqual(times);
+      // Zero state on a fresh quotation (same tenant, no public link/views).
+      const fresh = (
+        await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+      ).body.data;
+      const freshRes = await client.get(`/api/quotations/${fresh.id}/weblink-analytics`);
+      expect(freshRes.status).toBe(200);
+      expect(freshRes.body.data).toMatchObject({
+        totalViews: 0,
+        externalViews: 0,
+        homeIpViews: 0,
+        uniqueIps: 0,
+        entries: [],
+      });
+    });
+
+    it('denies analytics to another tenant', async () => {
+      const { quotation, token } = await readyQuotation();
+      await publicGet(token, '203.0.113.10');
+      const other = await owner('other2@tenant.test', 'Other Travel 2');
+      const res = await other.get(`/api/quotations/${quotation.id}/weblink-analytics`);
+      expect(res.status).toBe(404);
+    });
+
+    it('creates a public link idempotently without resetting analytics', async () => {
+      const { client, quotation, version, token } = await readyQuotation();
+      await publicGet(token, '203.0.113.10');
+      const second = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+        quotationVersionId: version.id,
+      });
+      expect(second.status).toBe(200);
+      expect(second.body.data.url).toContain('/q/');
+      // Same token reused: the URL matches the first link.
+      expect(second.body.data.url.split('/q/')[1]).toBe(token);
+      expect(second.body.data.reused).toBe(true);
+      // Analytics preserved.
+      expect(await db.quotationWeblinkView.count()).toBe(1);
+    });
+
+    it('provisions a usable public weblink automatically at quotation creation', async () => {
+      const { client, lead, template } = await setup();
+      const quotation = (
+        await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+      ).body.data;
+      const version = quotation.versions[0];
+      await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+      const row = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+      expect(row.publicToken).toBeTruthy();
+      expect(row.publicTokenHash).toBeTruthy();
+      expect(row.publicVersionId).toBe(version.id);
+      // The URL is usable and secured by the token (no manual Create needed).
+      const publicGet = request(app)
+        .get(`/public/quotations/${row.publicToken}`)
+        .set('X-Forwarded-For', '203.0.113.55');
+      expect((await publicGet).status).toBe(200);
+    });
+
+    it('backfills a missing public link for legacy quotations idempotently', async () => {
+      const { client, lead, template } = await setup();
+      const quotation = (
+        await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+      ).body.data;
+      const version = quotation.versions[0];
+      await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+      // Simulate a legacy quotation created before link provisioning.
+      await db.quotation.update({
+        where: { id: quotation.id },
+        data: { publicToken: null, publicTokenHash: null, publicVersionId: null },
+      });
+      const { backfillQuotationWeblinks } = await import('../src/scripts/backfill-quotation-weblinks.js');
+      const first = await backfillQuotationWeblinks(db);
+      expect(first.created).toBe(1);
+      const after = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+      expect(after.publicToken).toBeTruthy();
+      expect(after.publicVersionId).toBe(version.id);
+      // Idempotent: a second run creates nothing and keeps the same token.
+      const tokenBefore = after.publicToken;
+      const second = await backfillQuotationWeblinks(db);
+      expect(second.created).toBe(0);
+      expect((await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } })).publicToken).toBe(
+        tokenBefore,
+      );
+      // The Leads-style URL is usable.
+      const anon = createAuthClient(app);
+      const view = await anon.get(`/public/quotations/${tokenBefore}`);
+      expect(view.status).toBe(200);
+    });
   });
 
   it('records a public rejection without advancing the lead', async () => {

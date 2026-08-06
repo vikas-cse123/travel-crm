@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
 import type { Express } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
@@ -273,6 +274,72 @@ describe('Phase 6 travel lead management', () => {
     expect((await db.query.findUniqueOrThrow({ where: { id } })).convertedAt).toBeNull();
     expect(await db.queryStageHistory.count({ where: { queryId: id } })).toBe(7);
   });
+  it('allows BOOKING_CONFIRMED from any existing stage, including terminal stages', async () => {
+    const client = await owner('owner@booking.test', 'Booking Confirmed Travel');
+    // Start a fresh lead and move it through each source stage, then jump to
+    // BOOKING_CONFIRMED directly from that stage.
+    const sourceStages: string[][] = [
+      ['CONTACTED'], // NEW_LEAD → CONTACTED → BOOKING_CONFIRMED
+      ['QUALIFIED', 'QUOTATION_REQUIRED', 'QUOTATION_SENT'], // QUOTATION_SENT → BOOKING_CONFIRMED
+      ['QUALIFIED', 'QUOTATION_REQUIRED', 'QUOTATION_SENT', 'IN_NEGOTIATION'], // IN_NEGOTIATION
+      ['QUALIFIED', 'QUOTATION_REQUIRED', 'QUOTATION_SENT', 'IN_NEGOTIATION', 'READY_TO_BOOK'], // READY_TO_BOOK
+      ['QUALIFIED', 'ON_HOLD'], // ON_HOLD → BOOKING_CONFIRMED
+      ['QUALIFIED', 'LOST'], // LOST → BOOKING_CONFIRMED
+      ['QUALIFIED', 'ON_HOLD', 'CANCELLED'], // CANCELLED → BOOKING_CONFIRMED
+      ['INVALID'], // INVALID → BOOKING_CONFIRMED
+    ];
+    for (const path of sourceStages) {
+      const id = (await client.post('/api/queries', payload())).body.data.id;
+      for (const stage of path) {
+        const applied =
+          stage === 'LOST'
+            ? await client.patch(`/api/queries/${id}/stage`, {
+                stage,
+                lostReason: 'Changed plans',
+              })
+            : stage === 'CANCELLED' || stage === 'INVALID'
+              ? await client.patch(`/api/queries/${id}/stage`, { stage, reason: 'Not proceeding' })
+              : await client.patch(`/api/queries/${id}/stage`, { stage });
+        expect(applied.status).toBe(200);
+      }
+      const response = await client.patch(`/api/queries/${id}/stage`, {
+        stage: 'BOOKING_CONFIRMED',
+      });
+      expect(response.status).toBe(200);
+      expect(response.body.data.leadStage).toBe('BOOKING_CONFIRMED');
+    }
+    // Activity history records old and new stage for each jump.
+    const history = await db.queryStageHistory.findMany({
+      where: { newStage: 'BOOKING_CONFIRMED' },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(history.length).toBeGreaterThanOrEqual(8);
+  });
+  it('keeps unrelated disallowed transitions rejected', async () => {
+    const client = await owner('owner@booking.test', 'Booking Confirmed Travel');
+    const id = (await client.post('/api/queries', payload())).body.data.id;
+    // NEW_LEAD → QUOTATION_SENT is still disallowed (not BOOKING_CONFIRMED).
+    const response = await client.patch(`/api/queries/${id}/stage`, { stage: 'QUOTATION_SENT' });
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toContain('Stage cannot move from NEW_LEAD');
+  });
+  it('still denies a stage update for a user without stage-update permission', async () => {
+    const client = await owner('owner@booking.test', 'Booking Confirmed Travel');
+    const id = (await client.post('/api/queries', payload())).body.data.id;
+    // Downgrade the owner to a role without the query-update permission and
+    // confirm the same session can no longer change the stage.
+    const user = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'owner@booking.test' },
+    });
+    const viewOnlyRole = await db.role.findFirstOrThrow({
+      where: { companyId: user.companyId, name: 'View Only' },
+    });
+    await db.user.update({ where: { id: user.id }, data: { roleId: viewOnlyRole.id } });
+    const response = await client.patch(`/api/queries/${id}/stage`, {
+      stage: 'BOOKING_CONFIRMED',
+    });
+    expect(response.status).toBe(403);
+  });
   it('rejects cross-company and inactive assignees without leaving partial leads', async () => {
     const alpha = await owner('owner@alpha.test', 'Alpha');
     const beta = await owner('owner@beta.test', 'Beta');
@@ -536,6 +603,38 @@ describe('Phase 17 lead workflow parity', () => {
     expect(row.bookingSummary).toBeNull();
   });
 
+  it('includes the weblink summary on lead rows with real view counts', async () => {
+    const client = await owner('owner@p17d.test', 'P17d Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    const { quotation } = await acceptedQuotation(client, lead.id);
+
+    const listBefore = await client.get('/api/queries');
+    const rowBefore = listBefore.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    // The public weblink is provisioned with the quotation: the row always has a
+    // usable URL (no manual Create state) with a numeric zero count.
+    expect(rowBefore.weblink).toMatchObject({
+      quotationId: quotation.id,
+      isGenerated: true,
+      totalViews: 0,
+    });
+    expect(rowBefore.weblink.publicUrl).toContain('/q/');
+
+    // Record a view through the public endpoint.
+    const token = rowBefore.weblink.publicUrl.split('/q/')[1];
+    await request(app)
+      .get(`/public/quotations/${token}`)
+      .set('X-Forwarded-For', '203.0.113.99');
+
+    const listAfter = await client.get('/api/queries');
+    const rowAfter = listAfter.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(rowAfter.weblink).toMatchObject({
+      quotationId: quotation.id,
+      isGenerated: true,
+      totalViews: 1,
+    });
+    expect(rowAfter.weblink.publicUrl).toContain(token);
+  });
+
   it('suppresses conversion and shows the booking summary once converted', async () => {
     const client = await owner('owner@p17b.test', 'P17b Travel');
     const lead = (await client.post('/api/queries', payload())).body.data;
@@ -681,13 +780,26 @@ describe('Phase 17 lead workflow parity', () => {
     expect(
       await db.queryStageHistory.count({ where: { queryId: a.id, newStage: 'QUALIFIED' } }),
     ).toBe(1);
-    // QUALIFIED → BOOKING_CONFIRMED is not a valid direct transition → rejected, atomic.
+    // A genuinely invalid transition (QUALIFIED → QUOTATION_SENT is not in the
+    // map and is not BOOKING_CONFIRMED) is still rejected, atomically.
     const bad = await client.post('/api/queries/bulk-stage', {
+      queryIds: [a.id, b.id],
+      leadStage: 'QUOTATION_SENT',
+    });
+    expect(bad.status).toBe(400);
+    expect(
+      (await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage,
+    ).toBe('QUALIFIED');
+    // QUALIFIED → BOOKING_CONFIRMED is now a globally allowed transition.
+    const direct = await client.post('/api/queries/bulk-stage', {
       queryIds: [a.id, b.id],
       leadStage: 'BOOKING_CONFIRMED',
     });
-    expect(bad.status).toBe(400);
-    expect((await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage).toBe('QUALIFIED');
+    expect(direct.status).toBe(200);
+    expect(direct.body.data.updatedCount).toBe(2);
+    expect(
+      (await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage,
+    ).toBe('BOOKING_CONFIRMED');
   });
 
   it('exports leads as CSV respecting filters, visibility and escaping', async () => {

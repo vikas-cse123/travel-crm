@@ -11,7 +11,7 @@ import { QuotationTemplateFormPage } from './QuotationTemplateFormPage';
 import { QuotationsPage } from './QuotationsPage';
 import { NewQuotationPage } from './NewQuotationPage';
 import { PublicQuotationPage } from './PublicQuotationPage';
-import { buildQuotationDescription, normalizeWhatsAppPhone } from './quotationContact';
+import { buildQuotationDescription, formatPublicQuotationNumber, normalizeWhatsAppPhone } from './quotationContact';
 import { QuotationBuilderPage } from './QuotationBuilderPage';
 import { QuotationDetailsPage } from './QuotationDetailsPage';
 import { uploadQuotationAttachment } from '@/features/quotations/quotations.api';
@@ -757,6 +757,120 @@ describe('Phase 8 quotation pages', () => {
     expect(footer).toHaveTextContent('Alpha Travel. All rights reserved.');
   });
 
+  it('removes the optional add-ons amount line from the Total Package Price card', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: '919876543210',
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: null,
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000001',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        introduction: 'A coastal holiday.',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '10000',
+        perAdultPrice: '5000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        flightDetails: null,
+        hotels: [],
+        services: [
+          {
+            id: 'quote-addon-1',
+            serviceType: 'TRAVEL_INSURANCE',
+            name: 'Travel Insurance',
+            description: '<p>Comprehensive international cover.</p>',
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '3800',
+            totalSellingPrice: '3800',
+            sellingPrice: '3800',
+            taxCategory: 'Insurance',
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'quote-vehicle-1',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Innova Crysta',
+            description: '<p>Private air-conditioned transport.</p>',
+            dayNumber: null,
+            city: 'SUV',
+            quantity: '1',
+            unitSellingPrice: '5000',
+            totalSellingPrice: '5000',
+            sellingPrice: '5000',
+            taxCategory: 'Transportation',
+            notes: '3 hours',
+            sequence: 2,
+          },
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      hotelPresentations: {},
+      vehiclePresentations: {},
+      airlinePresentations: {},
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+    // 1. Final package price is still shown.
+    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getByText(/₹10,000/)).toBeInTheDocument();
+    // 2. The traveller price breakdown still shows.
+    expect(screen.getByText(/2 Adults × ₹5,000/)).toBeInTheDocument();
+    // 3. The optional add-ons summary text is gone.
+    expect(screen.queryByText(/add-ons \(optional\)/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/optional add-ons/i)).not.toBeInTheDocument();
+    // 4. The add-on amount no longer appears as a summary line under the price.
+    expect(screen.queryByText(/₹3,800/)).not.toBeInTheDocument();
+    // 5. Add-on services elsewhere on the weblink remain unaffected.
+    expect(screen.getByRole('heading', { name: 'Additional Services' })).toBeInTheDocument();
+    expect(screen.getByText('Travel Insurance')).toBeInTheDocument();
+    // Contact Now is preserved.
+    expect(screen.getByRole('link', { name: /Contact Now/ })).toHaveAttribute(
+      'href',
+      'tel:919876543210',
+    );
+  });
+
   it('renders multiple hotels as wide cards and falls back without an image', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -949,25 +1063,44 @@ describe('Phase 8 quotation pages', () => {
     const hero = screen.getByRole('banner');
     expect(hero.className).toContain('bg-cover');
     expect(hero.className).toContain('bg-no-repeat');
-    // Responsive heights: mobile 300, tablet 330, desktop 360.
+    // Responsive heights: mobile 300, tablet 330, desktop 380.
     expect(hero.className).toContain('min-h-[300px]');
     expect(hero.className).toContain('sm:min-h-[330px]');
-    expect(hero.className).toContain('md:min-h-[360px]');
+    expect(hero.className).toContain('md:min-h-[380px]');
     expect(hero.className).toContain('items-center');
     // Balanced positioning shows more of the image without stretching it.
     expect(hero.style.backgroundPosition).toBe('center 45%');
     expect(hero.style.backgroundImage).toContain('https://storage.example.test/bali-hero.jpg');
-    // The dark overlay stays ~40-50%, never the whole-hero opacity.
-    expect(hero.style.backgroundImage).toContain('rgba(15,23,42,0.5)');
+    // A left-weighted dark overlay improves readability without hiding the image.
+    expect(hero.style.backgroundImage).toContain('rgba(8,22,45,0.72)');
 
-    // Hero values are preserved.
+    // Hero values are preserved: destination heading, duration, package title.
     expect(screen.getByRole('heading', { name: 'Bali' })).toBeInTheDocument();
     expect(screen.getAllByText('4 Nights / 5 Days').length).toBeGreaterThan(0);
+    expect(screen.getByText('Bali Package for Riya Kapoor')).toBeInTheDocument();
+
+    // The hero text block is left-aligned in the page content container, never
+    // horizontally centred.
+    const heroContent = screen.getByRole('heading', { name: 'Bali' }).parentElement!;
+    expect(heroContent.className).toContain('text-left');
+    expect(heroContent.className).toContain('max-w-5xl');
+    expect(heroContent.className).toContain('mx-auto');
+    expect(heroContent.className).not.toContain('text-center');
+    const destination = screen.getByRole('heading', { name: 'Bali' });
+    expect(destination.className).toContain('font-extrabold');
+    expect(destination.className).toContain('text-[32px]');
+    expect(destination.className).toContain('lg:text-[48px]');
+    const packageTitle = screen.getByText('Bali Package for Riya Kapoor');
+    expect(packageTitle.className).toContain('font-bold');
+    expect(packageTitle.className).toContain('lg:text-[28px]');
+    // The stored title is not uppercased.
+    expect(packageTitle.textContent).toBe('Bali Package for Riya Kapoor');
+
     // Summary and price cards still sit below the hero.
     expect(screen.getByText('Total Package Price')).toBeInTheDocument();
   });
 
-  it('lays the summary and price cards above the hero overlap', async () => {
+  it('renders the summary and price cards in normal flow below the hero image', async () => {
     const publicData = {
       company: {
         name: 'Alpha Travel',
@@ -996,6 +1129,8 @@ describe('Phase 8 quotation pages', () => {
         versionNumber: 1,
         currency: 'INR',
         finalAmount: '16065.87',
+        initialPaymentAmount: '5000',
+        paymentLink: 'https://pay.example.test/secure',
         hotels: [],
         services: [],
         itinerary: [],
@@ -1016,27 +1151,52 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Bali Package for Riya Kapoor');
 
-    // The summary cards are siblings of the hero, outside its overflow-hidden box.
+    // 1. The hero section renders before the information/price card wrapper.
     const header = screen.getByRole('banner');
-    const summarySection = screen.getByText('Traveler Name').closest('section');
-    expect(summarySection).not.toBeNull();
-    expect(header.contains(summarySection)).toBe(false);
+    const cardsSection = screen.getByText('Traveler Name').closest('section')!;
+    expect(
+      header.compareDocumentPosition(cardsSection) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
-    // The content wrapper lifts the cards above the hero via relative + z-index.
-    const contentWrapper = summarySection?.parentElement;
-    expect(contentWrapper?.className).toContain('relative');
-    expect(contentWrapper?.className).toContain('z-10');
-    // Controlled responsive overlap: smaller on mobile, largest on desktop.
-    expect(contentWrapper?.className).toContain('-mt-6');
-    expect(contentWrapper?.className).toContain('sm:-mt-10');
-    expect(contentWrapper?.className).toContain('lg:-mt-16');
+    // 2 & 3. The information card and the total-price card are both outside the
+    // hero container (which clips its overflow).
+    expect(header.contains(cardsSection)).toBe(false);
+    const priceCard = screen.getByText('Total Package Price').closest('div.bg-emerald-600');
+    expect(priceCard).not.toBeNull();
+    expect(header.contains(priceCard!)).toBe(false);
 
-    // Every first-row summary field and the price card stay fully in the document.
+    // The cards sit in normal document flow: no negative margin, no relative
+    // z-index lift, no translate — a clean gap below the hero instead.
+    const contentWrapper = cardsSection.parentElement!;
+    expect(contentWrapper?.className).toContain('mt-8');
+    expect(contentWrapper?.className).not.toMatch(/-mt-\d+/);
+    expect(contentWrapper?.className).not.toContain('relative');
+    expect(contentWrapper?.className).not.toContain('z-10');
+    expect(contentWrapper?.className).not.toContain('translate');
+
+    // 4. Secure Your Booking Now renders after the information/price cards.
+    const secureSection = screen
+      .getByRole('heading', { name: 'Secure Your Booking Now' })
+      .closest('section')!;
+    expect(
+      cardsSection.compareDocumentPosition(secureSection) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // 5. Existing price values, summary fields and buttons still render.
     expect(screen.getByText('Traveler Name')).toBeInTheDocument();
     expect(screen.getByText('Travel Date')).toBeInTheDocument();
     expect(screen.getByText('Duration')).toBeInTheDocument();
     expect(screen.getByText('Travelers')).toBeInTheDocument();
-    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getByText(/₹16,066/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Pay Now/ })).toHaveAttribute(
+      'href',
+      'https://pay.example.test/secure',
+    );
+
+    // 6. No negative-margin/overlap utilities remain anywhere on the page.
+    expect(document.querySelector('.mx-auto')).not.toBeNull();
+    expect(document.querySelector('[class*="-mt-"]')).toBeNull();
+    expect(document.querySelector('[class*="translate"]')).toBeNull();
   });
 
   it('renders included services as separate cards with the Services Include heading', async () => {
@@ -2832,6 +2992,111 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.queryByText('Cabin: 10kg')).not.toBeInTheDocument();
   });
 
+  it('renders flight notes inside a transparent scoped container despite inline white backgrounds', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Kerala Escape',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        flightDetails: {
+          include: true,
+          sectionTitle: 'Flight Details',
+          amount: 0,
+          journeyType: 'ROUND_TRIP',
+          outbound: {
+            fromCity: 'Delhi',
+            toCity: 'Kochi',
+            travelClass: 'Economy',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Air India',
+                flightNumber: 'AI201',
+                travelClass: 'Economy',
+                from: 'Delhi',
+                to: 'Kochi',
+                departureDate: '2026-09-10',
+                departureTime: '10:00',
+                arrivalDate: '2026-09-10',
+                arrivalTime: '12:00',
+                duration: '2h 0m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '20kg',
+                notes: '<p style="background-color: white">Outbound note line</p><span style="background: white">inline note</span>',
+                connectionVia: null,
+              },
+            ],
+          },
+          returnJourney: {
+            fromCity: 'Kochi',
+            toCity: 'Delhi',
+            travelClass: 'Economy',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Air India',
+                flightNumber: 'AI202',
+                travelClass: 'Economy',
+                from: 'Kochi',
+                to: 'Delhi',
+                departureDate: '2026-09-14',
+                departureTime: '14:00',
+                arrivalDate: '2026-09-14',
+                arrivalTime: '16:00',
+                duration: '2h 0m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '20kg',
+                notes: '<ul style="background-color: white"><li>Return note item</li></ul>',
+                connectionVia: null,
+              },
+            ],
+          },
+        },
+        hotels: [],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Kerala Escape');
+    await screen.findByText('Outbound Journey');
+
+    // The note text (with inline white backgrounds) still renders.
+    expect(screen.getByText('Outbound note line')).toBeInTheDocument();
+    expect(screen.getByText('inline note')).toBeInTheDocument();
+    expect(screen.getByText('Return note item')).toBeInTheDocument();
+
+    // The stored inline white background styles are NOT stripped from the HTML.
+    const outboundPara = screen.getByText('Outbound note line');
+    expect(outboundPara.getAttribute('style')).toContain('background-color: white');
+    const inlineSpan = screen.getByText('inline note');
+    expect(inlineSpan.getAttribute('style')).toContain('background: white');
+    const returnItem = screen.getByText('Return note item');
+    expect(returnItem.closest('ul')?.getAttribute('style')).toContain('background-color: white');
+
+    // Every note is inside a scoped `.flight-notes` container (outbound + return).
+    const outboundContainer = outboundPara.closest('.flight-notes');
+    expect(outboundContainer).not.toBeNull();
+    expect(outboundContainer?.className).toContain('flight-notes');
+    expect(inlineSpan.closest('.flight-notes')).not.toBeNull();
+    expect(returnItem.closest('.flight-notes')).not.toBeNull();
+  });
+
   it('renders the public cruise card with image, duration, room type and description', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -3684,6 +3949,71 @@ describe('Phase 8 quotation pages', () => {
         'https://storage.example.test/alpha-logo.png',
       ),
     );
+  });
+
+  it('shows the quotation ID as "#1032" in the info card and the footer', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: 'https://storage.example.test/alpha-logo.png',
+      },
+      quotation: {
+        quotationNumber: 'QT-001032',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        hotels: [],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      hotelPresentations: {},
+      vehiclePresentations: {},
+      airlinePresentations: {},
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+    // The info card value and the footer both render '#1032', never '#QT-...'
+    // or 'QT-...'.
+    expect(screen.getByText('#1032')).toBeInTheDocument();
+    expect(screen.getByText(/Quotation ID: #1032/)).toBeInTheDocument();
+    expect(screen.queryByText(/QT-1032/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/QT-001032/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/#QT-1032/)).not.toBeInTheDocument();
   });
 
   it('sets the browser tab title from the quotation title and restores it on leave', async () => {
@@ -7343,6 +7673,19 @@ describe('Phase 14 master selectors', () => {
 });
 
 describe('public quotation contact message helpers', () => {
+  it('formats the public weblink quotation ID as a leading-# number', () => {
+    expect(formatPublicQuotationNumber('QT-001032')).toBe('#1032');
+    expect(formatPublicQuotationNumber('QT-1032')).toBe('#1032');
+    expect(formatPublicQuotationNumber('1032')).toBe('#1032');
+    expect(formatPublicQuotationNumber('#1032')).toBe('#1032');
+    // Never '#QT-...' or '##...' for the standard stored format.
+    expect(formatPublicQuotationNumber('QT-001032')).not.toMatch(/^#QT/);
+    expect(formatPublicQuotationNumber('QT-001032')).not.toMatch(/^##/);
+    expect(formatPublicQuotationNumber('')).toBe('');
+    expect(formatPublicQuotationNumber(null)).toBe('');
+    expect(formatPublicQuotationNumber(undefined)).toBe('');
+  });
+
   it('computes calendar-night differences between check-in and check-out', () => {
     expect(hotelStayNights('2026-08-10', '2026-08-12')).toBe(2);
     expect(hotelStayNights('2026-08-12', '2026-08-13')).toBe(1);

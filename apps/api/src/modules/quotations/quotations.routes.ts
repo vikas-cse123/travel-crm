@@ -152,6 +152,12 @@ router.get(
   validateRequest({ params: id }),
   asyncHandler(controller.emailHistory),
 );
+router.get(
+  '/:quotationId/weblink-analytics',
+  requirePermission(PERMISSIONS.QUOTATIONS_VIEW),
+  validateRequest({ params: id }),
+  asyncHandler(controller.weblinkAnalytics),
+);
 router.post(
   '/:quotationId/public-link',
   requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import {
   PERMISSIONS,
+  countryNameForCode,
   type CustomerCommunicationInput,
   type CustomerCommunicationUpdateInput,
   type CustomerAddressInput,
@@ -182,12 +183,27 @@ export async function findMatchingCustomerForLead(
   };
   const rows = await prisma.customer.findMany({
     where,
-    select: { id: true, customerNumber: true, displayName: true },
+    select: {
+      id: true,
+      customerNumber: true,
+      displayName: true,
+      addresses: {
+        where: { deletedAt: null, isPrimary: true },
+        select: { state: true },
+      },
+    },
     orderBy: { createdAt: 'asc' },
     take: 2,
   });
   if (rows.length > 1) return { conflict: true as const };
-  return rows[0] ? { customerId: rows[0].id, customerNumber: rows[0].customerNumber, displayName: rows[0].displayName } : null;
+  return rows[0]
+    ? {
+        customerId: rows[0].id,
+        customerNumber: rows[0].customerNumber,
+        displayName: rows[0].displayName,
+        state: rows[0].addresses[0]?.state ?? null,
+      }
+    : null;
 }
 
 export async function matchOrCreateCustomerForBooking(
@@ -202,6 +218,7 @@ export async function matchOrCreateCustomerForBooking(
     source?: string | null;
     assignedToId?: string | null;
     createdById: string;
+    state?: string | null;
   },
 ) {
   const normalizedPhone = normalizeCustomerPhone(input.phone, env.DEFAULT_PHONE_COUNTRY);
@@ -268,6 +285,21 @@ export async function matchOrCreateCustomerForBooking(
     },
     select: { id: true, displayName: true },
   });
+  const state = input.state?.trim();
+  if (state) {
+    await tx.customerAddress.create({
+      data: {
+        companyId: auth.companyId,
+        customerId: customer.id,
+        type: 'HOME',
+        line1: '',
+        city: '',
+        state,
+        country: countryNameForCode('IN') ?? 'India',
+        isPrimary: true,
+      },
+    });
+  }
   return { customerId: customer.id, created: true, customerNumber, displayName: customer.displayName };
 }
 

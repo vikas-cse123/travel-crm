@@ -80,6 +80,12 @@ export interface Lead {
     lastSentAt: string | null;
     acceptedAt: string | null;
   } | null;
+  weblink?: {
+    quotationId: string;
+    publicUrl: string | null;
+    isGenerated: boolean;
+    totalViews: number;
+  } | null;
   bookingSummary?: {
     bookingId: string;
     bookingNumber: string;
@@ -95,6 +101,7 @@ export interface Lead {
     canConvertToBooking: boolean;
     canViewBooking: boolean;
     canAddFollowUp: boolean;
+    canCreateWeblink: boolean;
   };
 }
 export interface UserOption {

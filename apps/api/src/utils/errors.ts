@@ -10,14 +10,22 @@ export class AppError extends Error {
   readonly statusCode: number;
   readonly code: ErrorCode;
   readonly fields: FieldErrors | undefined;
+  readonly details: unknown;
   readonly isOperational = true;
 
-  constructor(message: string, statusCode: number, code: ErrorCode, fields?: FieldErrors) {
+  constructor(
+    message: string,
+    statusCode: number,
+    code: ErrorCode,
+    fields?: FieldErrors,
+    details?: unknown,
+  ) {
     super(message);
     this.name = new.target.name;
     this.statusCode = statusCode;
     this.code = code;
     this.fields = fields;
+    this.details = details;
     Error.captureStackTrace(this, new.target);
   }
 }
@@ -47,8 +55,19 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message = 'That record already exists.') {
-    super(message, 409, ERROR_CODES.CONFLICT);
+  constructor(message = 'That record already exists.', details?: unknown) {
+    super(message, 409, ERROR_CODES.CONFLICT, undefined, details);
+  }
+}
+
+/**
+ * A 409 whose machine-readable code and details let the client branch into a
+ * recovery flow (e.g. restoring an archived sightseeing instead of creating a
+ * duplicate).
+ */
+export class ConflictDetailsError extends AppError {
+  constructor(code: ErrorCode, message: string, details: unknown) {
+    super(message, 409, code, undefined, details);
   }
 }
 

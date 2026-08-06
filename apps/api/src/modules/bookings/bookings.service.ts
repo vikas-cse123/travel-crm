@@ -70,6 +70,7 @@ import {
   recalculateBookingFinancials,
   type RequestContext,
 } from './booking.utils.js';
+import { resolveBookingDuration } from './booking-duration.js';
 import { validateServiceMasterRefs } from './booking-master-refs.service.js';
 import { localDayBounds } from '../../utils/timezone.js';
 import { createPayableForBooking, recalculateVendor } from '../vendors/vendors.service.js';
@@ -1116,6 +1117,31 @@ export const bookingsService = {
       phone: lead.phone,
       email: lead.email ?? null,
     });
+    const duration = resolveBookingDuration(version, quotation, lead);
+    // Best-available state for prefilling the "Create New Customer" State
+    // dropdown: matched customer, then the linked lead/quotation customer.
+    const matchedState = customer && 'state' in customer ? customer.state : null;
+    const linkedCustomerId = customer && 'customerId' in customer
+      ? customer.customerId
+      : (lead.customerId ?? quotation.customerId);
+    const linkedState =
+      matchedState ??
+      (linkedCustomerId
+        ? await prisma.customer.findFirst({
+            where: {
+              companyId: auth.companyId,
+              id: linkedCustomerId,
+              deletedAt: null,
+              status: { not: 'MERGED' },
+            },
+            select: {
+              addresses: {
+                where: { deletedAt: null, isPrimary: true },
+                select: { state: true },
+              },
+            },
+          }).then((row) => row?.addresses[0]?.state ?? null)
+        : null);
     return {
       lead: {
         id: lead.id,
@@ -1145,7 +1171,9 @@ export const bookingsService = {
         servicesCount: version.services.length,
         itineraryCount: version.itinerary.length,
       },
+      duration,
       customer,
+      customerState: linkedState,
       company: {
         timezone: company.timezone,
         defaultGstRate: company.defaultGstRate,
@@ -1188,10 +1216,23 @@ export const bookingsService = {
       });
       if (existing) throw new ConflictError('A booking already exists for this lead.');
 
+      // Optional "Create New Customer" overrides prefilled from the lead. When
+      // provided the backend still re-matches by normalized phone/email and only
+      // creates a customer when nothing matches; blanks fall back to lead data.
+      const customerInput = input.customer
+        ? {
+            displayName: input.customer.displayName || lead.customerName,
+            phone: input.customer.phone || lead.phone,
+            email: input.customer.email ? input.customer.email.trim() : null,
+            state: input.customer.state ? input.customer.state.trim() : null,
+          }
+        : null;
+
       const customerMatch = await matchOrCreateCustomerForBooking(tx, auth, {
-        displayName: lead.customerName,
-        phone: lead.phone,
-        email: lead.email ?? null,
+        displayName: customerInput?.displayName ?? lead.customerName,
+        phone: customerInput?.phone ?? lead.phone,
+        email: customerInput ? customerInput.email : (lead.email ?? null),
+        state: customerInput ? customerInput.state : null,
         alternatePhone: lead.alternatePhone ?? null,
         source: lead.leadSource,
         assignedToId: lead.assignedToId ?? auth.userId,
@@ -1208,9 +1249,9 @@ export const bookingsService = {
           quotationId: quotation.id,
           quotationVersionId: version.id,
           title: input.title,
-          customerName: lead.customerName,
-          customerEmail: lead.email ?? null,
-          customerPhone: lead.phone,
+          customerName: customerInput?.displayName ?? lead.customerName,
+          customerEmail: customerInput ? customerInput.email : (lead.email ?? null),
+          customerPhone: customerInput?.phone ?? lead.phone,
           destinationSummary: version.destinationSummary,
           travelStartDate: lead.travelStartDate ?? version.travelStartDate,
           travelEndDate: lead.travelEndDate ?? version.travelEndDate,
@@ -1235,6 +1276,17 @@ export const bookingsService = {
           sourceTerms: version.terms.map((row) => row.content),
           internalNotes: input.notes?.trim() || null,
         },
+      });
+
+      // Link the resolved customer back to the source lead and the selected
+      // quotation so the customer relationship is consistent everywhere.
+      await tx.query.update({
+        where: { id: lead.id },
+        data: { customerId: customerMatch.customerId },
+      });
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { customerId: customerMatch.customerId },
       });
 
       // Import finalized quotation services as stable booking snapshots.

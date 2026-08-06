@@ -959,6 +959,7 @@ model Company {
   quotationTemplateTerms       QuotationTemplateTerm[]
   quotations                   Quotation[]
   quotationVersions            QuotationVersion[]
+  quotationWeblinkViews        QuotationWeblinkView[]
   quotationVersionItineraries  QuotationVersionItineraryDay[]
   quotationVersionHotels       QuotationVersionHotelOption[]
   quotationVersionServices     QuotationVersionService[]
@@ -2901,6 +2902,9 @@ model Quotation {
   currency             String          @default("INR") @db.VarChar(3)
   validUntil           DateTime?       @db.Date
   publicTokenHash      String?         @unique @db.VarChar(64)
+  // Raw public token used to reconstruct the weblink URL (the public route
+  // looks it up by its hash). Cleared on revoke. Kept tenant-side only.
+  publicToken          String?         @db.VarChar(64)
   publicTokenExpiresAt DateTime?
   firstSentAt          DateTime?
   lastSentAt           DateTime?
@@ -2923,6 +2927,7 @@ model Quotation {
   emailLogs      QuotationEmailLog[]
   booking        Booking?
   reminders      QueryFollowUp[]
+  weblinkViews   QuotationWeblinkView[]
 
   @@unique([companyId, quotationNumber])
   @@index([companyId, queryId, deletedAt])
@@ -2931,6 +2936,33 @@ model Quotation {
   @@index([companyId, createdById, deletedAt])
   @@index([companyId, validUntil])
   @@map("quotations")
+}
+
+/// Aggregated public-weblink view per quotation + normalized IP (Phase: weblink
+/// analytics). One row per IP so counts are O(1) to read and no unbounded event
+/// stream is ever loaded.
+model QuotationWeblinkView {
+  id            String          @id @default(uuid()) @db.Uuid
+  companyId     String          @db.Uuid
+  quotationId   String          @db.Uuid
+  ipAddress     String          @db.VarChar(64)
+  type          WeblinkViewType @default(EXTERNAL)
+  viewCount     Int             @default(1)
+  firstViewedAt DateTime        @default(now())
+  lastViewedAt  DateTime        @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationId, ipAddress])
+  @@index([companyId, quotationId])
+  @@index([quotationId, lastViewedAt])
+  @@map("quotation_weblink_views")
+}
+
+enum WeblinkViewType {
+  HOME
+  EXTERNAL
 }
 
 model QuotationVersion {

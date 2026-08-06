@@ -14,6 +14,9 @@ export const ERROR_CODES = {
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+  // Sightseeing-specific: a record with the same unique identity already exists
+  // but is archived, so the create form can offer a restore flow.
+  SIGHTSEEING_ARCHIVED_DUPLICATE: 'SIGHTSEEING_ARCHIVED_DUPLICATE',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -33,6 +36,8 @@ export interface ApiFailure {
     code: ErrorCode;
     message: string;
     fields?: FieldErrors;
+    /** Structured, tenant-safe extra data for specialised errors (e.g. an archived-duplicate restore target). */
+    details?: unknown;
     requestId?: string;
   };
 }

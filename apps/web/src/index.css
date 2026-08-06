@@ -401,3 +401,12 @@
     }
   }
 }
+
+/* Scoped to the public weblink flight Notes container only. Stored rich-text
+ * may carry inline `background: white` / `background-color: white` styles on
+ * p/div/span/li; force every rendered descendant transparent so the notes show
+ * the flight card's own light-grey background instead of white strips. */
+.flight-notes,
+.flight-notes * {
+  background: transparent !important;
+}

@@ -456,6 +456,14 @@ export const bookingReminderInputSchema = z.object({
   dueTime: z.string().trim().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24-hour format'),
 });
 
+/** Reviewable customer details for the "Create New Customer" section. */
+export const bookingFromLeadCustomerSchema = z.object({
+  displayName: z.string().trim().min(2).max(160),
+  phone: z.string().trim().min(5).max(32),
+  email: z.string().trim().email().max(255).nullable().optional().or(z.literal('')),
+  state: z.string().trim().max(120).nullable().optional(),
+});
+
 export const bookingFromLeadInputSchema = z.object({
   leadId: z.string().uuid(),
   quotationId: z.string().uuid(),
@@ -467,6 +475,9 @@ export const bookingFromLeadInputSchema = z.object({
   gstRate: z.coerce.number().int().min(0).max(100).nullable().optional(),
   gstMode: z.enum(GST_CALCULATION_MODES).nullable().optional(),
   placeOfSupply: optionalText(80),
+  // Optional "Create New Customer" overrides. When present the backend still
+  // re-matches by normalized phone/email and only creates when nothing matches.
+  customer: bookingFromLeadCustomerSchema.optional(),
   reminders: z.array(bookingReminderInputSchema).max(20).default([]),
 });
 

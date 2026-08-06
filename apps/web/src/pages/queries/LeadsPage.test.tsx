@@ -973,6 +973,52 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
     expect(screen.queryByRole('listbox', { name: 'Change lead type' })).not.toBeInTheDocument();
   });
 
+  it('selects Booking Confirmed directly from Quotation Sent and sends the correct value', async () => {
+    const richLookups = {
+      ...lookups,
+      leadStages: [
+        { value: 'QUOTATION_SENT', label: 'Quotation Sent' },
+        { value: 'BOOKING_CONFIRMED', label: 'Booking Confirmed' },
+      ],
+    };
+    const current: Record<string, unknown> & { id: string } = {
+      ...lead,
+      leadStage: 'QUOTATION_SENT',
+    };
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(richLookups);
+      if (options?.method === 'PATCH') {
+        calls.push({ url, body: JSON.parse(String(options.body)) });
+        current.leadStage = String(
+          (JSON.parse(String(options.body)) as { stage: string }).stage,
+        );
+        return response({ ...current });
+      }
+      return response({
+        data: [{ ...current }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change lead stage from Quotation Sent' }),
+    );
+    pickOption('Change lead stage', 'Booking Confirmed');
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain(`/queries/${lead.id}/stage`);
+    expect(calls[0]!.body).toEqual({ stage: 'BOOKING_CONFIRMED' });
+    // The row updates after the successful response (no navigation).
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Change lead stage from Booking Confirmed' }),
+      ).toBeTruthy(),
+    );
+  });
+
   it('restores the previous badge value and shows an error when the update fails', async () => {
     const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = String(input);
@@ -1186,5 +1232,381 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
     pickOption('Change lead type', 'Hot');
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weblink column: CREATE / VIEW / analytics eye with a real view count
+// ---------------------------------------------------------------------------
+
+const weblinkAnalytics = {
+  totalViews: 3,
+  externalViews: 2,
+  homeIpViews: 1,
+  uniqueIps: 2,
+  entries: [
+    {
+      ipAddress: '203.0.113.1',
+      type: 'EXTERNAL',
+      views: 2,
+      firstViewedAt: '2026-08-01T09:30:00.000Z',
+      lastViewedAt: '2026-08-05T10:42:00.000Z',
+    },
+    {
+      ipAddress: '42.108.30.32',
+      type: 'HOME',
+      views: 1,
+      firstViewedAt: '2026-08-04T12:00:00.000Z',
+      lastViewedAt: '2026-08-04T12:00:00.000Z',
+    },
+  ],
+};
+
+function weblinkLead(overrides: Record<string, unknown> = {}) {
+  return {
+    ...enrichedLead,
+    weblink: {
+      quotationId: 'quote-1',
+      publicUrl: 'http://localhost:5173/q/token1234567890abcdef',
+      isGenerated: true,
+      totalViews: 0,
+    },
+    actions: { ...enrichedLead.actions, canCreateWeblink: true },
+    ...overrides,
+  };
+}
+
+function stubWeblinkList(rows: unknown[], { analyticsData = weblinkAnalytics, views = true } = {}) {
+  const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/weblink-analytics')) return response(views ? analyticsData : { ...analyticsData, totalViews: 7, entries: [] });
+    if (url.includes('/queries/analytics')) return response(analytics);
+    if (url.includes('/lookups')) return response(lookups);
+    if (options?.method === 'POST' && url.includes('/public-link'))
+      return response({
+        url: 'http://localhost:5173/q/token1234567890abcdef',
+        expiresAt: null,
+        versionId: 'ver-1',
+      });
+    if (options?.method === 'POST' || url.includes('/bulk') || url.includes('/export'))
+      return response({ updatedCount: rows.length, unchangedCount: 0, results: [] });
+    return response({
+      data: rows,
+      pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 },
+    });
+  });
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}
+
+describe('Lead weblink column', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'quotations.view',
+      'quotations.update',
+    ]);
+    vi.stubGlobal('open', vi.fn());
+  });
+
+  it('shows Not Available for a lead without a quotation', async () => {
+    stubWeblinkList([
+      { ...enrichedLead, quotationSummary: null, weblink: null },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByText('Not Available').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: /View quotation weblink/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Weblink view analytics/ })).not.toBeInTheDocument();
+  });
+
+  it('shows View + zero count for a quotation even before any view (no Create state)', async () => {
+    // Backend lifecycle guarantees a usable link for every quotation; the
+    // fixture mirrors that with a real URL and zero views.
+    const mock = stubWeblinkList([weblinkLead()]);
+    renderWithProviders(<LeadsPage />);
+    const view = await screen.findByRole('link', { name: /View quotation weblink/ });
+    expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
+    const eye = screen.getByRole('button', { name: /Weblink view analytics/ });
+    expect(eye).toHaveTextContent('0');
+    // No manual Create state and no per-row link-generation request.
+    expect(screen.queryByRole('button', { name: /Create quotation weblink/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Not Generated')).not.toBeInTheDocument();
+    expect(mock.mock.calls.some(([u]) => String(u).includes('/public-link'))).toBe(false);
+  });
+
+  it('renders the joined View + eye group with a real count', async () => {
+    stubWeblinkList([weblinkLead({ weblink: { ...weblinkLead().weblink, totalViews: 5 } })]);
+    renderWithProviders(<LeadsPage />);
+    const view = await screen.findByRole('link', { name: /View quotation weblink/ });
+    expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
+    const eye = screen.getByRole('button', { name: /Weblink view analytics/ });
+    expect(eye).toHaveTextContent('5');
+  });
+
+  it('shows View + count for a quotation without the former create permission', async () => {
+    stubWeblinkList([weblinkLead({ actions: { ...enrichedLead.actions, canCreateWeblink: false } })]);
+    renderWithProviders(<LeadsPage />);
+    const view = await screen.findByRole('link', { name: /View quotation weblink/ });
+    expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
+    expect(screen.getByRole('button', { name: /Weblink view analytics/ })).toHaveTextContent('0');
+  });
+
+  it('falls back to Unavailable for corrupt data instead of offering Create', async () => {
+    stubWeblinkList([weblinkLead({ weblink: null })]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /View quotation weblink/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Create quotation weblink/ })).not.toBeInTheDocument();
+  });
+
+  it('opens the public URL in a new tab from the View action without opening analytics', async () => {
+    stubWeblinkList([weblinkLead()]);
+    renderWithProviders(<LeadsPage />);
+    const view = await screen.findByRole('link', { name: /View quotation weblink/ });
+    expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
+    expect(view).toHaveAttribute('target', '_blank');
+    expect(view).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens the analytics modal and renders summary cards and IP rows', async () => {
+    stubWeblinkList([weblinkLead()]);
+    renderWithProviders(<LeadsPage />);
+    const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
+    await userEvent.click(eye);
+    const dialog = await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    expect(dialog).toBeInTheDocument();
+    // Four summary cards.
+    expect(screen.getByText('Total Views')).toBeInTheDocument();
+    expect(screen.getByText('External Views')).toBeInTheDocument();
+    expect(screen.getByText('Home IP Views')).toBeInTheDocument();
+    expect(screen.getByText('Unique IPs')).toBeInTheDocument();
+    expect(screen.getByText('203.0.113.1')).toBeInTheDocument();
+    expect(screen.getByText('EXTERNAL')).toBeInTheDocument();
+    expect(screen.getByText('HOME IP')).toBeInTheDocument();
+    // Dates are formatted (05 Aug 2026 present).
+    expect(screen.getByText(/05 Aug 2026/)).toBeInTheDocument();
+    // Footer explanation.
+    expect(screen.getByText(/HOME IP = Views from your company team members\./)).toBeInTheDocument();
+    expect(screen.getByText(/EXTERNAL = Views from actual clients\./)).toBeInTheDocument();
+  });
+
+  it('synchronises the row count from the analytics response', async () => {
+    stubWeblinkList([weblinkLead()], { views: true });
+    renderWithProviders(<LeadsPage />);
+    const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
+    await userEvent.click(eye);
+    await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    // The modal's analytics returns totalViews 3; the row badge catches up.
+    const badge = screen.getByRole('button', { name: /Weblink view analytics/ });
+    await waitFor(() => expect(badge).toHaveTextContent('3'));
+  });
+
+  it('shows an empty state and zero cards when there are no views', async () => {
+    stubWeblinkList([weblinkLead()], {
+      analyticsData: { totalViews: 0, externalViews: 0, homeIpViews: 0, uniqueIps: 0, entries: [] },
+    });
+    renderWithProviders(<LeadsPage />);
+    const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
+    await userEvent.click(eye);
+    await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    expect(await screen.findByText('No weblink views have been recorded yet.')).toBeInTheDocument();
+    const zeros = screen.getAllByText('0');
+    expect(zeros.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('closes via the header X, the bottom Close, and the Escape key', async () => {
+    stubWeblinkList([weblinkLead()]);
+    renderWithProviders(<LeadsPage />);
+    const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
+    await userEvent.click(eye);
+    await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    await userEvent.click(screen.getByRole('button', { name: 'Close analytics' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Weblink view analytics/ }));
+    await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Weblink view analytics/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows an error state with Retry when analytics loading fails', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/weblink-analytics'))
+        return { ok: false, status: 500, json: async () => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'boom' } }) } as Response;
+      if (url.includes('/queries/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      return response({ data: [weblinkLead()], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />);
+    const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
+    await userEvent.click(eye);
+    expect(await screen.findByRole('dialog', { name: /Weblink View Analytics/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Could not load weblink analytics/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText('203.0.113.1')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Services column: icon-only badges with tooltip + accessible label
+// ---------------------------------------------------------------------------
+
+const servicesLead = {
+  ...enrichedLead,
+  services: [
+    { serviceType: 'HOTEL' },
+    { serviceType: 'SIGHTSEEING' },
+    { serviceType: 'CRUISE' },
+    { serviceType: 'VEHICLE_TRANSFER' },
+    { serviceType: 'FLIGHT' },
+    { serviceType: 'OTHER_ADD_ON' },
+    { serviceType: 'MYSTERY_SERVICE' },
+  ],
+};
+
+describe('Lead services column icons', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.delete',
+      'quotations.view',
+    ]);
+  });
+
+  const badgeFor = (label: string) => {
+    const badge = screen
+      .getAllByLabelText(label)
+      .find((el) => el.classList.contains('bg-slate-100'));
+    expect(badge).not.toBeNull();
+    return badge as HTMLElement;
+  };
+
+  it('renders an icon-only badge for every known service type', async () => {
+    stubLeadList([servicesLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+
+    expect(badgeFor('Hotel').querySelector('.lucide-hotel')).not.toBeNull();
+    expect(badgeFor('Sightseeing').querySelector('.lucide-binoculars')).not.toBeNull();
+    expect(badgeFor('Cruise').querySelector('.lucide-ship')).not.toBeNull();
+    expect(badgeFor('Vehicle Transfer').querySelector('.lucide-car-front')).not.toBeNull();
+    expect(badgeFor('Flight').querySelector('.lucide-plane')).not.toBeNull();
+    expect(badgeFor('Other Add On').querySelector('.lucide-package-plus')).not.toBeNull();
+  });
+
+  it('shows no visible service-name text inside the badges', async () => {
+    stubLeadList([servicesLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+
+    for (const label of ['Hotel', 'Sightseeing', 'Cruise', 'Vehicle Transfer', 'Flight', 'Other Add On', 'Mystery Service']) {
+      expect(badgeFor(label).textContent?.trim()).toBe('');
+    }
+  });
+
+  it('uses the generic fallback icon and a readable label for an unknown service', async () => {
+    stubLeadList([servicesLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    // labelForLookup converts MYSTERY_SERVICE to "Mystery Service".
+    const badge = badgeFor('Mystery Service');
+    expect(badge.querySelector('.lucide-package')).not.toBeNull();
+    expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    expect(badge).toHaveAttribute('title', 'Mystery Service');
+  });
+
+  it('exposes the service name through a tooltip and accessible label', async () => {
+    stubLeadList([servicesLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+
+    for (const label of ['Hotel', 'Flight', 'Cruise']) {
+      const badge = badgeFor(label);
+      expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+      expect(badge).toHaveAttribute('aria-label', label);
+      expect(badge).toHaveAttribute('title', label);
+    }
+  });
+
+  it('still renders the existing row actions alongside the icon badges', async () => {
+    stubLeadList([servicesLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByRole('link', { name: 'Convert to booking' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('link', { name: 'Follow-up' }).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lead actions: View Quotation removed, Delete Lead added
+// ---------------------------------------------------------------------------
+
+describe('Lead actions', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.delete',
+      'quotations.view',
+    ]);
+  });
+
+  it('does not render the View quotation action', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.queryByRole('link', { name: 'View quotation' })).not.toBeInTheDocument();
+  });
+
+  it('renders the Delete action only with the delete permission', async () => {
+    stubLeadList([enrichedLead]);
+    const first = renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByRole('button', { name: /Delete/ }).length).toBeGreaterThanOrEqual(1);
+
+    first.unmount();
+    authState.permissions = new Set(['queries.view', 'queries.update']);
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+  });
+
+  it('deletes (archives) the lead after confirmation', async () => {
+    const mock = stubLeadList([enrichedLead]);
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+
+    const deleteButton = screen.getAllByRole('button', { name: /Delete/ })[0]!;
+    await userEvent.click(deleteButton);
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(
+          ([url, options]) =>
+            String(url).endsWith(`/queries/${enrichedLead.id}`) && options?.method === 'DELETE',
+        ),
+      ).toBe(true),
+    );
   });
 });

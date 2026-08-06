@@ -1,6 +1,18 @@
 import zlib from 'node:zlib';
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { renderQuotationPdf } from '../src/modules/quotations/pdf.service.js';
+import {
+  PDF_BOTTOM_MARGIN,
+  PDF_FOOTER_HEIGHT,
+  PDF_MAX_CONTENT_HEIGHT,
+  PDF_MAX_PAGE_HEIGHT,
+  PDF_MIN_PAGE_HEIGHT,
+  PDF_PAGE_WIDTH,
+  PDF_POST_CONTENT_GAP,
+  PDF_TOP_MARGIN,
+  computePageHeight,
+  renderQuotationPdf,
+} from '../src/modules/quotations/pdf.service.js';
 import { renderBookingConfirmationPdf } from '../src/modules/bookings/booking-pdf.service.js';
 import {
   renderBookingInvoicePdf,
@@ -18,6 +30,42 @@ import {
 const isPdf = (buffer: Buffer) => buffer.subarray(0, 5).toString('latin1') === '%PDF-';
 const pageCount = (buffer: Buffer) =>
   (buffer.toString('latin1').match(/\/Type\s*\/Page(?![sR])/g) ?? []).length;
+
+/** Per-page physical dimensions from each /MediaBox. */
+const pageMediaBoxes = (buffer: Buffer): Array<{ width: number; height: number }> => {
+  const raw = buffer.toString('latin1');
+  const re = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/g;
+  const boxes: Array<{ width: number; height: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(raw))) {
+    boxes.push({ width: Number(match[1]), height: Number(match[2]) });
+  }
+  return boxes;
+};
+
+/** 1x1 PNG used to prove images (hero/logo) are embedded without crashing. */
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * Visible text extraction via poppler's pdftotext (the DejaVu fonts embed real
+ * ToUnicode maps, so this returns searchable text, unlike the raw extractor).
+ */
+function pdfText(buffer: Buffer): string {
+  return execFileSync('pdftotext', ['-layout', '-', '-'], {
+    input: buffer,
+    maxBuffer: 16 * 1024 * 1024,
+  }).toString('utf8');
+}
+
+function pdfTextPage(buffer: Buffer, page: number): string {
+  return execFileSync('pdftotext', ['-f', String(page), '-l', String(page), '-layout', '-', '-'], {
+    input: buffer,
+    maxBuffer: 16 * 1024 * 1024,
+  }).toString('utf8');
+}
 
 /**
  * Best-effort text search: include the raw bytes (pdfkit may leave content
@@ -53,6 +101,10 @@ const company = {
   website: 'https://interscale.example',
   address: LONG_ADDRESS,
   primaryColor: '#2563eb',
+  operatingSinceYear: 2015,
+  tripsSold: 550,
+  tan: 'ABC12345E',
+  taxRegistrationNumber: '29ABCDE1234F1Z5',
   logo: null,
 };
 const invoiceCompany = {
@@ -108,7 +160,12 @@ const invoiceBooking = {
 describe('PDF rendering with long content', () => {
   it('renders a multi-page quotation PDF with a long itinerary and terms', async () => {
     const pdf = await renderQuotationPdf({
-      company,
+      company: { ...company, logo: PNG_1PX },
+      consultant: {
+        name: 'Vivek Sharma',
+        phone: '+91 90000 00001',
+        email: 'vivek@interscale.example',
+      },
       quotation: {
         quotationNumber: 'QT-LONGDOC-0001',
         customerName: invoiceBooking.customerName,
@@ -124,6 +181,7 @@ describe('PDF rendering with long content', () => {
         rooms: 3,
         validUntil: new Date('2026-07-31'),
       },
+      images: { cover: PNG_1PX },
       version: {
         versionNumber: 1,
         title: 'Grand South India Discovery — 15 Nights',
@@ -135,7 +193,7 @@ describe('PDF rendering with long content', () => {
         perChildWithBedPrice: '30000.00',
         perChildWithoutBedPrice: '20000.00',
         perInfantPrice: '5000.00',
-        taxNote: 'Inclusive of GST',
+        taxNote: 'Inclusive of all taxes, excluding TCS',
         initialPaymentAmount: '50000.00',
         paymentLink: 'https://example.com/pay',
         inclusionsHtml: null,
@@ -227,6 +285,429 @@ describe('PDF rendering with long content', () => {
     expect(pageCount(pdf)).toBeGreaterThan(1);
     const text = extractText(pdf);
     expect(text).not.toMatch(/internal cost|vendor cost|supplier cost|gross profit|net profit/i);
+
+    // --- Populated page-1 content and repeating footer (visible text) ---------
+    const visible = pdfText(pdf);
+    const raw = pdf.toString('latin1');
+    const total = pageCount(pdf);
+
+    // Destination hero image is embedded as an image XObject.
+    expect(raw.match(/\/Subtype\s*\/Image/g)?.length ?? 0).toBeGreaterThan(0);
+    // Consultant strip values.
+    expect(visible).toContain('Consultant: Vivek Sharma');
+    expect(visible).toContain('Phone: +91 90000 00001');
+    expect(visible).toContain('Email: vivek@interscale.example');
+    // Package title is present (uppercased by the renderer).
+    expect(visible).toContain('GRAND SOUTH INDIA DISCOVERY');
+    // Tax note appears exactly once.
+    const taxMatches = visible.match(/Inclusive of all taxes, excluding TCS/g) ?? [];
+    expect(taxMatches).toHaveLength(1);
+    // Secure Your Booking block + Pay Now button.
+    expect(visible).toContain('Secure Your Booking');
+    expect(visible).toContain('Pay Now');
+    // The raw payment URL is a link annotation, never visible text.
+    expect(raw).toContain('/URI');
+    expect(visible).not.toContain('https://pay.example.com/secure');
+    // Footer columns on every physical page with the correct page counter.
+    for (let page = 1; page <= total; page += 1) {
+      const pageText = pdfTextPage(pdf, page);
+      expect(pageText).toContain('CONTACT US');
+      expect(pageText).toContain('OUR ACHIEVEMENTS');
+      expect(pageText).toContain('LEGAL INFO');
+      expect(pageText).toContain(`Page ${page}/${total}`);
+    }
+    // Contact / achievements / legal values.
+    expect(visible).toContain('Ph: +91 90000 00000');
+    expect(visible).toContain('Em: reservations@interscale.example');
+    expect(visible).toContain('550 Trips Sold');
+    expect(visible).toContain('Est: 2015');
+    expect(visible).toContain('TAN: ABC12345E');
+    expect(visible).toContain('GSTIN: 29ABCDE1234F1Z5');
+    // No junk values anywhere in the visible document.
+    expect(visible).not.toMatch(/\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/);
+
+    // Dynamic page heights: every page shares the width, is content-sized
+    // (within min/max), and pages are not all forced to one identical height.
+    const boxes = pageMediaBoxes(pdf);
+    expect(boxes).toHaveLength(total);
+    for (const box of boxes) {
+      expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
+      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+    }
+    const heights = boxes.map((b) => b.height);
+    expect(new Set(heights).size).toBeGreaterThan(1);
+    // No page may exceed the measured content budget by creating a phantom tall
+    // page; a tall page must be paired with proportionally taller content.
+    for (const box of boxes) {
+      expect(box.height).toBeLessThanOrEqual(
+        PDF_TOP_MARGIN + PDF_MAX_CONTENT_HEIGHT + PDF_POST_CONTENT_GAP + PDF_FOOTER_HEIGHT + PDF_BOTTOM_MARGIN + 1,
+      );
+    }
+  });
+
+  it('renders a quotation PDF with missing optional data without junk or broken blocks', async () => {
+    const pdf = await renderQuotationPdf({
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSinceYear: null,
+        tripsSold: null,
+        tan: null,
+        taxRegistrationNumber: null,
+        logo: null,
+      },
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: {
+        quotationNumber: 'QT-MIN-0001',
+        customerName: 'Mira Shah',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Kerala Escape',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '100',
+        notes: null,
+        perAdultPrice: '50',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    const total = pageCount(pdf);
+    // Consultant name renders; missing phone/email leave no empty labels.
+    expect(visible).toContain('Consultant: Only Name');
+    expect(visible).not.toMatch(/Phone:\s*$/m);
+    expect(visible).not.toMatch(/Email:\s*$/m);
+    // Contact Us keeps only the email line.
+    expect(visible).toContain('CONTACT US');
+    expect(visible).toContain('Em: hello@alpha.test');
+    expect(visible).not.toContain('Ph:');
+    expect(visible).not.toContain('Web:');
+    // Achievements / Legal headings still render with their values omitted.
+    expect(visible).toContain('OUR ACHIEVEMENTS');
+    expect(visible).not.toMatch(/Trips Sold/);
+    expect(visible).not.toMatch(/Est:/);
+    expect(visible).toContain('LEGAL INFO');
+    expect(visible).not.toMatch(/TAN:/);
+    expect(visible).not.toMatch(/GSTIN:/);
+    // Page number appears on every generated page.
+    for (let page = 1; page <= total; page += 1) {
+      expect(pdfTextPage(pdf, page)).toContain(`Page ${page}/${total}`);
+    }
+    // No junk values and no broken-image label.
+    expect(visible).not.toMatch(/\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/);
+    expect(visible).not.toMatch(/broken|image placeholder/i);
+  });
+
+  it('renders a minimal quotation with exactly the necessary pages', async () => {
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-MIN-0002',
+        customerName: 'Tiny Trip',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 1,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Goa Day Trip',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '5000',
+        notes: null,
+        perAdultPrice: '5000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    // Page 1 (summary) + final Thank You page; nothing extra.
+    const total = pageCount(pdf);
+    expect(total).toBe(2);
+    // No footer-only or blank page; every page carries the footer + counter.
+    for (let page = 1; page <= total; page += 1) {
+      const pageText = pdfTextPage(pdf, page);
+      expect(pageText).toContain('CONTACT US');
+      expect(pageText).toContain(`Page ${page}/${total}`);
+    }
+    // Both pages share the width and are content-sized.
+    const boxes = pageMediaBoxes(pdf);
+    expect(boxes).toHaveLength(total);
+    for (const box of boxes) {
+      expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
+      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+    }
+    // Thank You remains the final page.
+    expect(pdfTextPage(pdf, total)).toContain('THANK');
+  });
+
+  it('measures short and long content into different physical page heights', async () => {
+    // Short document: cover + thank-you only.
+    const short = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-SHORT-0001',
+        customerName: 'Short Trip',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 1,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Goa Day Trip',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '5000',
+        notes: null,
+        perAdultPrice: '5000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    // Long document: cover + flights + hotels + itinerary + add-ons + policies.
+    const long = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-LONG-0001',
+        customerName: 'Long Trip',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Singapore',
+        travelStartDate: new Date('2026-11-13'),
+        travelEndDate: new Date('2026-11-18'),
+        adults: 2,
+        childrenWithBed: 1,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Singapore Long Package',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '80000',
+        notes: null,
+        perAdultPrice: '35000',
+        perChildWithBedPrice: '10000',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: 'Inclusive of all taxes, excluding TCS',
+        initialPaymentAmount: '20000',
+        paymentLink: 'https://pay.example.com/secure',
+        inclusionsHtml: '<ul><li>Transfers</li><li>Breakfast</li></ul>',
+        exclusionsHtml: null,
+        paymentPolicies: '<p>Pay early.</p>',
+        cancellationPolicies: '<p>Cancellation applies.</p>',
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: {
+          include: true,
+          journeyType: 'ROUND_TRIP',
+          outbound: {
+            fromCity: 'Mumbai',
+            toCity: 'Singapore',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Singapore Airlines',
+                flightNumber: 'SQ423',
+                travelClass: 'Economy',
+                from: 'Mumbai',
+                to: 'Singapore',
+                departureDate: '2026-11-13',
+                departureTime: '02:05',
+                arrivalDate: '2026-11-13',
+                arrivalTime: '09:00',
+                duration: '4h 55m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '30kg',
+                notes: '<p>Long note that keeps growing. '.repeat(8) + '</p>',
+              },
+            ],
+          },
+          returnJourney: {
+            fromCity: 'Singapore',
+            toCity: 'Mumbai',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Singapore Airlines',
+                flightNumber: 'SQ422',
+                travelClass: 'Economy',
+                from: 'Singapore',
+                to: 'Mumbai',
+                departureDate: '2026-11-18',
+                departureTime: '10:00',
+                arrivalDate: '2026-11-18',
+                arrivalTime: '12:30',
+                duration: '5h 30m',
+                cabinLuggage: '7kg',
+                checkInLuggage: '30kg',
+                notes: null,
+              },
+            ],
+          },
+        },
+        sightseeingDetails: null,
+        hotels: [{ city: 'Singapore', hotelName: 'Marina Bay Sands', category: '5 Star', roomType: 'Deluxe', mealPlan: 'BB', nights: 5, selected: true, notes: null }],
+        itinerary: [],
+        services: [{ serviceType: 'TRAVEL_INSURANCE', name: 'Travel Insurance', description: '<p>Coverage for the whole trip.</p>', city: null, quantity: '1', unitSellingPrice: '3000' }],
+        inclusions: [{ content: 'Transfers' }],
+        exclusions: [],
+        terms: [{ content: 'Standard terms apply.' }],
+      },
+    });
+    const shortBoxes = pageMediaBoxes(short);
+    const longBoxes = pageMediaBoxes(long);
+    expect(shortBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
+    expect(longBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
+    for (const box of [...shortBoxes, ...longBoxes]) {
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
+      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+    }
+    // The populated document contains a page taller than the short document's
+    // tallest page (short pages are physically shorter).
+    const shortTallest = Math.max(...shortBoxes.map((b) => b.height));
+    const longTallest = Math.max(...longBoxes.map((b) => b.height));
+    expect(longTallest).toBeGreaterThan(shortTallest);
+    // The long outbound flight card (long notes) grows taller than the return
+    // card (no notes): the outbound page is taller than the return page.
+    const outboundH = longBoxes[1]?.height ?? 0;
+    const returnH = longBoxes[2]?.height ?? 0;
+    expect(outboundH).toBeGreaterThan(returnH);
+  });
+
+  it('uses a consistent post-content gap in the page-height formula', () => {
+    for (const contentHeight of [120, 260, 400, 600]) {
+      const layout = computePageHeight(contentHeight);
+      expect(layout.footerTop - layout.contentBottom).toBeCloseTo(PDF_POST_CONTENT_GAP, 4);
+      expect(layout.pageHeight).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT);
+      expect(layout.pageHeight).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+    }
+    // Below the minimum the page stays at the minimum while the gap holds.
+    const small = computePageHeight(80);
+    expect(small.footerTop - small.contentBottom).toBeCloseTo(PDF_POST_CONTENT_GAP, 4);
+    expect(small.pageHeight).toBe(PDF_MIN_PAGE_HEIGHT);
   });
 
   it('renders a multi-page booking confirmation with many travellers and services', async () => {

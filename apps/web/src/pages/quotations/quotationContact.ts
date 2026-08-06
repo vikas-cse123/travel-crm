@@ -11,6 +11,26 @@ export function displayQuotationId(value: string | null | undefined): string {
 }
 
 /**
+ * Customer-facing public weblink quotation ID: the `QT-` prefix and padding
+ * zeroes are removed and exactly one `#` is added. The stored value is never
+ * changed — this is presentation only.
+ *
+ * @example
+ * formatPublicQuotationNumber('QT-001032') // '#1032'
+ * formatPublicQuotationNumber('QT-1032')   // '#1032'
+ * formatPublicQuotationNumber('1032')      // '#1032'
+ * formatPublicQuotationNumber('#1032')     // '#1032'
+ */
+export function formatPublicQuotationNumber(value: string | null | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return '';
+  const cleaned = raw.replace(/^#/, '');
+  const digits = cleaned.replace(/^[A-Za-z]+-?/, '').replace(/^0+/, '');
+  if (/^\d+$/.test(digits) && digits !== '') return `#${digits}`;
+  return cleaned ? `#${cleaned}` : '';
+}
+
+/**
  * Build the shared "ID - Title for Name" description used by the WhatsApp and
  * Email prefills. Missing values are dropped cleanly, never shown as
  * "undefined"/"null", empty parentheses, duplicate spaces, dangling hyphens or

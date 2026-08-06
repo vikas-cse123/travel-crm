@@ -22,6 +22,9 @@
          host: '0.0.0.0',
         port: 5173,
         strictPort: true,
+          allowedHosts: [
+    'sandy-humbled-sherrie.ngrok-free.dev',
+  ],
         proxy: {
           // Same-origin in dev keeps the session cookie first-party.
           '/api': {
@@ -38,6 +41,7 @@
           },
         },
       },
+
       preview: { port: 5173 },
       build: {
         outDir: 'dist',

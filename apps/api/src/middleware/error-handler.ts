@@ -70,6 +70,7 @@ export function errorHandler(
     logger[logAt]({ requestId, code: error.code, err: error }, error.message);
     sendError(res, error.statusCode, error.code, error.message, {
       ...(error.fields ? { fields: error.fields } : {}),
+      ...(error.details !== undefined ? { details: error.details } : {}),
       requestId,
     });
     return;

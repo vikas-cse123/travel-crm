@@ -13,7 +13,7 @@ export function sendError(
   statusCode: number,
   code: ErrorCode,
   message: string,
-  options: { fields?: FieldErrors; requestId?: string } = {},
+  options: { fields?: FieldErrors; details?: unknown; requestId?: string } = {},
 ): void {
   const body: ApiFailure = {
     success: false,
@@ -21,6 +21,7 @@ export function sendError(
       code,
       message,
       ...(options.fields ? { fields: options.fields } : {}),
+      ...(options.details !== undefined ? { details: options.details } : {}),
       ...(options.requestId ? { requestId: options.requestId } : {}),
     },
   };

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import {
   flightDetailsSchema,
@@ -37,6 +37,38 @@ import { recalculateCustomerMetrics } from '../customers/customers.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
+
+/**
+ * Normalize a client IP for weblink analytics. IPv4-mapped IPv6 is unwrapped
+ * (::ffff:a.b.c.d → a.b.c.d), whitespace is trimmed, and an unresolvable value
+ * falls back to a safe internal sentinel so the aggregate row always has a key.
+ */
+export function normalizeWeblinkIp(value: string | null | undefined): string {
+  const raw = (value ?? '').trim();
+  if (!raw) return '0.0.0.0';
+  if (raw.startsWith('::ffff:')) return raw.slice(7);
+  return raw;
+}
+
+/** One row in the weblink analytics response. */
+export interface WeblinkAnalyticsEntry {
+  ipAddress: string;
+  type: 'HOME' | 'EXTERNAL';
+  views: number;
+  firstViewedAt: string;
+  lastViewedAt: string;
+}
+
+export interface WeblinkAnalytics {
+  totalViews: number;
+  externalViews: number;
+  homeIpViews: number;
+  uniqueIps: number;
+  entries: WeblinkAnalyticsEntry[];
+}
+
+/** Deterministic upper bound on IP rows returned in the analytics modal. */
+const WEBLINK_ANALYTICS_ROW_LIMIT = 200;
 export const versionInclude = {
   createdBy: { select: userSelect },
   itinerary: { orderBy: { sequence: 'asc' as const } },
@@ -481,23 +513,27 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
 }
 
 /**
- * Finds a Destination master (with a confirmed image) that matches any of this
- * quote's places, and returns a short-lived signed URL for its image. Used as
- * the customer weblink hero. Returns null when nothing matches.
+ * Finds a Destination master (with a confirmed image) that matches any of the
+ * quote's places. Ordered: destination-summary parts first, then itinerary
+ * destinations in sequence, so the first matching destination wins. Shared by
+ * the customer weblink hero (signed URL) and the PDF (raw bytes via storage).
+ * Returns null when nothing matches.
  */
-async function resolveDestinationHeroImage(
+async function findDestinationImageRecord(
   companyId: string,
   destinationSummary: string,
   itineraryDestinations: string[],
-): Promise<string | null> {
-  const candidates = new Set<string>();
+): Promise<{ imageObjectKey: string; imageFileName: string | null } | null> {
+  const orderedCandidates: string[] = [];
   const add = (value: string | null | undefined) => {
-    for (const part of (value ?? '').split(/[•,>/→|-]+/))
-      if (part.trim()) candidates.add(part.trim().toLowerCase());
+    for (const part of (value ?? '').split(/[•,>/→|-]+/)) {
+      const trimmed = part.trim().toLowerCase();
+      if (trimmed) orderedCandidates.push(trimmed);
+    }
   };
   add(destinationSummary);
   itineraryDestinations.forEach(add);
-  if (!candidates.size) return null;
+  if (!orderedCandidates.length) return null;
   const destinations = await prisma.destination.findMany({
     where: {
       companyId,
@@ -507,17 +543,43 @@ async function resolveDestinationHeroImage(
     },
     select: { name: true, normalizedName: true, imageObjectKey: true, imageFileName: true },
   });
-  const match =
-    destinations.find(
+  // Exact matches first, in order of appearance in the quotation data.
+  for (const candidate of orderedCandidates) {
+    const exact = destinations.find(
       (row) =>
-        candidates.has(row.name.trim().toLowerCase()) ||
-        candidates.has(row.normalizedName.trim().toLowerCase()),
-    ) ??
-    destinations.find((row) => {
+        row.name.trim().toLowerCase() === candidate ||
+        row.normalizedName.trim().toLowerCase() === candidate,
+    );
+    if (exact?.imageObjectKey) {
+      return { imageObjectKey: exact.imageObjectKey, imageFileName: exact.imageFileName };
+    }
+  }
+  // Fuzzy fallback (no loose substring guessing when a direct match exists).
+  for (const candidate of orderedCandidates) {
+    if (candidate.length <= 2) continue;
+    const fuzzy = destinations.find((row) => {
       const name = row.name.trim().toLowerCase();
-      return name.length > 2 && [...candidates].some((c) => c.includes(name) || name.includes(c));
+      return name.includes(candidate) || candidate.includes(name);
     });
-  if (!match?.imageObjectKey) return null;
+    if (fuzzy?.imageObjectKey) {
+      return { imageObjectKey: fuzzy.imageObjectKey, imageFileName: fuzzy.imageFileName };
+    }
+  }
+  return null;
+}
+
+/** Signed weblink hero URL; null when no destination image matches. */
+async function resolveDestinationHeroImage(
+  companyId: string,
+  destinationSummary: string,
+  itineraryDestinations: string[],
+): Promise<string | null> {
+  const match = await findDestinationImageRecord(
+    companyId,
+    destinationSummary,
+    itineraryDestinations,
+  );
+  if (!match) return null;
   try {
     return await storageService.createDownloadUrl(
       match.imageObjectKey,
@@ -526,6 +588,36 @@ async function resolveDestinationHeroImage(
   } catch {
     return null;
   }
+}
+
+/**
+ * Page-1 consultant data for the quotation PDF. Precedence: quotation
+ * prepared-by (creator) → linked lead assignee → company contact fallback.
+ * All lookups are tenant-scoped; missing values resolve to null so the renderer
+ * omits them cleanly.
+ */
+async function resolvePdfConsultant(
+  companyId: string,
+  quotation: FullQuotation,
+  companyContact: { phone: string | null; email: string },
+): Promise<{ name: string | null; phone: string | null; email: string | null }> {
+  const userIds = [quotation.createdById, quotation.query?.assignedToId].filter(
+    (id): id is string => Boolean(id),
+  );
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds }, companyId, deletedAt: null },
+        select: { id: true, fullName: true, phone: true, email: true },
+      })
+    : [];
+  const byId = new Map(users.map((user) => [user.id, user]));
+  const creator = byId.get(quotation.createdById);
+  const assignee = quotation.query?.assignedToId ? byId.get(quotation.query.assignedToId) : null;
+  return {
+    name: creator?.fullName ?? assignee?.fullName ?? null,
+    phone: creator?.phone ?? assignee?.phone ?? companyContact.phone ?? null,
+    email: creator?.email ?? assignee?.email ?? companyContact.email,
+  };
 }
 
 /** Customer-safe hotel catalogue details used by the public quotation cards. */
@@ -1151,6 +1243,11 @@ export const quotationsService = {
     };
     const created = await prisma.$transaction(async (tx) => {
       const quotationNumber = await nextCompanyNumber(tx, auth.companyId, 'quotation');
+      // A public weblink is provisioned as part of quotation creation: the link
+      // and the quotation are one workflow, so the Leads Weblink column never
+      // needs a manual Create action. The token is stored raw (for URL
+      // reconstruction) and hashed (for secure lookup) in the same write.
+      const token = generateSecureToken(32);
       const quotation = await tx.quotation.create({
         data: {
           companyId: auth.companyId,
@@ -1172,12 +1269,15 @@ export const quotationsService = {
           rooms: input.rooms ?? lead.rooms,
           currency: input.currency ?? lead.currency,
           validUntil: input.validUntil ?? null,
+          publicToken: token,
+          publicTokenHash: hashToken(token),
+          publicTokenExpiresAt: input.validUntil ?? null,
         },
       });
       const initial = await createVersion(tx, auth, quotation.id, version, 1, costing, quotation);
       await tx.quotation.update({
         where: { id: quotation.id },
-        data: { currentVersionId: initial.id },
+        data: { currentVersionId: initial.id, publicVersionId: initial.id },
       });
       if (input.templateId)
         await tx.quotationTemplate.update({
@@ -1466,8 +1566,12 @@ export const quotationsService = {
         data: { status: 'FAILED' },
       });
     }
-    // Customer-facing branding only (logo + colour + contact); no bank details.
+    // Customer-facing branding (logo + colour + contact + footer data).
     const branding = await loadCompanyBranding(auth.companyId);
+    const profile = await prisma.company.findUniqueOrThrow({
+      where: { id: auth.companyId },
+      select: { operatingSinceYear: true, tripsSold: true, tan: true },
+    });
     const company = {
       name: branding.name,
       email: branding.email,
@@ -1475,8 +1579,14 @@ export const quotationsService = {
       website: branding.website,
       address: branding.address,
       primaryColor: branding.primaryColor,
+      operatingSinceYear: profile.operatingSinceYear,
+      tripsSold: profile.tripsSold,
+      tan: profile.tan,
+      taxRegistrationNumber: branding.taxRegistrationNumber,
       logo: branding.logo,
     };
+    // Page-1 consultant strip: prepared-by/creator → lead assignee → company.
+    const consultant = await resolvePdfConsultant(auth.companyId, quotation, company);
 
     // --- PDF image resolution: server-side buffers, never signed URLs ----------
     let images: QuotationPdfInput['images'] | undefined;
@@ -1496,23 +1606,16 @@ export const quotationsService = {
         }
       };
 
-      // Destination cover
+      // Destination hero image: first matching destination in the quotation's
+      // ordered destination/itinerary data (bytes fetched via the shared cache).
       let coverImage: Buffer | null = null;
-      const places = quotation.destinationSummary
-        .split(/[,•→>\\-|/]/)
-        .map((s: string) => s.trim().toLowerCase())
-        .filter(Boolean);
-      const destMatch = await prisma.destination.findFirst({
-        where: {
-          companyId: auth.companyId,
-          normalizedName: { in: places },
-          imageObjectKey: { not: null },
-          imageConfirmedAt: { not: null },
-        },
-        select: { imageObjectKey: true },
-      });
-      if (destMatch?.imageObjectKey) {
-        coverImage = await fetchImage(destMatch.imageObjectKey);
+      const destRecord = await findDestinationImageRecord(
+        auth.companyId,
+        quotation.destinationSummary,
+        version.itinerary.map((day) => day.destination),
+      );
+      if (destRecord) {
+        coverImage = await fetchImage(destRecord.imageObjectKey);
       }
 
       // Hotel images
@@ -1591,11 +1694,37 @@ export const quotationsService = {
         return masterId ? (serviceImageMap.get(masterId) ?? null) : null;
       });
 
+      // Airline logos: resolve from the flight segment airline IDs (stored on
+      // the quotation-version flight snapshot), fetched via the shared cache.
+      const airlineImageMap = new Map<string, Buffer | null>();
+      const fd = version.flightDetails as
+        | { include?: boolean; outbound?: { segments?: Array<{ airlineId?: string | null }> }; returnJourney?: { segments?: Array<{ airlineId?: string | null }> } }
+        | null
+        | undefined;
+      const airlineIds = [
+        ...(fd?.outbound?.segments ?? []),
+        ...(fd?.returnJourney?.segments ?? []),
+      ]
+        .map((s) => s.airlineId)
+        .filter((id): id is string => Boolean(id));
+      const uniqueAirlineIds = [...new Set(airlineIds)];
+      if (uniqueAirlineIds.length) {
+        const airlineMasters = await prisma.airline.findMany({
+          where: { companyId: auth.companyId, id: { in: uniqueAirlineIds }, logoObjectKey: { not: null }, logoConfirmedAt: { not: null } },
+          select: { id: true, logoObjectKey: true },
+        });
+        for (const a of airlineMasters) {
+          airlineImageMap.set(a.id, await fetchImage(a.logoObjectKey));
+        }
+      }
+      const airlineImages = Object.fromEntries(airlineImageMap);
+
       images = {
         cover: coverImage,
         hotels: hotelImages,
         services: serviceImages,
         sightseeing: sightseeingImages,
+        airlines: airlineImages,
       };
     } catch {
       // Image resolution is best-effort; never block PDF generation.
@@ -1603,10 +1732,12 @@ export const quotationsService = {
     }
 
     const pdf = await renderQuotationPdf(
-      images ? { company, quotation, version, images } : { company, quotation, version },
+      images
+        ? { company, consultant, quotation, version, images }
+        : { company, consultant, quotation, version },
     );
     const checksum = createHash('sha256').update(pdf).digest('hex');
-    const documentId = crypto.randomUUID();
+    const documentId = randomUUID();
     // Meaningful filename: <quotation-number>-<customer-slug>-v<version>-quotation.pdf.
     const customerSlug = quotation.customerName
       .toLowerCase()
@@ -1695,6 +1826,50 @@ export const quotationsService = {
     };
   },
 
+  /** Aggregated weblink view analytics for one quotation (tenant-scoped). */
+  async weblinkAnalytics(auth: AuthContext, id: string): Promise<WeblinkAnalytics> {
+    await getQuotation(auth, id);
+    const [rows, totals] = await Promise.all([
+      prisma.quotationWeblinkView.findMany({
+        where: { companyId: auth.companyId, quotationId: id },
+        orderBy: [{ lastViewedAt: 'desc' }, { ipAddress: 'asc' }],
+        take: WEBLINK_ANALYTICS_ROW_LIMIT,
+        select: {
+          ipAddress: true,
+          type: true,
+          viewCount: true,
+          firstViewedAt: true,
+          lastViewedAt: true,
+        },
+      }),
+      prisma.quotationWeblinkView.aggregate({
+        where: { companyId: auth.companyId, quotationId: id },
+        _sum: { viewCount: true },
+        _count: { _all: true },
+      }),
+    ]);
+    const byType = await prisma.quotationWeblinkView.groupBy({
+      by: ['type'],
+      where: { companyId: auth.companyId, quotationId: id },
+      _sum: { viewCount: true },
+    });
+    const sumFor = (type: 'HOME' | 'EXTERNAL') =>
+      byType.find((row) => row.type === type)?._sum.viewCount ?? 0;
+    return {
+      totalViews: totals._sum.viewCount ?? 0,
+      externalViews: sumFor('EXTERNAL'),
+      homeIpViews: sumFor('HOME'),
+      uniqueIps: totals._count._all,
+      entries: rows.map((row) => ({
+        ipAddress: row.ipAddress,
+        type: row.type === 'HOME' ? 'HOME' : 'EXTERNAL',
+        views: row.viewCount,
+        firstViewedAt: row.firstViewedAt.toISOString(),
+        lastViewedAt: row.lastViewedAt.toISOString(),
+      })),
+    };
+  },
+
   async requestUpload(
     auth: AuthContext,
     id: string,
@@ -1729,7 +1904,7 @@ export const quotationsService = {
     if (existingAttachments >= 20)
       throw new ValidationError('A quotation may contain at most 20 attachments.');
     if (input.quotationVersionId) await getVersion(auth, id, input.quotationVersionId);
-    const documentId = crypto.randomUUID();
+    const documentId = randomUUID();
     const fileName = sanitizeFileName(input.fileName);
     const versionId = input.quotationVersionId ?? null;
     const objectKey = quotationObjectKey({
@@ -1846,11 +2021,25 @@ export const quotationsService = {
         quotation.versions[0]);
     if (!selected || selected.status === 'DRAFT')
       throw new ConflictError('A finalized version is required for a public link.');
+    // Idempotent: an existing, unexpired active link for this quotation is
+    // returned as-is so repeated clicks never reset analytics or the token.
+    if (
+      quotation.publicToken &&
+      (!quotation.publicTokenExpiresAt || quotation.publicTokenExpiresAt >= new Date())
+    ) {
+      return {
+        url: `${env.WEB_URL}/q/${quotation.publicToken}`,
+        expiresAt: quotation.publicTokenExpiresAt,
+        versionId: quotation.publicVersionId ?? selected.id,
+        reused: true,
+      };
+    }
     const token = generateSecureToken(32);
     await prisma.$transaction([
       prisma.quotation.update({
         where: { id },
         data: {
+          publicToken: token,
           publicTokenHash: hashToken(token),
           publicTokenExpiresAt: expiresAt ?? quotation.validUntil,
           publicVersionId: selected.id,
@@ -1867,6 +2056,7 @@ export const quotationsService = {
       url: `${env.WEB_URL}/q/${token}`,
       expiresAt: expiresAt ?? quotation.validUntil,
       versionId: selected.id,
+      reused: false,
     };
   },
 
@@ -1875,7 +2065,12 @@ export const quotationsService = {
     await prisma.$transaction([
       prisma.quotation.update({
         where: { id },
-        data: { publicTokenHash: null, publicTokenExpiresAt: null, publicVersionId: null },
+        data: {
+          publicToken: null,
+          publicTokenHash: null,
+          publicTokenExpiresAt: null,
+          publicVersionId: null,
+        },
       }),
       prisma.activityLog.create({
         data: quotationAudit(auth, 'QUOTATION_PUBLIC_LINK_REVOKED', 'Quotation', id, context),
@@ -2013,7 +2208,10 @@ export const quotationsService = {
     });
   },
 
-  async publicView(token: string, userAgent?: string) {
+  async publicView(
+    token: string,
+    options?: { userAgent?: string; ip?: string | null; authCompanyId?: string | null },
+  ) {
     const quotation = await prisma.quotation.findFirst({
       where: { publicTokenHash: hashToken(token), deletedAt: null },
       include: {
@@ -2047,7 +2245,7 @@ export const quotationsService = {
       quotation.versions.find((row) => row.id === quotation.currentVersionId);
     if (!version || version.status === 'DRAFT')
       throw new NotFoundError('Quotation version not available.');
-    const likelyBot = /bot|crawler|spider|preview|headless|health/i.test(userAgent ?? '');
+    const likelyBot = /bot|crawler|spider|preview|headless|health/i.test(options?.userAgent ?? '');
     if (!likelyBot) {
       const now = new Date();
       await prisma.$transaction([
@@ -2073,6 +2271,30 @@ export const quotationsService = {
             ]
           : []),
       ]);
+      // Record an aggregated weblink view for this successful public load. A
+      // same-tenant authenticated session is classified as HOME; every other
+      // valid visitor is EXTERNAL. Atomic upsert: one row per quotation+IP.
+      await prisma.quotationWeblinkView.upsert({
+        where: {
+          quotationId_ipAddress: {
+            quotationId: quotation.id,
+            ipAddress: normalizeWeblinkIp(options?.ip),
+          },
+        },
+        create: {
+          companyId: quotation.companyId,
+          quotationId: quotation.id,
+          ipAddress: normalizeWeblinkIp(options?.ip),
+          type: options?.authCompanyId === quotation.companyId ? 'HOME' : 'EXTERNAL',
+          viewCount: 1,
+          firstViewedAt: now,
+          lastViewedAt: now,
+        },
+        update: {
+          viewCount: { increment: 1 },
+          lastViewedAt: now,
+        },
+      });
     }
     const document = quotation.documents.find(
       (row) =>

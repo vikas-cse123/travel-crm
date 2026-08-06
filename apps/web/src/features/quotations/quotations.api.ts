@@ -509,6 +509,33 @@ export function useSendQuotation(id: string) {
   });
 }
 
+/** Public weblink analytics for a quotation (authenticated, tenant-scoped). */
+export interface WeblinkAnalyticsEntry {
+  ipAddress: string;
+  type: 'HOME' | 'EXTERNAL';
+  views: number;
+  firstViewedAt: string;
+  lastViewedAt: string;
+}
+export interface WeblinkAnalytics {
+  totalViews: number;
+  externalViews: number;
+  homeIpViews: number;
+  uniqueIps: number;
+  entries: WeblinkAnalyticsEntry[];
+}
+
+/** Fetch weblink analytics for a quotation. */
+export function useQuotationWeblinkAnalytics(quotationId: string | null) {
+  return useQuery({
+    queryKey: ['quotations', quotationId, 'weblink-analytics'],
+    queryFn: ({ signal }) =>
+      apiClient.get<WeblinkAnalytics>(`/quotations/${quotationId}/weblink-analytics`, signal),
+    enabled: Boolean(quotationId),
+    retry: false,
+  });
+}
+
 export async function uploadQuotationAttachment(quotationId: string, file: File) {
   const approved = await apiClient.post<{
     documentId: string;

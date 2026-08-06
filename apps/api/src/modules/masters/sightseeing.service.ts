@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  ERROR_CODES,
   PERMISSIONS,
   type SightseeingImageUploadInput,
   type SightseeingInput,
@@ -19,7 +20,12 @@ import {
   resolvePagination,
   toPrismaPagination,
 } from '../../utils/pagination.js';
-import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import {
+  ConflictDetailsError,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
@@ -295,6 +301,43 @@ export const sightseeingService = {
 
   async create(auth: AuthContext, input: SightseeingInput, context: MastersRequestContext) {
     await validateDestinationCity(auth.companyId, input.destinationId, input.cityId);
+    // If an archived record with the same unique identity exists, surface a
+    // structured error so the create form can offer a restore flow instead of
+    // the generic "already exists" message.
+    const normalizedTitle = normalizeCustomerName(input.title);
+    const archivedDuplicate = await prisma.sightseeing.findFirst({
+      where: {
+        companyId: auth.companyId,
+        cityId: input.cityId,
+        normalizedTitle,
+        status: 'ARCHIVED',
+      },
+      select: {
+        id: true,
+        title: true,
+        destinationId: true,
+        cityId: true,
+        status: true,
+        destination: { select: { name: true } },
+        city: { select: { name: true } },
+      },
+    });
+    if (archivedDuplicate) {
+      throw new ConflictDetailsError(
+        ERROR_CODES.SIGHTSEEING_ARCHIVED_DUPLICATE,
+        'A sightseeing with that title already exists in this city but is archived. Restore the existing sightseeing instead of creating a duplicate.',
+        {
+          sightseeingId: archivedDuplicate.id,
+          title: archivedDuplicate.title,
+          destinationId: archivedDuplicate.destinationId,
+          cityId: archivedDuplicate.cityId,
+          destinationName: archivedDuplicate.destination.name,
+          cityName: archivedDuplicate.city.name,
+          status: archivedDuplicate.status,
+          canRestore: true,
+        },
+      );
+    }
     try {
       const row = await prisma.$transaction(async (tx) => {
         // A fresh record gets the next sequence in its city group unless an
@@ -319,8 +362,9 @@ export const sightseeingService = {
             destinationId: input.destinationId,
             cityId: input.cityId,
             title: input.title.trim(),
-            normalizedTitle: normalizeCustomerName(input.title),
+            normalizedTitle,
             status: input.status,
+            deletedAt: input.status === 'ARCHIVED' ? new Date() : null,
             createdById: auth.userId,
             sequence,
             ...writeData({ ...input, sequence }),
@@ -441,6 +485,25 @@ export const sightseeingService = {
     context: MastersRequestContext,
   ) {
     const current = await getSightseeing(auth, sightseeingId, true);
+    // Restoring an archived record: verify a current ACTIVE/INACTIVE record has
+    // not since claimed the same unique identity (company + city + title).
+    if (current.status === 'ARCHIVED' && status !== 'ARCHIVED') {
+      const conflict = await prisma.sightseeing.findFirst({
+        where: {
+          companyId: auth.companyId,
+          cityId: current.cityId,
+          normalizedTitle: current.normalizedTitle,
+          status: { in: ['ACTIVE', 'INACTIVE'] },
+          deletedAt: null,
+          id: { not: current.id },
+        },
+        select: { id: true },
+      });
+      if (conflict)
+        throw new ConflictError(
+          'Another sightseeing with this title already exists in this city. The archived record cannot be restored.',
+        );
+    }
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.sightseeing.update({
         where: { id: current.id },

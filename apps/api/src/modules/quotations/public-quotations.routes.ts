@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { publicAcceptSchema, publicRejectSchema } from '@interscale/shared';
 import { asyncHandler } from '../../utils/async-handler.js';
 import { validateRequest } from '../../middleware/validate-request.js';
+import { optionalAuth } from '../../middleware/authenticate.js';
 import { publicQuotationLimiter } from '../../middleware/rate-limiters.js';
 import { sendSuccess } from '../../utils/api-response.js';
 import { quotationsService } from './quotations.service.js';
@@ -12,9 +13,17 @@ const token = z.object({ token: z.string().min(32).max(200) });
 router.use(publicQuotationLimiter);
 router.get(
   '/:token',
+  optionalAuth,
   validateRequest({ params: token }),
   asyncHandler(async (req, res) =>
-    sendSuccess(res, await quotationsService.publicView(req.params.token!, req.get('user-agent'))),
+    sendSuccess(
+      res,
+      await quotationsService.publicView(req.params.token!, {
+        userAgent: req.get('user-agent'),
+        ip: req.ip ?? null,
+        authCompanyId: req.auth?.companyId ?? null,
+      }),
+    ),
   ),
 );
 router.post(

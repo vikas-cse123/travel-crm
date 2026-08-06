@@ -111,6 +111,11 @@ describe('Create Booking from Lead', () => {
       include: { customer: true },
     });
     expect(booking.customerId).not.toBeNull();
+    // The customer is linked back to the source lead and the selected quotation.
+    const linkedLead = await db.query.findUniqueOrThrow({ where: { id: lead.id } });
+    expect(linkedLead.customerId).toBe(booking.customerId);
+    const linkedQuotation = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    expect(linkedQuotation.customerId).toBe(booking.customerId);
     // Imported hotel service snapshot from the finalized version.
     expect(await db.bookingService.count({ where: { bookingId: booking.id } })).toBeGreaterThan(0);
     // A booking reminder was created.
@@ -207,6 +212,300 @@ describe('Create Booking from Lead', () => {
     const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
     expect(response.status).toBe(409);
     expect(await db.customer.count()).toBe(before);
+  });
+
+  it('exposes the normalized duration window in the preview', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const preview = await client.get(
+      `/api/bookings/from-lead/preview?leadId=${lead.id}&quotationId=${quotation.id}`,
+    );
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.duration).toEqual({
+      travelStart: '2026-10-10',
+      travelEnd: '2026-10-14',
+      totalNights: 4,
+      totalDays: 5,
+      durationLabel: '4 Nights / 5 Days',
+    });
+    expect(preview.body.data.customerState).toBeNull();
+  });
+
+  it('resolves duration from version stay-night allocations when dates are incomplete', async () => {
+    const client = await owner();
+    const company = await db.company.findFirstOrThrow({ select: { id: true } });
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const version = quotation.versions[0];
+    // Only a start date exists; the stay-night allocation carries the length.
+    await db.quotationVersion.update({
+      where: { id: version.id },
+      data: { travelEndDate: null },
+    });
+    await db.quotation.update({
+      where: { id: quotation.id },
+      data: { travelEndDate: null },
+    });
+    await db.quotationVersionHotelOption.create({
+      data: {
+        companyId: company.id,
+        quotationVersionId: version.id,
+        city: 'Goa',
+        hotelName: 'Test Hotel',
+        nights: 5,
+        checkInDate: new Date('2026-10-10T00:00:00.000Z'),
+        checkOutDate: new Date('2026-10-15T00:00:00.000Z'),
+        internalCost: 0,
+        sellingPrice: 0,
+        selected: true,
+        sequence: 1,
+      },
+    });
+    await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+    const preview = await client.get(
+      `/api/bookings/from-lead/preview?leadId=${lead.id}&quotationId=${quotation.id}`,
+    );
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.duration).toEqual({
+      travelStart: '2026-10-10',
+      travelEnd: '2026-10-15',
+      totalNights: 5,
+      totalDays: 6,
+      durationLabel: '5 Nights / 6 Days',
+    });
+  });
+
+  it('uses reviewed customer overrides from the create request', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'Aarav Mehta Edited',
+        phone: '+91 90000 00001',
+        email: 'edited@example.test',
+      },
+    }));
+    expect(response.status).toBe(201);
+    const customer = await db.customer.findFirstOrThrow({
+      where: { id: response.body.data.customerId },
+    });
+    expect(customer.displayName).toBe('Aarav Mehta Edited');
+    expect(customer.primaryPhone).toBe('+91 90000 00001');
+    expect(customer.email).toBe('edited@example.test');
+    // The booking reflects the reviewed customer details, not the lead's.
+    expect(response.body.data).toMatchObject({
+      customerName: 'Aarav Mehta Edited',
+      customerPhone: '+91 90000 00001',
+      customerEmail: 'edited@example.test',
+    });
+  });
+
+  it('persists the selected state on the newly created customer address', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'Stateful Customer',
+        phone: '+91 90000 00004',
+        email: null,
+        state: 'Karnataka',
+      },
+    }));
+    expect(response.status).toBe(201);
+    const customer = await db.customer.findFirstOrThrow({
+      where: { id: response.body.data.customerId },
+      include: { addresses: { where: { deletedAt: null } } },
+    });
+    expect(customer.addresses).toHaveLength(1);
+    expect(customer.addresses[0]).toMatchObject({
+      state: 'Karnataka',
+      isPrimary: true,
+    });
+  });
+
+  it('does not persist a state when none is supplied', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'No State Customer',
+        phone: '+91 90000 00005',
+      },
+    }));
+    expect(response.status).toBe(201);
+    const customer = await db.customer.findFirstOrThrow({
+      where: { id: response.body.data.customerId },
+      include: { addresses: { where: { deletedAt: null } } },
+    });
+    expect(customer.addresses).toHaveLength(0);
+  });
+
+  it('does not overwrite an existing customer state from the new-customer form', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const company = await db.company.findFirstOrThrow({
+      select: { id: true, users: { take: 1, select: { id: true } } },
+    });
+    const customer = await db.customer.create({
+      data: {
+        companyId: company.id,
+        customerNumber: 'CUS-000012',
+        displayName: 'Existing Stateful',
+        normalizedName: 'existing stateful',
+        primaryPhone: '+91 90000 00006',
+        normalizedPhone: '+919000000006',
+        createdById: company.users[0]!.id,
+      },
+    });
+    await db.customerAddress.create({
+      data: {
+        companyId: company.id,
+        customerId: customer.id,
+        type: 'HOME',
+        line1: 'Line 1',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        country: 'India',
+        isPrimary: true,
+      },
+    });
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'Existing Stateful',
+        phone: '+91 90000 00006',
+        state: null,
+      },
+    }));
+    expect(response.status).toBe(201);
+    expect(await db.customer.count()).toBe(1);
+    const after = await db.customerAddress.findFirstOrThrow({
+      where: { customerId: customer.id, deletedAt: null },
+    });
+    expect(after.state).toBe('Karnataka');
+  });
+
+  it('prefills customerState from the matched customer primary address', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const company = await db.company.findFirstOrThrow({
+      select: { id: true, users: { take: 1, select: { id: true } } },
+    });
+    const customer = await db.customer.create({
+      data: {
+        companyId: company.id,
+        customerNumber: 'CUS-000013',
+        displayName: 'Aarav Mehta',
+        normalizedName: 'aarav mehta',
+        primaryPhone: '+91 90000 12345',
+        normalizedPhone: '+919000012345',
+        createdById: company.users[0]!.id,
+      },
+    });
+    await db.customerAddress.create({
+      data: {
+        companyId: company.id,
+        customerId: customer.id,
+        type: 'HOME',
+        line1: 'Line 1',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        country: 'India',
+        isPrimary: true,
+      },
+    });
+    const preview = await client.get(
+      `/api/bookings/from-lead/preview?leadId=${lead.id}&quotationId=${quotation.id}`,
+    );
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.customerState).toBe('Maharashtra');
+  });
+
+  it('reuses an existing matching customer at submission even with an override', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const company = await db.company.findFirstOrThrow({
+      select: { id: true, users: { take: 1, select: { id: true } } },
+    });
+    await db.customer.create({
+      data: {
+        companyId: company.id,
+        customerNumber: 'CUS-000011',
+        displayName: 'Original Match',
+        normalizedName: 'original match',
+        primaryPhone: '+91 90000 00002',
+        normalizedPhone: '+919000000002',
+        createdById: company.users[0]!.id,
+      },
+    });
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'Should Not Duplicate',
+        phone: '+91 90000 00002',
+      },
+    }));
+    expect(response.status).toBe(201);
+    expect(await db.customer.count()).toBe(1);
+    const booking = await db.booking.findUniqueOrThrow({
+      where: { id: response.body.data.id },
+      include: { customer: true },
+    });
+    expect(booking.customer?.displayName).toBe('Original Match');
+  });
+
+  it('defaults tcsExempt to false and stores the false value', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id, tcsExempt: false }),
+    );
+    expect(response.status).toBe(201);
+    expect(response.body.data.tcsExempt).toBe(false);
+    const booking = await db.booking.findUniqueOrThrow({
+      where: { id: response.body.data.id },
+    });
+    expect(booking.tcsExempt).toBe(false);
+  });
+
+  it('does not add TCS when exempt and keeps GST unchanged', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        tcsExempt: true,
+        gstRate: 18,
+        gstMode: 'ADDITIVE',
+      }),
+    );
+    expect(response.status).toBe(201);
+    const booking = await db.booking.findUniqueOrThrow({
+      where: { id: response.body.data.id },
+    });
+    expect(booking.tcsExempt).toBe(true);
+    expect(booking.tcsAmount.toString()).toBe('0');
+    // TCS exemption must not disable GST.
+    expect(booking.gstRate).toBe(18);
+    expect(booking.gstMode).toBe('ADDITIVE');
+    expect(booking.gstAmount.toString()).toBe('0');
+  });
+
+  it('treats a null customer email as missing instead of inventing one', async () => {
+    const { client, lead, quotation } = await readyLead();
+    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
+      leadId: lead.id,
+      customer: {
+        displayName: 'No Email Customer',
+        phone: '+91 90000 00003',
+        email: null,
+      },
+    }));
+    expect(response.status).toBe(201);
+    const customer = await db.customer.findFirstOrThrow({
+      where: { id: response.body.data.customerId },
+    });
+    expect(customer.email).toBeNull();
+    const booking = await db.booking.findUniqueOrThrow({
+      where: { id: response.body.data.id },
+    });
+    expect(booking.customerEmail).toBeNull();
   });
 
   it('rejects duplicate reminder offsets', async () => {
