@@ -26,6 +26,11 @@
   :root {
     --radius: 0.625rem;
 
+    /* ---- sidebar geometry ---- */
+    --sidebar-width-expanded: 260px;
+    --sidebar-width-collapsed: 72px;
+    --sidebar-width-mobile: 288px;
+
     /* ---- semantic (light) ---- */
     --background: 0.99 0.002 260;
     --foreground: 0.21 0.01 260;

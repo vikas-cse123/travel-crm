@@ -1,25 +1,32 @@
 import {
-  BarChart3,
   Bell,
+  BellRing,
   Building2,
-  Bus,
+  BusFront,
   CalendarClock,
+  ChartNoAxesCombined,
+  Clock,
+  Database,
   EyeOff,
+  FileStack,
   FileText,
-  Files,
   Globe2,
+  History,
+  Hotel,
+  KeyRound,
+  Landmark,
   LayoutDashboard,
-  Map,
   MapPin,
-  MapPinned,
   MessageSquare,
-  Plane,
+  NotebookText,
   PackagePlus,
+  Plane,
   Settings,
+  Settings2,
+  ShieldCheck,
   Ship,
-  Shield,
-  ScrollText,
-  Ticket,
+  TicketCheck,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,12 +38,46 @@ import { PERMISSIONS } from '@interscale/shared';
 export const SHOW_VISA_TYPES_MASTER_NAVIGATION = false;
 
 /**
+ * Sidebar navigation sections. Items are grouped into these headings so the
+ * rail stays scannable. Empty sections are never rendered.
+ */
+export const NAV_SECTION = {
+  GENERAL: 'GENERAL',
+  WORKSPACE: 'WORKSPACE',
+  SALES: 'SALES',
+  OPERATIONS: 'OPERATIONS',
+  MASTERS: 'MASTERS',
+  ADMINISTRATION: 'ADMINISTRATION',
+} as const;
+
+export type NavSection = (typeof NAV_SECTION)[keyof typeof NAV_SECTION];
+
+export const NAV_SECTION_ORDER: readonly NavSection[] = [
+  NAV_SECTION.GENERAL,
+  NAV_SECTION.WORKSPACE,
+  NAV_SECTION.SALES,
+  NAV_SECTION.OPERATIONS,
+  NAV_SECTION.MASTERS,
+  NAV_SECTION.ADMINISTRATION,
+];
+
+export const NAV_SECTION_LABELS: Record<NavSection, string> = {
+  [NAV_SECTION.GENERAL]: 'General',
+  [NAV_SECTION.WORKSPACE]: 'Workspace',
+  [NAV_SECTION.SALES]: 'Sales',
+  [NAV_SECTION.OPERATIONS]: 'Operations',
+  [NAV_SECTION.MASTERS]: 'Masters',
+  [NAV_SECTION.ADMINISTRATION]: 'Administration',
+};
+
+/**
  * The sidebar model.
  *
  * `available: false` renders an item as "Coming soon" — visible so the product
  * shape is clear, but not navigable. `permission` is the key required to see
- * an item at all; Phase 5 wires the filtering to real permission checks.
- * `hideForSystemAdmin` removes an item from the System Admin's navigation.
+ * an item at all. `hideForSystemAdmin` removes an item from the System Admin's
+ * navigation. `matchPaths` extends active matching for a route that does not
+ * share the item's own prefix.
  */
 export interface NavItem {
   label: string;
@@ -44,18 +85,23 @@ export interface NavItem {
   icon: LucideIcon;
   available: boolean;
   permission?: string;
-  group?: string;
+  section: NavSection;
   hideForSystemAdmin?: boolean;
+  matchPaths?: readonly string[];
   children?: readonly NavItem[];
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
+  // -------------------------------------------------------------------------
+  // General
+  // -------------------------------------------------------------------------
   {
     label: 'Dashboard',
     to: '/dashboard',
     icon: LayoutDashboard,
     available: true,
     permission: PERMISSIONS.DASHBOARD_VIEW,
+    section: NAV_SECTION.GENERAL,
   },
   {
     label: 'Leads',
@@ -63,34 +109,43 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: MessageSquare,
     available: true,
     permission: PERMISSIONS.QUERIES_VIEW,
+    section: NAV_SECTION.GENERAL,
   },
   {
     label: 'Notes',
     to: '/notes',
-    icon: ScrollText,
+    icon: NotebookText,
     available: true,
     permission: PERMISSIONS.QUERIES_VIEW,
+    section: NAV_SECTION.GENERAL,
   },
+
+  // -------------------------------------------------------------------------
+  // Workspace
+  // -------------------------------------------------------------------------
   {
     label: 'Reminders',
     to: '/reminders',
-    icon: CalendarClock,
+    icon: Clock,
     available: true,
     permission: PERMISSIONS.REMINDERS_VIEW,
+    section: NAV_SECTION.WORKSPACE,
     children: [
       {
         label: 'My Reminders',
         to: '/reminders',
-        icon: CalendarClock,
+        icon: BellRing,
         available: true,
         permission: PERMISSIONS.REMINDERS_VIEW,
+        section: NAV_SECTION.WORKSPACE,
       },
       {
         label: 'Booking Reminders',
         to: '/reminders/bookings',
-        icon: Ticket,
+        icon: CalendarClock,
         available: true,
         permission: PERMISSIONS.BOOKING_REMINDERS_VIEW,
+        section: NAV_SECTION.WORKSPACE,
       },
       {
         label: 'Notifications',
@@ -98,22 +153,29 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: Bell,
         available: true,
         permission: PERMISSIONS.NOTIFICATIONS_VIEW,
+        section: NAV_SECTION.WORKSPACE,
       },
       {
         label: 'Notification Settings',
         to: '/reminders/settings',
-        icon: Settings,
+        icon: Settings2,
         available: true,
         permission: PERMISSIONS.NOTIFICATIONS_SETTINGS,
+        section: NAV_SECTION.WORKSPACE,
       },
     ],
   },
+
+  // -------------------------------------------------------------------------
+  // Sales
+  // -------------------------------------------------------------------------
   {
     label: 'Quotation Templates',
     to: '/quotation-templates',
-    icon: Files,
+    icon: FileStack,
     available: true,
     permission: PERMISSIONS.QUOTATION_TEMPLATES_VIEW,
+    section: NAV_SECTION.SALES,
   },
   {
     label: 'Quotations',
@@ -121,13 +183,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: FileText,
     available: true,
     permission: PERMISSIONS.QUOTATIONS_VIEW,
+    section: NAV_SECTION.SALES,
   },
+
+  // -------------------------------------------------------------------------
+  // Operations
+  // -------------------------------------------------------------------------
   {
     label: 'Bookings',
     to: '/bookings',
-    icon: Ticket,
+    icon: TicketCheck,
     available: true,
     permission: PERMISSIONS.BOOKINGS_VIEW,
+    section: NAV_SECTION.OPERATIONS,
   },
   {
     label: 'Customers',
@@ -135,6 +203,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Users,
     available: true,
     permission: PERMISSIONS.CUSTOMERS_VIEW,
+    section: NAV_SECTION.OPERATIONS,
   },
   {
     label: 'Vendors',
@@ -142,13 +211,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Building2,
     available: true,
     permission: PERMISSIONS.VENDORS_VIEW,
+    section: NAV_SECTION.OPERATIONS,
   },
+
+  // -------------------------------------------------------------------------
+  // Masters
+  // -------------------------------------------------------------------------
   {
     label: 'Masters',
     to: '/masters/cities',
-    icon: Map,
+    icon: Database,
     available: true,
     permission: PERMISSIONS.MASTERS_VIEW,
+    section: NAV_SECTION.MASTERS,
     children: [
       {
         label: 'Cities',
@@ -156,6 +231,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: MapPin,
         available: true,
         permission: PERMISSIONS.MASTER_CITIES_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Destinations',
@@ -163,13 +239,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: Globe2,
         available: true,
         permission: PERMISSIONS.MASTER_DESTINATIONS_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Hotels',
         to: '/masters/hotels',
-        icon: Building2,
+        icon: Hotel,
         available: true,
         permission: PERMISSIONS.MASTER_HOTELS_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Airlines',
@@ -177,6 +255,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: Plane,
         available: true,
         permission: PERMISSIONS.MASTER_AIRLINES_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Cruises',
@@ -184,20 +263,23 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: Ship,
         available: true,
         permission: PERMISSIONS.MASTER_CRUISES_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Vehicles',
         to: '/masters/vehicles',
-        icon: Bus,
+        icon: BusFront,
         available: true,
         permission: PERMISSIONS.MASTER_VEHICLES_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Sightseeing',
         to: '/masters/sightseeing',
-        icon: MapPinned,
+        icon: Landmark,
         available: true,
         permission: PERMISSIONS.MASTER_SIGHTSEEING_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Add-On Services',
@@ -205,6 +287,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: PackagePlus,
         available: true,
         permission: PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW,
+        section: NAV_SECTION.MASTERS,
       },
       {
         label: 'Hidden Global',
@@ -214,6 +297,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
         permission: PERMISSIONS.MASTERS_VIEW,
         // The tenant restore screen is not part of the System Admin UI.
         hideForSystemAdmin: true,
+        section: NAV_SECTION.MASTERS,
       },
       ...(SHOW_VISA_TYPES_MASTER_NAVIGATION
         ? [
@@ -223,51 +307,55 @@ export const NAV_ITEMS: readonly NavItem[] = [
               icon: FileText,
               available: true,
               permission: PERMISSIONS.MASTER_VISA_TYPES_VIEW,
+              section: NAV_SECTION.MASTERS,
             },
           ]
         : []),
     ],
   },
-  // Users, Reports and Settings have permissions already, but their screens
-  // are Phase 4+ work, so they stay disabled here.
+
+  // -------------------------------------------------------------------------
+  // Administration
+  // -------------------------------------------------------------------------
   {
     label: 'User List',
     to: '/users',
-    icon: Users,
+    icon: UserRound,
     available: true,
     permission: PERMISSIONS.USERS_VIEW,
-    group: 'Users',
+    section: NAV_SECTION.ADMINISTRATION,
   },
   {
     label: 'Roles',
     to: '/roles',
-    icon: Shield,
+    icon: ShieldCheck,
     available: true,
     permission: PERMISSIONS.ROLES_VIEW,
-    group: 'Users',
+    section: NAV_SECTION.ADMINISTRATION,
   },
   {
     label: 'Permission Templates',
     to: '/permission-templates',
-    icon: Settings,
+    icon: KeyRound,
     available: true,
     permission: PERMISSIONS.PERMISSION_TEMPLATES_VIEW,
-    group: 'Users',
+    section: NAV_SECTION.ADMINISTRATION,
   },
   {
     label: 'Activity Logs',
     to: '/activity-logs',
-    icon: ScrollText,
+    icon: History,
     available: true,
     permission: PERMISSIONS.ACTIVITY_LOGS_VIEW,
-    group: 'Users',
+    section: NAV_SECTION.ADMINISTRATION,
   },
   {
     label: 'Reports',
     to: '/reports',
-    icon: BarChart3,
+    icon: ChartNoAxesCombined,
     available: true,
     permission: PERMISSIONS.REPORTS_VIEW,
+    section: NAV_SECTION.ADMINISTRATION,
   },
   {
     label: 'Settings',
@@ -275,8 +363,40 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Settings,
     available: true,
     permission: PERMISSIONS.SETTINGS_VIEW,
+    section: NAV_SECTION.ADMINISTRATION,
   },
 ] as const;
+
+/**
+ * Whether a path matches an item's route. A detail route like `/bookings/123`
+ * activates `/bookings`; prefix matching is path-segment aware so
+ * `/quotation-templates` never activates `/quotations` (and vice versa).
+ */
+export function isNavPathActive(
+  pathname: string,
+  to: string,
+  matchPaths?: readonly string[],
+): boolean {
+  const matches = (target: string) =>
+    pathname === target || pathname.startsWith(target.endsWith('/') ? target : `${target}/`);
+  if (matchPaths?.some(matches)) return true;
+  return matches(to);
+}
+
+/**
+ * Whether an item (or any of its children) is active for the current path.
+ * Used to keep a collapsible parent visually active while a child route is
+ * selected, and to auto-expand the group.
+ */
+export function isNavItemActive(
+  pathname: string,
+  item: Pick<NavItem, 'to' | 'matchPaths' | 'children'>,
+): boolean {
+  if (isNavPathActive(pathname, item.to, item.matchPaths)) return true;
+  return Boolean(
+    item.children?.some((child) => isNavPathActive(pathname, child.to, child.matchPaths)),
+  );
+}
 
 /** Initials for the avatar, e.g. "Priya Nair" → "PN". */
 export function initialsOf(fullName: string): string {

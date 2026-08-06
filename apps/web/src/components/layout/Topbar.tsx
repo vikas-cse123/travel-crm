@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Menu } from 'lucide-react';
 import { PERMISSIONS } from '@interscale/shared';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useLogout } from '@/features/auth/auth.api';
@@ -8,13 +8,11 @@ import { initialsOf } from './navigation';
 import { useNotificationAnalytics } from '@/features/reminders/reminders.api';
 
 interface TopbarProps {
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   onOpenMobile: () => void;
   breadcrumbs: string[];
 }
 
-export function Topbar({ collapsed, onToggleCollapse, onOpenMobile, breadcrumbs }: TopbarProps) {
+export function Topbar({ onOpenMobile, breadcrumbs }: TopbarProps) {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
   const canViewNotifications = hasPermission(PERMISSIONS.NOTIFICATIONS_VIEW);
@@ -60,19 +58,6 @@ export function Topbar({ collapsed, onToggleCollapse, onOpenMobile, breadcrumbs 
         className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
       >
         <Menu className="h-5 w-5" aria-hidden="true" />
-      </button>
-
-      <button
-        type="button"
-        onClick={onToggleCollapse}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className="hidden rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground lg:block"
-      >
-        {collapsed ? (
-          <PanelLeftOpen className="h-5 w-5" aria-hidden="true" />
-        ) : (
-          <PanelLeftClose className="h-5 w-5" aria-hidden="true" />
-        )}
       </button>
 
       <nav aria-label="Breadcrumb" className="hidden min-w-0 sm:block">
