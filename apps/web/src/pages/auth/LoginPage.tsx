@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { loginSchema, type LoginInput } from '@interscale/shared';
+import { SYSTEM_ADMIN_LANDING_PATH, loginSchema, type LoginInput } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { useLogin } from '@/features/auth/auth.api';
 import { AuthLayout } from '@/layouts/AuthLayout';
@@ -44,7 +44,10 @@ export function LoginPage() {
         return;
       }
 
-      navigate(returnTo, { replace: true });
+      // The System Admin always lands on the Masters area, never a tenant
+      // module or dashboard.
+      const destination = result.user.isSystemAdmin ? SYSTEM_ADMIN_LANDING_PATH : returnTo;
+      navigate(destination, { replace: true });
     } catch (error) {
       setFormError(
         error instanceof ApiError ? error.message : 'Something went wrong. Please try again.',

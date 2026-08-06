@@ -1,7 +1,10 @@
 import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import {
   DESTINATION_TYPES,
+  GLOBAL_MASTER_TYPES,
+  MASTER_PERMISSIONS,
   MASTER_STATUSES,
   PERMISSIONS,
   airlineInputSchema,
@@ -21,6 +24,7 @@ import {
   hotelRoomTypeInputSchema,
   hotelRoomTypeUpdateSchema,
   hotelUpdateSchema,
+  isMasterType,
   masterStatusSchema,
   cruiseImageUploadSchema,
   cruiseInputSchema,
@@ -41,9 +45,11 @@ import {
   testimonialImageUploadSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
-import { requirePermission } from '../../middleware/require-permission.js';
+import { requirePermission, requireAnyPermission } from '../../middleware/require-permission.js';
 import { validateRequest } from '../../middleware/validate-request.js';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { ForbiddenError, UnauthorizedError } from '../../utils/errors.js';
+import { permissionsService } from '../auth/permissions.service.js';
 import {
   airlinesController as airlines,
   citiesController as cities,
@@ -56,9 +62,62 @@ import {
   visaTypesController as visaTypes,
   testimonialsController as testimonials,
 } from './masters.controller.js';
+import { systemMastersController as systemMasters } from './system-masters.controller.js';
 
 const router = Router();
 const cityId = z.object({ cityId: z.string().uuid() });
+
+/**
+ * Permission gate for the generic global-master hide/restore routes.
+ * The masterType is validated against the allowlist and the corresponding
+ * module view permission (or the umbrella masters.view) is required.
+ */
+const requireMasterViewPermission = asyncHandler(
+  async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    const auth = req.auth;
+    if (!auth) throw new UnauthorizedError();
+    const rawType = typeof req.params.masterType === 'string' ? req.params.masterType : '';
+    if (!isMasterType(rawType)) throw new ForbiddenError();
+    const type = rawType as keyof typeof MASTER_PERMISSIONS;
+    const keys = await permissionsService.resolveForUser(auth.userId);
+    const allowed =
+      keys.includes(PERMISSIONS.MASTERS_VIEW) ||
+      keys.includes(MASTER_PERMISSIONS[type].viewPermission);
+    if (!allowed) throw new ForbiddenError();
+    next();
+  },
+);
+
+const masterTypeParam = z.object({
+  masterType: z.enum(GLOBAL_MASTER_TYPES),
+  masterId: z.string().uuid(),
+});
+
+router.use(requireAuth, requireVerifiedEmail);
+
+const hiddenListQuery = z.object({
+  masterType: z.enum(GLOBAL_MASTER_TYPES).optional(),
+});
+
+router.get(
+  '/hidden',
+  requireAnyPermission(PERMISSIONS.MASTERS_VIEW, ...GLOBAL_MASTER_TYPES.map((t) => MASTER_PERMISSIONS[t].viewPermission)),
+  validateRequest({ query: hiddenListQuery }),
+  asyncHandler(systemMasters.listHidden),
+);
+router.post(
+  '/:masterType/:masterId/hide',
+  requireMasterViewPermission,
+  validateRequest({ params: masterTypeParam }),
+  asyncHandler(systemMasters.hide),
+);
+router.delete(
+  '/:masterType/:masterId/hide',
+  requireMasterViewPermission,
+  validateRequest({ params: masterTypeParam }),
+  asyncHandler(systemMasters.restore),
+);
+
 const destinationId = z.object({ destinationId: z.string().uuid() });
 const cruiseId = z.object({ cruiseId: z.string().uuid() });
 const vehicleId = z.object({ vehicleId: z.string().uuid() });

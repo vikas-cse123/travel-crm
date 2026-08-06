@@ -111,6 +111,7 @@ export async function truncateAll(client: PrismaClient): Promise<void> {
       permission_templates,
       role_permissions,
       permissions,
+      company_hidden_masters,
       users,
       roles,
       companies

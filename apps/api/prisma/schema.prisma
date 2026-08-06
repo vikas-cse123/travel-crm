@@ -887,6 +887,10 @@ enum ActivityAction {
   TESTIMONIAL_IMAGE_UPLOADED
   TESTIMONIAL_IMAGE_REPLACED
   TESTIMONIAL_IMAGE_DELETED
+  SYSTEM_COMPANY_BOOTSTRAPPED
+  SYSTEM_ADMIN_CREATED
+  MASTER_HIDDEN_FOR_TENANT
+  MASTER_RESTORED_FOR_TENANT
 }
 
 // ---------------------------------------------------------------------------
@@ -916,6 +920,12 @@ model Company {
   logoConfirmedAt       DateTime?
   status                CompanyStatus    @default(ACTIVE)
   timezone              String           @default("Asia/Kolkata") @db.VarChar(64)
+  /// Internal system company that owns global Master records. Hidden from all
+  /// tenant-facing screens and lists, and never behaves like a customer tenant.
+  isSystem              Boolean          @default(false)
+  /// When true the company is excluded from tenant-facing company lists,
+  /// selectors, counts and exports. Set on the System Global Masters company.
+  isHidden              Boolean          @default(false)
   // Company-level settings (Phase 18). All additive; existing rows keep defaults.
   taxRegistrationNumber String?          @db.VarChar(40)
   // Tax Deduction Account Number (Phase 22). Optional; legacy rows keep null.
@@ -936,6 +946,8 @@ model Company {
   updatedAt DateTime @updatedAt
 
   bankAccount CompanyBankAccount?
+
+  hiddenMasters CompanyHiddenMaster[]
 
   users                        User[]
   roles                        Role[]
@@ -1053,6 +1065,35 @@ model CompanyBankAccount {
 
   @@index([companyId])
   @@map("company_bank_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// System masters — tenant-specific hiding of global records
+// ---------------------------------------------------------------------------
+
+/// One row = one global Master record that a tenant has hidden for its own
+/// company. The original record is never modified; this table only suppresses
+/// it from that tenant's lists and selectors. Deleting the row restores it.
+model CompanyHiddenMaster {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @db.Uuid
+  /// Stable internal master identifier, e.g. CITY or HOTEL. Never a label.
+  masterType     String    @db.VarChar(40)
+  /// Id of the hidden global record, scoped by masterType.
+  masterId       String    @db.Uuid
+  hiddenByUserId String?   @db.Uuid
+  hiddenAt       DateTime  @default(now())
+  /// Set when the tenant restores the record; non-null rows are inactive.
+  restoredAt     DateTime?
+
+  tenant   Company @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hiddenBy User?   @relation(fields: [hiddenByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, masterType, masterId])
+  @@index([tenantId, masterType])
+  @@index([masterType, masterId])
+  @@index([hiddenByUserId])
+  @@map("company_hidden_masters")
 }
 
 // ---------------------------------------------------------------------------
@@ -1184,6 +1225,8 @@ model User {
   visaTypesUpdated            VisaType[]                 @relation("VisaTypeUpdatedBy")
   testimonialsCreated         Testimonial[]              @relation("TestimonialCreatedBy")
   testimonialsUpdated         Testimonial[]              @relation("TestimonialUpdatedBy")
+
+  hiddenMasterRows CompanyHiddenMaster[]
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -2917,11 +2960,11 @@ model Quotation {
   updatedAt            DateTime        @updatedAt
   deletedAt            DateTime?
 
-  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  query          Query               @relation(fields: [queryId], references: [id], onDelete: Restrict)
-  sourceTemplate QuotationTemplate?  @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
-  createdBy      User                @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer       Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  query          Query                  @relation(fields: [queryId], references: [id], onDelete: Restrict)
+  sourceTemplate QuotationTemplate?     @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+  createdBy      User                   @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   versions       QuotationVersion[]
   documents      QuotationDocument[]
   emailLogs      QuotationEmailLog[]

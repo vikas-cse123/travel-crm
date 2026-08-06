@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   type HotelInput,
   type HotelImageUploadInput,
@@ -23,6 +24,13 @@ import {
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
 import { sanitizeRichText } from './masters.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 
 export type MastersRequestContext = { ipAddress: string | null; userAgent: string | null };
 
@@ -103,7 +111,13 @@ function presentMealPlan(row: Record<string, unknown>, canViewCosting: boolean) 
   return redacted;
 }
 
-function presentHotel(row: Record<string, unknown>, canViewCosting: boolean) {
+/**
+ * Hotels owned by the System Global Masters company are public catalogue data,
+ * but their commercial fields (costing on room types / meal plans and internal
+ * notes) are private to the system company. A tenant never sees them, even when
+ * its role carries the view_costing permission.
+ */
+function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, scope: MasterScope) {
   const {
     companyId,
     normalizedName,
@@ -117,6 +131,7 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean) {
     pendingImageFileSize,
     roomTypes,
     mealPlans,
+    internalNotes,
     ...safe
   } = row;
   void companyId;
@@ -128,8 +143,18 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean) {
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
+
+  const global = Boolean(
+    scope.systemCompanyId && String(companyId) === scope.systemCompanyId,
+  );
+  const isTenantViewingGlobal = global && !scope.isSystemAdmin;
+  const effectiveCanViewCosting = canViewCosting && !isTenantViewingGlobal;
+
   return {
     ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    // Internal notes stay private to the owning company.
+    ...(isTenantViewingGlobal ? {} : internalNotes !== undefined ? { internalNotes } : {}),
     starRating: num(safe.starRating as Prisma.Decimal | null),
     latitude: num(safe.latitude as Prisma.Decimal | null),
     longitude: num(safe.longitude as Prisma.Decimal | null),
@@ -137,14 +162,14 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean) {
     ...(Array.isArray(roomTypes)
       ? {
           roomTypes: roomTypes.map((r) =>
-            presentRoomType(r as Record<string, unknown>, canViewCosting),
+            presentRoomType(r as Record<string, unknown>, effectiveCanViewCosting),
           ),
         }
       : {}),
     ...(Array.isArray(mealPlans)
       ? {
           mealPlans: mealPlans.map((m) =>
-            presentMealPlan(m as Record<string, unknown>, canViewCosting),
+            presentMealPlan(m as Record<string, unknown>, effectiveCanViewCosting),
           ),
         }
       : {}),
@@ -161,12 +186,12 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_HOTELS_UPDATE);
 }
 
-async function getHotel(auth: AuthContext, hotelId: string, forManage = false) {
+async function getHotel(auth: AuthContext, hotelId: string, scope: MasterScope, forManage = false) {
   const canManageHotels = forManage ? true : await canManage(auth);
   const hotel = await prisma.hotel.findFirst({
     where: {
       id: hotelId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageHotels ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: hotelDetailInclude,
@@ -175,15 +200,26 @@ async function getHotel(auth: AuthContext, hotelId: string, forManage = false) {
   return hotel;
 }
 
-/** Confirm the city is linked to the destination for this tenant, both active. */
-async function validateDestinationCity(companyId: string, destinationId: string, cityId: string) {
+/** Confirm the city is linked to the destination, both visible to this company. */
+async function validateDestinationCity(
+  scope: MasterScope,
+  destinationId: string,
+  cityId: string,
+) {
   const link = await prisma.destinationCity.findFirst({
     where: {
-      companyId,
       destinationId,
       cityId,
-      destination: { status: 'ACTIVE', deletedAt: null },
-      city: { status: 'ACTIVE', deletedAt: null },
+      destination: {
+        ...buildVisibleWhere(scope),
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
+      city: {
+        ...buildVisibleWhere(scope),
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
     },
     select: { id: true },
   });
@@ -238,6 +274,7 @@ async function applyDefault(
 
 export const hotelsService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -246,7 +283,7 @@ export const hotelsService = {
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.HotelWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageHotels
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -293,7 +330,9 @@ export const hotelsService = {
       prisma.hotelMealPlan.count({ where: { hotel: where, status: 'ACTIVE' } }),
     ]);
     return {
-      data: rows.map((row) => presentHotel(row as unknown as Record<string, unknown>, false)),
+      data: rows.map((row) =>
+        presentHotel(row as unknown as Record<string, unknown>, false, scope),
+      ),
       pagination: buildPaginationMeta(pagination, total),
       statistics: {
         totalHotels: total,
@@ -307,12 +346,13 @@ export const hotelsService = {
   },
 
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
     const cityId = typeof query.cityId === 'string' ? query.cityId : undefined;
     const destinationId = typeof query.destinationId === 'string' ? query.destinationId : undefined;
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const hotels = await prisma.hotel.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(cityId ? { cityId } : {}),
@@ -334,15 +374,18 @@ export const hotelsService = {
   },
 
   async details(auth: AuthContext, hotelId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     return presentHotel(
-      (await getHotel(auth, hotelId)) as unknown as Record<string, unknown>,
+      (await getHotel(auth, hotelId, scope)) as unknown as Record<string, unknown>,
       canViewCosting,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: HotelInput, context: MastersRequestContext) {
-    await validateDestinationCity(auth.companyId, input.destinationId, input.cityId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    await validateDestinationCity(scope, input.destinationId, input.cityId);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     const makeDefault = Boolean(input.isDefaultForCity) && input.status !== 'ARCHIVED';
@@ -367,6 +410,7 @@ export const hotelsService = {
             cityId: created.cityId,
             destinationId: created.destinationId,
             isDefaultForCity: makeDefault,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return tx.hotel.findUniqueOrThrow({
@@ -374,7 +418,7 @@ export const hotelsService = {
           include: hotelDetailInclude,
         });
       });
-      return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
+      return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -386,11 +430,13 @@ export const hotelsService = {
     input: HotelUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const current = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(current, scope);
     const destinationId = input.destinationId ?? current.destinationId;
     const cityId = input.cityId ?? current.cityId;
     if (input.destinationId || input.cityId)
-      await validateDestinationCity(auth.companyId, destinationId, cityId);
+      await validateDestinationCity(scope, destinationId, cityId);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     const nextStatus = input.status ?? current.status;
@@ -433,7 +479,7 @@ export const hotelsService = {
           include: hotelDetailInclude,
         });
       });
-      return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
+      return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -445,7 +491,9 @@ export const hotelsService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const current = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(current, scope);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     const archived = status === 'ARCHIVED';
     const hotel = await prisma.$transaction(async (tx) => {
@@ -466,11 +514,13 @@ export const hotelsService = {
       });
       return tx.hotel.findUniqueOrThrow({ where: { id: current.id }, include: hotelDetailInclude });
     });
-    return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
+    return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting, scope);
   },
 
   async archive(auth: AuthContext, hotelId: string, context: MastersRequestContext) {
-    const current = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const current = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(current, scope);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     const hotel = await prisma.$transaction(async (tx) => {
       await tx.hotel.update({
@@ -485,7 +535,7 @@ export const hotelsService = {
       });
       return tx.hotel.findUniqueOrThrow({ where: { id: current.id }, include: hotelDetailInclude });
     });
-    return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting);
+    return presentHotel(hotel as unknown as Record<string, unknown>, canViewCosting, scope);
   },
 
   // --- Room types ----------------------------------------------------------
@@ -496,7 +546,9 @@ export const hotelsService = {
     input: HotelRoomTypeInput,
     context: MastersRequestContext,
   ) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     await prisma.$transaction(async (tx) => {
       const created = await tx.hotelRoomType.create({
@@ -523,9 +575,11 @@ export const hotelsService = {
     input: HotelRoomTypeUpdateInput,
     context: MastersRequestContext,
   ) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const existing = await prisma.hotelRoomType.findFirst({
-      where: { id: roomTypeId, hotelId: hotel.id, companyId: auth.companyId },
+      where: { id: roomTypeId, hotelId: hotel.id },
       select: { id: true },
     });
     if (!existing) throw new NotFoundError('Room type not found.');
@@ -554,7 +608,9 @@ export const hotelsService = {
     input: HotelMealPlanInput,
     context: MastersRequestContext,
   ) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     await prisma.$transaction(async (tx) => {
       const created = await tx.hotelMealPlan.create({
@@ -581,9 +637,11 @@ export const hotelsService = {
     input: HotelMealPlanUpdateInput,
     context: MastersRequestContext,
   ) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const existing = await prisma.hotelMealPlan.findFirst({
-      where: { id: mealPlanId, hotelId: hotel.id, companyId: auth.companyId },
+      where: { id: mealPlanId, hotelId: hotel.id },
       select: { id: true },
     });
     if (!existing) throw new NotFoundError('Meal plan not found.');
@@ -607,7 +665,9 @@ export const hotelsService = {
   // --- Image ---------------------------------------------------------------
 
   async createImageUpload(auth: AuthContext, hotelId: string, input: HotelImageUploadInput) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const max = env.HOTEL_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -642,7 +702,9 @@ export const hotelsService = {
   },
 
   async confirmImage(auth: AuthContext, hotelId: string, context: MastersRequestContext) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const key = hotel.pendingImageObjectKey;
     if (
       !key ||
@@ -687,11 +749,12 @@ export const hotelsService = {
       return tx.hotel.findUniqueOrThrow({ where: { id: hotel.id }, include: hotelDetailInclude });
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return presentHotel(updated as unknown as Record<string, unknown>, canViewCosting);
+    return presentHotel(updated as unknown as Record<string, unknown>, canViewCosting, scope);
   },
 
   async imageDownload(auth: AuthContext, hotelId: string) {
-    const hotel = await getHotel(auth, hotelId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope);
     if (!hotel.imageObjectKey || !hotel.imageFileName || !hotel.imageConfirmedAt)
       throw new NotFoundError('Hotel image not found.');
     return {
@@ -705,7 +768,9 @@ export const hotelsService = {
   },
 
   async deleteImage(auth: AuthContext, hotelId: string, context: MastersRequestContext) {
-    const hotel = await getHotel(auth, hotelId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
     const keys = [hotel.imageObjectKey, hotel.pendingImageObjectKey].filter(
       (value): value is string => Boolean(value),
     );

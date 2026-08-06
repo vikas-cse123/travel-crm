@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Archive, Bus, Eye, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Archive, Bus, Eye, EyeOff, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveVehicle,
+  useHideGlobalMaster,
   useRestoreVehicle,
   useVehicles,
   useVehicleTypes,
   vehicleImageUrl,
 } from '@/features/masters/masters.api';
-import { formatMasterDate, MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import {
+  formatMasterDate,
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+  StatusBadge,
+} from './MasterUi';
 
 const vehicleImageUrlCache = new Map<string, { fingerprint: string; url: string }>();
 
@@ -22,6 +30,7 @@ export function VehiclesPage() {
   const types = useVehicleTypes();
   const archive = useArchiveVehicle();
   const restore = useRestoreVehicle();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_VEHICLES_CREATE);
@@ -99,6 +108,10 @@ export function VehiclesPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this vehicle?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'VEHICLE', masterId: id });
   };
 
   return (
@@ -209,7 +222,10 @@ export function VehiclesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{vehicle.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {vehicle.name}
+                        {vehicle.isGlobal && <GlobalBadge />}
+                      </td>
                       <td className="px-4 py-3 text-slate-700">{vehicle.vehicleType}</td>
                       <td className="px-4 py-3 text-slate-700">
                         {vehicle.capacity != null ? `${vehicle.capacity} persons` : '—'}
@@ -229,7 +245,7 @@ export function VehiclesPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !vehicle.isGlobal && (
                             <Link
                               aria-label={`Edit ${vehicle.name}`}
                               to={`/masters/vehicles/${vehicle.id}/edit`}
@@ -238,7 +254,17 @@ export function VehiclesPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && vehicle.status !== 'ARCHIVED' && (
+                          {vehicle.canHide && (
+                            <button
+                              aria-label={`Hide ${vehicle.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(vehicle.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && vehicle.status !== 'ARCHIVED' && !vehicle.isGlobal && (
                             <button
                               aria-label={`Archive ${vehicle.name}`}
                               onClick={() => archiveRow(vehicle.id)}
@@ -267,7 +293,10 @@ export function VehiclesPage() {
               {vehicles.data.data.map((vehicle) => (
                 <article key={vehicle.id} className="flex items-center justify-between gap-2 p-4">
                   <div className="min-w-0">
-                    <h2 className="truncate font-semibold">{vehicle.name}</h2>
+                    <h2 className="truncate font-semibold">
+                      {vehicle.name}
+                      {vehicle.isGlobal && <GlobalBadge />}
+                    </h2>
                     <p className="text-xs text-slate-500">
                       {vehicle.vehicleType}
                       {vehicle.capacity != null ? ` · ${vehicle.capacity} persons` : ''}
@@ -277,10 +306,19 @@ export function VehiclesPage() {
                     <Link to={`/masters/vehicles/${vehicle.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !vehicle.isGlobal && (
                       <Link to={`/masters/vehicles/${vehicle.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {vehicle.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(vehicle.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

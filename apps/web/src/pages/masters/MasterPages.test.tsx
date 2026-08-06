@@ -95,6 +95,7 @@ describe('Phase 13A master pages', () => {
       ['Vehicles', true],
       ['Sightseeing', true],
       ['Add-On Services', true],
+      ['Hidden Global', true],
     ]);
   });
 
@@ -205,6 +206,48 @@ describe('Phase 13A master pages', () => {
     expect(screen.queryByLabelText('Edit Jaipur')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Archive Jaipur')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('City status')).not.toBeInTheDocument();
+  });
+
+  it('shows a Global badge and Hide action for a global City, without Edit or Archive', async () => {
+    auth.permissions = new Set([
+      'masters.cities.view',
+      'masters.cities.create',
+      'masters.cities.update',
+      'masters.cities.delete',
+    ]);
+    const globalCity = {
+      ...city,
+      name: 'Dubai',
+      airportCode: 'DXB',
+      isGlobal: true,
+      isOwnedByCurrentTenant: false,
+      canEdit: false,
+      canHide: true,
+      canRestore: false,
+      source: 'GLOBAL',
+    };
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) =>
+        String(request).includes('/lookups') ? response(lookups) : response(page([globalCity])),
+      ),
+    );
+    renderWithProviders(<CitiesPage />);
+    await screen.findAllByText('Dubai');
+
+    // A Global badge marks the shared record (desktop + mobile render one each).
+    expect(screen.getAllByText('Global').length).toBeGreaterThan(0);
+    // No Edit or Archive for a global record.
+    expect(screen.queryByLabelText('Edit Dubai')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Archive Dubai')).not.toBeInTheDocument();
+    // A Hide action is offered instead.
+    const hide = screen.getByLabelText('Hide Dubai for this company');
+    await userEvent.click(hide);
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('hidden only for your company'),
+    );
+    confirmSpy.mockRestore();
   });
 
   it('renders destination badges and applies type filters', async () => {

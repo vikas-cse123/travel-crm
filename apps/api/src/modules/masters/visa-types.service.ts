@@ -1,5 +1,10 @@
 import { Prisma, type MasterStatus } from '@prisma/client';
-import { PERMISSIONS, type VisaTypeInput, type VisaTypeUpdateInput } from '@interscale/shared';
+import {
+  MASTER_TYPE,
+  PERMISSIONS,
+  type VisaTypeInput,
+  type VisaTypeUpdateInput,
+} from '@interscale/shared';
 import { prisma } from '../../config/prisma.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { normalizeCustomerName } from '../../utils/normalize.js';
@@ -10,6 +15,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 import { sanitizeRichText } from './masters.service.js';
 
@@ -52,7 +64,7 @@ function audit(
   };
 }
 
-function present<T extends Record<string, unknown>>(row: T) {
+function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const { companyId, normalizedName, deletedAt, ...safe } = row;
   void companyId;
   void normalizedName;
@@ -65,7 +77,11 @@ function present<T extends Record<string, unknown>>(row: T) {
         return { ...rest, visaTypeId };
       })
     : [];
-  return { ...safe, sections };
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    sections,
+  };
 }
 
 function duplicateError(error: unknown): never {
@@ -78,12 +94,17 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_VISA_TYPES_UPDATE);
 }
 
-async function getVisaType(auth: AuthContext, visaTypeId: string, forManage = false) {
+async function getVisaType(
+  auth: AuthContext,
+  visaTypeId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageRows = forManage ? true : await canManage(auth);
   const row = await prisma.visaType.findFirst({
     where: {
       id: visaTypeId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: visaTypeInclude,
@@ -92,10 +113,10 @@ async function getVisaType(auth: AuthContext, visaTypeId: string, forManage = fa
   return row;
 }
 
-/** The destination must exist for this tenant and be active. */
-async function validateDestination(companyId: string, destinationId: string) {
+/** The destination must be visible to this company and active. */
+async function validateDestination(scope: MasterScope, destinationId: string) {
   const destination = await prisma.destination.findFirst({
-    where: { id: destinationId, companyId, status: 'ACTIVE', deletedAt: null },
+    where: { id: destinationId, ...buildVisibleWhere(scope), status: 'ACTIVE', deletedAt: null },
     select: { id: true },
   });
   if (!destination) throw new ValidationError('Select an active destination.');
@@ -112,6 +133,7 @@ function sectionRows(companyId: string, sections: VisaTypeInput['sections']) {
 
 export const visaTypesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -121,7 +143,7 @@ export const visaTypesService = {
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
 
     const where: Prisma.VisaTypeWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -157,17 +179,19 @@ export const visaTypesService = {
       prisma.visaType.count({ where }),
     ]);
     return {
-      data: rows.map((row) => present(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => present(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   async details(auth: AuthContext, visaTypeId: string) {
-    return present((await getVisaType(auth, visaTypeId)) as unknown as Record<string, unknown>);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
+    return present((await getVisaType(auth, visaTypeId, scope)) as unknown as Record<string, unknown>, scope);
   },
 
   async create(auth: AuthContext, input: VisaTypeInput, context: MastersRequestContext) {
-    await validateDestination(auth.companyId, input.destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
+    await validateDestination(scope, input.destinationId);
     try {
       const row = await prisma.$transaction(async (tx) => {
         const created = await tx.visaType.create({
@@ -186,11 +210,12 @@ export const visaTypesService = {
           data: audit(auth, 'VISA_TYPE_CREATED', created.id, context, {
             destinationId: created.destinationId,
             sectionCount: input.sections?.length ?? 0,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -202,9 +227,11 @@ export const visaTypesService = {
     input: VisaTypeUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getVisaType(auth, visaTypeId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
+    const current = await getVisaType(auth, visaTypeId, scope, true);
+    assertCanModifyMaster(current, scope);
     if (input.destinationId && input.destinationId !== current.destinationId)
-      await validateDestination(auth.companyId, input.destinationId);
+      await validateDestination(scope, input.destinationId);
     try {
       const row = await prisma.$transaction(async (tx) => {
         if (input.sections) {
@@ -239,7 +266,7 @@ export const visaTypesService = {
           include: visaTypeInclude,
         });
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -251,7 +278,9 @@ export const visaTypesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getVisaType(auth, visaTypeId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
+    const current = await getVisaType(auth, visaTypeId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.visaType.update({
         where: { id: current.id },
@@ -271,11 +300,13 @@ export const visaTypesService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async archive(auth: AuthContext, visaTypeId: string, context: MastersRequestContext) {
-    const current = await getVisaType(auth, visaTypeId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
+    const current = await getVisaType(auth, visaTypeId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.visaType.update({
         where: { id: current.id },
@@ -285,6 +316,6 @@ export const visaTypesService = {
       await tx.activityLog.create({ data: audit(auth, 'VISA_TYPE_ARCHIVED', current.id, context) });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 };

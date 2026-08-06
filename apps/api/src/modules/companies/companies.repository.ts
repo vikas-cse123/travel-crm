@@ -50,7 +50,11 @@ export const companiesRepository = {
     return generateUniqueSlug(name, (candidate) => this.isSlugTaken(candidate));
   },
 
+  /**
+   * Count of normal tenant companies. The hidden System Global Masters company
+   * is excluded so tenant-facing counts never include internal infrastructure.
+   */
   async count(): Promise<number> {
-    return prisma.company.count();
+    return prisma.company.count({ where: { isSystem: false } });
   },
 };

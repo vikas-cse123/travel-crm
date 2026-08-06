@@ -1,5 +1,6 @@
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   type AddOnServiceInput,
   type AddOnServiceUpdateInput,
@@ -14,6 +15,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
 /**
@@ -55,12 +63,16 @@ function audit(
 }
 
 /** Drop tenant internals; convert Decimal to a plain number for JSON. */
-function present<T extends Record<string, unknown>>(row: T) {
+function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const { companyId, normalizedName, deletedAt, ...safe } = row;
   void companyId;
   void normalizedName;
   void deletedAt;
-  return { ...safe, price: Number(safe.price as Prisma.Decimal) };
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    price: Number(safe.price as Prisma.Decimal),
+  };
 }
 
 function duplicateError(error: unknown): never {
@@ -73,12 +85,12 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE);
 }
 
-async function getService(auth: AuthContext, serviceId: string, forManage = false) {
+async function getService(auth: AuthContext, serviceId: string, scope: MasterScope, forManage = false) {
   const canManageRows = forManage ? true : await canManage(auth);
   const row = await prisma.addOnService.findFirst({
     where: {
       id: serviceId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: serviceInclude,
@@ -101,6 +113,7 @@ function writeData(input: AddOnServiceInput | AddOnServiceUpdateInput) {
 
 export const addOnServicesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -110,7 +123,7 @@ export const addOnServicesService = {
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
 
     const where: Prisma.AddOnServiceWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -140,17 +153,18 @@ export const addOnServicesService = {
       prisma.addOnService.count({ where }),
     ]);
     return {
-      data: rows.map((row) => present(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => present(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   /** Lightweight selector feed: active services only. */
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const services = await prisma.addOnService.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
@@ -165,10 +179,12 @@ export const addOnServicesService = {
   },
 
   async details(auth: AuthContext, serviceId: string) {
-    return present((await getService(auth, serviceId)) as unknown as Record<string, unknown>);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
+    return present((await getService(auth, serviceId, scope)) as unknown as Record<string, unknown>, scope);
   },
 
   async create(auth: AuthContext, input: AddOnServiceInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
     try {
       const row = await prisma.$transaction(async (tx) => {
         const created = await tx.addOnService.create({
@@ -184,14 +200,14 @@ export const addOnServicesService = {
         });
         await tx.activityLog.create({
           data: audit(auth, 'ADD_ON_SERVICE_CREATED', created.id, context, {
-            // The price is a public catalogue value, not a sensitive cost.
             price: Number(created.price),
             currency: created.currency,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -203,7 +219,9 @@ export const addOnServicesService = {
     input: AddOnServiceUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getService(auth, serviceId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
+    const current = await getService(auth, serviceId, scope, true);
+    assertCanModifyMaster(current, scope);
     try {
       const row = await prisma.$transaction(async (tx) => {
         const updated = await tx.addOnService.update({
@@ -224,7 +242,7 @@ export const addOnServicesService = {
         });
         return updated;
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -236,7 +254,9 @@ export const addOnServicesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getService(auth, serviceId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
+    const current = await getService(auth, serviceId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.addOnService.update({
         where: { id: current.id },
@@ -259,11 +279,13 @@ export const addOnServicesService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async archive(auth: AuthContext, serviceId: string, context: MastersRequestContext) {
-    const current = await getService(auth, serviceId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
+    const current = await getService(auth, serviceId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.addOnService.update({
         where: { id: current.id },
@@ -275,6 +297,6 @@ export const addOnServicesService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 };

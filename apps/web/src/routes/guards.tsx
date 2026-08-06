@@ -51,12 +51,12 @@ export function ProtectedRoute() {
  * business here and is bounced onward.
  */
 export function PublicOnlyRoute() {
-  const { isLoading, isAuthenticated, needsEmailVerification } = useAuth();
+  const { isLoading, isAuthenticated, needsEmailVerification, landingPath } = useAuth();
 
   if (isLoading) return <SessionLoading />;
 
   if (isAuthenticated) {
-    return <Navigate to={needsEmailVerification ? '/verify-email' : '/dashboard'} replace />;
+    return <Navigate to={needsEmailVerification ? '/verify-email' : landingPath} replace />;
   }
 
   return <Outlet />;
@@ -68,13 +68,13 @@ export function PublicOnlyRoute() {
  * redirected away, since there is nothing left to do.
  */
 export function VerificationRoute() {
-  const { isLoading, isAuthenticated, needsEmailVerification } = useAuth();
+  const { isLoading, isAuthenticated, needsEmailVerification, landingPath } = useAuth();
 
   if (isLoading) return <SessionLoading />;
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
-  if (!needsEmailVerification) return <Navigate to="/dashboard" replace />;
+  if (!needsEmailVerification) return <Navigate to={landingPath} replace />;
 
   return <Outlet />;
 }
@@ -86,9 +86,11 @@ export function PermissionRoute({
   permission: string;
   children: React.ReactNode;
 }) {
-  const { isLoading, isFullyAuthenticated, hasPermission } = useAuth();
+  const { isLoading, isFullyAuthenticated, hasPermission, landingPath } = useAuth();
   if (isLoading) return <SessionLoading />;
   if (!isFullyAuthenticated) return <Navigate to="/login" replace />;
-  if (!hasPermission(permission)) return <Navigate to="/dashboard" replace />;
+  // A System Admin denied a tenant module is sent to Masters, never to a
+  // dashboard they cannot open (which would loop forever).
+  if (!hasPermission(permission)) return <Navigate to={landingPath} replace />;
   return <>{children}</>;
 }

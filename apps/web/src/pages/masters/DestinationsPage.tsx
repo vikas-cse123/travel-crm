@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Archive, Eye, Globe2, Pencil, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, Globe2, Pencil, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -8,9 +8,17 @@ import {
   destinationImageUrl,
   useArchiveDestination,
   useDestinations,
+  useHideGlobalMaster,
   useMasterLookups,
 } from '@/features/masters/masters.api';
-import { formatMasterDate, MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import {
+  formatMasterDate,
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+  StatusBadge,
+} from './MasterUi';
 
 const destinationImageUrlCache = new Map<string, string>();
 
@@ -19,6 +27,7 @@ export function DestinationsPage() {
   const destinations = useDestinations(params);
   const lookups = useMasterLookups();
   const archive = useArchiveDestination();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_DESTINATIONS_CREATE);
@@ -89,6 +98,10 @@ export function DestinationsPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this destination?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'DESTINATION', masterId: id });
   };
 
   return (
@@ -210,7 +223,10 @@ export function DestinationsPage() {
                               <Globe2 className="h-5 w-5" />
                             )}
                           </div>
-                          <span className="font-semibold text-slate-900">{destination.name}</span>
+                          <span className="font-semibold text-slate-900">
+                            {destination.name}
+                            {destination.isGlobal && <GlobalBadge />}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-3">{destination.countryName}</td>
@@ -237,7 +253,7 @@ export function DestinationsPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !destination.isGlobal && (
                             <Link
                               aria-label={`Edit ${destination.name}`}
                               to={`/masters/destinations/${destination.id}/edit`}
@@ -246,7 +262,17 @@ export function DestinationsPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && destination.status !== 'ARCHIVED' && (
+                          {destination.canHide && (
+                            <button
+                              aria-label={`Hide ${destination.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(destination.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && destination.status !== 'ARCHIVED' && !destination.isGlobal && (
                             <button
                               aria-label={`Archive ${destination.name}`}
                               onClick={() => archiveRow(destination.id)}
@@ -279,7 +305,10 @@ export function DestinationsPage() {
                         )}
                       </div>
                       <div className="min-w-0">
-                        <h2 className="truncate font-semibold">{destination.name}</h2>
+                        <h2 className="truncate font-semibold">
+                          {destination.name}
+                          {destination.isGlobal && <GlobalBadge />}
+                        </h2>
                         <p className="text-sm text-slate-500">
                           {destination.countryName} · {destination._count.cities} cities
                         </p>
@@ -291,10 +320,19 @@ export function DestinationsPage() {
                     <Link to={`/masters/destinations/${destination.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !destination.isGlobal && (
                       <Link to={`/masters/destinations/${destination.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {destination.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(destination.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

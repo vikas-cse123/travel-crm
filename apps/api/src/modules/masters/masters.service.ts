@@ -3,6 +3,7 @@ import sanitizeHtml from 'sanitize-html';
 import { Prisma, type DestinationType, type MasterStatus } from '@prisma/client';
 import {
   COUNTRIES,
+  MASTER_TYPE,
   PERMISSIONS,
   countryNameForCode,
   type CityInput,
@@ -26,6 +27,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 
 export type MastersRequestContext = { ipAddress: string | null; userAgent: string | null };
 const userSelect = { id: true, fullName: true } as const;
@@ -97,15 +105,18 @@ function duplicateError(error: unknown, label: string): never {
   throw error;
 }
 
-function presentCity<T extends Record<string, unknown>>(row: T) {
+function presentCity<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const { companyId, normalizedName, deletedAt, ...safe } = row;
   void companyId;
   void normalizedName;
   void deletedAt;
-  return safe;
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+  };
 }
 
-function presentDestination<T extends Record<string, unknown>>(row: T) {
+function presentDestination<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
     normalizedName,
@@ -128,24 +139,38 @@ function presentDestination<T extends Record<string, unknown>>(row: T) {
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
+  const hiddenCityIds = new Set(scope.hiddenMasterIds);
   const safeCities = Array.isArray(cities)
-    ? cities.map((link) => {
-        const value = link as Record<string, unknown>;
-        const city = value.city as Record<string, unknown>;
-        const {
-          companyId: _companyId,
-          normalizedName: _normalizedName,
-          deletedAt: _deletedAt,
-          ...safeCity
-        } = city;
-        void _companyId;
-        void _normalizedName;
-        void _deletedAt;
-        return { id: value.id, sequence: value.sequence, cityId: value.cityId, city: safeCity };
-      })
+    ? cities
+        .map((link) => {
+          const value = link as Record<string, unknown>;
+          const city = value.city as Record<string, unknown>;
+          const {
+            companyId: _companyId,
+            normalizedName: _normalizedName,
+            deletedAt: _deletedAt,
+            ...safeCity
+          } = city;
+          void _companyId;
+          void _normalizedName;
+          void _deletedAt;
+          return { id: value.id, sequence: value.sequence, cityId: value.cityId, city: safeCity };
+        })
+        .filter(
+          (link) =>
+            // A tenant that hid a global city must not see it listed under a
+            // destination's city selector either.
+            !(
+              scope.systemCompanyId &&
+              String((link as { city: Record<string, unknown> }).city.companyId) ===
+                scope.systemCompanyId &&
+              hiddenCityIds.has(link.cityId as string)
+            ),
+        )
     : [];
   return {
     ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
     cities: safeCities,
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
   };
@@ -155,12 +180,12 @@ async function managerVisibility(auth: AuthContext, updatePermission: string) {
   return has(auth, updatePermission);
 }
 
-async function getCity(auth: AuthContext, cityId: string) {
+async function getCity(auth: AuthContext, cityId: string, scope: MasterScope) {
   const canManage = await managerVisibility(auth, PERMISSIONS.MASTER_CITIES_UPDATE);
   const city = await prisma.city.findFirst({
     where: {
       id: cityId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManage ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: { createdBy: { select: userSelect }, _count: { select: { destinationLinks: true } } },
@@ -175,12 +200,12 @@ const destinationInclude = {
   _count: { select: { cities: true } },
 } as const;
 
-async function getDestination(auth: AuthContext, destinationId: string) {
+async function getDestination(auth: AuthContext, destinationId: string, scope: MasterScope) {
   const canManage = await managerVisibility(auth, PERMISSIONS.MASTER_DESTINATIONS_UPDATE);
   const destination = await prisma.destination.findFirst({
     where: {
       id: destinationId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManage ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: destinationInclude,
@@ -189,16 +214,22 @@ async function getDestination(auth: AuthContext, destinationId: string) {
   return destination;
 }
 
-async function validateCities(companyId: string, countryCode: string, cityIds: string[]) {
+async function validateCities(scope: MasterScope, countryCode: string, cityIds: string[]) {
   if (new Set(cityIds).size !== cityIds.length)
     throw new ValidationError('A city can only be selected once.');
   const cities = await prisma.city.findMany({
-    where: { id: { in: cityIds }, companyId, countryCode, status: 'ACTIVE', deletedAt: null },
+    where: {
+      id: { in: cityIds },
+      countryCode,
+      status: 'ACTIVE',
+      deletedAt: null,
+      ...buildVisibleWhere(scope),
+    },
     select: { id: true },
   });
   if (cities.length !== cityIds.length)
     throw new ValidationError(
-      'Every selected city must be active and belong to the chosen country.',
+      'Every selected city must be active, visible to this company, and belong to the chosen country.',
     );
 }
 
@@ -218,6 +249,7 @@ function policyData(input: DestinationInput | DestinationUpdateInput) {
 
 export const citiesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -226,7 +258,7 @@ export const citiesService = {
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.CityWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManage
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -281,18 +313,19 @@ export const citiesService = {
       prisma.city.count({ where }),
     ]);
     return {
-      data: rows.map((row) => presentCity(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => presentCity(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
     const countryCode = typeof query.country === 'string' ? query.country : undefined;
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const cities = countryCode
       ? await prisma.city.findMany({
           where: {
-            companyId: auth.companyId,
+            ...buildVisibleWhere(scope),
             countryCode,
             status: 'ACTIVE',
             deletedAt: null,
@@ -314,10 +347,15 @@ export const citiesService = {
   },
 
   async details(auth: AuthContext, cityId: string) {
-    return presentCity((await getCity(auth, cityId)) as unknown as Record<string, unknown>);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
+    return presentCity(
+      (await getCity(auth, cityId, scope)) as unknown as Record<string, unknown>,
+      scope,
+    );
   },
 
   async create(auth: AuthContext, input: CityInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
     const normalizedName = normalizeCustomerName(input.name);
     try {
       const city = await prisma.$transaction(async (tx) => {
@@ -341,11 +379,12 @@ export const citiesService = {
           data: audit(auth, 'CITY_CREATED', 'City', created.id, context, {
             countryCode: created.countryCode,
             airportCode: created.airportCode,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return presentCity(city as unknown as Record<string, unknown>);
+      return presentCity(city as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'That city');
     }
@@ -357,7 +396,9 @@ export const citiesService = {
     input: CityUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getCity(auth, cityId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
+    const current = await getCity(auth, cityId, scope);
+    assertCanModifyMaster(current, scope);
     try {
       const city = await prisma.$transaction(async (tx) => {
         const updated = await tx.city.update({
@@ -391,7 +432,7 @@ export const citiesService = {
         });
         return updated;
       });
-      return presentCity(city as unknown as Record<string, unknown>);
+      return presentCity(city as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'That city');
     }
@@ -403,7 +444,9 @@ export const citiesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getCity(auth, cityId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
+    const current = await getCity(auth, cityId, scope);
+    assertCanModifyMaster(current, scope);
     try {
       const city = await prisma.$transaction(async (tx) => {
         const updated = await tx.city.update({
@@ -422,14 +465,16 @@ export const citiesService = {
         });
         return updated;
       });
-      return presentCity(city as unknown as Record<string, unknown>);
+      return presentCity(city as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'An active city with that name');
     }
   },
 
   async archive(auth: AuthContext, cityId: string, context: MastersRequestContext) {
-    const current = await getCity(auth, cityId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CITY);
+    const current = await getCity(auth, cityId, scope);
+    assertCanModifyMaster(current, scope);
     const city = await prisma.$transaction(async (tx) => {
       const updated = await tx.city.update({
         where: { id: current.id },
@@ -446,12 +491,13 @@ export const citiesService = {
       });
       return updated;
     });
-    return presentCity(city as unknown as Record<string, unknown>);
+    return presentCity(city as unknown as Record<string, unknown>, scope);
   },
 };
 
 export const destinationsService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -460,7 +506,7 @@ export const destinationsService = {
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.DestinationWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManage
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -513,7 +559,7 @@ export const destinationsService = {
       prisma.destination.count({ where }),
     ]);
     return {
-      data: rows.map((row) => presentDestination(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => presentDestination(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
@@ -523,13 +569,16 @@ export const destinationsService = {
   },
 
   async details(auth: AuthContext, destinationId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
     return presentDestination(
-      (await getDestination(auth, destinationId)) as unknown as Record<string, unknown>,
+      (await getDestination(auth, destinationId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: DestinationInput, context: MastersRequestContext) {
-    await validateCities(auth.companyId, input.countryCode, input.cityIds);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    await validateCities(scope, input.countryCode, input.cityIds);
     try {
       const destination = await prisma.$transaction(async (tx) => {
         const created = await tx.destination.create({
@@ -558,11 +607,12 @@ export const destinationsService = {
             countryCode: created.countryCode,
             destinationType: created.destinationType,
             cityCount: input.cityIds.length,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return presentDestination(destination as unknown as Record<string, unknown>);
+      return presentDestination(destination as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'That destination');
     }
@@ -574,9 +624,11 @@ export const destinationsService = {
     input: DestinationUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const current = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(current, scope);
     const countryCode = input.countryCode ?? current.countryCode;
-    if (input.cityIds) await validateCities(auth.companyId, countryCode, input.cityIds);
+    if (input.cityIds) await validateCities(scope, countryCode, input.cityIds);
     else if (input.countryCode) {
       const validExisting = current.cities.every((link) => link.city.countryCode === countryCode);
       if (!validExisting)
@@ -624,7 +676,7 @@ export const destinationsService = {
           include: destinationInclude,
         });
       });
-      return presentDestination(destination as unknown as Record<string, unknown>);
+      return presentDestination(destination as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'That destination');
     }
@@ -636,7 +688,9 @@ export const destinationsService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const current = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(current, scope);
     try {
       const destination = await prisma.$transaction(async (tx) => {
         await tx.destination.update({
@@ -654,14 +708,16 @@ export const destinationsService = {
           include: destinationInclude,
         });
       });
-      return presentDestination(destination as unknown as Record<string, unknown>);
+      return presentDestination(destination as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error, 'An active destination with that name');
     }
   },
 
   async archive(auth: AuthContext, destinationId: string, context: MastersRequestContext) {
-    const current = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const current = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(current, scope);
     const destination = await prisma.$transaction(async (tx) => {
       await tx.destination.update({
         where: { id: current.id },
@@ -677,12 +733,14 @@ export const destinationsService = {
         include: destinationInclude,
       });
     });
-    return presentDestination(destination as unknown as Record<string, unknown>);
+    return presentDestination(destination as unknown as Record<string, unknown>, scope);
   },
 
   async cities(auth: AuthContext, destinationId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
     return presentDestination(
-      (await getDestination(auth, destinationId)) as unknown as Record<string, unknown>,
+      (await getDestination(auth, destinationId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
@@ -692,8 +750,10 @@ export const destinationsService = {
     cityId: string,
     context: MastersRequestContext,
   ) {
-    const destination = await getDestination(auth, destinationId);
-    await validateCities(auth.companyId, destination.countryCode, [cityId]);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
+    await validateCities(scope, destination.countryCode, [cityId]);
     if (destination.cities.some((row) => row.cityId === cityId))
       throw new ConflictError('That city is already linked to this destination.');
     await prisma.$transaction(async (tx) => {
@@ -720,7 +780,9 @@ export const destinationsService = {
     cityId: string,
     context: MastersRequestContext,
   ) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
     if (destination.cities.length <= 1)
       throw new ValidationError('A destination must retain at least one city.');
     const link = destination.cities.find((row) => row.cityId === cityId);
@@ -745,7 +807,9 @@ export const destinationsService = {
     cityIds: string[],
     context: MastersRequestContext,
   ) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
     const existing = new Set(destination.cities.map((row) => row.cityId));
     if (cityIds.length !== existing.size || cityIds.some((id) => !existing.has(id)))
       throw new ValidationError('Reorder must include every linked city exactly once.');
@@ -773,7 +837,9 @@ export const destinationsService = {
     destinationId: string,
     input: DestinationImageUploadInput,
   ) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
     const max = env.DESTINATION_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -808,7 +874,9 @@ export const destinationsService = {
   },
 
   async confirmImage(auth: AuthContext, destinationId: string, context: MastersRequestContext) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
     const key = destination.pendingImageObjectKey;
     if (
       !key ||
@@ -853,11 +921,12 @@ export const destinationsService = {
       return row;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return presentDestination(updated as unknown as Record<string, unknown>);
+    return presentDestination(updated as unknown as Record<string, unknown>, scope);
   },
 
   async imageDownload(auth: AuthContext, destinationId: string) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
     if (!destination.imageObjectKey || !destination.imageFileName || !destination.imageConfirmedAt)
       throw new NotFoundError('Destination image not found.');
     return {
@@ -871,7 +940,9 @@ export const destinationsService = {
   },
 
   async deleteImage(auth: AuthContext, destinationId: string, context: MastersRequestContext) {
-    const destination = await getDestination(auth, destinationId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
     const keys = [destination.imageObjectKey, destination.pendingImageObjectKey].filter(
       (value): value is string => Boolean(value),
     );

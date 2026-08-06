@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   type CruiseImageUploadInput,
   type CruiseInput,
@@ -19,6 +20,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
 /**
@@ -26,7 +34,8 @@ import type { MastersRequestContext } from './airlines.service.js';
  *
  * Scope follows the reference CRM: a catalogue record (name, description,
  * image) plus its sellable room types. Prices live on the room types, so the
- * costing permissions gate them exactly like hotel room/meal costs.
+ * costing permissions gate them exactly like hotel room/meal costs. Room-type
+ * prices on global cruises stay private to the system company.
  */
 
 const userSelect = { id: true, fullName: true } as const;
@@ -87,9 +96,14 @@ function presentRoomType(row: Record<string, unknown>, canViewCosting: boolean) 
 
 /**
  * Drop tenant internals and raw storage keys before anything leaves the API.
- * `hasImage` is the only signal the client needs about media.
+ * `hasImage` is the only signal the client needs about media. For global
+ * cruises viewed by a tenant, costing is always redacted.
  */
-function presentCruise<T extends Record<string, unknown>>(row: T, canViewCosting: boolean) {
+function presentCruise<T extends Record<string, unknown>>(
+  row: T,
+  canViewCosting: boolean,
+  scope: MasterScope,
+) {
   const {
     companyId,
     normalizedName,
@@ -114,8 +128,12 @@ function presentCruise<T extends Record<string, unknown>>(row: T, canViewCosting
   void pendingImageMimeType;
   void pendingImageFileSize;
 
+  const global = Boolean(scope.systemCompanyId && String(companyId) === scope.systemCompanyId);
+  const isTenantViewingGlobal = global && !scope.isSystemAdmin;
+  const effectiveCanViewCosting = canViewCosting && !isTenantViewingGlobal;
+
   const list = Array.isArray(roomTypes) ? (roomTypes as Record<string, unknown>[]) : null;
-  const prices = canViewCosting
+  const prices = effectiveCanViewCosting
     ? (list ?? [])
         .map((entry) => num(entry.price as Prisma.Decimal | null))
         .filter((value): value is number => value !== null)
@@ -123,10 +141,11 @@ function presentCruise<T extends Record<string, unknown>>(row: T, canViewCosting
 
   return {
     ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     ...(list
       ? {
-          roomTypes: list.map((entry) => presentRoomType(entry, canViewCosting)),
+          roomTypes: list.map((entry) => presentRoomType(entry, effectiveCanViewCosting)),
           // Drives the reference's "Available" stat and Price Range strip.
           activeRoomTypeCount: list.filter((entry) => entry.status === 'ACTIVE').length,
           priceRange: prices.length ? { min: Math.min(...prices), max: Math.max(...prices) } : null,
@@ -146,17 +165,17 @@ async function canManage(auth: AuthContext) {
 }
 
 /**
- * Load one cruise inside the tenant.
+ * Load one cruise within the caller's visibility.
  *
  * A cross-tenant id simply matches nothing and surfaces as a 404, so the API
  * never confirms that another company's record exists.
  */
-async function getCruise(auth: AuthContext, cruiseId: string, forManage = false) {
+async function getCruise(auth: AuthContext, cruiseId: string, scope: MasterScope, forManage = false) {
   const canManageCruises = forManage ? true : await canManage(auth);
   const cruise = await prisma.cruise.findFirst({
     where: {
       id: cruiseId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageCruises ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: cruiseInclude,
@@ -197,6 +216,7 @@ function roomTypeRows(
 
 export const cruisesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -205,7 +225,7 @@ export const cruisesService = {
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.CruiseWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageCruises
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -235,11 +255,6 @@ export const cruisesService = {
         where,
         ...toPrismaPagination(pagination),
         orderBy,
-        // Room types ride along so the quotation builder can populate the Room
-        // Type selector from this same tenant-scoped list call. presentRoomType
-        // redacts price/currency when the caller lacks costing access and drops
-        // tenant internals; status is kept so archived room types can still be
-        // restored for existing quotations.
         include: { ...cruiseListInclude, roomTypes: { orderBy: { sortOrder: 'asc' as const } } },
       }),
       prisma.cruise.count({ where }),
@@ -252,7 +267,7 @@ export const cruisesService = {
         };
         const { _count, ...rest } = record;
         return {
-          ...presentCruise(rest, canViewCosting),
+          ...presentCruise(rest, canViewCosting, scope),
           roomTypeCount: _count?.roomTypes ?? 0,
         };
       }),
@@ -262,10 +277,11 @@ export const cruisesService = {
 
   /** Lightweight selector feed: active cruises only, id/name plus room types. */
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const cruises = await prisma.cruise.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
@@ -286,14 +302,17 @@ export const cruisesService = {
   },
 
   async details(auth: AuthContext, cruiseId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_CRUISES_VIEW_COSTING);
     return presentCruise(
-      (await getCruise(auth, cruiseId)) as unknown as Record<string, unknown>,
+      (await getCruise(auth, cruiseId, scope)) as unknown as Record<string, unknown>,
       canViewCosting,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: CruiseInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_CRUISES_MANAGE_COSTING);
     try {
       const cruise = await prisma.$transaction(async (tx) => {
@@ -318,11 +337,12 @@ export const cruisesService = {
         await tx.activityLog.create({
           data: audit(auth, 'CRUISE_CREATED', created.id, context, {
             roomTypeCount: created.roomTypes.length,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return presentCruise(cruise as unknown as Record<string, unknown>, true);
+      return presentCruise(cruise as unknown as Record<string, unknown>, true, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -334,13 +354,12 @@ export const cruisesService = {
     input: CruiseUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const current = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(current, scope);
     const canManageCosting = await has(auth, PERMISSIONS.MASTER_CRUISES_MANAGE_COSTING);
     try {
       const cruise = await prisma.$transaction(async (tx) => {
-        // The inline editor submits the whole set, so a replace keeps the saved
-        // state identical to what the user sees. Omitting the key leaves the
-        // existing room types untouched.
         if (input.roomTypes) {
           await tx.cruiseRoomType.deleteMany({ where: { cruiseId: current.id } });
           if (input.roomTypes.length) {
@@ -370,7 +389,7 @@ export const cruisesService = {
         });
         return updated;
       });
-      return presentCruise(cruise as unknown as Record<string, unknown>, true);
+      return presentCruise(cruise as unknown as Record<string, unknown>, true, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -382,7 +401,9 @@ export const cruisesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const current = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(current, scope);
     const cruise = await prisma.$transaction(async (tx) => {
       const updated = await tx.cruise.update({
         where: { id: current.id },
@@ -393,7 +414,6 @@ export const cruisesService = {
         },
         include: cruiseInclude,
       });
-      // Restoring from ARCHIVED is its own event so the audit trail shows it.
       const action =
         current.status === 'ARCHIVED' && status !== 'ARCHIVED'
           ? 'CRUISE_RESTORED'
@@ -406,11 +426,13 @@ export const cruisesService = {
       });
       return updated;
     });
-    return presentCruise(cruise as unknown as Record<string, unknown>, true);
+    return presentCruise(cruise as unknown as Record<string, unknown>, true, scope);
   },
 
   async archive(auth: AuthContext, cruiseId: string, context: MastersRequestContext) {
-    const current = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const current = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(current, scope);
     const cruise = await prisma.$transaction(async (tx) => {
       const updated = await tx.cruise.update({
         where: { id: current.id },
@@ -420,18 +442,18 @@ export const cruisesService = {
       await tx.activityLog.create({ data: audit(auth, 'CRUISE_ARCHIVED', current.id, context) });
       return updated;
     });
-    return presentCruise(cruise as unknown as Record<string, unknown>, true);
+    return presentCruise(cruise as unknown as Record<string, unknown>, true, scope);
   },
 
   async createImageUpload(auth: AuthContext, cruiseId: string, input: CruiseImageUploadInput) {
-    const cruise = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const cruise = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(cruise, scope);
     const max = env.CRUISE_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
         `Cruise images must be ${env.CRUISE_IMAGE_MAX_UPLOAD_SIZE_MB} MB or smaller.`,
       );
-    // The key is tenant-scoped, so one company's object path can never collide
-    // with or be guessed from another's.
     const key = cruiseImageObjectKey({
       companyId: auth.companyId,
       cruiseId,
@@ -461,7 +483,9 @@ export const cruisesService = {
   },
 
   async confirmImage(auth: AuthContext, cruiseId: string, context: MastersRequestContext) {
-    const cruise = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const cruise = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(cruise, scope);
     const key = cruise.pendingImageObjectKey;
     if (
       !key ||
@@ -472,8 +496,6 @@ export const cruisesService = {
       throw new ValidationError('No cruise image upload is awaiting confirmation.');
     const metadata = await storageService.headObject(key);
     if (!metadata) throw new ValidationError('The uploaded cruise image could not be found.');
-    // Re-check what actually landed: a presigned URL cannot stop a client
-    // uploading something other than the file it declared.
     if (
       metadata.size !== cruise.pendingImageFileSize ||
       metadata.contentType !== cruise.pendingImageMimeType
@@ -508,11 +530,12 @@ export const cruisesService = {
       return row;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return presentCruise(updated as unknown as Record<string, unknown>, true);
+    return presentCruise(updated as unknown as Record<string, unknown>, true, scope);
   },
 
   async imageDownload(auth: AuthContext, cruiseId: string) {
-    const cruise = await getCruise(auth, cruiseId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const cruise = await getCruise(auth, cruiseId, scope);
     if (!cruise.imageObjectKey || !cruise.imageFileName || !cruise.imageConfirmedAt)
       throw new NotFoundError('Cruise image not found.');
     return {
@@ -526,7 +549,9 @@ export const cruisesService = {
   },
 
   async deleteImage(auth: AuthContext, cruiseId: string, context: MastersRequestContext) {
-    const cruise = await getCruise(auth, cruiseId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const cruise = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(cruise, scope);
     const keys = [cruise.imageObjectKey, cruise.pendingImageObjectKey].filter(
       (value): value is string => Boolean(value),
     );

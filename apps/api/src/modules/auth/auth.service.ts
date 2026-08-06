@@ -2,6 +2,7 @@ import {
   ACTIVITY_ACTION,
   ENTITY_TYPE,
   ROLE_NAME,
+  SYSTEM_ADMIN_ROLE_NAME,
   maskEmail,
   type AuthenticatedUser,
   type LoginInput,
@@ -72,6 +73,10 @@ async function toAuthenticatedUser(user: AuthUser): Promise<AuthenticatedUser> {
     emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     mustChangePassword: user.mustChangePassword,
+    // The System Admin is identified by membership of the System Global Masters
+    // company plus its dedicated role — never by email or display name.
+    isSystemAdmin:
+      user.company.isSystem === true && user.role.name === SYSTEM_ADMIN_ROLE_NAME,
     company: {
       id: user.company.id,
       name: user.company.name,
@@ -444,7 +449,9 @@ export const authService = {
     }
 
     const isCompanyAdmin =
-      user.role.name === ROLE_NAME.OWNER || user.role.name === ROLE_NAME.MANAGER;
+      user.role.name === ROLE_NAME.OWNER ||
+      user.role.name === ROLE_NAME.MANAGER ||
+      user.role.name === SYSTEM_ADMIN_ROLE_NAME;
     const usingAdminLogin = input.loginMode === 'COMPANY_ADMIN';
     if (usingAdminLogin !== isCompanyAdmin) {
       await recordFailure(usingAdminLogin ? 'user_used_admin_login' : 'admin_used_user_login');

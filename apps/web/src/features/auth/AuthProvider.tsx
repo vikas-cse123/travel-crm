@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo } from 'react';
-import type { AuthenticatedUser } from '@interscale/shared';
+import { SYSTEM_ADMIN_LANDING_PATH, TENANT_LANDING_PATH, type AuthenticatedUser } from '@interscale/shared';
 import { useCurrentUser } from './auth.api';
 
 /**
@@ -20,6 +20,10 @@ interface AuthContextValue {
   needsEmailVerification: boolean;
   /** Authenticated AND verified — the only state allowed into the CRM. */
   isFullyAuthenticated: boolean;
+  /** True for the System Admin who manages global Masters. */
+  isSystemAdmin: boolean;
+  /** Safe landing route after login and for guard-denied redirects. */
+  landingPath: string;
   permissions: string[];
   hasPermission: (key: string) => boolean;
 }
@@ -34,6 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isAuthenticated = user !== null;
     const needsEmailVerification = isAuthenticated && !user.emailVerified;
     const permissions = user?.permissions ?? [];
+    const isSystemAdmin = user?.isSystemAdmin === true;
 
     return {
       user,
@@ -41,6 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated,
       needsEmailVerification,
       isFullyAuthenticated: isAuthenticated && user.emailVerified,
+      isSystemAdmin,
+      landingPath: isSystemAdmin ? SYSTEM_ADMIN_LANDING_PATH : TENANT_LANDING_PATH,
       permissions,
       hasPermission: (key: string) => permissions.includes(key),
     };

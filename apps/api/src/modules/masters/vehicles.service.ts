@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   type VehicleImageUploadInput,
   type VehicleInput,
@@ -18,6 +19,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
 /**
@@ -60,7 +68,7 @@ function audit(
 }
 
 /** Drop tenant internals and raw storage keys before the row leaves the API. */
-function presentVehicle<T extends Record<string, unknown>>(row: T) {
+function presentVehicle<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
     normalizedName,
@@ -83,7 +91,11 @@ function presentVehicle<T extends Record<string, unknown>>(row: T) {
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
-  return { ...safe, hasImage: Boolean(imageObjectKey && row.imageConfirmedAt) };
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+  };
 }
 
 function duplicateError(error: unknown): never {
@@ -97,15 +109,15 @@ async function canManage(auth: AuthContext) {
 }
 
 /**
- * Load one vehicle inside the tenant. A cross-tenant id matches nothing and
- * surfaces as a 404, so record existence never leaks across companies.
+ * Load one vehicle inside the caller's visibility. A cross-tenant id matches
+ * nothing and surfaces as a 404, so record existence never leaks.
  */
-async function getVehicle(auth: AuthContext, vehicleId: string, forManage = false) {
+async function getVehicle(auth: AuthContext, vehicleId: string, scope: MasterScope, forManage = false) {
   const canManageVehicles = forManage ? true : await canManage(auth);
   const vehicle = await prisma.vehicle.findFirst({
     where: {
       id: vehicleId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageVehicles ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: vehicleInclude,
@@ -128,6 +140,7 @@ function writeData(input: VehicleInput | VehicleUpdateInput) {
 
 export const vehiclesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -137,7 +150,7 @@ export const vehiclesService = {
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const vehicleType = typeof query.vehicleType === 'string' ? query.vehicleType.trim() : '';
     const where: Prisma.VehicleWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageVehicles
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -174,20 +187,21 @@ export const vehiclesService = {
       prisma.vehicle.count({ where }),
     ]);
     return {
-      data: rows.map((row) => presentVehicle(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => presentVehicle(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   /**
-   * Distinct vehicle types this tenant actually uses.
+   * Distinct vehicle types this company can see (own + global).
    *
    * The reference list filter is a dropdown even though the field is free
    * text, so the options have to come from stored data rather than an enum.
    */
   async types(auth: AuthContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     const rows = await prisma.vehicle.findMany({
-      where: { companyId: auth.companyId, deletedAt: null },
+      where: { ...buildVisibleWhere(scope), deletedAt: null },
       distinct: ['vehicleType'],
       orderBy: { vehicleType: 'asc' },
       select: { vehicleType: true },
@@ -197,10 +211,11 @@ export const vehiclesService = {
 
   /** Lightweight selector feed: active vehicles only. */
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const vehicles = await prisma.vehicle.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(search
@@ -220,12 +235,15 @@ export const vehiclesService = {
   },
 
   async details(auth: AuthContext, vehicleId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     return presentVehicle(
-      (await getVehicle(auth, vehicleId)) as unknown as Record<string, unknown>,
+      (await getVehicle(auth, vehicleId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: VehicleInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     try {
       const vehicle = await prisma.$transaction(async (tx) => {
         const created = await tx.vehicle.create({
@@ -244,11 +262,12 @@ export const vehiclesService = {
           data: audit(auth, 'VEHICLE_CREATED', created.id, context, {
             vehicleType: created.vehicleType,
             capacity: created.capacity,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return presentVehicle(vehicle as unknown as Record<string, unknown>);
+      return presentVehicle(vehicle as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -260,7 +279,9 @@ export const vehiclesService = {
     input: VehicleUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const current = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(current, scope);
     try {
       const vehicle = await prisma.$transaction(async (tx) => {
         const updated = await tx.vehicle.update({
@@ -281,7 +302,7 @@ export const vehiclesService = {
         });
         return updated;
       });
-      return presentVehicle(vehicle as unknown as Record<string, unknown>);
+      return presentVehicle(vehicle as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -293,7 +314,9 @@ export const vehiclesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const current = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(current, scope);
     const vehicle = await prisma.$transaction(async (tx) => {
       const updated = await tx.vehicle.update({
         where: { id: current.id },
@@ -316,11 +339,13 @@ export const vehiclesService = {
       });
       return updated;
     });
-    return presentVehicle(vehicle as unknown as Record<string, unknown>);
+    return presentVehicle(vehicle as unknown as Record<string, unknown>, scope);
   },
 
   async archive(auth: AuthContext, vehicleId: string, context: MastersRequestContext) {
-    const current = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const current = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(current, scope);
     const vehicle = await prisma.$transaction(async (tx) => {
       const updated = await tx.vehicle.update({
         where: { id: current.id },
@@ -330,11 +355,13 @@ export const vehiclesService = {
       await tx.activityLog.create({ data: audit(auth, 'VEHICLE_ARCHIVED', current.id, context) });
       return updated;
     });
-    return presentVehicle(vehicle as unknown as Record<string, unknown>);
+    return presentVehicle(vehicle as unknown as Record<string, unknown>, scope);
   },
 
   async createImageUpload(auth: AuthContext, vehicleId: string, input: VehicleImageUploadInput) {
-    const vehicle = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const vehicle = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(vehicle, scope);
     const max = env.VEHICLE_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -369,7 +396,9 @@ export const vehiclesService = {
   },
 
   async confirmImage(auth: AuthContext, vehicleId: string, context: MastersRequestContext) {
-    const vehicle = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const vehicle = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(vehicle, scope);
     const key = vehicle.pendingImageObjectKey;
     if (
       !key ||
@@ -414,11 +443,12 @@ export const vehiclesService = {
       return row;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return presentVehicle(updated as unknown as Record<string, unknown>);
+    return presentVehicle(updated as unknown as Record<string, unknown>, scope);
   },
 
   async imageDownload(auth: AuthContext, vehicleId: string) {
-    const vehicle = await getVehicle(auth, vehicleId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const vehicle = await getVehicle(auth, vehicleId, scope);
     if (!vehicle.imageObjectKey || !vehicle.imageFileName || !vehicle.imageConfirmedAt)
       throw new NotFoundError('Vehicle image not found.');
     return {
@@ -432,7 +462,9 @@ export const vehiclesService = {
   },
 
   async deleteImage(auth: AuthContext, vehicleId: string, context: MastersRequestContext) {
-    const vehicle = await getVehicle(auth, vehicleId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const vehicle = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(vehicle, scope);
     const keys = [vehicle.imageObjectKey, vehicle.pendingImageObjectKey].filter(
       (value): value is string => Boolean(value),
     );

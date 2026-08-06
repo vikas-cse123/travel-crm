@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Archive, Eye, Pencil, Plus, RotateCcw, Search, Ship } from 'lucide-react';
+import { Archive, Eye, EyeOff, Pencil, Plus, RotateCcw, Search, Ship } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -8,10 +8,13 @@ import {
   cruiseImageUrl,
   useArchiveCruise,
   useCruises,
+  useHideGlobalMaster,
   useRestoreCruise,
 } from '@/features/masters/masters.api';
 import {
   formatMasterDate,
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
   MasterHeader,
   Pagination,
   RichTextPreview,
@@ -33,6 +36,7 @@ export function CruisesPage() {
   const cruises = useCruises(params);
   const archive = useArchiveCruise();
   const restore = useRestoreCruise();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_CRUISES_CREATE);
@@ -103,6 +107,10 @@ export function CruisesPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this cruise?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'CRUISE', masterId: id });
   };
 
   const columns = [
@@ -203,7 +211,10 @@ export function CruisesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{cruise.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {cruise.name}
+                        {cruise.isGlobal && <GlobalBadge />}
+                      </td>
                       <td className="max-w-xs px-4 py-3 text-slate-600">
                         <RichTextPreview html={cruise.description} />
                       </td>
@@ -233,7 +244,7 @@ export function CruisesPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !cruise.isGlobal && (
                             <Link
                               aria-label={`Edit ${cruise.name}`}
                               to={`/masters/cruises/${cruise.id}/edit`}
@@ -242,7 +253,17 @@ export function CruisesPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && cruise.status !== 'ARCHIVED' && (
+                          {cruise.canHide && (
+                            <button
+                              aria-label={`Hide ${cruise.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(cruise.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && cruise.status !== 'ARCHIVED' && !cruise.isGlobal && (
                             <button
                               aria-label={`Archive ${cruise.name}`}
                               onClick={() => archiveRow(cruise.id)}
@@ -271,7 +292,10 @@ export function CruisesPage() {
               {cruises.data.data.map((cruise) => (
                 <article key={cruise.id} className="flex items-center justify-between gap-2 p-4">
                   <div className="min-w-0">
-                    <h2 className="truncate font-semibold">{cruise.name}</h2>
+                    <h2 className="truncate font-semibold">
+                      {cruise.name}
+                      {cruise.isGlobal && <GlobalBadge />}
+                    </h2>
                     <p className="text-xs text-slate-500">
                       {cruise.roomTypeCount ?? 0} room type
                       {(cruise.roomTypeCount ?? 0) === 1 ? '' : 's'}
@@ -281,10 +305,19 @@ export function CruisesPage() {
                     <Link to={`/masters/cruises/${cruise.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !cruise.isGlobal && (
                       <Link to={`/masters/cruises/${cruise.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {cruise.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(cruise.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

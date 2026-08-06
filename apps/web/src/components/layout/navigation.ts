@@ -4,6 +4,7 @@ import {
   Building2,
   Bus,
   CalendarClock,
+  EyeOff,
   FileText,
   Files,
   Globe2,
@@ -35,6 +36,7 @@ export const SHOW_VISA_TYPES_MASTER_NAVIGATION = false;
  * `available: false` renders an item as "Coming soon" — visible so the product
  * shape is clear, but not navigable. `permission` is the key required to see
  * an item at all; Phase 5 wires the filtering to real permission checks.
+ * `hideForSystemAdmin` removes an item from the System Admin's navigation.
  */
 export interface NavItem {
   label: string;
@@ -43,6 +45,7 @@ export interface NavItem {
   available: boolean;
   permission?: string;
   group?: string;
+  hideForSystemAdmin?: boolean;
   children?: readonly NavItem[];
 }
 
@@ -202,6 +205,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: PackagePlus,
         available: true,
         permission: PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW,
+      },
+      {
+        label: 'Hidden Global',
+        to: '/masters/hidden',
+        icon: EyeOff,
+        available: true,
+        permission: PERMISSIONS.MASTERS_VIEW,
+        // The tenant restore screen is not part of the System Admin UI.
+        hideForSystemAdmin: true,
       },
       ...(SHOW_VISA_TYPES_MASTER_NAVIGATION
         ? [

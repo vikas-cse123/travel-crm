@@ -185,6 +185,8 @@ export interface AuthenticatedUser {
   emailVerifiedAt: string | null;
   lastLoginAt: string | null;
   mustChangePassword: boolean;
+  /** True for the single System Admin who owns global Master records. */
+  isSystemAdmin: boolean;
   company: AuthCompany;
   role: AuthRole;
   /** Effective permission keys: (role ∪ template) ∩ available. */

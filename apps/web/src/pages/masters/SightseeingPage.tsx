@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   Eye,
+  EyeOff,
   Image as ImageIcon,
   MapPinned,
   Pencil,
@@ -24,6 +25,7 @@ import {
   useArchiveSightseeing,
   useCities,
   useDestinations,
+  useHideGlobalMaster,
   useReorderSightseeing,
   useRestoreSightseeing,
   useSightseeingList,
@@ -31,7 +33,13 @@ import {
   sightseeingImageUrl,
   type Sightseeing,
 } from '@/features/masters/masters.api';
-import { MasterHeader, RichTextPreview, StatusBadge } from './MasterUi';
+import {
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  RichTextPreview,
+  StatusBadge,
+} from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -80,6 +88,7 @@ export function SightseeingPage() {
   const archive = useArchiveSightseeing();
   const restore = useRestoreSightseeing();
   const reorder = useReorderSightseeing();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_UPDATE);
@@ -99,6 +108,10 @@ export function SightseeingPage() {
 
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this sightseeing?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'SIGHTSEEING', masterId: id });
   };
 
   const confirmRestore = (row: Sightseeing) => {
@@ -280,6 +293,7 @@ export function SightseeingPage() {
                                   className="font-semibold text-brand-700 hover:underline"
                                 >
                                   {row.title}
+                                  {row.isGlobal && <GlobalBadge />}
                                 </Link>
                                 <RichTextPreview
                                   html={row.description}
@@ -320,7 +334,7 @@ export function SightseeingPage() {
                               </td>
                               <td className="px-4 py-2.5">
                                 <div className="flex gap-1">
-                                  {canUpdate && row.status !== 'ARCHIVED' && (
+                                  {canUpdate && row.status !== 'ARCHIVED' && !row.isGlobal && (
                                     <>
                                       <button
                                         aria-label={`Move ${row.title} up`}
@@ -349,7 +363,7 @@ export function SightseeingPage() {
                                   >
                                     <Eye className="h-3.5 w-3.5" />
                                   </Link>
-                                  {canUpdate && (
+                                  {canUpdate && !row.isGlobal && (
                                     <Link
                                       aria-label={`Edit ${row.title}`}
                                       to={`/masters/sightseeing/${row.id}/edit`}
@@ -358,7 +372,17 @@ export function SightseeingPage() {
                                       <Pencil className="h-3.5 w-3.5" />
                                     </Link>
                                   )}
-                                  {canArchive && row.status !== 'ARCHIVED' && (
+                                  {row.canHide && (
+                                    <button
+                                      aria-label={`Hide ${row.title} for this company`}
+                                      title="Hide this global record for your company"
+                                      onClick={() => hideRow(row.id)}
+                                      className="rounded bg-amber-600 p-1.5 text-white"
+                                    >
+                                      <EyeOff className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {canArchive && row.status !== 'ARCHIVED' && !row.isGlobal && (
                                     <button
                                       aria-label={`Archive ${row.title}`}
                                       onClick={() => archiveRow(row.id)}
@@ -367,7 +391,7 @@ export function SightseeingPage() {
                                       <Archive className="h-3.5 w-3.5" />
                                     </button>
                                   )}
-                                  {canUpdate && row.status === 'ARCHIVED' && (
+                                  {canUpdate && row.status === 'ARCHIVED' && !row.isGlobal && (
                                     <button
                                       aria-label={`Restore ${row.title}`}
                                       onClick={() => setRestoreTarget(row)}
@@ -392,7 +416,10 @@ export function SightseeingPage() {
               {(rows.data?.data ?? []).map((row) => (
                 <article key={row.id} className="flex items-center justify-between gap-2 p-4">
                   <div className="min-w-0">
-                    <h2 className="truncate font-semibold">{row.title}</h2>
+                    <h2 className="truncate font-semibold">
+                      {row.title}
+                      {row.isGlobal && <GlobalBadge />}
+                    </h2>
                     <p className="text-xs text-slate-500">
                       {row.destination.name} · {row.city.name} · #{row.sequence}
                     </p>
@@ -401,10 +428,19 @@ export function SightseeingPage() {
                     <Link to={`/masters/sightseeing/${row.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !row.isGlobal && (
                       <Link to={`/masters/sightseeing/${row.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {row.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(row.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

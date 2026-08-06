@@ -7,6 +7,7 @@ import {
   VerificationRoute,
 } from '@/routes/guards';
 import { PERMISSIONS } from '@interscale/shared';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { SignupPage } from '@/pages/auth/SignupPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
@@ -89,6 +90,7 @@ import { VisaTypeFormPage } from '@/pages/masters/VisaTypeFormPage';
 import { TestimonialsPage } from '@/pages/masters/TestimonialsPage';
 import { TestimonialDetailsPage } from '@/pages/masters/TestimonialDetailsPage';
 import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
+import { HiddenGlobalRecordsPage } from '@/pages/masters/HiddenGlobalRecordsPage';
 
 /**
  * Route table.
@@ -101,10 +103,17 @@ import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
  * `/reset-password/:token` is intentionally outside PublicOnlyRoute: a signed-in
  * user following a reset link from their inbox should still be able to use it.
  */
+
+/** Landing route aware of the System Admin (Masters) vs normal tenants. */
+function RootRedirect() {
+  const { landingPath } = useAuth();
+  return <Navigate to={landingPath} replace />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<RootRedirect />} />
 
       <Route element={<PublicOnlyRoute />}>
         <Route path="/signup" element={<SignupPage />} />
@@ -517,6 +526,15 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.ACTIVITY_LOGS_VIEW}>
                 <ActivityLogsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route path="/masters" element={<Navigate to="/masters/cities" replace />} />
+          <Route
+            path="/masters/hidden"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTERS_VIEW}>
+                <HiddenGlobalRecordsPage />
               </PermissionRoute>
             }
           />

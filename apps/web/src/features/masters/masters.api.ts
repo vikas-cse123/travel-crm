@@ -36,7 +36,22 @@ import type {
 } from '@interscale/shared';
 import { apiClient } from '@/api/client';
 
-export interface City {
+/**
+ * Server-computed ownership metadata attached to every master response.
+ * The backend decides these booleans; the frontend only renders them.
+ */
+export type MasterSource = 'GLOBAL' | 'TENANT' | 'SYSTEM';
+
+export interface MasterVisibilityMeta {
+  isGlobal: boolean;
+  isOwnedByCurrentTenant: boolean;
+  canEdit: boolean;
+  canHide: boolean;
+  canRestore: boolean;
+  source: MasterSource;
+}
+
+export interface City extends MasterVisibilityMeta {
   id: string;
   countryCode: string;
   countryName: string;
@@ -56,7 +71,7 @@ export interface DestinationCityLink {
   city: City;
 }
 
-export interface Destination {
+export interface Destination extends MasterVisibilityMeta {
   id: string;
   countryCode: string;
   countryName: string;
@@ -280,7 +295,7 @@ export interface HotelMealPlan {
   updatedAt: string;
 }
 
-export interface HotelSummary {
+export interface HotelSummary extends MasterVisibilityMeta {
   id: string;
   name: string;
   starCategory: number | null;
@@ -434,7 +449,7 @@ export async function deleteHotelImage(id: string) {
 // Airlines
 // ---------------------------------------------------------------------------
 
-export interface Airline {
+export interface Airline extends MasterVisibilityMeta {
   id: string;
   name: string;
   iataCode: string | null;
@@ -532,7 +547,7 @@ export interface CruiseRoomType {
   sortOrder: number;
 }
 
-export interface Cruise {
+export interface Cruise extends MasterVisibilityMeta {
   id: string;
   name: string;
   description: string | null;
@@ -628,7 +643,7 @@ export async function deleteCruiseImage(id: string) {
 // Vehicles
 // ---------------------------------------------------------------------------
 
-export interface Vehicle {
+export interface Vehicle extends MasterVisibilityMeta {
   id: string;
   name: string;
   vehicleType: string;
@@ -730,7 +745,7 @@ export async function deleteVehicleImage(id: string) {
 // Sightseeing
 // ---------------------------------------------------------------------------
 
-export interface Sightseeing {
+export interface Sightseeing extends MasterVisibilityMeta {
   id: string;
   title: string;
   sequence: number;
@@ -924,7 +939,7 @@ export async function deleteSightseeingImage(id: string) {
 // Add-On Services
 // ---------------------------------------------------------------------------
 
-export interface AddOnService {
+export interface AddOnService extends MasterVisibilityMeta {
   id: string;
   name: string;
   description: string | null;
@@ -1007,7 +1022,7 @@ export interface VisaTypeSection {
   content: string;
   sequence: number;
 }
-export interface VisaType {
+export interface VisaType extends MasterVisibilityMeta {
   id: string;
   destinationId: string;
   name: string;
@@ -1071,7 +1086,7 @@ export function useArchiveVisaType() {
 // Testimonials
 // ---------------------------------------------------------------------------
 
-export interface Testimonial {
+export interface Testimonial extends MasterVisibilityMeta {
   id: string;
   clientName: string | null;
   destinationName: string;
@@ -1150,4 +1165,92 @@ export async function testimonialImageUrl(id: string) {
 }
 export async function deleteTestimonialImage(id: string) {
   return apiClient.delete<{ deleted: true }>(`/masters/testimonials/${id}/image`);
+}
+
+// ---------------------------------------------------------------------------
+// Global records — hide / restore / hidden list
+// ---------------------------------------------------------------------------
+
+/** Stable internal master type keys used by the generic hide/restore routes. */
+export type GlobalMasterType =
+  | 'CITY'
+  | 'DESTINATION'
+  | 'HOTEL'
+  | 'AIRLINE'
+  | 'CRUISE'
+  | 'VEHICLE'
+  | 'SIGHTSEEING'
+  | 'ADD_ON_SERVICE'
+  | 'VISA_TYPE'
+  | 'TESTIMONIAL';
+
+export interface HiddenGlobalMasterRow {
+  hideId: string;
+  masterType: GlobalMasterType;
+  masterId: string;
+  masterTypeLabel: string;
+  name: string;
+  hiddenAt: string;
+  hiddenBy: { id: string; fullName: string } | null;
+}
+
+export interface HiddenGlobalMastersResponse {
+  data: HiddenGlobalMasterRow[];
+  count: number;
+}
+
+const hiddenKeys = {
+  all: ['masters', 'hidden'] as const,
+  query: (query: string) => ['masters', 'hidden', query] as const,
+};
+
+/** Global records the current tenant has hidden, optionally filtered by type. */
+export function useHiddenGlobalMasters(masterType?: GlobalMasterType) {
+  const params = new URLSearchParams();
+  if (masterType) params.set('masterType', masterType);
+  const query = params.toString();
+  return useQuery({
+    queryKey: hiddenKeys.query(query),
+    queryFn: ({ signal }) =>
+      apiClient.get<HiddenGlobalMastersResponse>(
+        `/masters/hidden${query ? `?${query}` : ''}`,
+        signal,
+      ),
+  });
+}
+
+/**
+ * Invalidate every master list/dropdown/lookup/hidden query after a hide or
+ * restore so tenant and system-admin changes are visible on the next render.
+ */
+function invalidateAllMasterQueries(client: ReturnType<typeof useQueryClient>) {
+  void client.invalidateQueries({ queryKey: ['masters'] });
+}
+
+export function useHideGlobalMaster() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      masterType,
+      masterId,
+    }: {
+      masterType: GlobalMasterType;
+      masterId: string;
+    }) => apiClient.post(`/masters/${masterType}/${masterId}/hide`),
+    onSuccess: () => invalidateAllMasterQueries(client),
+  });
+}
+
+export function useRestoreGlobalMaster() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      masterType,
+      masterId,
+    }: {
+      masterType: GlobalMasterType;
+      masterId: string;
+    }) => apiClient.delete(`/masters/${masterType}/${masterId}/hide`),
+    onSuccess: () => invalidateAllMasterQueries(client),
+  });
 }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
   ERROR_CODES,
+  MASTER_TYPE,
   PERMISSIONS,
   type SightseeingImageUploadInput,
   type SightseeingInput,
@@ -27,6 +28,13 @@ import {
   ValidationError,
 } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
 /**
@@ -73,7 +81,7 @@ function audit(
 }
 
 /** Strip tenant internals and raw storage keys before anything leaves the API. */
-function present<T extends Record<string, unknown>>(row: T) {
+function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
     normalizedTitle,
@@ -98,6 +106,7 @@ function present<T extends Record<string, unknown>>(row: T) {
   void pendingImageFileSize;
   return {
     ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
     estimatedHours: num(safe.estimatedHours as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
   };
@@ -114,20 +123,15 @@ async function canManage(auth: AuthContext) {
 }
 
 /**
- * Confirm the city is linked to the destination for this tenant, both active.
- *
- * The frontend filters the city dropdown, but that is only a convenience —
- * this is the check that actually holds, and it is scoped by companyId so a
- * cross-tenant destination or city id cannot be smuggled in.
+ * Confirm the city is linked to the destination, both visible to this company.
  */
-async function validateDestinationCity(companyId: string, destinationId: string, cityId: string) {
+async function validateDestinationCity(scope: MasterScope, destinationId: string, cityId: string) {
   const link = await prisma.destinationCity.findFirst({
     where: {
-      companyId,
       destinationId,
       cityId,
-      destination: { status: 'ACTIVE', deletedAt: null },
-      city: { status: 'ACTIVE', deletedAt: null },
+      destination: { ...buildVisibleWhere(scope), status: 'ACTIVE', deletedAt: null },
+      city: { ...buildVisibleWhere(scope), status: 'ACTIVE', deletedAt: null },
     },
     select: { id: true },
   });
@@ -135,12 +139,17 @@ async function validateDestinationCity(companyId: string, destinationId: string,
     throw new ValidationError('The selected city must be linked to the selected destination.');
 }
 
-async function getSightseeing(auth: AuthContext, sightseeingId: string, forManage = false) {
+async function getSightseeing(
+  auth: AuthContext,
+  sightseeingId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageRows = forManage ? true : await canManage(auth);
   const row = await prisma.sightseeing.findFirst({
     where: {
       id: sightseeingId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: sightseeingInclude,
@@ -167,6 +176,7 @@ function writeData(input: SightseeingInput | SightseeingUpdateInput) {
 
 export const sightseeingService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -176,7 +186,7 @@ export const sightseeingService = {
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
 
     const where: Prisma.SightseeingWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -199,9 +209,6 @@ export const sightseeingService = {
       prisma.sightseeing.findMany({
         where,
         ...toPrismaPagination(pagination),
-        // Ascending sequence within each destination/city group, with a stable
-        // creation-date + id tiebreak for equal sequences. This keeps the
-        // reference "1, 2, 3 …" ordering instead of newest-first.
         orderBy: [
           { destination: { name: 'asc' } },
           { city: { name: 'asc' } },
@@ -215,21 +222,22 @@ export const sightseeingService = {
     ]);
 
     return {
-      data: rows.map((row) => present(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => present(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   /**
    * Counts backing the reference's "Summary Statistics" strip.
-   * Scoped to the tenant's live rows.
+   * Scoped to the company's visible rows.
    */
   async summary(auth: AuthContext, query: Record<string, unknown> = {}) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const canManageRows = await canManage(auth);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.SightseeingWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -263,10 +271,11 @@ export const sightseeingService = {
 
   /** Lightweight selector feed: active rows only. */
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const sightseeings = await prisma.sightseeing.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(query.destinationId ? { destinationId: String(query.destinationId) } : {}),
@@ -294,13 +303,16 @@ export const sightseeingService = {
   },
 
   async details(auth: AuthContext, sightseeingId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     return present(
-      (await getSightseeing(auth, sightseeingId)) as unknown as Record<string, unknown>,
+      (await getSightseeing(auth, sightseeingId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: SightseeingInput, context: MastersRequestContext) {
-    await validateDestinationCity(auth.companyId, input.destinationId, input.cityId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    await validateDestinationCity(scope, input.destinationId, input.cityId);
     // If an archived record with the same unique identity exists, surface a
     // structured error so the create form can offer a restore flow instead of
     // the generic "already exists" message.
@@ -340,9 +352,6 @@ export const sightseeingService = {
     }
     try {
       const row = await prisma.$transaction(async (tx) => {
-        // A fresh record gets the next sequence in its city group unless an
-        // explicit sequence was supplied (the schema default of 1 is treated
-        // as "auto"), keeping group numbering contiguous.
         let sequence = input.sequence ?? 1;
         if (sequence === 1) {
           const max = await tx.sightseeing.aggregate({
@@ -376,11 +385,12 @@ export const sightseeingService = {
             destinationId: created.destinationId,
             cityId: created.cityId,
             sequence: created.sequence,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -392,12 +402,12 @@ export const sightseeingService = {
     input: SightseeingUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getSightseeing(auth, sightseeingId, true);
-    // Re-validate whenever either side of the pair is touched, using the
-    // incoming value where present and the stored one otherwise.
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const current = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(current, scope);
     if (input.destinationId !== undefined || input.cityId !== undefined) {
       await validateDestinationCity(
-        auth.companyId,
+        scope,
         input.destinationId ?? current.destinationId,
         input.cityId ?? current.cityId,
       );
@@ -424,7 +434,7 @@ export const sightseeingService = {
         });
         return updated;
       });
-      return present(row as unknown as Record<string, unknown>);
+      return present(row as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -442,7 +452,9 @@ export const sightseeingService = {
     direction: 'UP' | 'DOWN',
     context: MastersRequestContext,
   ) {
-    const current = await getSightseeing(auth, sightseeingId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const current = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(current, scope);
     const neighbour = await prisma.sightseeing.findFirst({
       where: {
         companyId: auth.companyId,
@@ -454,7 +466,7 @@ export const sightseeingService = {
     });
     // Already at the boundary — a no-op rather than an error, which is what
     // clicking ↑ on the first row should do.
-    if (!neighbour) return present(current as unknown as Record<string, unknown>);
+    if (!neighbour) return present(current as unknown as Record<string, unknown>, scope);
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.sightseeing.update({
@@ -475,7 +487,7 @@ export const sightseeingService = {
       });
       return row;
     });
-    return present(updated as unknown as Record<string, unknown>);
+    return present(updated as unknown as Record<string, unknown>, scope);
   },
 
   async status(
@@ -484,9 +496,9 @@ export const sightseeingService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getSightseeing(auth, sightseeingId, true);
-    // Restoring an archived record: verify a current ACTIVE/INACTIVE record has
-    // not since claimed the same unique identity (company + city + title).
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const current = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(current, scope);
     if (current.status === 'ARCHIVED' && status !== 'ARCHIVED') {
       const conflict = await prisma.sightseeing.findFirst({
         where: {
@@ -526,11 +538,13 @@ export const sightseeingService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async archive(auth: AuthContext, sightseeingId: string, context: MastersRequestContext) {
-    const current = await getSightseeing(auth, sightseeingId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const current = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.sightseeing.update({
         where: { id: current.id },
@@ -542,7 +556,7 @@ export const sightseeingService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async createImageUpload(
@@ -550,7 +564,9 @@ export const sightseeingService = {
     sightseeingId: string,
     input: SightseeingImageUploadInput,
   ) {
-    const row = await getSightseeing(auth, sightseeingId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const row = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(row, scope);
     const max = env.SIGHTSEEING_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -585,14 +601,14 @@ export const sightseeingService = {
   },
 
   async confirmImage(auth: AuthContext, sightseeingId: string, context: MastersRequestContext) {
-    const row = await getSightseeing(auth, sightseeingId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const row = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(row, scope);
     const key = row.pendingImageObjectKey;
     if (!key || !row.pendingImageFileName || !row.pendingImageMimeType || !row.pendingImageFileSize)
       throw new ValidationError('No sightseeing image upload is awaiting confirmation.');
     const metadata = await storageService.headObject(key);
     if (!metadata) throw new ValidationError('The uploaded sightseeing image could not be found.');
-    // A presigned URL cannot stop a client uploading something other than what
-    // it declared, so re-check what actually landed.
     if (
       metadata.size !== row.pendingImageFileSize ||
       metadata.contentType !== row.pendingImageMimeType
@@ -627,11 +643,12 @@ export const sightseeingService = {
       return saved;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return present(updated as unknown as Record<string, unknown>);
+    return present(updated as unknown as Record<string, unknown>, scope);
   },
 
   async imageDownload(auth: AuthContext, sightseeingId: string) {
-    const row = await getSightseeing(auth, sightseeingId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const row = await getSightseeing(auth, sightseeingId, scope);
     if (!row.imageObjectKey || !row.imageFileName || !row.imageConfirmedAt)
       throw new NotFoundError('Sightseeing image not found.');
     return {
@@ -651,12 +668,13 @@ export const sightseeingService = {
    * URLs are transient presigned links and are never persisted.
    */
   async presentations(auth: AuthContext, ids: string[]) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const uniqueIds = [...new Set(ids)].filter(
       (id) => typeof id === 'string' && /^[0-9a-fA-F-]{36}$/.test(id),
     );
     if (!uniqueIds.length) return {};
     const rows = await prisma.sightseeing.findMany({
-      where: { id: { in: uniqueIds }, companyId: auth.companyId, deletedAt: null },
+      where: { id: { in: uniqueIds }, ...buildVisibleWhere(scope), deletedAt: null },
       select: { id: true, imageObjectKey: true, imageFileName: true, imageConfirmedAt: true },
     });
     return Object.fromEntries(
@@ -681,7 +699,9 @@ export const sightseeingService = {
   },
 
   async deleteImage(auth: AuthContext, sightseeingId: string, context: MastersRequestContext) {
-    const row = await getSightseeing(auth, sightseeingId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const row = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(row, scope);
     const keys = [row.imageObjectKey, row.pendingImageObjectKey].filter((value): value is string =>
       Boolean(value),
     );
@@ -712,8 +732,8 @@ export const sightseeingService = {
 
   /**
    * Quotation builder dropdown feed — resolves destination/city by name (exact
-   * normalised match) and returns active sightseeing records scoped to that
-   * destination, optionally filtered by city. Falls back to all destination
+   * normalised match) and returns active sightseeing records visible to this
+   * company, optionally filtered by city. Falls back to all destination
    * records when the city has no match. No pagination; expects fewer than 100
    * rows per destination.
    */
@@ -722,6 +742,7 @@ export const sightseeingService = {
     destinationName: string | undefined,
     cityName: string | undefined,
   ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const normName = (value: string | undefined) =>
       value
         ?.trim()
@@ -735,7 +756,7 @@ export const sightseeingService = {
 
     const destination = await prisma.destination.findFirst({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         normalizedName: destName,
         deletedAt: null,
         status: 'ACTIVE',
@@ -750,7 +771,7 @@ export const sightseeingService = {
     if (cityNameNorm) {
       const city = await prisma.city.findFirst({
         where: {
-          companyId: auth.companyId,
+          ...buildVisibleWhere(scope),
           name: { equals: cityNameNorm, mode: 'insensitive' },
           destinationLinks: { some: { destinationId: destination.id } },
           deletedAt: null,
@@ -765,7 +786,7 @@ export const sightseeingService = {
     }
 
     const where: Prisma.SightseeingWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       status: 'ACTIVE',
       deletedAt: null,
       destinationId: destination.id,

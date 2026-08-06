@@ -1,4 +1,4 @@
-import { Archive, Eye, PackagePlus, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, PackagePlus, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -6,9 +6,17 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useAddOnServices,
   useArchiveAddOnService,
+  useHideGlobalMaster,
   useRestoreAddOnService,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, RichTextPreview, StatusBadge } from './MasterUi';
+import {
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+  RichTextPreview,
+  StatusBadge,
+} from './MasterUi';
 
 function money(amount: number, currency: string): string {
   try {
@@ -24,6 +32,7 @@ export function AddOnServicesPage() {
   const services = useAddOnServices(params);
   const archive = useArchiveAddOnService();
   const restore = useRestoreAddOnService();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE);
@@ -38,6 +47,10 @@ export function AddOnServicesPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this add-on service?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'ADD_ON_SERVICE', masterId: id });
   };
 
   return (
@@ -117,7 +130,10 @@ export function AddOnServicesPage() {
                 <tbody className="divide-y">
                   {services.data.data.map((service) => (
                     <tr key={service.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{service.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {service.name}
+                        {service.isGlobal && <GlobalBadge />}
+                      </td>
                       <td className="max-w-lg px-4 py-3 text-slate-600">
                         <RichTextPreview html={service.description} />
                       </td>
@@ -136,7 +152,7 @@ export function AddOnServicesPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !service.isGlobal && (
                             <Link
                               aria-label={`Edit ${service.name}`}
                               to={`/masters/add-on-services/${service.id}/edit`}
@@ -145,7 +161,17 @@ export function AddOnServicesPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && service.status !== 'ARCHIVED' && (
+                          {service.canHide && (
+                            <button
+                              aria-label={`Hide ${service.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(service.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && service.status !== 'ARCHIVED' && !service.isGlobal && (
                             <button
                               aria-label={`Archive ${service.name}`}
                               onClick={() => archiveRow(service.id)}
@@ -175,7 +201,10 @@ export function AddOnServicesPage() {
               {services.data.data.map((service) => (
                 <article key={service.id} className="flex items-center justify-between gap-2 p-4">
                   <div className="min-w-0">
-                    <h2 className="truncate font-semibold">{service.name}</h2>
+                    <h2 className="truncate font-semibold">
+                      {service.name}
+                      {service.isGlobal && <GlobalBadge />}
+                    </h2>
                     <p className="text-xs text-slate-500">
                       {money(service.price, service.currency)}
                     </p>
@@ -184,10 +213,19 @@ export function AddOnServicesPage() {
                     <Link to={`/masters/add-on-services/${service.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !service.isGlobal && (
                       <Link to={`/masters/add-on-services/${service.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {service.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(service.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

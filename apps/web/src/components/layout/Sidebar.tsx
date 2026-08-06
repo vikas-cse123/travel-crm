@@ -24,15 +24,19 @@ interface SidebarProps {
  * brightens on hover — all theme-tokenised for light and dark.
  */
 export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
-  const { hasPermission } = useAuth();
+  const { hasPermission, isSystemAdmin } = useAuth();
 
   const items = NAV_ITEMS.map((item) => ({
     ...item,
     children: item.children?.filter(
-      (child) => !child.permission || hasPermission(child.permission),
+      (child) =>
+        (!child.permission || hasPermission(child.permission)) &&
+        (!child.hideForSystemAdmin || !isSystemAdmin),
     ),
   })).filter(
-    (item) => !item.permission || hasPermission(item.permission) || Boolean(item.children?.length),
+    (item) =>
+      (!item.hideForSystemAdmin || !isSystemAdmin) &&
+      (!item.permission || hasPermission(item.permission) || Boolean(item.children?.length)),
   );
 
   return (

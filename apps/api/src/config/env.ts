@@ -137,6 +137,18 @@ const envSchema = z.object({
 
   RATE_LIMIT_WINDOW_MINUTES: intWithDefault(15),
   RATE_LIMIT_MAX_REQUESTS: intWithDefault(300),
+
+  /**
+   * System Global Masters bootstrap credentials. Read ONLY by the
+   * `bootstrap:system-masters` command and never echoed to logs or responses.
+   * Optional here because the running API must boot without them; the
+   * bootstrap command fails safely when they are missing.
+   */
+  SYSTEM_ADMIN_EMAIL: z.string().trim().email().optional(),
+  SYSTEM_ADMIN_PASSWORD: z.string().min(1).optional(),
+  SYSTEM_ADMIN_RESET_PASSWORD: booleanWithDefault(false),
+  /** Optional fallback company id; the deterministic slug is preferred. */
+  SYSTEM_GLOBAL_MASTERS_COMPANY_ID: z.string().uuid().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

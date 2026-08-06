@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Archive, Eye, Pencil, Plane, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, Pencil, Plane, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { airlineLogoUrl, useAirlines, useArchiveAirline } from '@/features/masters/masters.api';
-import { formatMasterDate, MasterHeader, Pagination } from './MasterUi';
+import {
+  airlineLogoUrl,
+  useAirlines,
+  useArchiveAirline,
+  useHideGlobalMaster,
+} from '@/features/masters/masters.api';
+import {
+  formatMasterDate,
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+} from './MasterUi';
 
 const airlineLogoUrlCache = new Map<string, string>();
 
@@ -13,6 +24,7 @@ export function AirlinesPage() {
   const [params, setParams] = useSearchParams();
   const airlines = useAirlines(params);
   const archive = useArchiveAirline();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const [logoUrls, setLogoUrls] = useState<Record<string, string>>({});
   const canCreate = hasPermission(PERMISSIONS.MASTER_AIRLINES_CREATE);
@@ -82,6 +94,10 @@ export function AirlinesPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this airline?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'AIRLINE', masterId: id });
   };
 
   return (
@@ -159,7 +175,10 @@ export function AirlinesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{airline.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {airline.name}
+                        {airline.isGlobal && <GlobalBadge />}
+                      </td>
                       <td className="px-4 py-3 text-slate-500">
                         {formatMasterDate(airline.createdAt)}
                       </td>
@@ -172,7 +191,7 @@ export function AirlinesPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !airline.isGlobal && (
                             <Link
                               aria-label={`Edit ${airline.name}`}
                               to={`/masters/airlines/${airline.id}/edit`}
@@ -181,7 +200,17 @@ export function AirlinesPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && airline.status !== 'ARCHIVED' && (
+                          {airline.canHide && (
+                            <button
+                              aria-label={`Hide ${airline.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(airline.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && airline.status !== 'ARCHIVED' && !airline.isGlobal && (
                             <button
                               aria-label={`Archive ${airline.name}`}
                               onClick={() => archiveRow(airline.id)}
@@ -215,17 +244,29 @@ export function AirlinesPage() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <h2 className="truncate font-semibold">{airline.name}</h2>
+                      <h2 className="truncate font-semibold">
+                        {airline.name}
+                        {airline.isGlobal && <GlobalBadge />}
+                      </h2>
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <Link to={`/masters/airlines/${airline.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !airline.isGlobal && (
                       <Link to={`/masters/airlines/${airline.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {airline.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(airline.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

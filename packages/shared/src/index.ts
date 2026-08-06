@@ -30,3 +30,4 @@ export * from './masters.js';
 export * from './dashboard.js';
 export * from './settings.js';
 export * from './reports.js';
+export * from './system-masters.js';

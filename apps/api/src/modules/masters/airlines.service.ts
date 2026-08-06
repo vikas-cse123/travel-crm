@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   countryNameForCode,
   type AirlineInput,
@@ -19,6 +20,13 @@ import {
 } from '../../utils/pagination.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 
 export type MastersRequestContext = { ipAddress: string | null; userAgent: string | null };
 const userSelect = { id: true, fullName: true } as const;
@@ -47,7 +55,7 @@ function audit(
   };
 }
 
-function presentAirline<T extends Record<string, unknown>>(row: T) {
+function presentAirline<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
     normalizedName,
@@ -59,6 +67,7 @@ function presentAirline<T extends Record<string, unknown>>(row: T) {
     pendingLogoFileName,
     pendingLogoMimeType,
     pendingLogoFileSize,
+    internalNotes,
     ...safe
   } = row;
   void companyId;
@@ -70,7 +79,16 @@ function presentAirline<T extends Record<string, unknown>>(row: T) {
   void pendingLogoFileName;
   void pendingLogoMimeType;
   void pendingLogoFileSize;
-  return { ...safe, hasLogo: Boolean(logoObjectKey && row.logoConfirmedAt) };
+
+  const global = Boolean(scope.systemCompanyId && String(companyId) === scope.systemCompanyId);
+  const isTenantViewingGlobal = global && !scope.isSystemAdmin;
+
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    ...(isTenantViewingGlobal ? {} : internalNotes !== undefined ? { internalNotes } : {}),
+    hasLogo: Boolean(logoObjectKey && row.logoConfirmedAt),
+  };
 }
 
 function duplicateError(error: unknown): never {
@@ -97,12 +115,12 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_AIRLINES_UPDATE);
 }
 
-async function getAirline(auth: AuthContext, airlineId: string, forManage = false) {
+async function getAirline(auth: AuthContext, airlineId: string, scope: MasterScope, forManage = false) {
   const canManageAirlines = forManage ? true : await canManage(auth);
   const airline = await prisma.airline.findFirst({
     where: {
       id: airlineId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageAirlines ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: airlineInclude,
@@ -127,6 +145,7 @@ function writeData(input: AirlineInput | AirlineUpdateInput) {
 
 export const airlinesService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -135,7 +154,7 @@ export const airlinesService = {
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
     const where: Prisma.AirlineWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageAirlines
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -170,16 +189,17 @@ export const airlinesService = {
       prisma.airline.count({ where }),
     ]);
     return {
-      data: rows.map((row) => presentAirline(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => presentAirline(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   async lookups(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
     const search = typeof query.search === 'string' ? query.search.trim() : '';
     const airlines = await prisma.airline.findMany({
       where: {
-        companyId: auth.companyId,
+        ...buildVisibleWhere(scope),
         status: 'ACTIVE',
         deletedAt: null,
         ...(search
@@ -199,12 +219,15 @@ export const airlinesService = {
   },
 
   async details(auth: AuthContext, airlineId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
     return presentAirline(
-      (await getAirline(auth, airlineId)) as unknown as Record<string, unknown>,
+      (await getAirline(auth, airlineId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: AirlineInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
     try {
       const airline = await prisma.$transaction(async (tx) => {
         const created = await tx.airline.create({
@@ -222,11 +245,12 @@ export const airlinesService = {
           data: audit(auth, 'AIRLINE_CREATED', created.id, context, {
             iataCode: created.iataCode,
             icaoCode: created.icaoCode,
+            sourceGlobal: scope.isSystemAdmin,
           }),
         });
         return created;
       });
-      return presentAirline(airline as unknown as Record<string, unknown>);
+      return presentAirline(airline as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -238,7 +262,9 @@ export const airlinesService = {
     input: AirlineUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const current = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(current, scope);
     try {
       const airline = await prisma.$transaction(async (tx) => {
         const updated = await tx.airline.update({
@@ -258,7 +284,7 @@ export const airlinesService = {
         });
         return updated;
       });
-      return presentAirline(airline as unknown as Record<string, unknown>);
+      return presentAirline(airline as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
@@ -270,7 +296,9 @@ export const airlinesService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const current = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(current, scope);
     try {
       const airline = await prisma.$transaction(async (tx) => {
         const updated = await tx.airline.update({
@@ -286,14 +314,16 @@ export const airlinesService = {
         });
         return updated;
       });
-      return presentAirline(airline as unknown as Record<string, unknown>);
+      return presentAirline(airline as unknown as Record<string, unknown>, scope);
     } catch (error) {
       duplicateError(error);
     }
   },
 
   async archive(auth: AuthContext, airlineId: string, context: MastersRequestContext) {
-    const current = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const current = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(current, scope);
     const airline = await prisma.$transaction(async (tx) => {
       const updated = await tx.airline.update({
         where: { id: current.id },
@@ -303,11 +333,13 @@ export const airlinesService = {
       await tx.activityLog.create({ data: audit(auth, 'AIRLINE_ARCHIVED', current.id, context) });
       return updated;
     });
-    return presentAirline(airline as unknown as Record<string, unknown>);
+    return presentAirline(airline as unknown as Record<string, unknown>, scope);
   },
 
   async createLogoUpload(auth: AuthContext, airlineId: string, input: AirlineLogoUploadInput) {
-    const airline = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const airline = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(airline, scope);
     const max = env.AIRLINE_LOGO_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -342,7 +374,9 @@ export const airlinesService = {
   },
 
   async confirmLogo(auth: AuthContext, airlineId: string, context: MastersRequestContext) {
-    const airline = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const airline = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(airline, scope);
     const key = airline.pendingLogoObjectKey;
     if (
       !key ||
@@ -387,11 +421,12 @@ export const airlinesService = {
       return row;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return presentAirline(updated as unknown as Record<string, unknown>);
+    return presentAirline(updated as unknown as Record<string, unknown>, scope);
   },
 
   async logoDownload(auth: AuthContext, airlineId: string) {
-    const airline = await getAirline(auth, airlineId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const airline = await getAirline(auth, airlineId, scope);
     if (!airline.logoObjectKey || !airline.logoFileName || !airline.logoConfirmedAt)
       throw new NotFoundError('Airline logo not found.');
     return {
@@ -405,7 +440,9 @@ export const airlinesService = {
   },
 
   async deleteLogo(auth: AuthContext, airlineId: string, context: MastersRequestContext) {
-    const airline = await getAirline(auth, airlineId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const airline = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(airline, scope);
     const keys = [airline.logoObjectKey, airline.pendingLogoObjectKey].filter(
       (value): value is string => Boolean(value),
     );

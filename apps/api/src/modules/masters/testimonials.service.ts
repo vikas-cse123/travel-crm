@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { type Prisma, type MasterStatus } from '@prisma/client';
 import {
+  MASTER_TYPE,
   PERMISSIONS,
   type TestimonialImageUploadInput,
   type TestimonialInput,
@@ -20,6 +21,13 @@ import {
 } from '../../utils/pagination.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import {
+  assertCanModifyMaster,
+  buildVisibleWhere,
+  masterRecordMeta,
+  resolveMasterScope,
+  type MasterScope,
+} from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
 
 /**
@@ -61,7 +69,7 @@ function audit(
 }
 
 /** Drop tenant internals and never leak raw private storage keys. */
-function present<T extends Record<string, unknown>>(row: T) {
+function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
     deletedAt,
@@ -82,19 +90,28 @@ function present<T extends Record<string, unknown>>(row: T) {
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
-  return { ...safe, hasImage: Boolean(imageObjectKey && row.imageConfirmedAt) };
+  return {
+    ...safe,
+    ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+  };
 }
 
 async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_TESTIMONIALS_UPDATE);
 }
 
-async function getTestimonial(auth: AuthContext, testimonialId: string, forManage = false) {
+async function getTestimonial(
+  auth: AuthContext,
+  testimonialId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageRows = forManage ? true : await canManage(auth);
   const row = await prisma.testimonial.findFirst({
     where: {
       id: testimonialId,
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows ? {} : { status: 'ACTIVE', deletedAt: null }),
     },
     include: testimonialInclude,
@@ -115,6 +132,7 @@ function writeData(input: TestimonialInput | TestimonialUpdateInput) {
 
 export const testimonialsService = {
   async list(auth: AuthContext, query: Record<string, unknown>) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
     const pagination = resolvePagination({
       page: Number(query.page) || undefined,
       pageSize: Number(query.pageSize) || 10,
@@ -124,7 +142,7 @@ export const testimonialsService = {
     const status = query.status ? (String(query.status) as MasterStatus) : undefined;
 
     const where: Prisma.TestimonialWhereInput = {
-      companyId: auth.companyId,
+      ...buildVisibleWhere(scope),
       ...(canManageRows
         ? status === 'ARCHIVED'
           ? { status: 'ARCHIVED' }
@@ -160,18 +178,21 @@ export const testimonialsService = {
       prisma.testimonial.count({ where }),
     ]);
     return {
-      data: rows.map((row) => present(row as unknown as Record<string, unknown>)),
+      data: rows.map((row) => present(row as unknown as Record<string, unknown>, scope)),
       pagination: buildPaginationMeta(pagination, total),
     };
   },
 
   async details(auth: AuthContext, testimonialId: string) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
     return present(
-      (await getTestimonial(auth, testimonialId)) as unknown as Record<string, unknown>,
+      (await getTestimonial(auth, testimonialId, scope)) as unknown as Record<string, unknown>,
+      scope,
     );
   },
 
   async create(auth: AuthContext, input: TestimonialInput, context: MastersRequestContext) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
     const row = await prisma.$transaction(async (tx) => {
       const created = await tx.testimonial.create({
         data: {
@@ -188,11 +209,12 @@ export const testimonialsService = {
       await tx.activityLog.create({
         data: audit(auth, 'TESTIMONIAL_CREATED', created.id, context, {
           destinationName: created.destinationName,
+          sourceGlobal: scope.isSystemAdmin,
         }),
       });
       return created;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async update(
@@ -201,7 +223,9 @@ export const testimonialsService = {
     input: TestimonialUpdateInput,
     context: MastersRequestContext,
   ) {
-    const current = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const current = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.testimonial.update({
         where: { id: current.id },
@@ -221,7 +245,7 @@ export const testimonialsService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async status(
@@ -230,7 +254,9 @@ export const testimonialsService = {
     status: MasterStatus,
     context: MastersRequestContext,
   ) {
-    const current = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const current = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.testimonial.update({
         where: { id: current.id },
@@ -250,11 +276,13 @@ export const testimonialsService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   async archive(auth: AuthContext, testimonialId: string, context: MastersRequestContext) {
-    const current = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const current = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(current, scope);
     const row = await prisma.$transaction(async (tx) => {
       const updated = await tx.testimonial.update({
         where: { id: current.id },
@@ -266,7 +294,7 @@ export const testimonialsService = {
       });
       return updated;
     });
-    return present(row as unknown as Record<string, unknown>);
+    return present(row as unknown as Record<string, unknown>, scope);
   },
 
   // --- Image (private, tenant-scoped) --------------------------------------
@@ -276,7 +304,9 @@ export const testimonialsService = {
     testimonialId: string,
     input: TestimonialImageUploadInput,
   ) {
-    const row = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const row = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(row, scope);
     const max = env.TESTIMONIAL_IMAGE_MAX_UPLOAD_SIZE_MB * 1024 * 1024;
     if (input.fileSize > max)
       throw new ValidationError(
@@ -311,7 +341,9 @@ export const testimonialsService = {
   },
 
   async confirmImage(auth: AuthContext, testimonialId: string, context: MastersRequestContext) {
-    const row = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const row = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(row, scope);
     const key = row.pendingImageObjectKey;
     if (!key || !row.pendingImageFileName || !row.pendingImageMimeType || !row.pendingImageFileSize)
       throw new ValidationError('No testimonial image upload is awaiting confirmation.');
@@ -352,11 +384,12 @@ export const testimonialsService = {
       return saved;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
-    return present(updated as unknown as Record<string, unknown>);
+    return present(updated as unknown as Record<string, unknown>, scope);
   },
 
   async imageDownload(auth: AuthContext, testimonialId: string) {
-    const row = await getTestimonial(auth, testimonialId);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const row = await getTestimonial(auth, testimonialId, scope);
     if (!row.imageObjectKey || !row.imageFileName || !row.imageConfirmedAt)
       throw new NotFoundError('Testimonial image not found.');
     return {
@@ -370,7 +403,9 @@ export const testimonialsService = {
   },
 
   async deleteImage(auth: AuthContext, testimonialId: string, context: MastersRequestContext) {
-    const row = await getTestimonial(auth, testimonialId, true);
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const row = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(row, scope);
     const keys = [row.imageObjectKey, row.pendingImageObjectKey].filter((value): value is string =>
       Boolean(value),
     );

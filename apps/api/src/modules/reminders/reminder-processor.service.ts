@@ -568,7 +568,8 @@ export const reminderProcessor = {
   },
   async processAll() {
     const companies = await prisma.company.findMany({
-      where: { status: 'ACTIVE' },
+      // The hidden system company has no tenant reminders.
+      where: { status: 'ACTIVE', isSystem: false },
       select: { id: true },
     });
     const results = [];

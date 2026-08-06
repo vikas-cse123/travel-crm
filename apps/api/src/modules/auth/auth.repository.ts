@@ -39,6 +39,7 @@ const AUTH_USER_SELECT = {
       timezone: true,
       defaultCurrency: true,
       logoConfirmedAt: true,
+      isSystem: true,
     },
   },
   role: { select: { id: true, name: true, hierarchyLevel: true } },

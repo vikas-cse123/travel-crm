@@ -1,10 +1,21 @@
-import { Archive, Eye, FileText, Pencil, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, FileText, Pencil, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useArchiveVisaType, useDestinations, useVisaTypes } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge } from './MasterUi';
+import {
+  useArchiveVisaType,
+  useDestinations,
+  useHideGlobalMaster,
+  useVisaTypes,
+} from '@/features/masters/masters.api';
+import {
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+  StatusBadge,
+} from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -13,6 +24,7 @@ export function VisaTypesPage() {
   const visaTypes = useVisaTypes(params);
   const destinations = useDestinations(LARGE);
   const archive = useArchiveVisaType();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(PERMISSIONS.MASTER_VISA_TYPES_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_VISA_TYPES_UPDATE);
@@ -26,6 +38,10 @@ export function VisaTypesPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this visa type?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'VISA_TYPE', masterId: id });
   };
 
   return (
@@ -117,7 +133,10 @@ export function VisaTypesPage() {
                   {visaTypes.data.data.map((visa) => (
                     <tr key={visa.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">{visa.destination.name}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{visa.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {visa.name}
+                        {visa.isGlobal && <GlobalBadge />}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="rounded bg-cyan-100 px-2 py-1 font-semibold text-cyan-800">
                           {visa._count.sections}
@@ -135,7 +154,7 @@ export function VisaTypesPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !visa.isGlobal && (
                             <Link
                               aria-label={`Edit ${visa.name}`}
                               to={`/masters/visa-types/${visa.id}/edit`}
@@ -144,7 +163,17 @@ export function VisaTypesPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && visa.status !== 'ARCHIVED' && (
+                          {visa.canHide && (
+                            <button
+                              aria-label={`Hide ${visa.name} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(visa.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && visa.status !== 'ARCHIVED' && !visa.isGlobal && (
                             <button
                               aria-label={`Archive ${visa.name}`}
                               onClick={() => archiveRow(visa.id)}
@@ -165,7 +194,10 @@ export function VisaTypesPage() {
                 <article key={visa.id} className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h2 className="font-semibold">{visa.name}</h2>
+                      <h2 className="font-semibold">
+                        {visa.name}
+                        {visa.isGlobal && <GlobalBadge />}
+                      </h2>
                       <p className="text-sm text-slate-500">
                         {visa.destination.name} · {visa._count.sections} sections
                       </p>
@@ -176,10 +208,19 @@ export function VisaTypesPage() {
                     <Link to={`/masters/visa-types/${visa.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !visa.isGlobal && (
                       <Link to={`/masters/visa-types/${visa.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {visa.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(visa.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

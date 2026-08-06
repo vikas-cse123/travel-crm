@@ -1,15 +1,27 @@
-import { Archive, Eye, MessageSquareQuote, Pencil, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, MessageSquareQuote, Pencil, Plus, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useArchiveTestimonial, useTestimonials } from '@/features/masters/masters.api';
-import { MasterHeader, Pagination, StatusBadge, TextPreview } from './MasterUi';
+import {
+  useArchiveTestimonial,
+  useHideGlobalMaster,
+  useTestimonials,
+} from '@/features/masters/masters.api';
+import {
+  GlobalBadge,
+  HIDE_GLOBAL_CONFIRM,
+  MasterHeader,
+  Pagination,
+  StatusBadge,
+  TextPreview,
+} from './MasterUi';
 
 export function TestimonialsPage() {
   const [params, setParams] = useSearchParams();
   const testimonials = useTestimonials(params);
   const archive = useArchiveTestimonial();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(PERMISSIONS.MASTER_TESTIMONIALS_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_TESTIMONIALS_UPDATE);
@@ -23,6 +35,10 @@ export function TestimonialsPage() {
   };
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this testimonial?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'TESTIMONIAL', masterId: id });
   };
   const label = (name: string | null) => name?.trim() || 'Anonymous';
 
@@ -103,6 +119,7 @@ export function TestimonialsPage() {
                     <tr key={testimonial.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-900">
                         {label(testimonial.clientName)}
+                        {testimonial.isGlobal && <GlobalBadge />}
                       </td>
                       <td className="px-4 py-3">{testimonial.destinationName}</td>
                       <td className="max-w-xs px-4 py-3 text-slate-600">
@@ -129,7 +146,7 @@ export function TestimonialsPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
-                          {canUpdate && (
+                          {canUpdate && !testimonial.isGlobal && (
                             <Link
                               aria-label={`Edit testimonial from ${label(testimonial.clientName)}`}
                               to={`/masters/testimonials/${testimonial.id}/edit`}
@@ -138,7 +155,17 @@ export function TestimonialsPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           )}
-                          {canArchive && testimonial.status !== 'ARCHIVED' && (
+                          {testimonial.canHide && (
+                            <button
+                              aria-label={`Hide testimonial from ${label(testimonial.clientName)} for this company`}
+                              title="Hide this global record for your company"
+                              onClick={() => hideRow(testimonial.id)}
+                              className="rounded bg-amber-600 p-2 text-white"
+                            >
+                              <EyeOff className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canArchive && testimonial.status !== 'ARCHIVED' && !testimonial.isGlobal && (
                             <button
                               aria-label={`Archive testimonial from ${label(testimonial.clientName)}`}
                               onClick={() => archiveRow(testimonial.id)}
@@ -159,7 +186,10 @@ export function TestimonialsPage() {
                 <article key={testimonial.id} className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h2 className="font-semibold">{label(testimonial.clientName)}</h2>
+                      <h2 className="font-semibold">
+                        {label(testimonial.clientName)}
+                        {testimonial.isGlobal && <GlobalBadge />}
+                      </h2>
                       <p className="text-sm text-slate-500">{testimonial.destinationName}</p>
                       <TextPreview className="mt-1 text-sm text-slate-600">
                         {testimonial.description}
@@ -171,10 +201,19 @@ export function TestimonialsPage() {
                     <Link to={`/masters/testimonials/${testimonial.id}`}>
                       <Button variant="secondary">View</Button>
                     </Link>
-                    {canUpdate && (
+                    {canUpdate && !testimonial.isGlobal && (
                       <Link to={`/masters/testimonials/${testimonial.id}/edit`}>
                         <Button variant="secondary">Edit</Button>
                       </Link>
+                    )}
+                    {testimonial.canHide && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => hideRow(testimonial.id)}
+                        title="Hide for this company"
+                      >
+                        Hide
+                      </Button>
                     )}
                   </div>
                 </article>

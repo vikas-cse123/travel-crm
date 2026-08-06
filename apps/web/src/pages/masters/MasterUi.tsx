@@ -4,6 +4,7 @@ import {
   Bold,
   Code2,
   Eraser,
+  Globe2,
   Highlighter,
   Italic,
   Link2,
@@ -31,6 +32,10 @@ export function formatMasterDate(value: string | number | Date | null | undefine
   if (Number.isNaN(date.getTime())) return '—';
   return masterDateFormatter.format(date);
 }
+
+/** Shared confirmation copy for hiding a global record for one company. */
+export const HIDE_GLOBAL_CONFIRM =
+  'Hide this global record?\n\nIt will be hidden only for your company. Other companies will continue to see it. Existing records already using it will not be changed.';
 
 export function Breadcrumbs({ current }: { current: string }) {
   return (
@@ -81,6 +86,24 @@ export function StatusBadge({ value }: { value: string }) {
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${style}`}>
       {value.replaceAll('_', ' ')}
+    </span>
+  );
+}
+
+/**
+ * Marks a record owned by the System Global Masters company. It is visible to
+ * every tenant, and tenants can only hide it — never edit or archive it.
+ */
+export function GlobalBadge({ withTooltip = true }: { withTooltip?: boolean }) {
+  const label = 'Global master record shared with every company';
+  return (
+    <span
+      title={withTooltip ? label : undefined}
+      aria-label={label}
+      className="ml-2 inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-indigo-700"
+    >
+      <Globe2 className="h-3 w-3" aria-hidden="true" />
+      Global
     </span>
   );
 }

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Eye,
+  EyeOff,
   MapPin,
   MapPinned,
   Pencil,
@@ -24,11 +25,12 @@ import {
   useArchiveHotel,
   useDestination,
   useDestinations,
+  useHideGlobalMaster,
   useHotels,
   hotelImageUrl,
   type HotelSummary,
 } from '@/features/masters/masters.api';
-import { MasterHeader, Stars } from './MasterUi';
+import { GlobalBadge, HIDE_GLOBAL_CONFIRM, MasterHeader, Stars } from './MasterUi';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -52,6 +54,7 @@ export function HotelsPage() {
   const selectedDestination = params.get('destinationId') ?? '';
   const destinationDetail = useDestination(selectedDestination || undefined);
   const archive = useArchiveHotel();
+  const hideMaster = useHideGlobalMaster();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(PERMISSIONS.MASTER_HOTELS_CREATE);
   const canUpdate = hasPermission(PERMISSIONS.MASTER_HOTELS_UPDATE);
@@ -98,6 +101,10 @@ export function HotelsPage() {
     });
   const archiveRow = (id: string) => {
     if (window.confirm('Are you sure you want to delete this hotel?')) archive.mutate(id);
+  };
+  const hideRow = (id: string) => {
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'HOTEL', masterId: id });
   };
   const addHotelPath = (destinationId?: string) =>
     destinationId ? `/masters/hotels/new?destinationId=${destinationId}` : '/masters/hotels/new';
@@ -168,7 +175,15 @@ export function HotelsPage() {
                     <Link to={`/masters/destinations/${group.id}`}><Button variant="secondary" size="sm">View Destination</Button></Link>
                   </div>
                 </div>
-                {isOpen && <HotelTable hotels={group.hotels} canUpdate={canUpdate} canArchive={canArchive} onArchive={archiveRow} />}
+                {isOpen && (
+                  <HotelTable
+                    hotels={group.hotels}
+                    canUpdate={canUpdate}
+                    canArchive={canArchive}
+                    onArchive={archiveRow}
+                    onHide={hideRow}
+                  />
+                )}
               </section>
             );
             })}
@@ -224,8 +239,133 @@ function HotelStatisticsPanel({
   );
 }
 
-function HotelTable({ hotels, canUpdate, canArchive, onArchive }: { hotels: HotelSummary[]; canUpdate: boolean; canArchive: boolean; onArchive: (id: string) => void }) {
-  return <div className="overflow-x-auto"><table className="min-w-[900px] w-full text-left text-sm"><thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-600"><tr>{['Hotel Name', 'City', 'Default', 'Star Category', 'User Rating', 'Rooms', 'Meals', 'Actions'].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody className="divide-y">{hotels.map((hotel) => <tr key={hotel.id} className="hover:bg-slate-50"><td className="px-4 py-3"><div className="flex items-center gap-3"><HotelThumbnail hotel={hotel} /><span className="font-semibold text-brand-700">{hotel.name}</span></div></td><td className="px-4 py-3"><span className="rounded bg-slate-600 px-2 py-1 text-xs font-semibold text-white">{hotel.city.name}</span></td><td className="px-4 py-3">{hotel.isDefaultForCity ? <span className="text-emerald-600"><Star className="inline h-5 w-5 fill-current" /></span> : <span className="text-slate-400">—</span>}</td><td className="px-4 py-3"><Stars value={hotel.starCategory} /></td><td className="px-4 py-3">{hotel.starRating != null ? <span className="rounded bg-cyan-600 px-2 py-1 text-xs font-semibold text-white">{hotel.starRating.toFixed(1)}/5</span> : '—'}</td><td className="px-4 py-3"><span className="rounded bg-amber-400 px-2 py-1 text-xs font-semibold text-amber-950">{hotel._count?.roomTypes ?? 0}</span></td><td className="px-4 py-3"><span className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white">{hotel._count?.mealPlans ?? 0}</span></td><td className="px-4 py-3"><div className="flex gap-1"><Link aria-label={`View ${hotel.name}`} to={`/masters/hotels/${hotel.id}`} className="rounded border border-cyan-600 p-2 text-cyan-600"><Eye className="h-4 w-4" /></Link>{canUpdate && <Link aria-label={`Edit ${hotel.name}`} to={`/masters/hotels/${hotel.id}/edit`} className="rounded border border-brand-600 p-2 text-brand-600"><Pencil className="h-4 w-4" /></Link>}{canArchive && hotel.status !== 'ARCHIVED' && <button aria-label={`Archive ${hotel.name}`} onClick={() => onArchive(hotel.id)} className="rounded border border-red-500 p-2 text-red-500"><Archive className="h-4 w-4" /></button>}</div></td></tr>)}</tbody></table></div>;
+function HotelTable({
+  hotels,
+  canUpdate,
+  canArchive,
+  onArchive,
+  onHide,
+}: {
+  hotels: HotelSummary[];
+  canUpdate: boolean;
+  canArchive: boolean;
+  onArchive: (id: string) => void;
+  onHide: (id: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[900px] w-full text-left text-sm">
+        <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-600">
+          <tr>
+            {[
+              'Hotel Name',
+              'City',
+              'Default',
+              'Star Category',
+              'User Rating',
+              'Rooms',
+              'Meals',
+              'Actions',
+            ].map((heading) => (
+              <th key={heading} className="px-4 py-3">
+                {heading}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {hotels.map((hotel) => (
+            <tr key={hotel.id} className="hover:bg-slate-50">
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <HotelThumbnail hotel={hotel} />
+                  <span className="font-semibold text-brand-700">
+                    {hotel.name}
+                    {hotel.isGlobal && <GlobalBadge />}
+                  </span>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <span className="rounded bg-slate-600 px-2 py-1 text-xs font-semibold text-white">
+                  {hotel.city.name}
+                </span>
+              </td>
+              <td className="px-4 py-3">
+                {hotel.isDefaultForCity ? (
+                  <span className="text-emerald-600">
+                    <Star className="inline h-5 w-5 fill-current" />
+                  </span>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <Stars value={hotel.starCategory} />
+              </td>
+              <td className="px-4 py-3">
+                {hotel.starRating != null ? (
+                  <span className="rounded bg-cyan-600 px-2 py-1 text-xs font-semibold text-white">
+                    {hotel.starRating.toFixed(1)}/5
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <span className="rounded bg-amber-400 px-2 py-1 text-xs font-semibold text-amber-950">
+                  {hotel._count?.roomTypes ?? 0}
+                </span>
+              </td>
+              <td className="px-4 py-3">
+                <span className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white">
+                  {hotel._count?.mealPlans ?? 0}
+                </span>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex gap-1">
+                  <Link
+                    aria-label={`View ${hotel.name}`}
+                    to={`/masters/hotels/${hotel.id}`}
+                    className="rounded border border-cyan-600 p-2 text-cyan-600"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Link>
+                  {canUpdate && !hotel.isGlobal && (
+                    <Link
+                      aria-label={`Edit ${hotel.name}`}
+                      to={`/masters/hotels/${hotel.id}/edit`}
+                      className="rounded border border-brand-600 p-2 text-brand-600"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Link>
+                  )}
+                  {hotel.canHide && (
+                    <button
+                      aria-label={`Hide ${hotel.name} for this company`}
+                      title="Hide this global record for your company"
+                      onClick={() => onHide(hotel.id)}
+                      className="rounded border border-amber-600 p-2 text-amber-600"
+                    >
+                      <EyeOff className="h-4 w-4" />
+                    </button>
+                  )}
+                  {canArchive && hotel.status !== 'ARCHIVED' && !hotel.isGlobal && (
+                    <button
+                      aria-label={`Archive ${hotel.name}`}
+                      onClick={() => onArchive(hotel.id)}
+                      className="rounded border border-red-600 p-2 text-red-600"
+                    >
+                      <Archive className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function HotelThumbnail({ hotel }: { hotel: HotelSummary }) {
