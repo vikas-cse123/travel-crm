@@ -1,0 +1,26 @@
+# Build context runs from the repository root (needed by the workspace build).
+# Exclude local artifacts, secrets and heavy assets from the image/context.
+
+**/node_modules
+.git
+.github
+.gitignore
+.gitattributes
+
+# Secrets must never enter an image or build context.
+.env
+.env.*
+
+# Local-only, generated or heavy assets.
+references
+docs
+*.log
+.DS_Store
+.vscode
+.idea
+coverage
+**/.vite
+apps/api/dist
+apps/web/dist
+packages/*/dist
+apps/api/tsconfig.tsbuildinfo

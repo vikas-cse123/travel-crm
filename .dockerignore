@@ -13,9 +13,13 @@
 # Local-only and heavy assets not needed to build or run the apps.
 references
 docs
+infra
+scripts
 *.log
 .DS_Store
 .vscode
 .idea
 coverage
 **/.vite
+apps/api/tsconfig.tsbuildinfo
+apps/web/tsconfig*.tsbuildinfo

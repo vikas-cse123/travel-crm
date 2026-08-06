@@ -1,0 +1,329 @@
+name: Deploy Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_scope:
+        description: 'Services to deploy (auto = changed paths, frontend, api, both)'
+        type: choice
+        options: [auto, frontend, api, both]
+        default: auto
+      run_migrations:
+        description: 'Run Prisma production migrations (auto, yes, no)'
+        type: choice
+        options: [auto, yes, no]
+        default: auto
+
+permissions:
+  contents: read
+  id-token: write
+
+# One production deployment at a time. The next run waits; active deployments
+# are never cancelled by a newer push.
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect deployment scope
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_frontend: ${{ steps.scope.outputs.deploy_frontend }}
+      deploy_api: ${{ steps.scope.outputs.deploy_api }}
+      run_migrations: ${{ steps.scope.outputs.run_migrations }}
+      schema_without_migration: ${{ steps.scope.outputs.schema_without_migration }}
+      infra_changed: ${{ steps.scope.outputs.infra_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute scope
+        id: scope
+        run: |
+          chmod +x .github/scripts/detect-deployment-scope.sh
+          ./.github/scripts/detect-deployment-scope.sh \
+            | tee /tmp/scope-output.txt
+          while IFS='=' read -r key value; do
+            [ -n "$key" ] && echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done < /tmp/scope-output.txt
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
+          DEPLOY_SCOPE_INPUT: ${{ inputs.deploy_scope }}
+          RUN_MIGRATIONS_INPUT: ${{ inputs.run_migrations }}
+
+      - name: Report scope
+        run: |
+          echo "frontend=${{ steps.scope.outputs.deploy_frontend }} api=${{ steps.scope.outputs.deploy_api }} migrations=${{ steps.scope.outputs.run_migrations }} infra=${{ steps.scope.outputs.infra_changed }}"
+
+      - name: Infrastructure changed notice
+        if: steps.scope.outputs.infra_changed == 'true'
+        run: |
+          echo "::notice::Infrastructure (infra/** or .github/**) changed. Run the manual infrastructure deployment process; this workflow does not deploy infrastructure."
+
+  deploy-frontend:
+    name: Deploy frontend
+    needs: detect
+    if: needs.detect.outputs.deploy_frontend == 'true'
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-interscale-production
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push frontend image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile.production
+          platforms: linux/amd64
+          push: true
+          build-args: VITE_API_URL=/api
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha,scope=frontend-production
+          cache-to: type=gha,mode=max,scope=frontend-production
+
+      - name: Capture previous task definition
+        id: previous
+        run: |
+          ARN=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.FRONTEND_ECS_SERVICE }}" \
+            --query 'services[0].taskDefinition' --output text)
+          echo "previous_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "previous task definition: $ARN"
+
+      - name: Prepare frontend task definition
+        run: |
+          chmod +x .github/scripts/prepare-ecs-task-definition.sh
+          ./.github/scripts/prepare-ecs-task-definition.sh \
+            "${{ vars.FRONTEND_ECS_SERVICE }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}" \
+            /tmp/frontend-taskdef.json
+
+      - name: Register frontend task definition
+        id: register
+        run: |
+          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/frontend-taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "new_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "registered: $ARN"
+
+      - name: Update frontend service
+        id: update
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.FRONTEND_ECS_SERVICE }}" \
+            --task-definition "${{ steps.register.outputs.new_task_def }}" > /dev/null
+
+      - name: Wait for service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.FRONTEND_ECS_SERVICE }}"
+
+      - name: Check target group health
+        run: |
+          TG=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.FRONTEND_ECS_SERVICE }}" \
+            --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
+          STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
+            --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+          echo "frontend target states: $STATES"
+          if ! printf '%s' "$STATES" | grep -qx 'healthy'; then
+            echo "frontend target is not healthy" >&2
+            exit 1
+          fi
+
+      - name: Verify production frontend
+        run: |
+          chmod +x .github/scripts/verify-production.sh
+          ./.github/scripts/verify-production.sh frontend
+
+      - name: Frontend job summary
+        if: always()
+        run: |
+          {
+            echo "## Frontend deployment"
+            echo "**commit:** ${{ github.sha }}"
+            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}"
+            echo "**digest:** ${{ steps.build.outputs.digest }}"
+            echo "**previous task def:** ${{ steps.previous.outputs.previous_task_def }}"
+            echo "**new task def:** ${{ steps.register.outputs.new_task_def }}"
+            echo "**status:** ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rollback frontend service on failure
+        if: failure() && steps.update.outcome == 'success'
+        run: |
+          chmod +x .github/scripts/rollback-ecs-service.sh
+          ./.github/scripts/rollback-ecs-service.sh \
+            "${{ vars.ECS_CLUSTER }}" \
+            "${{ vars.FRONTEND_ECS_SERVICE }}" \
+            "${{ steps.previous.outputs.previous_task_def }}"
+        continue-on-error: true
+
+  deploy-api:
+    name: Deploy API
+    needs: detect
+    if: needs.detect.outputs.deploy_api == 'true'
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-interscale-production
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Schema changed without migration
+        if: needs.detect.outputs.schema_without_migration == 'true'
+        run: |
+          echo "::error::Prisma schema changed but no production migration was committed. Generate and review a migration locally before deploying."
+          exit 1
+
+      - name: Build and push API image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha,scope=api-production
+          cache-to: type=gha,mode=max,scope=api-production
+
+      - name: Build and push API migration image (builder stage)
+        id: build-migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: builder
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ github.sha }}
+          cache-from: type=gha,scope=api-production
+          cache-to: type=gha,mode=max,scope=api-production
+
+      - name: Capture previous task definition
+        id: previous
+        run: |
+          ARN=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.API_ECS_SERVICE }}" \
+            --query 'services[0].taskDefinition' --output text)
+          echo "previous_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "previous task definition: $ARN"
+
+      - name: Prepare API task definition
+        run: |
+          chmod +x .github/scripts/prepare-ecs-task-definition.sh
+          ./.github/scripts/prepare-ecs-task-definition.sh \
+            "${{ vars.API_ECS_SERVICE }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}" \
+            /tmp/api-taskdef.json
+
+      - name: Register API task definition
+        id: register
+        run: |
+          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "new_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "registered: $ARN"
+
+      - name: Run Prisma migrations
+        id: migrate
+        if: needs.detect.outputs.run_migrations == 'true'
+        run: |
+          chmod +x .github/scripts/run-ecs-migration.sh
+          ./.github/scripts/run-ecs-migration.sh \
+            "${{ vars.ECS_CLUSTER }}" \
+            "${{ vars.API_ECS_SERVICE }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ github.sha }}"
+
+      - name: Update API service
+        id: update
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.API_ECS_SERVICE }}" \
+            --task-definition "${{ steps.register.outputs.new_task_def }}" > /dev/null
+
+      - name: Wait for service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.API_ECS_SERVICE }}"
+
+      - name: Check target group health
+        run: |
+          TG=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.API_ECS_SERVICE }}" \
+            --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
+          STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
+            --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+          echo "api target states: $STATES"
+          if ! printf '%s' "$STATES" | grep -qx 'healthy'; then
+            echo "api target is not healthy" >&2
+            exit 1
+          fi
+
+      - name: Verify production API
+        run: |
+          chmod +x .github/scripts/verify-production.sh
+          ./.github/scripts/verify-production.sh api
+
+      - name: API job summary
+        if: always()
+        run: |
+          {
+            echo "## API deployment"
+            echo "**commit:** ${{ github.sha }}"
+            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}"
+            echo "**digest:** ${{ steps.build.outputs.digest }}"
+            echo "**migrations executed:** ${{ needs.detect.outputs.run_migrations }}"
+            echo "**previous task def:** ${{ steps.previous.outputs.previous_task_def }}"
+            echo "**new task def:** ${{ steps.register.outputs.new_task_def }}"
+            echo "**status:** ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rollback API service on failure
+        if: failure() && steps.update.outcome == 'success'
+        run: |
+          chmod +x .github/scripts/rollback-ecs-service.sh
+          ./.github/scripts/rollback-ecs-service.sh \
+            "${{ vars.ECS_CLUSTER }}" \
+            "${{ vars.API_ECS_SERVICE }}" \
+            "${{ steps.previous.outputs.previous_task_def }}"
+        continue-on-error: true
