@@ -26,7 +26,6 @@ export class CicdStack extends Stack {
     if (!config.githubOwner || !config.githubRepo) {
       throw new Error('CicdStack requires GITHUB_OWNER and GITHUB_REPO.');
     }
-    const repository = `${config.githubOwner}/${config.githubRepo}`;
 
     // ------------------------------------------------- GitHub OIDC provider
     const provider = new iam.OpenIdConnectProvider(this, 'GitHubOidcProvider', {
@@ -42,9 +41,12 @@ export class CicdStack extends Stack {
           'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
         },
         StringLike: {
+          // GitHub includes the owner/repo numeric IDs in the `sub` claim
+          // (e.g. repo:vikas-cse123@123/travel-crm@456:environment:production),
+          // so match the exact owner/repo names with wildcards over the IDs.
           'token.actions.githubusercontent.com:sub': [
-            `repo:${repository}:environment:production`,
-            `repo:${repository}:ref:refs/heads/main`,
+            `repo:${config.githubOwner}@*/${config.githubRepo}@*:environment:production`,
+            `repo:${config.githubOwner}@*/${config.githubRepo}@*:ref:refs/heads/main`,
           ],
         },
       }),
