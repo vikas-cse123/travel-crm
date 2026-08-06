@@ -7,7 +7,9 @@ GitHub Actions OIDC. No permanent AWS keys are stored in GitHub.
 
 - Frontend: Nginx container in ECS Fargate (`interscale-travel-crm-prod-frontend`)
 - API: Node/Express container in ECS Fargate (`interscale-travel-crm-prod-api`)
+- Marketing website: Nginx static container in ECS Fargate (`interscale-travel-crm-prod-marketing`)
 - Public domain: `https://app.travelagencycrm.in` (ALB, no CloudFront)
+- Public marketing site: `https://travelagencycrm.in` (ALB, separate service)
 - Public API base: `https://app.travelagencycrm.in/api`
 
 ## 1. Automatic deployment behavior
@@ -42,6 +44,21 @@ Documentation and reference files (`docs/**`, `*.md`, `references/**`,
 images) do not deploy anything. Infrastructure (`infra/**`, `.github/**`)
 does not auto-deploy: it prints a notice to run the manual infrastructure
 deployment process.
+
+## 4a. Marketing website deployment
+
+The public marketing website (`apps/marketing`) is a separate application and
+ECS service. It deploys through its own workflow,
+`.github/workflows/deploy-marketing.yml`, which triggers on pushes to `main`
+affecting `apps/marketing/**` (plus the shared root build manifests the
+marketing app depends on). It builds the static site, pushes an immutable
+`<full-git-sha>` image to the `interscale-travel-crm-prod-marketing` ECR
+repository, registers a new revision of the
+`interscale-travel-crm-prod-marketing` task family, updates the ECS service,
+waits for target health, verifies the public marketing URLs and the untouched
+CRM/API endpoints, and rolls back to the previous task definition on failure.
+
+Marketing-only changes never trigger the CRM frontend/API deployment workflow.
 
 ## 5. Migrations
 

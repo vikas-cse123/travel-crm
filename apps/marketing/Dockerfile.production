@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# Production image for the Interscale Travel CRM marketing website, served by
+# Nginx. This is a fully standalone static site: its build has no dependency
+# on the root npm workspace or on the API/web packages.
+#
+# Build from the repository ROOT (the build context must include apps/), e.g.:
+#   docker buildx build --platform linux/amd64 -f apps/marketing/Dockerfile.production -t interscale-marketing .
+# ---------------------------------------------------------------------------
+
+# ---- builder: compile the static bundle ------------------------------------
+FROM node:20-bookworm-slim AS builder
+WORKDIR /app/marketing
+
+# Standalone package: own lockfile, no argon2/toolchain needed.
+COPY apps/marketing/package.json apps/marketing/package-lock.json ./
+RUN npm ci
+
+COPY apps/marketing/ ./
+RUN npm run build
+
+# ---- runtime: non-root nginx on port 8080 ----------------------------------
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+COPY apps/marketing/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/marketing/nginx-security-headers.conf /etc/nginx/conf.d/nginx-security-headers.conf
+COPY --from=builder /app/marketing/dist /usr/share/nginx/html
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O - http://127.0.0.1:8080/healthz | grep -q "^ok" || exit 1

@@ -1,0 +1,168 @@
+name: Deploy Marketing Website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/marketing/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.base.json'
+      - '.dockerignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# One marketing deployment at a time. A newer push waits; active deployments
+# are never cancelled.
+concurrency:
+  group: production-marketing-deployment
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    name: Validate marketing build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install marketing dependencies
+        working-directory: apps/marketing
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: apps/marketing
+        run: npm run typecheck
+
+      - name: Production build
+        working-directory: apps/marketing
+        run: npm run build
+
+      - name: Run tests
+        working-directory: apps/marketing
+        run: npm test
+
+  deploy:
+    name: Deploy marketing website
+    needs: build-and-test
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-interscale-marketing-production
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push marketing image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/marketing/Dockerfile.production
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.MARKETING_ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha,scope=marketing-production
+          cache-to: type=gha,mode=max,scope=marketing-production
+
+      - name: Capture previous task definition
+        id: previous
+        run: |
+          ARN=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.MARKETING_ECS_SERVICE }}" \
+            --query 'services[0].taskDefinition' --output text)
+          echo "previous_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "previous task definition: $ARN"
+
+      - name: Prepare marketing task definition
+        run: |
+          chmod +x .github/scripts/prepare-ecs-task-definition.sh
+          ./.github/scripts/prepare-ecs-task-definition.sh \
+            "${{ vars.MARKETING_ECS_TASK_FAMILY }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.MARKETING_ECR_REPOSITORY }}:${{ github.sha }}" \
+            /tmp/marketing-taskdef.json
+
+      - name: Register marketing task definition
+        id: register
+        run: |
+          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/marketing-taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "new_task_def=$ARN" >> "$GITHUB_OUTPUT"
+          echo "registered: $ARN"
+
+      - name: Update marketing service
+        id: update
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.MARKETING_ECS_SERVICE }}" \
+            --task-definition "${{ steps.register.outputs.new_task_def }}" > /dev/null
+
+      - name: Wait for service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.MARKETING_ECS_SERVICE }}"
+
+      - name: Check target group health
+        run: |
+          TG=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.MARKETING_ECS_SERVICE }}" \
+            --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
+          STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
+            --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+          echo "marketing target states: $STATES"
+          if ! printf '%s' "$STATES" | grep -qx 'healthy'; then
+            echo "marketing target is not healthy" >&2
+            exit 1
+          fi
+
+      - name: Verify production URLs
+        run: |
+          chmod +x .github/scripts/verify-marketing.sh
+          ./.github/scripts/verify-marketing.sh
+
+      - name: Marketing job summary
+        if: always()
+        run: |
+          {
+            echo "## Marketing website deployment"
+            echo "**commit:** ${{ github.sha }}"
+            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.MARKETING_ECR_REPOSITORY }}:${{ github.sha }}"
+            echo "**digest:** ${{ steps.build.outputs.digest }}"
+            echo "**previous task def:** ${{ steps.previous.outputs.previous_task_def }}"
+            echo "**new task def:** ${{ steps.register.outputs.new_task_def }}"
+            echo "**status:** ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rollback marketing service on failure
+        if: failure() && steps.update.outcome == 'success'
+        run: |
+          chmod +x .github/scripts/rollback-ecs-service.sh
+          ./.github/scripts/rollback-ecs-service.sh \
+            "${{ vars.ECS_CLUSTER }}" \
+            "${{ vars.MARKETING_ECS_SERVICE }}" \
+            "${{ steps.previous.outputs.previous_task_def }}"
+        continue-on-error: true

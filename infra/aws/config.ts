@@ -55,6 +55,24 @@ export interface DeployConfig {
   frontendRepoArn: string;
   /** ap-south-1 ACM certificate for app.travelagencycrm.in. */
   appCertArn: string;
+  /** Marketing public root domain (apex). */
+  marketingDomain: string;
+  /** Marketing www domain. */
+  marketingWwwDomain: string;
+  /** Marketing ECR repository ARN. */
+  marketingRepoArn: string;
+  /** Marketing ECR repository name. */
+  marketingRepoName: string;
+  /** ap-south-1 ACM certificate for travelagencycrm.in + www.travelagencycrm.in. */
+  marketingCertArn: string;
+  /** Marketing task execution role ARN. */
+  marketingExecRoleArn: string;
+  /** Marketing task role ARN. */
+  marketingTaskRoleArn: string;
+  /** Marketing ECS service ARN. */
+  ecsMarketingServiceArn: string;
+  /** Marketing log group ARN (for deployment diagnostics). */
+  marketingLogGroupArn: string;
   /** GitHub repository owner. */
   githubOwner: string;
   /** GitHub repository name. */
@@ -121,6 +139,15 @@ export const config: DeployConfig = {
   publicSubnetIds: (process.env.PUBLIC_SUBNET_IDS ?? '').split(',').filter(Boolean),
   frontendRepoArn: process.env.FRONTEND_REPO_ARN ?? '',
   appCertArn: process.env.APP_CERT_ARN ?? '',
+  marketingDomain: process.env.MARKETING_DOMAIN ?? 'travelagencycrm.in',
+  marketingWwwDomain: process.env.MARKETING_WWW_DOMAIN ?? 'www.travelagencycrm.in',
+  marketingRepoArn: process.env.MARKETING_REPO_ARN ?? '',
+  marketingRepoName: process.env.MARKETING_REPO_NAME ?? 'interscale-travel-crm-prod-marketing',
+  marketingCertArn: process.env.MARKETING_CERT_ARN ?? '',
+  marketingExecRoleArn: process.env.MARKETING_EXEC_ROLE_ARN ?? '',
+  marketingTaskRoleArn: process.env.MARKETING_TASK_ROLE_ARN ?? '',
+  ecsMarketingServiceArn: process.env.ECS_MARKETING_SERVICE_ARN ?? '',
+  marketingLogGroupArn: process.env.MARKETING_LOG_GROUP_ARN ?? '',
   githubOwner: process.env.GITHUB_OWNER ?? '',
   githubRepo: process.env.GITHUB_REPO ?? '',
   ecrApiRepoArn: process.env.ECR_API_REPO_ARN ?? '',

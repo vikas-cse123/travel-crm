@@ -74,7 +74,7 @@ export class CicdStack extends Stack {
                 'ecr:DescribeImages',
                 'ecr:DescribeRepositories',
               ],
-              resources: [config.ecrApiRepoArn, config.frontendRepoArn],
+              resources: [config.ecrApiRepoArn, config.frontendRepoArn, config.marketingRepoArn],
             }),
           ],
         }),
@@ -91,7 +91,11 @@ export class CicdStack extends Stack {
             }),
             new iam.PolicyStatement({
               actions: ['ecs:DescribeServices', 'ecs:UpdateService'],
-              resources: [config.ecsApiServiceArn, config.ecsFrontendServiceArn],
+              resources: [
+                config.ecsApiServiceArn,
+                config.ecsFrontendServiceArn,
+                config.ecsMarketingServiceArn,
+              ],
             }),
             new iam.PolicyStatement({
               actions: [
@@ -121,6 +125,8 @@ export class CicdStack extends Stack {
                 config.apiTaskRoleArn,
                 config.frontendExecRoleArn,
                 config.frontendTaskRoleArn,
+                config.marketingExecRoleArn,
+                config.marketingTaskRoleArn,
               ],
               conditions: {
                 StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' },
@@ -156,6 +162,7 @@ export class CicdStack extends Stack {
                 config.apiLogGroupArn,
                 config.frontendLogGroupArn,
                 config.migrationLogGroupArn,
+                config.marketingLogGroupArn,
               ],
             }),
           ],
