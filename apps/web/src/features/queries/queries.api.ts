@@ -357,18 +357,32 @@ export function useArchiveLead(id: string) {
 
 export type LeadInlineField = 'leadType' | 'leadStage';
 
+export interface LeadInlineFieldUpdate {
+  field: LeadInlineField;
+  value: string;
+  /** Required for stages such as CANCELLED/INVALID. */
+  reason?: string;
+  /** Required when moving a lead to LOST. */
+  lostReason?: string;
+}
+
 /**
  * Inline update of a single lead field (Type or Stage) straight from a list.
  * Type reuses the generic update endpoint; Stage reuses the dedicated stage
  * endpoint so all transition rules, history and activity logging are preserved.
- * The API response is treated as the source of truth.
+ * The API response is treated as the source of truth. Empty reason values are
+ * never sent, so a non-Lost stage change never carries a blank lost reason.
  */
 export function useUpdateLeadField(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ field, value }: { field: LeadInlineField; value: string }) =>
+    mutationFn: ({ field, value, reason, lostReason }: LeadInlineFieldUpdate) =>
       field === 'leadStage'
-        ? apiClient.patch<Lead>(`/queries/${id}/stage`, { stage: value })
+        ? apiClient.patch<Lead>(`/queries/${id}/stage`, {
+            stage: value,
+            ...(reason ? { reason } : {}),
+            ...(lostReason ? { lostReason } : {}),
+          })
         : apiClient.patch<Lead>(`/queries/${id}`, { leadType: value }),
     onSuccess: (lead) => {
       // Re-fetch list, analytics and counters; cache the returned lead as fresh.
@@ -484,9 +498,7 @@ export function useNoteAction(id: string) {
               content,
               isCustomerContact: isCustomerContact ?? false,
               contactMethod,
-              ...(reminderAt
-                ? { reminderAt, reminderAssignedToId, reminderNotes }
-                : {}),
+              ...(reminderAt ? { reminderAt, reminderAssignedToId, reminderNotes } : {}),
             }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.notes(id) });

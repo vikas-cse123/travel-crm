@@ -18,7 +18,7 @@ import { type QueryInput } from '@interscale/shared';
 import countries from 'world-countries';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useLead, useLeadLookups, usePhoneSearch, type Lead } from './queries.api';
+import { useLead, useLeadLookups, usePhoneSearch, type Lead, type UserOption } from './queries.api';
 import { useCustomer } from '@/features/customers/customers.api';
 import { useDestinations } from '@/features/masters/masters.api';
 import { cn } from '@/utils/cn';
@@ -342,8 +342,24 @@ export function LeadForm({
   const fieldErrorMessages = Object.entries(errorFields ?? {})
     .flatMap(([field, messages]) => messages.map((message) => ({ field, message })))
     .slice(0, 6);
-  const assignableTeamMembers =
-    lookups?.assignableUsers.filter((assignableUser) => assignableUser.id !== user?.id) ?? [];
+  /**
+   * Eligible assignees for the "Assign To" field. The logged-in user is always
+   * included (placed first and labelled "(You)") and deduplicated against the
+   * team-member list the backend returns, so an Admin/Owner can assign a lead
+   * to themselves or to another eligible team member.
+   */
+  const assigneeOptions = useMemo(() => {
+    const team = lookups?.assignableUsers ?? [];
+    const existingCurrentUser = team.find((assignableUser) => assignableUser.id === user?.id);
+    const others = team.filter((assignableUser) => assignableUser.id !== user?.id);
+    if (!user) return others;
+    const me: UserOption = existingCurrentUser ?? {
+      id: user.id,
+      fullName: (user.fullName || '').trim() || user.username || 'You',
+      username: user.username,
+    };
+    return [me, ...others];
+  }, [lookups, user]);
   const childrenWithBedCount = Math.max(0, Math.min(100, Number(counts[2]) || 0));
   const childrenWithoutBedCount = Math.max(0, Math.min(100, Number(counts[3]) || 0));
   const infantCount = Math.max(0, Math.min(100, Number(counts[4]) || 0));
@@ -535,7 +551,7 @@ export function LeadForm({
               </label>
               {hasPermission('queries.assign') && (
                 <p className="text-xs text-slate-500">
-                  As an admin, you must assign this lead to a team member. This field is required.
+                  Assign this lead to yourself or another team member. This field is required.
                 </p>
               )}
             </div>
@@ -549,9 +565,10 @@ export function LeadForm({
                 <option value="">
                   {hasPermission('queries.assign') ? 'Select User' : 'Assign to me'}
                 </option>
-                {assignableTeamMembers.map((assignableUser) => (
+                {assigneeOptions.map((assignableUser) => (
                   <option key={assignableUser.id} value={assignableUser.id}>
                     {assignableUser.fullName}
+                    {assignableUser.id === user?.id ? ' (You)' : ''}
                   </option>
                 ))}
               </select>
@@ -566,11 +583,7 @@ export function LeadForm({
         <Section title="Travel Details" tone="teal">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Travel Date *">
-              <input
-                className={inputClass}
-                type="date"
-                {...register('travelStartDate')}
-              />
+              <input className={inputClass} type="date" {...register('travelStartDate')} />
             </Field>
             <Field label="Departure country">
               <select
@@ -693,41 +706,41 @@ export function LeadForm({
         </Section>
       </div>
       <Section title="Services Required *" tone="green">
-          <p className="mb-4 text-sm text-slate-500">
-            Select at least one service required for this lead, or check Add-on Service:
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {CREATE_LEAD_SERVICES.filter((value) => value !== 'VISA').map((value) => {
-              const Icon = SERVICE_ICONS[value] ?? PackagePlus;
-              const label =
-                SERVICE_LABELS[value] ??
-                lookups?.serviceTypes.find((service) => service.value === value)?.label ??
-                value;
-              return (
-                <label key={value} className="flex items-center gap-2 text-sm font-semibold">
-                  <input
-                    type="checkbox"
-                    checked={services.includes(value)}
-                    onChange={(e) =>
-                      setValue(
-                        'services',
-                        e.target.checked
-                          ? [...services, value]
-                          : services.filter((service) => service !== value),
-                        { shouldDirty: true },
-                      )
-                    }
-                  />
-                  <Icon className="h-4 w-4 text-slate-700" />
-                  {label}
-                </label>
-              );
-            })}
-          </div>
-          {services.length === 0 && (
-            <p className="mt-3 text-sm text-red-600">Select at least one service.</p>
-          )}
-        </Section>
+        <p className="mb-4 text-sm text-slate-500">
+          Select at least one service required for this lead, or check Add-on Service:
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {CREATE_LEAD_SERVICES.filter((value) => value !== 'VISA').map((value) => {
+            const Icon = SERVICE_ICONS[value] ?? PackagePlus;
+            const label =
+              SERVICE_LABELS[value] ??
+              lookups?.serviceTypes.find((service) => service.value === value)?.label ??
+              value;
+            return (
+              <label key={value} className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={services.includes(value)}
+                  onChange={(e) =>
+                    setValue(
+                      'services',
+                      e.target.checked
+                        ? [...services, value]
+                        : services.filter((service) => service !== value),
+                      { shouldDirty: true },
+                    )
+                  }
+                />
+                <Icon className="h-4 w-4 text-slate-700" />
+                {label}
+              </label>
+            );
+          })}
+        </div>
+        {services.length === 0 && (
+          <p className="mt-3 text-sm text-red-600">Select at least one service.</p>
+        )}
+      </Section>
       <Section title="Itinerary *" tone="blue">
         <div className="space-y-3">
           {fields.map((field, index) => (
@@ -760,9 +773,7 @@ export function LeadForm({
                   {...register(`itinerary.${index}.destination`)}
                 >
                   <option value="">
-                    {itineraryRows?.[index]?.country
-                      ? 'Select City'
-                      : 'Select a destination first'}
+                    {itineraryRows?.[index]?.country ? 'Select City' : 'Select a destination first'}
                   </option>
                   {(destinationCityMap.get(itineraryRows?.[index]?.country ?? '') ?? []).map(
                     (cityName) => (

@@ -169,23 +169,25 @@ describe('Phase 6 lead pages', () => {
     renderWithProviders(<LeadsPage />);
     expect(await screen.findByText('Leads could not be loaded.')).toBeInTheDocument();
   });
-  it('supports service selection and itinerary add, remove and reorder controls', async () => {
+  it('supports service selection and itinerary add and remove controls', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => response(lookups)),
     );
     renderWithProviders(<LeadFormPage />);
     expect(await screen.findByRole('heading', { name: 'Create lead' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Add destination/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Add More/i }));
     expect(screen.getByLabelText('Destination 2')).toBeInTheDocument();
-    await userEvent.click(screen.getAllByLabelText('Move up')[1]!);
     await userEvent.click(screen.getAllByLabelText('Remove itinerary')[1]!);
     expect(screen.queryByLabelText('Destination 2')).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('Flight'));
     expect(screen.getByText(/1 Room, 1 Adult/)).toBeInTheDocument();
   });
   it('hides the Visa service checkbox in the create lead form', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(lookups)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(lookups)),
+    );
     renderWithProviders(<LeadFormPage />);
     await screen.findByRole('heading', { name: 'Create lead' });
     // Visa is not offered as a selectable service.
@@ -217,7 +219,11 @@ describe('Phase 6 lead pages', () => {
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
         });
       if (url.endsWith('/queries') && options?.method === 'POST')
-        return { ok: true, status: 201, json: async () => ({ success: true, data: lead }) } as Response;
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ success: true, data: lead }),
+        } as Response;
       return response(lookups);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -257,7 +263,11 @@ describe('Phase 6 lead pages', () => {
       if (url.endsWith('/queries/lookups')) return response(lookups);
       if (url.includes(`/queries/${editLead.id}`)) {
         if (options?.method === 'PATCH')
-          return { ok: true, status: 200, json: async () => ({ success: true, data: editLead }) } as Response;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, data: editLead }),
+          } as Response;
         return response(editLead);
       }
       return response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } });
@@ -284,47 +294,46 @@ describe('Phase 6 lead pages', () => {
     });
   });
   it('keeps the minimum-one-service validation', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(lookups)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(lookups)),
+    );
     renderWithProviders(<LeadFormPage />);
     await screen.findByRole('heading', { name: 'Create lead' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'HOTEL' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'SIGHTSEEING' }));
     expect(await screen.findByText('Select at least one service.')).toBeInTheDocument();
   });
-  it('validates the form and only autofills a duplicate after explicit confirmation', async () => {
+  it('autofills the form from the phone search for an existing lead', async () => {
     authState.permissions.delete('queries.assign');
+    const searchResult = {
+      id: lead.id,
+      queryNumber: lead.queryNumber,
+      customerName: lead.customerName,
+      phone: lead.phone,
+      alternatePhone: null,
+      email: lead.email,
+      dateOfBirth: null,
+      departureCity: lead.departureCity,
+    };
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL) =>
-        response(
-          String(input).includes('search-by-phone')
-            ? [
-                {
-                  id: lead.id,
-                  queryNumber: lead.queryNumber,
-                  customerName: lead.customerName,
-                  phone: lead.phone,
-                  alternatePhone: null,
-                  email: lead.email,
-                  dateOfBirth: null,
-                  departureCity: lead.departureCity,
-                },
-              ]
-            : lookups,
-        ),
-      ),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('search-by-phone')) return response([searchResult]);
+        if (url.endsWith(`/queries/${lead.id}`)) return response(lead);
+        return response(lookups);
+      }),
     );
     renderWithProviders(<LeadFormPage />);
     await screen.findByRole('heading', { name: 'Create lead' });
-    await userEvent.click(screen.getByRole('button', { name: 'Create lead' }));
-    expect(await screen.findByText('Enter the customer name.')).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText('Primary phone'), '98765');
-    expect(await screen.findByText('Possible duplicate leads found')).toBeInTheDocument();
-    expect(screen.getByLabelText('Customer name')).toHaveValue('');
-    await userEvent.click(screen.getByRole('button', { name: /Use details from/ }));
-    expect(screen.getByLabelText('Customer name')).toHaveValue('Aarav Mehta');
-    expect(screen.getByLabelText('Primary phone')).toHaveValue('+91 98765 43210');
-    expect(screen.getByLabelText('Assigned salesperson')).toBeDisabled();
+    // The form is empty before the search.
+    expect(screen.getByLabelText('Name')).toHaveValue('');
+    // Search by phone and confirm the autofill.
+    await userEvent.type(screen.getByLabelText('Search existing lead by phone'), '98765');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Aarav Mehta'));
+    expect(screen.getByLabelText('Phone')).toHaveValue('+91 98765 43210');
   });
   it('synchronizes search, filters, sorting and pagination with the server query string', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
@@ -344,8 +353,8 @@ describe('Phase 6 lead pages', () => {
     expect(await screen.findAllByText('Aarav Mehta')).not.toHaveLength(0);
     await userEvent.type(screen.getByLabelText('Search leads'), 'Bangkok');
     await userEvent.selectOptions(screen.getByLabelText('All lead types'), 'HOT');
-    await userEvent.click(screen.getByRole('button', { name: 'Sort by Customer' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Lead Info' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([url]) => {
@@ -568,27 +577,35 @@ describe('Phase 17 lead list enrichment', () => {
       'queries.view',
       'queries.create',
       'queries.update',
+      'queries.delete',
       'queries.assign',
       'queries.export',
     ]);
   });
 
-  it('renders source, quotation, booking and created-by columns with a convert action', async () => {
+  it('renders lead info, quotation, booking and notes columns with the four row actions', async () => {
     stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
-    expect((await screen.findAllByText('QRY-2026-000001'))[0]).toBeInTheDocument();
+    // The year is hidden in the list: QRY-2026-000001 renders as QRY-000001.
+    expect((await screen.findAllByText('QRY-000001'))[0]).toBeInTheDocument();
     // Column headers.
-    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Lead Info')).toBeInTheDocument();
     expect(screen.getByText('Quotation')).toBeInTheDocument();
     expect(screen.getByText('Booking')).toBeInTheDocument();
-    expect(screen.getByText('Created by')).toBeInTheDocument();
-    // Quotation status badge and a convert-to-booking quick action.
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+    // Quotation status badge stays in the Quotation column.
     expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
-    const convert = screen.getAllByRole('link', { name: 'Convert to booking' })[0];
-    expect(convert).toHaveAttribute('href', '/quotations/quote-1/convert-to-booking');
+    // The Action column exposes only the four approved actions.
+    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: 'Convert to booking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View booking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create quotation' })).not.toBeInTheDocument();
   });
 
-  it('shows a view-booking action and hides convert once booked', async () => {
+  it('shows the booking number in the Booking column and keeps the Action column clean once booked', async () => {
     stubLeadList([
       {
         ...enrichedLead,
@@ -605,17 +622,23 @@ describe('Phase 17 lead list enrichment', () => {
       },
     ]);
     renderWithProviders(<LeadsPage />);
-    await screen.findAllByText('QRY-2026-000001');
+    await screen.findAllByText('QRY-000001');
+    // The booking number is shown in the Booking column.
+    expect(screen.getAllByRole('link', { name: 'BK-2026-000001' }).length).toBeGreaterThan(0);
+    // The Action column never adds booking/convert shortcuts.
     expect(screen.queryByRole('link', { name: 'Convert to booking' })).not.toBeInTheDocument();
-    expect(
-      screen.getAllByRole('link', { name: /BK-2026-000001|View booking/ }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: 'View booking' })).not.toBeInTheDocument();
+    // The four approved actions remain.
+    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBeGreaterThan(0);
   });
 
   it('selects rows and performs a bulk assignment', async () => {
     const mock = stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
-    await screen.findAllByText('QRY-2026-000001');
+    await screen.findAllByText('QRY-000001');
     await userEvent.click(screen.getAllByLabelText('Select QRY-2026-000001')[0]!);
     expect(screen.getByText('1 selected')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Assign' }));
@@ -634,7 +657,7 @@ describe('Phase 17 lead list enrichment', () => {
   it('performs a bulk stage change', async () => {
     const mock = stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
-    await screen.findAllByText('QRY-2026-000001');
+    await screen.findAllByText('QRY-000001');
     await userEvent.click(screen.getAllByLabelText('Select page')[0]!);
     await userEvent.click(screen.getByRole('button', { name: 'Change stage' }));
     await userEvent.selectOptions(screen.getByLabelText('Bulk stage'), 'NEW_LEAD');
@@ -649,14 +672,14 @@ describe('Phase 17 lead list enrichment', () => {
   it('shows the export button only with export permission', async () => {
     stubLeadList([enrichedLead]);
     const view = renderWithProviders(<LeadsPage />);
-    await screen.findAllByText('QRY-2026-000001');
-    expect(screen.getByRole('button', { name: /Export CSV/ })).toBeInTheDocument();
+    await screen.findAllByText('QRY-000001');
+    expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument();
     view.unmount();
     authState.permissions = new Set(['queries.view']);
     stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
-    await screen.findAllByText('QRY-2026-000001');
-    expect(screen.queryByRole('button', { name: /Export CSV/ })).not.toBeInTheDocument();
+    await screen.findAllByText('QRY-000001');
+    expect(screen.queryByRole('button', { name: /Export/ })).not.toBeInTheDocument();
     // Without assign permission there are no selection checkboxes.
     expect(screen.queryByLabelText('Select page')).not.toBeInTheDocument();
   });
@@ -848,20 +871,21 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
   };
   const patchStub = (rows: unknown[], updated?: (i: unknown, url: string) => unknown) => {
     const calls: Array<{ url: string; body: unknown }> = [];
-    const mock = vi.fn(
-      async (input: RequestInfo | URL, options?: RequestInit) => {
-        const url = String(input);
-        if (url.includes('/analytics')) return response(analytics);
-        if (url.includes('/lookups')) return response(lookups);
-        if (options?.method === 'PATCH') {
-          const body = JSON.parse(String(options.body));
-          calls.push({ url, body });
-          if (updated) return response(updated(rows[0], url));
-          return response(rows[0]);
-        }
-        return response({ data: rows, pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 } });
-      },
-    );
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body));
+        calls.push({ url, body });
+        if (updated) return response(updated(rows[0], url));
+        return response(rows[0]);
+      }
+      return response({
+        data: rows,
+        pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 },
+      });
+    });
     vi.stubGlobal('fetch', mock);
     return { mock, calls };
   };
@@ -877,7 +901,9 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
     const typeBadge = await screen.findByRole('button', { name: 'Change lead type from Hot' });
     await userEvent.click(typeBadge);
     const listbox = screen.getByRole('listbox', { name: 'Change lead type' });
-    const optionTexts = within(listbox).getAllByRole('option').map((o) => o.textContent ?? '');
+    const optionTexts = within(listbox)
+      .getAllByRole('option')
+      .map((o) => o.textContent ?? '');
     // Options match Create Lead exactly (same lookups source / order).
     expect(optionTexts).toEqual(['Fresh', 'Hot']);
   });
@@ -888,7 +914,9 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
     renderWithProviders(<LeadsPage />);
     // Wait for the lead row to render; there is no clickable Type button.
     await screen.findAllByText(lead.customerName);
-    expect(screen.queryByRole('button', { name: 'Change lead type from Hot' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Change lead type from Hot' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('listbox', { name: 'Change lead type' })).not.toBeInTheDocument();
   });
 
@@ -922,11 +950,16 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
       const url = String(input);
       if (url.includes('/analytics')) return response(analytics);
       if (url.includes('/lookups')) return response(richLookups);
-      return response({ data: [lead], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [lead],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
-    const stageBadge = await screen.findByRole('button', { name: 'Change lead stage from New Lead' });
+    const stageBadge = await screen.findByRole('button', {
+      name: 'Change lead stage from New Lead',
+    });
     await userEvent.click(stageBadge);
     const listbox = screen.getByRole('listbox', { name: 'Change lead stage' });
     expect(within(listbox).getByRole('option', { name: 'New Lead' })).toBeInTheDocument();
@@ -950,11 +983,16 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
         calls.push({ url, body: JSON.parse(String(options.body)) });
         return response({ ...lead, leadStage: 'CONTACTED' });
       }
-      return response({ data: [{ ...lead, leadStage: 'NEW_LEAD' }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [{ ...lead, leadStage: 'NEW_LEAD' }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Change lead stage from New Lead' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change lead stage from New Lead' }),
+    );
     pickOption('Change lead stage', 'Contacted');
     await waitFor(() => expect(calls.length).toBe(1));
     expect(calls[0]!.url).toContain(`/queries/${lead.id}/stage`);
@@ -968,7 +1006,9 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
     await userEvent.click(typeBadge);
     expect(screen.getByRole('listbox', { name: 'Change lead type' })).toBeInTheDocument();
     // Opening Stage should close Type.
-    const stageBadge = await screen.findByRole('button', { name: 'Change lead stage from New Lead' });
+    const stageBadge = await screen.findByRole('button', {
+      name: 'Change lead stage from New Lead',
+    });
     await userEvent.click(stageBadge);
     expect(screen.queryByRole('listbox', { name: 'Change lead type' })).not.toBeInTheDocument();
   });
@@ -992,9 +1032,7 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
       if (url.includes('/lookups')) return response(richLookups);
       if (options?.method === 'PATCH') {
         calls.push({ url, body: JSON.parse(String(options.body)) });
-        current.leadStage = String(
-          (JSON.parse(String(options.body)) as { stage: string }).stage,
-        );
+        current.leadStage = String((JSON.parse(String(options.body)) as { stage: string }).stage);
         return response({ ...current });
       }
       return response({
@@ -1025,18 +1063,32 @@ describe('Phase 6 inline Type/Stage editing on the Leads List', () => {
       if (url.includes('/analytics')) return response(analytics);
       if (url.includes('/lookups')) return response(lookups);
       if (options?.method === 'PATCH') {
-        return { ok: false, status: 400, json: async () => ({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid stage transition.' } }) } as unknown as Response;
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Invalid stage transition.' },
+          }),
+        } as unknown as Response;
       }
-      return response({ data: [lead], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [lead],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
     await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
     pickOption('Change lead type', 'Fresh');
     // No optimistic update: the badge still shows the previous value.
-    expect(await screen.findByRole('button', { name: 'Change lead type from Hot' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Change lead type from Hot' }),
+    ).toBeInTheDocument();
     // Failure message is surfaced.
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid stage transition|Unable to update type/);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Invalid stage transition|Unable to update type/,
+    );
   });
 });
 
@@ -1059,7 +1111,10 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
         return response({ ...current });
       }
       // Return a fresh copy so React Query detects the change after an update.
-      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [{ ...current }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     return current;
@@ -1081,10 +1136,7 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
     renderWithProviders(<LeadsPage />);
     const links = await screen.findAllByRole('link', { name: /Create booking for/ });
     expect(links.length).toBeGreaterThan(0);
-    expect(links[0]).toHaveAttribute(
-      'href',
-      `/bookings/new?leadId=${lead.id}&quotationId=quote-1`,
-    );
+    expect(links[0]).toHaveAttribute('href', `/bookings/new?leadId=${lead.id}&quotationId=quote-1`);
   });
 
   it('shows View Booking instead of Create Booking when a booking already exists', async () => {
@@ -1092,7 +1144,12 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       ...lead,
       leadType: 'HOT',
       leadStage: 'BOOKING_CONFIRMED',
-      bookingSummary: { bookingId: 'b-1', bookingNumber: 'BK-1', bookingStatus: 'CONFIRMED', operationalStatus: 'CONFIRMED' },
+      bookingSummary: {
+        bookingId: 'b-1',
+        bookingNumber: 'BK-1',
+        bookingStatus: 'CONFIRMED',
+        operationalStatus: 'CONFIRMED',
+      },
     });
     renderWithProviders(<LeadsPage />);
     expect((await screen.findAllByText('BK-1')).length).toBeGreaterThan(0);
@@ -1107,7 +1164,12 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
   });
 
   it('does not show Create Booking when Type is not Hot', async () => {
-    bookingStub({ ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null });
+    bookingStub({
+      ...lead,
+      leadType: 'FRESH',
+      leadStage: 'BOOKING_CONFIRMED',
+      bookingSummary: null,
+    });
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText(lead.customerName);
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
@@ -1130,24 +1192,34 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
 
   it('Create Booking appears after an inline Type update to Hot', async () => {
     const current = bookingStub({
-      ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null,
+      ...lead,
+      leadType: 'FRESH',
+      leadStage: 'BOOKING_CONFIRMED',
+      bookingSummary: null,
       quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
     });
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText(lead.customerName);
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
-    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Fresh' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change lead type from Fresh' }),
+    );
     pickOption('Change lead type', 'Hot');
     // Refetch returns the lead with leadType HOT → action appears.
     await waitFor(() =>
-      expect(screen.queryAllByRole('link', { name: /Create booking for/ }).length).toBeGreaterThan(0),
+      expect(screen.queryAllByRole('link', { name: /Create booking for/ }).length).toBeGreaterThan(
+        0,
+      ),
     );
     void current;
   });
 
   it('Create Booking appears after an inline Stage update to Booking Confirmed', async () => {
     const current = bookingStub({
-      ...lead, leadType: 'HOT', leadStage: 'NEW_LEAD', bookingSummary: null,
+      ...lead,
+      leadType: 'HOT',
+      leadStage: 'NEW_LEAD',
+      bookingSummary: null,
       quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
     });
     void current;
@@ -1167,20 +1239,30 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
         current.leadStage = String(body.stage);
         return response({ ...current });
       }
-      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [{ ...current }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText(lead.customerName);
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
-    await userEvent.click(await screen.findByRole('button', { name: 'Change lead stage from New Lead' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change lead stage from New Lead' }),
+    );
     pickOption('Change lead stage', 'Booking Confirmed');
-    expect((await screen.findAllByRole('link', { name: /Create booking for/ })).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByRole('link', { name: /Create booking for/ })).length,
+    ).toBeGreaterThan(0);
   });
 
   it('Create Booking disappears after an inline Type update away from Hot', async () => {
     const current = bookingStub({
-      ...lead, leadType: 'HOT', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null,
+      ...lead,
+      leadType: 'HOT',
+      leadStage: 'BOOKING_CONFIRMED',
+      bookingSummary: null,
       quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
     });
     void current;
@@ -1201,11 +1283,16 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
         current.leadType = String(body.leadType);
         return response({ ...current });
       }
-      return response({ data: [{ ...current }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [{ ...current }],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
-    expect((await screen.findAllByRole('link', { name: /Create booking for/ })).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByRole('link', { name: /Create booking for/ })).length,
+    ).toBeGreaterThan(0);
     await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
     pickOption('Change lead type', 'Warm');
     await waitFor(() =>
@@ -1219,16 +1306,30 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       if (url.includes('/analytics')) return response(analytics);
       if (url.includes('/lookups')) return response(lookups);
       if (options?.method === 'PATCH') {
-        return { ok: false, status: 400, json: async () => ({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid transition.' } }) } as unknown as Response;
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Invalid transition.' },
+          }),
+        } as unknown as Response;
       }
-      return response({ data: [{ ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null }], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [
+          { ...lead, leadType: 'FRESH', leadStage: 'BOOKING_CONFIRMED', bookingSummary: null },
+        ],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText(lead.customerName);
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
     // Attempt an inline Type update to Hot; it fails, so the action must not appear.
-    await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Fresh' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change lead type from Fresh' }),
+    );
     pickOption('Change lead type', 'Hot');
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
@@ -1279,7 +1380,8 @@ function weblinkLead(overrides: Record<string, unknown> = {}) {
 function stubWeblinkList(rows: unknown[], { analyticsData = weblinkAnalytics, views = true } = {}) {
   const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
     const url = String(input);
-    if (url.includes('/weblink-analytics')) return response(views ? analyticsData : { ...analyticsData, totalViews: 7, entries: [] });
+    if (url.includes('/weblink-analytics'))
+      return response(views ? analyticsData : { ...analyticsData, totalViews: 7, entries: [] });
     if (url.includes('/queries/analytics')) return response(analytics);
     if (url.includes('/lookups')) return response(lookups);
     if (options?.method === 'POST' && url.includes('/public-link'))
@@ -1313,14 +1415,14 @@ describe('Lead weblink column', () => {
   });
 
   it('shows Not Available for a lead without a quotation', async () => {
-    stubWeblinkList([
-      { ...enrichedLead, quotationSummary: null, weblink: null },
-    ]);
+    stubWeblinkList([{ ...enrichedLead, quotationSummary: null, weblink: null }]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
     expect(screen.getAllByText('Not Available').length).toBeGreaterThan(0);
     expect(screen.queryByRole('link', { name: /View quotation weblink/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Weblink view analytics/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Weblink view analytics/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows View + zero count for a quotation even before any view (no Create state)', async () => {
@@ -1333,7 +1435,9 @@ describe('Lead weblink column', () => {
     const eye = screen.getByRole('button', { name: /Weblink view analytics/ });
     expect(eye).toHaveTextContent('0');
     // No manual Create state and no per-row link-generation request.
-    expect(screen.queryByRole('button', { name: /Create quotation weblink/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Create quotation weblink/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Not Generated')).not.toBeInTheDocument();
     expect(mock.mock.calls.some(([u]) => String(u).includes('/public-link'))).toBe(false);
   });
@@ -1348,7 +1452,9 @@ describe('Lead weblink column', () => {
   });
 
   it('shows View + count for a quotation without the former create permission', async () => {
-    stubWeblinkList([weblinkLead({ actions: { ...enrichedLead.actions, canCreateWeblink: false } })]);
+    stubWeblinkList([
+      weblinkLead({ actions: { ...enrichedLead.actions, canCreateWeblink: false } }),
+    ]);
     renderWithProviders(<LeadsPage />);
     const view = await screen.findByRole('link', { name: /View quotation weblink/ });
     expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
@@ -1361,7 +1467,9 @@ describe('Lead weblink column', () => {
     await screen.findAllByText('Aarav Mehta');
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /View quotation weblink/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Create quotation weblink/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Create quotation weblink/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('opens the public URL in a new tab from the View action without opening analytics', async () => {
@@ -1392,7 +1500,9 @@ describe('Lead weblink column', () => {
     // Dates are formatted (05 Aug 2026 present).
     expect(screen.getByText(/05 Aug 2026/)).toBeInTheDocument();
     // Footer explanation.
-    expect(screen.getByText(/HOME IP = Views from your company team members\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/HOME IP = Views from your company team members\./),
+    ).toBeInTheDocument();
     expect(screen.getByText(/EXTERNAL = Views from actual clients\./)).toBeInTheDocument();
   });
 
@@ -1444,16 +1554,28 @@ describe('Lead weblink column', () => {
     const mock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/weblink-analytics'))
-        return { ok: false, status: 500, json: async () => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'boom' } }) } as Response;
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({
+            success: false,
+            error: { code: 'INTERNAL_ERROR', message: 'boom' },
+          }),
+        } as Response;
       if (url.includes('/queries/analytics')) return response(analytics);
       if (url.includes('/lookups')) return response(lookups);
-      return response({ data: [weblinkLead()], pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 } });
+      return response({
+        data: [weblinkLead()],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
     const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
     await userEvent.click(eye);
-    expect(await screen.findByRole('dialog', { name: /Weblink View Analytics/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: /Weblink View Analytics/ }),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/Could not load weblink analytics/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.queryByText('203.0.113.1')).not.toBeInTheDocument();
@@ -1461,7 +1583,7 @@ describe('Lead weblink column', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Services column: icon-only badges with tooltip + accessible label
+// Services column: compact icon chips with tooltip + accessible label
 // ---------------------------------------------------------------------------
 
 const servicesLead = {
@@ -1477,6 +1599,21 @@ const servicesLead = {
   ],
 };
 
+const servicesLeadFew = {
+  ...enrichedLead,
+  services: [
+    { serviceType: 'HOTEL' },
+    { serviceType: 'SIGHTSEEING' },
+    { serviceType: 'VEHICLE_TRANSFER' },
+    { serviceType: 'FLIGHT' },
+  ],
+};
+
+const servicesLeadUnknown = {
+  ...enrichedLead,
+  services: [{ serviceType: 'MYSTERY_SERVICE' }],
+};
+
 describe('Lead services column icons', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -1489,67 +1626,83 @@ describe('Lead services column icons', () => {
     ]);
   });
 
-  const badgeFor = (label: string) => {
-    const badge = screen
-      .getAllByLabelText(label)
-      .find((el) => el.classList.contains('bg-slate-100'));
-    expect(badge).not.toBeNull();
-    return badge as HTMLElement;
+  const chip = (name: string) => {
+    const found = screen.getAllByRole('img').find((el) => el.getAttribute('aria-label') === name);
+    expect(found).not.toBeNull();
+    return found as HTMLElement;
   };
 
-  it('renders an icon-only badge for every known service type', async () => {
+  it('renders an icon-only chip for every known service type', async () => {
     stubLeadList([servicesLead]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
 
-    expect(badgeFor('Hotel').querySelector('.lucide-hotel')).not.toBeNull();
-    expect(badgeFor('Sightseeing').querySelector('.lucide-binoculars')).not.toBeNull();
-    expect(badgeFor('Cruise').querySelector('.lucide-ship')).not.toBeNull();
-    expect(badgeFor('Vehicle Transfer').querySelector('.lucide-car-front')).not.toBeNull();
-    expect(badgeFor('Flight').querySelector('.lucide-plane')).not.toBeNull();
-    expect(badgeFor('Other Add On').querySelector('.lucide-package-plus')).not.toBeNull();
+    expect(chip('Hotel service').querySelector('.lucide-hotel')).not.toBeNull();
+    expect(chip('Sightseeing service').querySelector('.lucide-binoculars')).not.toBeNull();
+    expect(chip('Vehicle Transfer service').querySelector('.lucide-car-front')).not.toBeNull();
+    expect(chip('Flight service').querySelector('.lucide-plane')).not.toBeNull();
+    expect(chip('Cruise service').querySelector('.lucide-ship')).not.toBeNull();
+    expect(chip('Other Add On service').querySelector('.lucide-package-plus')).not.toBeNull();
+    // All six selected services render — no overflow "+N" chip.
+    expect(screen.queryByRole('img', { name: /more services/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/\+1/)).not.toBeInTheDocument();
   });
 
-  it('shows no visible service-name text inside the badges', async () => {
-    stubLeadList([servicesLead]);
+  it('shows no visible service-name text inside the chips', async () => {
+    stubLeadList([servicesLeadFew]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
 
-    for (const label of ['Hotel', 'Sightseeing', 'Cruise', 'Vehicle Transfer', 'Flight', 'Other Add On', 'Mystery Service']) {
-      expect(badgeFor(label).textContent?.trim()).toBe('');
+    for (const name of [
+      'Hotel service',
+      'Sightseeing service',
+      'Vehicle Transfer service',
+      'Flight service',
+    ]) {
+      expect(chip(name).textContent?.trim()).toBe('');
     }
   });
 
-  it('uses the generic fallback icon and a readable label for an unknown service', async () => {
-    stubLeadList([servicesLead]);
+  it('ignores an unsupported service value instead of rendering a fallback icon', async () => {
+    stubLeadList([servicesLeadUnknown]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
-    // labelForLookup converts MYSTERY_SERVICE to "Mystery Service".
-    const badge = badgeFor('Mystery Service');
-    expect(badge.querySelector('.lucide-package')).not.toBeNull();
-    expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-    expect(badge).toHaveAttribute('title', 'Mystery Service');
+    // labelForLookup would call it "Mystery Service", but it is not a supported
+    // Lead-form service, so no chip (and no placeholder) is rendered.
+    expect(screen.queryByRole('img', { name: 'Mystery Service service' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('exposes the service name through a tooltip and accessible label', async () => {
-    stubLeadList([servicesLead]);
+    stubLeadList([servicesLeadFew]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
 
-    for (const label of ['Hotel', 'Flight', 'Cruise']) {
-      const badge = badgeFor(label);
+    for (const [name, label] of [
+      ['Hotel service', 'Hotel'],
+      ['Flight service', 'Flight'],
+      ['Vehicle Transfer service', 'Vehicle Transfer'],
+    ] as const) {
+      const badge = chip(name);
       expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-      expect(badge).toHaveAttribute('aria-label', label);
+      expect(badge).toHaveAttribute('aria-label', name);
       expect(badge).toHaveAttribute('title', label);
     }
   });
 
-  it('still renders the existing row actions alongside the icon badges', async () => {
+  it('renders only the four approved row actions alongside the icon chips', async () => {
     stubLeadList([servicesLead]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
-    expect(screen.getAllByRole('link', { name: 'Convert to booking' }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole('link', { name: 'Follow-up' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(screen.queryByRole('link', { name: 'Convert to booking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View booking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create quotation' })).not.toBeInTheDocument();
   });
 });
 
@@ -1608,5 +1761,700 @@ describe('Lead actions', () => {
         ),
       ).toBe(true),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Leads Action column is strictly limited to View | Edit | Delete | Follow-up
+// ---------------------------------------------------------------------------
+
+describe('Lead row actions are limited to the four approved actions', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.delete',
+      'quotations.view',
+    ]);
+  });
+
+  /** The desktop table's Actions cell for the first data row. */
+  function actionsCell(): HTMLElement {
+    const table = document.querySelector('table');
+    expect(table).not.toBeNull();
+    const firstRow = table!.querySelector('tbody tr');
+    expect(firstRow).not.toBeNull();
+    const cells = Array.from(firstRow!.querySelectorAll('td'));
+    return cells[cells.length - 1] as HTMLElement;
+  }
+
+  /** Accessible names of the controls in the Actions cell, in DOM order. */
+  function actionNames(cell: HTMLElement): string[] {
+    return Array.from(cell.querySelectorAll('a, button')).map(
+      (el) => el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '',
+    );
+  }
+
+  it('renders exactly View, Edit, Delete and Follow-up in that order', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual([
+      'View lead',
+      'Edit lead',
+      'Delete lead',
+      'Create follow-up',
+    ]);
+  });
+
+  it('never renders quotation or booking actions in the Action column', async () => {
+    // enrichedLead has a quotation summary AND a convertible booking context.
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    for (const forbidden of [
+      'Create quotation',
+      'View quotation',
+      'Convert to booking',
+      'View booking',
+      'Create booking',
+      'Add note',
+      'Archive',
+      'Restore',
+    ]) {
+      expect(within(cell).queryByRole('link', { name: forbidden })).not.toBeInTheDocument();
+      expect(within(cell).queryByRole('button', { name: forbidden })).not.toBeInTheDocument();
+    }
+  });
+
+  it('does not add actions based on lead stage, quotation or booking presence', async () => {
+    // HOT + BOOKING_CONFIRMED with no booking, and a quotation summary.
+    stubLeadList([
+      {
+        ...enrichedLead,
+        leadType: 'HOT',
+        leadStage: 'BOOKING_CONFIRMED',
+        quotationSummary: enrichedLead.quotationSummary,
+        bookingSummary: null,
+      },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual([
+      'View lead',
+      'Edit lead',
+      'Delete lead',
+      'Create follow-up',
+    ]);
+  });
+
+  it('hides Edit without the update permission', async () => {
+    authState.permissions = new Set(['queries.view', 'queries.delete']);
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual(['View lead', 'Delete lead', 'Create follow-up']);
+  });
+
+  it('hides Delete without the delete permission', async () => {
+    authState.permissions = new Set(['queries.view', 'queries.update']);
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual(['View lead', 'Edit lead', 'Create follow-up']);
+  });
+
+  it('hides Follow-up when the lead does not permit it', async () => {
+    stubLeadList([
+      { ...enrichedLead, actions: { ...enrichedLead.actions, canAddFollowUp: false } },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual(['View lead', 'Edit lead', 'Delete lead']);
+  });
+
+  it('does not introduce an overflow menu in the Action column', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const cell = actionsCell();
+    expect(cell.querySelector('[role="menu"]')).toBeNull();
+    expect(cell.querySelector('[aria-haspopup]')).toBeNull();
+  });
+
+  it('keeps the Quotation column status badge intact', async () => {
+    // With a quotation summary: status badge + View link stay in the column.
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: /^View$/ }).length).toBeGreaterThan(0);
+  });
+
+  it('keeps the "+ New" quotation shortcut intact in the Quotation column', async () => {
+    // Without a quotation summary and with create permission: "+ New" stays.
+    stubLeadList([
+      {
+        ...enrichedLead,
+        quotationSummary: null,
+        hasQuotations: false,
+        actions: { ...enrichedLead.actions, canCreateQuotation: true },
+      },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByRole('link', { name: /\+ New/ }).length).toBeGreaterThan(0);
+    // The Action column remains limited to the four approved actions.
+    const cell = actionsCell();
+    expect(actionNames(cell)).toEqual([
+      'View lead',
+      'Edit lead',
+      'Delete lead',
+      'Create follow-up',
+    ]);
+  });
+
+  it('keeps the four actions on the mobile/responsive card with no extra menu', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    // One set per lead (mobile card) plus one set in the desktop table.
+    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin/Owner can see and select themselves in the Lead "Assign To" dropdown
+// ---------------------------------------------------------------------------
+
+describe('Admin lead self-assignment (frontend)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.assign',
+    ]);
+  });
+
+  const teamLookups = {
+    ...lookups,
+    assignableUsers: [
+      { id: 'me', fullName: 'Owner', username: 'owner' },
+      { id: 'alice', fullName: 'Amit Kumar', username: 'amit' },
+      { id: 'bob', fullName: 'Neha Singh', username: 'neha' },
+    ],
+  };
+
+  const destination = {
+    id: 'dest-1',
+    name: 'Singapore',
+    status: 'ACTIVE',
+    cities: [{ id: 'dc-1', sequence: 1, city: { name: 'Singapore' } }],
+  };
+
+  function assigneeOptionTexts(): string[] {
+    const select = screen.getByLabelText('Assigned salesperson') as HTMLSelectElement;
+    return Array.from(select.options).map((option) => option.textContent?.trim() ?? '');
+  }
+
+  it('shows the current user first, labelled (You), exactly once, with team members after', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(teamLookups)),
+    );
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    await waitFor(() => {
+      expect(assigneeOptionTexts()).toEqual([
+        'Select User',
+        'Owner (You)',
+        'Amit Kumar',
+        'Neha Singh',
+      ]);
+    });
+    expect(assigneeOptionTexts().filter((text) => text === 'Owner (You)')).toHaveLength(1);
+  });
+
+  it('shows the updated helper text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(teamLookups)),
+    );
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    expect(
+      screen.getByText(
+        'Assign this lead to yourself or another team member. This field is required.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'As an admin, you must assign this lead to a team member. This field is required.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('creates a lead assigned to the logged-in Admin when they select themselves', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/destinations'))
+        return response({
+          data: [destination],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        });
+      if (url.endsWith('/queries') && options?.method === 'POST')
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ success: true, data: lead }),
+        } as Response;
+      return response(teamLookups);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+
+    await userEvent.selectOptions(screen.getByLabelText('Assigned salesperson'), 'me');
+    await userEvent.type(screen.getByLabelText('Name'), 'Test Lead');
+    await userEvent.type(screen.getByLabelText('Phone'), '9876543210');
+    fireEvent.change(screen.getByLabelText('Travel Date *'), { target: { value: '2026-09-10' } });
+    await waitFor(() => {
+      const destinationEl = screen.getByLabelText('Destination 1');
+      expect(
+        Array.from(destinationEl.querySelectorAll('option')).some(
+          (option) => option.textContent === 'Singapore',
+        ),
+      ).toBe(true);
+    });
+    await userEvent.selectOptions(screen.getByLabelText('Destination 1'), 'Singapore');
+    await waitFor(() => expect(screen.getByLabelText('City 1')).toBeEnabled());
+    await userEvent.selectOptions(screen.getByLabelText('City 1'), 'Singapore');
+    await userEvent.click(screen.getByRole('button', { name: /Create Lead/i }));
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, options]) => options?.method === 'POST');
+      expect(post).toBeDefined();
+      const body = JSON.parse(String(post![1]!.body));
+      expect(body.assignedToId).toBe('me');
+    });
+  });
+
+  it('keeps the Assign To field required', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(teamLookups)),
+    );
+    renderWithProviders(<LeadFormPage />);
+    await screen.findByRole('heading', { name: 'Create lead' });
+    // Fill the browser-required fields so submission is not blocked by native
+    // validation, but leave Assign To empty.
+    await userEvent.type(screen.getByLabelText('Name'), 'Test Lead');
+    await userEvent.type(screen.getByLabelText('Phone'), '9876543210');
+    await userEvent.click(screen.getByRole('button', { name: /Create Lead/i }));
+    expect(await screen.findByText(/Assign To is required/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Leads pagination footer uses the shared Masters-style pagination
+// ---------------------------------------------------------------------------
+
+describe('Leads pagination footer (Masters-aligned)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.update', 'queries.delete']);
+  });
+
+  const stubPaged = (
+    page: number,
+    pageSize: number,
+    total: number,
+    totalPages: number,
+    rows: unknown[] = [lead],
+  ) => {
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      return response({ data: rows, pagination: { page, pageSize, total, totalPages } });
+    });
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  };
+
+  it('uses the Masters-style "Showing X to Y of Z entries" footer', async () => {
+    stubPaged(1, 10, 25, 3);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByText('Showing 1 to 10 of 25 entries')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
+    // The old footer text is gone.
+    expect(screen.queryByText('25 leads')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Page \d+ of \d+/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('moves to the next page via the Next button and updates the URL', async () => {
+    const mock = stubPaged(1, 10, 25, 3);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).includes('page=2'))).toBe(true),
+    );
+  });
+
+  it('handles empty results with the safe zero summary and disabled controls', async () => {
+    stubPaged(1, 10, 0, 0, []);
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    expect(screen.getByText('Showing 0 to 0 of 0 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+
+  it('resets an invalid page to 1 when a filter changes', async () => {
+    const mock = stubPaged(2, 10, 25, 3);
+    renderWithProviders(<LeadsPage />, { route: '/?page=2' });
+    await screen.findAllByText('Aarav Mehta');
+    await userEvent.type(screen.getByLabelText('Search leads'), 'bangkok');
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).includes('page=1'))).toBe(true),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Leads Notes column replaces the old Logging column
+// ---------------------------------------------------------------------------
+
+describe('Leads Notes column', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.update']);
+  });
+
+  const stubOneLead = () => {
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      return response({
+        data: [lead],
+        pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      });
+    });
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  };
+
+  it('shows the Notes heading instead of Logging', async () => {
+    stubOneLead();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getAllByText('Notes').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Logging')).not.toBeInTheDocument();
+  });
+
+  it('links the plus action to the Add Note flow and the eye to the Notes list for that lead', async () => {
+    stubOneLead();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+
+    const add = screen.getAllByRole('link', { name: /Add note for/ })[0]!;
+    expect(add).toHaveAttribute('href', `/queries/${lead.id}/notes/new`);
+
+    const view = screen.getAllByRole('link', { name: /View notes for/ })[0]!;
+    expect(view).toHaveAttribute('href', `/queries/${lead.id}/notes`);
+
+    // The Notes actions never open the follow-ups flow.
+    expect(screen.queryByRole('link', { name: /Open logging/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /follow-ups/ })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline Stage change lost-reason validation (row-scoped)
+// ---------------------------------------------------------------------------
+
+describe('Leads inline stage lost-reason flow', () => {
+  const stageLookups = {
+    ...lookups,
+    leadStages: [
+      { value: 'NEW_LEAD', label: 'New Lead' },
+      { value: 'CONTACTED', label: 'Contacted' },
+      { value: 'LOST', label: 'Lost' },
+    ],
+  };
+
+  const leadB = {
+    ...lead,
+    id: '22222222-2222-4222-8222-222222222222',
+    queryNumber: 'QRY-2026-000002',
+    customerName: 'Nina Shah',
+  };
+
+  const stubStage = (rows: unknown[] = [lead]) => {
+    const currentList = rows.map((row) => ({ ...(row as Record<string, unknown>) }));
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(stageLookups);
+      if (options?.method === 'PATCH') {
+        const body = JSON.parse(String(options.body));
+        calls.push({ url, body });
+        const target = currentList.find((row) => row.id === lead.id) ?? currentList[0];
+        if (target) {
+          target.leadStage = body.stage;
+          target.lostReason = body.lostReason ?? null;
+        }
+        return response(target ?? currentList[0]);
+      }
+      return response({
+        data: currentList,
+        pagination: { page: 1, pageSize: 20, total: currentList.length, totalPages: 1 },
+      });
+    });
+    vi.stubGlobal('fetch', mock);
+    return { mock, calls };
+  };
+
+  const openStage = async () => {
+    const badge = await screen.findByRole('button', { name: 'Change lead stage from New Lead' });
+    await userEvent.click(badge);
+    return screen.getByRole('listbox', { name: 'Change lead stage' });
+  };
+
+  const pickOptionIn = (listbox: HTMLElement, label: string) => {
+    const li = within(listbox).getByRole('option', { name: label });
+    fireEvent.click(li.querySelector('button')!);
+  };
+
+  const pick = async (label: string) => {
+    const listbox = await openStage();
+    pickOptionIn(listbox, label);
+  };
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.update']);
+  });
+
+  it('changes to a non-reason stage without a lost-reason prompt or error', async () => {
+    const { calls } = stubStage();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    await pick('Contacted');
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain('/queries/11111111-1111-4111-8111-111111111111/stage');
+    expect(calls[0]!.body).toEqual({ stage: 'CONTACTED' });
+    expect(screen.queryByLabelText('Stage reason')).not.toBeInTheDocument();
+    expect(screen.queryByText('A lost reason is required.')).not.toBeInTheDocument();
+  });
+
+  it('does not submit Lost without a reason and shows the error only for that row', async () => {
+    const { calls } = stubStage([lead, leadB]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const badges = screen.getAllByRole('button', { name: 'Change lead stage from New Lead' });
+    // Change the FIRST lead to Lost.
+    await userEvent.click(badges[0]!);
+    pickOptionIn(screen.getByRole('listbox', { name: 'Change lead stage' }), 'Lost');
+    expect(screen.getByLabelText('Stage reason')).toBeInTheDocument();
+    // Submit without a reason.
+    await userEvent.click(screen.getByRole('button', { name: 'Update stage' }));
+    // The error is scoped to the one changed row.
+    expect(screen.getAllByText('A lost reason is required.')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Stage reason')).toHaveLength(1);
+    // No request was sent and the original stage is kept.
+    expect(calls).toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: 'Change lead stage from New Lead' })).toHaveLength(
+      2,
+    );
+  });
+
+  it('submits Lost with a valid reason and shows the new stage after success', async () => {
+    const { calls } = stubStage();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    await pick('Lost');
+    await userEvent.type(screen.getByLabelText('Stage reason'), 'Budget changed');
+    await userEvent.click(screen.getByRole('button', { name: 'Update stage' }));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.body).toEqual({ stage: 'LOST', lostReason: 'Budget changed' });
+    // The list refetch returns the updated lead.
+    await screen.findByRole('button', { name: 'Change lead stage from Lost' });
+    expect(screen.queryByText('A lost reason is required.')).not.toBeInTheDocument();
+  });
+
+  it('cancelling the Lost flow keeps the original stage and sends no request', async () => {
+    const { calls } = stubStage();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    await pick('Lost');
+    expect(screen.getByLabelText('Stage reason')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Stage reason')).not.toBeInTheDocument();
+    expect(screen.queryByText('A lost reason is required.')).not.toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+    expect(
+      screen.getByRole('button', { name: 'Change lead stage from New Lead' }),
+    ).toBeInTheDocument();
+  });
+
+  it('never shows the lost-reason error on a row left at New Lead', async () => {
+    stubStage();
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.queryByText('A lost reason is required.')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Stage reason')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dense operational Leads table redesign (visual structure)
+// ---------------------------------------------------------------------------
+
+describe('Dense operational Leads table structure', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.delete',
+      'queries.assign',
+      'queries.export',
+    ]);
+  });
+
+  it('renders the compact analytics strip with the four operational metrics', async () => {
+    const analyticsData = {
+      ...analytics,
+      totalLeads: 12,
+      bookingConfirmed: 3,
+      conversionRate: 25,
+      winRate: 18,
+    };
+    stubLeadList([enrichedLead], analyticsData);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const strip = document.querySelector('.leads-analytics');
+    expect(strip).not.toBeNull();
+    // Four metric badges only.
+    expect(within(strip as HTMLElement).getByText('Total Leads')).toBeInTheDocument();
+    expect(within(strip as HTMLElement).getByText('Booking Confirmed')).toBeInTheDocument();
+    expect(within(strip as HTMLElement).getByText('Conversion Rate')).toBeInTheDocument();
+    expect(within(strip as HTMLElement).getByText('Win Rate')).toBeInTheDocument();
+    // The broader set of metrics is intentionally not shown in the strip.
+    expect(within(strip as HTMLElement).queryByText('Follow-Ups Due')).not.toBeInTheDocument();
+    expect(within(strip as HTMLElement).queryByText('New Leads')).not.toBeInTheDocument();
+  });
+
+  it('renders the compact Leads List card, toolbar and filter panel', async () => {
+    stubLeadList([enrichedLead], {
+      ...analytics,
+      totalLeads: 12,
+      bookingConfirmed: 3,
+      conversionRate: 25,
+      winRate: 18,
+      byLeadType: { HOT: 1 },
+      byLeadStage: { NEW_LEAD: 2 },
+    });
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByText('Leads List')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search leads')).toBeInTheDocument();
+    expect(screen.getByLabelText('Assigned user')).toBeInTheDocument();
+    expect(screen.getByLabelText('Hot leads only')).toBeInTheDocument();
+    // Type/stage filter chips are present with their counts.
+    expect(screen.getByRole('button', { name: /Hot 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /All 12/ })).toBeInTheDocument();
+  });
+
+  it('keeps the table inside the dedicated horizontal scroll wrapper with pagination outside', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const scroll = document.querySelector('.leads-table-scroll');
+    expect(scroll).not.toBeNull();
+    // The table lives inside the scroll container.
+    expect(scroll!.querySelector('table.leads-table')).not.toBeNull();
+    // Pagination stays outside the scroller (page element is not a table cell).
+    const pagination = screen.getByRole('navigation', { name: 'Pagination' });
+    expect(scroll!.contains(pagination)).toBe(false);
+    expect(screen.getByText('Showing 1 to 1 of 1 entries')).toBeInTheDocument();
+  });
+
+  it('renders the green compact table header with every current column', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const thead = document.querySelector('.leads-thead');
+    expect(thead).not.toBeNull();
+    for (const header of [
+      'Lead ID',
+      'Lead Info',
+      'Destination',
+      'Travellers Info',
+      'Services',
+      'Quotation',
+      'Booking',
+      'Weblink',
+      'Notes',
+      'Assigned to',
+      'Amount',
+      'Margin',
+      'Type',
+      'Stage',
+      'Created',
+      'Actions',
+    ]) {
+      expect(thead!.textContent).toContain(header);
+    }
+    // Notes column keeps its name (not Logging).
+    expect(thead!.textContent).toContain('Notes');
+    expect(thead!.textContent).not.toContain('Logging');
+  });
+
+  it('renders compact metadata blocks for destination and travellers info', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(document.querySelector('.leads-dest-card')).not.toBeNull();
+    expect(document.querySelector('.leads-nights-badge')).not.toBeNull();
+    expect(document.querySelector('.leads-traveller-block--city')).not.toBeNull();
+    expect(document.querySelector('.leads-traveller-block--date')).not.toBeNull();
+    expect(document.querySelector('.leads-traveller-block--rooms')).not.toBeNull();
+  });
+
+  it('keeps the Notes column buttons wired to Add Note and View Notes only', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const add = screen.getAllByRole('link', { name: /Add note for/ })[0]!;
+    const view = screen.getAllByRole('link', { name: /View notes for/ })[0]!;
+    expect(add).toHaveAttribute('href', `/queries/${enrichedLead.id}/notes/new`);
+    expect(view).toHaveAttribute('href', `/queries/${enrichedLead.id}/notes`);
+    // No follow-up wiring from the Notes column.
+    expect(screen.queryByRole('link', { name: /Open logging/ })).not.toBeInTheDocument();
   });
 });

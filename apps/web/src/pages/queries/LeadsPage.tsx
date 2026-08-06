@@ -3,12 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowUpDown,
   BarChart3,
+  Calendar,
   ChartPie,
-  ChevronLeft,
-  ChevronRight,
   Download,
   ExternalLink,
   Eye,
+  Flame,
   Globe,
   Home,
   Loader2,
@@ -34,12 +34,13 @@ import {
   useLeads,
   type Lead,
 } from '@/features/queries/queries.api';
-import {
-  useQuotationWeblinkAnalytics,
-} from '@/features/quotations/quotations.api';
+import { useQuotationWeblinkAnalytics } from '@/features/quotations/quotations.api';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 import { labelForLookup } from '@interscale/shared';
-import { serviceTypeIcon } from '@/pages/quotations/serviceCards';
+import { LeadServicesCell } from '@/features/queries/LeadServicesCell';
+import { cn } from '@/utils/cn';
+import './leads.css';
 
 const badge = (value: string) =>
   value === 'HOT' || value === 'URGENT' || value === 'LOST'
@@ -61,17 +62,19 @@ const leadListId = (value: string) => value.replace(/^([^-]+)-\d{4}-/, '$1-');
 function LeadInfoCell({ lead }: { lead: Lead }) {
   const email = lead.email ?? lead.customer?.email;
   return (
-    <div className="min-w-44 space-y-1">
-      <Link className="block font-semibold text-brand-700 hover:underline" to={`/queries/${lead.id}`}>
+    <div className="min-w-44">
+      <Link className="leads-name block" to={`/queries/${lead.id}`}>
         {lead.customerName}
       </Link>
-      <span className="flex items-center gap-1 text-xs text-slate-500">
-        <Phone className="h-3 w-3 shrink-0" /> {lead.phone}
+      <span className="leads-meta">
+        <Phone className="h-3 w-3 shrink-0" aria-hidden="true" /> {lead.phone}
       </span>
       {email && (
-        <span className="flex max-w-52 items-center gap-1 text-xs text-brand-600">
-          <Mail className="h-3 w-3 shrink-0" />
-          <span className="truncate" title={email}>{email}</span>
+        <span className="leads-meta text-brand-600">
+          <Mail className="h-3 w-3 shrink-0" aria-hidden="true" />
+          <span className="truncate" title={email}>
+            {email}
+          </span>
         </span>
       )}
     </div>
@@ -80,17 +83,15 @@ function LeadInfoCell({ lead }: { lead: Lead }) {
 
 function DestinationCell({ lead }: { lead: Lead }) {
   const totalNights = lead.itinerary.reduce((sum, item) => sum + item.nights, 0);
-  if (!lead.itinerary.length) return <span className="text-slate-400">—</span>;
+  if (!lead.itinerary.length) return <span className="leads-cell-muted">—</span>;
   return (
-    <div className="min-w-40 space-y-1.5">
-      <span className="inline-flex rounded-full bg-sky-500 px-2 py-0.5 text-xs font-semibold text-white">
-        {totalNights}N Total
-      </span>
+    <div className="leads-dest-wrap">
+      <span className="leads-nights-badge">{totalNights}N Total</span>
       {lead.itinerary.map((item) => (
-        <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-center">
-          <p className="font-semibold text-slate-800">{item.destination}</p>
-          <p className="text-xs font-semibold text-red-500">{item.nights}N</p>
-          {item.country && <p className="text-[11px] text-slate-500">{item.country}</p>}
+        <div key={item.id} className="leads-dest-card">
+          <p className="leads-dest-name">{item.destination}</p>
+          <p className="leads-dest-nights">{item.nights}N</p>
+          {item.country && <p className="leads-dest-country">{item.country}</p>}
         </div>
       ))}
     </div>
@@ -99,65 +100,55 @@ function DestinationCell({ lead }: { lead: Lead }) {
 
 function TravellersInfoCell({ lead }: { lead: Lead }) {
   return (
-    <div className="min-w-44 space-y-1.5 text-xs">
-      <span className="flex w-fit items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 font-semibold text-slate-700">
-        <MapPin className="h-3 w-3 text-sky-600" /> {lead.departureCity || 'N/A'}
+    <div className="leads-traveller">
+      <span className="leads-traveller-block leads-traveller-block--city">
+        <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" /> {lead.departureCity || 'N/A'}
       </span>
-      <span className="block w-fit rounded border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-slate-700">
+      <span className="leads-traveller-block leads-traveller-block--date">
+        <Calendar className="h-3 w-3 shrink-0" aria-hidden="true" />
         {leadDate(lead.travelStartDate) ?? 'Flexible dates'}
       </span>
-      <span className="block w-fit rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-slate-700">
+      <span className="leads-traveller-block leads-traveller-block--rooms">
         {lead.travellerSummary || 'No traveller details'}
       </span>
     </div>
   );
 }
 
-function ServicesCell({ lead }: { lead: Lead }) {
-  if (!lead.services.length) return <span className="text-slate-400">—</span>;
-  return (
-    <div className="flex min-w-28 flex-wrap gap-1">
-      {lead.services.map((service, index) => {
-        const Icon = serviceTypeIcon(service.serviceType);
-        const label = labelForLookup(service.serviceType);
-        return (
-          <span
-            key={`${service.serviceType}-${index}`}
-            title={label}
-            aria-label={label}
-            className="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-600"
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 function QuotationCell({ lead }: { lead: Lead }) {
   const summary = lead.quotationSummary;
-  if (lead.quotationSummary === undefined) return <span className="text-slate-300">—</span>;
+  if (lead.quotationSummary === undefined) return <span className="leads-cell-muted">—</span>;
   if (!summary)
     return lead.actions?.canCreateQuotation ? (
-      <Link className="inline-flex rounded bg-brand-600 px-2 py-1 text-xs font-semibold text-white" to={`/queries/${lead.id}/quotations/new`}>
+      <Link
+        className="leads-quote-view"
+        to={`/queries/${lead.id}/quotations/new`}
+        title={`Create quotation for ${lead.queryNumber}`}
+      >
         + New
       </Link>
     ) : (
       <span className="text-xs text-slate-400">None</span>
     );
   return (
-    <div className="min-w-28 space-y-1 text-xs">
-      <Link className="inline-flex items-center gap-1 rounded bg-emerald-500 px-2 py-1 font-semibold text-white" to={`/quotations/${summary.quotationId}`}>
-        <Eye className="h-3 w-3" /> View
+    <div className="leads-quote">
+      <Link
+        className="leads-quote-view"
+        to={`/quotations/${summary.quotationId}`}
+        title={`View quotation for ${lead.queryNumber}`}
+      >
+        <Eye className="h-3 w-3" aria-hidden="true" /> View
       </Link>
-      <span className={`ml-1 inline-flex rounded px-2 py-1 font-medium ${badge(summary.quotationStatus)}`} title={summary.quotationNumber}>
+      <span
+        className={cn('leads-quote-badge', badge(summary.quotationStatus))}
+        title={summary.quotationNumber}
+      >
         {labelForLookup(summary.quotationStatus)}
       </span>
       {summary.latestVersionAmount && (
-        <p className="text-slate-500">
+        <span className="leads-quote-amount">
           {summary.currency ?? ''} {summary.latestVersionAmount}
-        </p>
+        </span>
       )}
     </div>
   );
@@ -165,7 +156,7 @@ function QuotationCell({ lead }: { lead: Lead }) {
 
 function BookingCell({ lead, canCreateBooking }: { lead: Lead; canCreateBooking: boolean }) {
   const summary = lead.bookingSummary;
-  if (lead.bookingSummary === undefined) return <span className="text-slate-300">—</span>;
+  if (lead.bookingSummary === undefined) return <span className="leads-cell-muted">—</span>;
   if (!summary) {
     // Hot + Booking Confirmed + no booking + a finalized quotation → offer the
     // lead-based booking flow. The backend re-validates eligibility.
@@ -180,61 +171,73 @@ function BookingCell({ lead, canCreateBooking }: { lead: Lead; canCreateBooking:
         <Link
           aria-label={`Create booking for ${lead.queryNumber}`}
           title="Create booking for this lead"
-          className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+          className="leads-booking-create"
           to={`/bookings/new?leadId=${encodeURIComponent(lead.id)}&quotationId=${encodeURIComponent(quotationId)}`}
         >
-          <Plus className="h-3.5 w-3.5" /> Create Booking
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Create Booking
         </Link>
       );
     }
-    return <span className="text-xs text-slate-500">{lead.quotationRequired ? 'Quote Required' : 'None'}</span>;
+    return (
+      <span className="leads-cell-muted">
+        {lead.quotationRequired ? 'Quote Required' : 'None'}
+      </span>
+    );
   }
   return (
-    <div className="text-xs">
-      <Link className="font-medium text-brand-700" to={`/bookings/${summary.bookingId}`}>
+    <div className="leads-booking">
+      <Link className="leads-booking-link" to={`/bookings/${summary.bookingId}`}>
         {summary.bookingNumber}
       </Link>
-      <p className="mt-0.5 text-slate-500">{labelForLookup(summary.bookingStatus)}</p>
+      <p className="leads-booking-status">{labelForLookup(summary.bookingStatus)}</p>
     </div>
   );
 }
 
-/** Compact context-aware quick actions for a lead row. */
-function QuickActions({ lead, canEdit, canDelete }: { lead: Lead; canEdit: boolean; canDelete: boolean }) {
+/**
+ * Lead row actions. Strictly limited to View, Edit, Delete and Follow-up so
+ * the Action column never grows additional quotation/booking shortcuts.
+ * Quotation creation and booking conversion remain available through the
+ * dedicated Quotation and Booking columns and the lead details page.
+ */
+function LeadActionsCell({
+  lead,
+  canEdit,
+  canDelete,
+}: {
+  lead: Lead;
+  canEdit: boolean;
+  canDelete: boolean;
+}) {
   const a = lead.actions;
-  const quotationId = lead.quotationSummary?.quotationId;
-  const bookingId = lead.bookingSummary?.bookingId;
   const archive = useArchiveLead(lead.id);
   return (
-    <div className="flex min-w-24 flex-wrap items-center gap-1 text-xs font-medium">
-      <Link aria-label={`View ${lead.queryNumber}`} className="rounded bg-cyan-600 p-2 text-white" to={`/queries/${lead.id}`}>
-        <Eye className="h-3.5 w-3.5" />
+    <div className="leads-actions">
+      <Link
+        aria-label="View lead"
+        title="View lead"
+        className="leads-action-btn leads-action-btn--teal"
+        to={`/queries/${lead.id}`}
+      >
+        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
       {canEdit && (
-        <Link aria-label={`Edit ${lead.queryNumber}`} className="rounded bg-brand-600 p-2 text-white" to={`/queries/${lead.id}/edit`}>
-          <Pencil className="h-3.5 w-3.5" />
-        </Link>
-      )}
-      {a?.canConvertToBooking && quotationId && (
-        <Link className="rounded bg-emerald-600 px-2 py-1.5 text-white" to={`/quotations/${quotationId}/convert-to-booking`}>
-          Convert to booking
-        </Link>
-      )}
-      {a?.canViewBooking && bookingId && (
-        <Link className="rounded bg-emerald-600 px-2 py-1.5 text-white" to={`/bookings/${bookingId}`}>
-          View booking
-        </Link>
-      )}
-      {a?.canCreateQuotation && !lead.hasQuotations && (
-        <Link className="rounded bg-slate-600 px-2 py-1.5 text-white" to={`/queries/${lead.id}/quotations/new`}>
-          Create quotation
+        <Link
+          aria-label="Edit lead"
+          title="Edit lead"
+          className="leads-action-btn leads-action-btn--blue"
+          to={`/queries/${lead.id}/edit`}
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
       )}
       {canDelete && (
         <Button
           variant="danger"
           size="sm"
-          className="h-7 px-2 text-xs"
+          aria-label="Delete lead"
+          title="Delete lead"
+          className="leads-action-btn h-7 px-1 text-xs"
           isLoading={archive.isPending}
           onClick={() => {
             if (window.confirm(`Delete ${lead.queryNumber}?`)) {
@@ -243,11 +246,15 @@ function QuickActions({ lead, canEdit, canDelete }: { lead: Lead; canEdit: boole
           }}
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          Delete
         </Button>
       )}
       {a?.canAddFollowUp && (
-        <Link className="rounded bg-cyan-600 px-2 py-1.5 text-white" to={`/queries/${lead.id}?tab=follow-ups`}>
+        <Link
+          aria-label="Create follow-up"
+          title="Create follow-up"
+          className="leads-followup-btn"
+          to={`/queries/${lead.id}?tab=follow-ups`}
+        >
           Follow-up
         </Link>
       )}
@@ -292,33 +299,56 @@ function WeblinkCell({
   // Merge the server summary with any local override (analytics count sync).
   const weblink = override
     ? { ...lead.weblink, totalViews: override.totalViews ?? lead.weblink?.totalViews ?? 0 }
-    : lead.weblink ?? null;
+    : (lead.weblink ?? null);
 
-  if (!quotationId) return <span className="text-xs text-slate-400">Not Available</span>;
+  if (!quotationId) return <span className="leads-cell-muted">Not Available</span>;
 
   // Defensive fallback for genuinely corrupt data: never offer a Create action.
-  if (!weblink?.publicUrl) return <span className="text-xs text-slate-400">Unavailable</span>;
+  if (!weblink?.publicUrl) return <span className="leads-cell-muted">Unavailable</span>;
 
   return (
-    <div className="flex items-center">
+    <div className="leads-weblink">
       <a
         href={weblink.publicUrl}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`View quotation weblink for ${lead.queryNumber}`}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded-l bg-emerald-600 px-2 py-1 text-[11px] font-semibold uppercase text-white hover:bg-emerald-700"
+        className="leads-weblink-view"
       >
-        <ExternalLink className="h-3 w-3" /> View
+        <ExternalLink className="h-3 w-3" aria-hidden="true" /> View
       </a>
       <button
         type="button"
         onClick={() => onOpenAnalytics(lead.id, quotationId)}
         aria-label={`Weblink view analytics for ${lead.queryNumber}`}
         title="Weblink view analytics"
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded-r bg-amber-400 px-2 py-1 text-[11px] font-semibold text-slate-900 hover:bg-amber-300"
+        className="leads-weblink-count"
       >
-        <Eye className="h-3 w-3" /> {weblink.totalViews}
+        <Eye className="h-3 w-3" aria-hidden="true" /> {weblink.totalViews}
       </button>
+    </div>
+  );
+}
+
+function LeadNotesCell({ lead }: { lead: Lead }) {
+  return (
+    <div className="leads-notes">
+      <Link
+        aria-label={`Add note for ${lead.queryNumber}`}
+        title="Add note"
+        to={`/queries/${lead.id}/notes/new`}
+        className="leads-icon-btn leads-icon-btn--cyan"
+      >
+        ＋
+      </Link>
+      <Link
+        aria-label={`View notes for ${lead.queryNumber}`}
+        title="View notes"
+        to={`/queries/${lead.id}/notes`}
+        className="leads-icon-btn leads-icon-btn--cyan"
+      >
+        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+      </Link>
     </div>
   );
 }
@@ -350,8 +380,16 @@ function WeblinkAnalyticsModal({
 
   const summary = [
     { label: 'Total Views', value: data?.totalViews ?? 0, cls: 'border-blue-200 text-blue-700' },
-    { label: 'External Views', value: data?.externalViews ?? 0, cls: 'border-emerald-200 text-emerald-700' },
-    { label: 'Home IP Views', value: data?.homeIpViews ?? 0, cls: 'border-amber-300 text-amber-700' },
+    {
+      label: 'External Views',
+      value: data?.externalViews ?? 0,
+      cls: 'border-emerald-200 text-emerald-700',
+    },
+    {
+      label: 'Home IP Views',
+      value: data?.homeIpViews ?? 0,
+      cls: 'border-amber-300 text-amber-700',
+    },
     { label: 'Unique IPs', value: data?.uniqueIps ?? 0, cls: 'border-teal-200 text-teal-700' },
   ];
 
@@ -372,7 +410,11 @@ function WeblinkAnalyticsModal({
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <ChartPie className="h-5 w-5" /> Weblink View Analytics
           </h2>
-          <button aria-label="Close analytics" onClick={onClose} className="rounded p-1 hover:bg-white/20">
+          <button
+            aria-label="Close analytics"
+            onClick={onClose}
+            className="rounded p-1 hover:bg-white/20"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -437,7 +479,11 @@ function WeblinkAnalyticsModal({
                                   : 'bg-emerald-100 text-emerald-800'
                               }`}
                             >
-                              {row.type === 'HOME' ? <Home className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+                              {row.type === 'HOME' ? (
+                                <Home className="h-3 w-3" />
+                              ) : (
+                                <Globe className="h-3 w-3" />
+                              )}
                               {row.type === 'HOME' ? 'HOME IP' : 'EXTERNAL'}
                             </span>
                           </td>
@@ -446,8 +492,12 @@ function WeblinkAnalyticsModal({
                               {row.views}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-slate-600">{weblinkDate(row.firstViewedAt)}</td>
-                          <td className="px-3 py-2 text-slate-600">{weblinkDate(row.lastViewedAt)}</td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {weblinkDate(row.firstViewedAt)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {weblinkDate(row.lastViewedAt)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -458,10 +508,12 @@ function WeblinkAnalyticsModal({
               {/* Footer note */}
               <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">
                 <span className="inline-flex items-center gap-1 font-semibold">
-                  <Home className="h-3.5 w-3.5 text-amber-600" /> HOME IP = Views from your company team members.
+                  <Home className="h-3.5 w-3.5 text-amber-600" /> HOME IP = Views from your company
+                  team members.
                 </span>
                 <span className="inline-flex items-center gap-1 font-semibold">
-                  <Globe className="h-3.5 w-3.5 text-emerald-600" /> EXTERNAL = Views from actual clients.
+                  <Globe className="h-3.5 w-3.5 text-emerald-600" /> EXTERNAL = Views from actual
+                  clients.
                 </span>
               </div>
             </>
@@ -476,6 +528,68 @@ function WeblinkAnalyticsModal({
       </div>
     </div>
   );
+}
+
+/** Slim operational analytics strip with compact metric badges. */
+function LeadAnalyticsStrip({
+  loading,
+  totalLeads,
+  bookingConfirmed,
+  conversionRate,
+  winRate,
+}: {
+  loading: boolean;
+  totalLeads?: number | null | undefined;
+  bookingConfirmed?: number | null | undefined;
+  conversionRate?: number | null | undefined;
+  winRate?: number | null | undefined;
+}) {
+  return (
+    <section className="leads-analytics" aria-label="Lead analytics">
+      <span className="leads-analytics-label">
+        <BarChart3 className="h-4 w-4 text-brand-600" aria-hidden="true" /> Analytics
+      </span>
+      {loading ? (
+        <span className="h-6 w-48 animate-pulse rounded bg-slate-100" />
+      ) : (
+        <>
+          <span className="leads-analytics-badge leads-analytics-badge--total">
+            <span>{totalLeads}</span>
+            <span>Total Leads</span>
+          </span>
+          <span className="leads-analytics-badge leads-analytics-badge--booking">
+            <span>{bookingConfirmed}</span>
+            <span>Booking Confirmed</span>
+          </span>
+          <span className="leads-analytics-badge leads-analytics-badge--conversion">
+            <span>{conversionRate}%</span>
+            <span>Conversion Rate</span>
+          </span>
+          <span className="leads-analytics-badge leads-analytics-badge--win">
+            <span>{winRate}%</span>
+            <span>Win Rate</span>
+          </span>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Compact dense filter chips with semantic colours per type/stage. */
+function leadChipVariant(value: string): string {
+  if (value === '') return 'leads-chip--all';
+  if (value === 'HOT' || value === 'URGENT') return 'leads-chip--hot';
+  if (value === 'WARM') return 'leads-chip--warm';
+  if (value === 'COLD') return 'leads-chip--cold';
+  if (value === 'FRESH' || value === 'NEW_LEAD' || value === 'QUALIFIED')
+    return 'leads-chip--fresh';
+  if (value === 'QUOTATION_SENT' || value === 'IN_NEGOTIATION') return 'leads-chip--quote';
+  if (value === 'READY_TO_BOOK') return 'leads-chip--ready';
+  if (value === 'BOOKING_CONFIRMED') return 'leads-chip--confirmed';
+  if (value === 'LOST') return 'leads-chip--lost';
+  if (value === 'CANCELLED' || value === 'INVALID') return 'leads-chip--muted';
+  if (value === 'ON_HOLD') return 'leads-chip--hold';
+  return 'leads-chip--neutral';
 }
 
 export function LeadsPage() {
@@ -530,6 +644,21 @@ export function LeadsPage() {
     setParams(next);
   };
   const page = Number(params.get('page') ?? 1);
+
+  // When the requested page no longer exists (e.g. a row was archived on the
+  // final page), move the URL back to the last valid page so the footer never
+  // shows an impossible range like "Showing 21 to 20 of 20 entries".
+  useEffect(() => {
+    const totalPages = leads.data?.pagination.totalPages;
+    if (totalPages === undefined || totalPages <= 0) return;
+    if (page > totalPages && page > 1) {
+      setParams((previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('page', String(totalPages));
+        return next;
+      });
+    }
+  }, [page, leads.data, setParams]);
   const sort = (sortBy: string) => {
     const next = new URLSearchParams(params);
     const sameColumn = next.get('sortBy') === sortBy;
@@ -592,20 +721,6 @@ export function LeadsPage() {
     );
   };
 
-  const cards = analytics.data
-    ? [
-        ['Total Leads', analytics.data.totalLeads],
-        ['New Leads', analytics.data.newLeads],
-        ['Qualified', analytics.data.qualifiedLeads],
-        ['Follow-Ups Due', analytics.data.followUpsDue],
-        ['Quotation Required', analytics.data.quotationRequired],
-        ['Ready to Book', analytics.data.readyToBook],
-        ['Booking Confirmed', analytics.data.bookingConfirmed],
-        ['Lost', analytics.data.lostLeads],
-        ['Conversion Rate', `${analytics.data.conversionRate}%`],
-        ['Win Rate', `${analytics.data.winRate}%`],
-      ]
-    : [];
   const chips = analytics.data
     ? [
         ['All', '', analytics.data.totalLeads],
@@ -635,7 +750,7 @@ export function LeadsPage() {
     ['Quotation'],
     ['Booking'],
     ['Weblink'],
-    ['Logging'],
+    ['Notes'],
     ['Assigned to'],
     ['Amount'],
     ['Margin'],
@@ -645,128 +760,162 @@ export function LeadsPage() {
     ['Actions'],
   ];
 
+  const a = analytics.data;
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">Home / Leads</p>
-          <h1 className="text-2xl font-semibold">Leads</h1>
-        </div>
+    <div className="leads-page">
+      <div>
+        <p className="leads-page-breadcrumb">Home / Leads</p>
+        <h1 className="leads-page-title">Leads</h1>
       </div>
-      <section className="flex min-h-12 flex-wrap items-center gap-2 rounded-lg border bg-card px-4 py-2 shadow-sm">
-        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-700"><BarChart3 className="h-4 w-4 text-brand-600" /> Analytics</span>
-        {analytics.isLoading ? (
-          <span className="h-6 w-48 animate-pulse rounded bg-slate-100" />
-        ) : (
-          cards
-            .filter(([title]) => ['Total Leads', 'Booking Confirmed', 'Conversion Rate', 'Win Rate'].includes(String(title)))
-            .map(([title, value]) => (
-              <span key={title} className="inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white">
-                <span>{value}</span><span>{title}</span>
-              </span>
-            ))
-        )}
-      </section>
-      <section className="rounded-xl border border-slate-200 bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3"><h2 className="text-lg font-medium text-slate-800">Leads List</h2><div className="flex gap-2">{canExport && <Button size="sm" variant="secondary" disabled={exportLeads.isPending} onClick={() => exportLeads.mutate(params)}><Download className="h-4 w-4" /> Export</Button>}{hasPermission('queries.create') && <Link aria-label="Add Lead" to="/queries/new"><Button size="sm"><Plus className="h-4 w-4" /> Create</Button></Link>}</div></div>
-        <div className="space-y-3 border-b p-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px_auto]">
-            <label className="relative md:col-span-2">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input
-                aria-label="Search leads"
-                className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm"
-                placeholder="Search lead ID, customer, phone or destination"
-                value={params.get('search') ?? ''}
-                onChange={(e) => set('search', e.target.value)}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={params.get('leadType') === 'HOT'} onChange={(event) => set('leadType', event.target.checked ? 'HOT' : '')} /> 🔥 Hot</label>
-            {[
-              ['leadType', 'All lead types', lookups?.leadTypes],
-              ['leadStage', 'All lead stages', lookups?.leadStages],
-              ['leadSource', 'All lead sources', lookups?.leadSources],
-              ['priority', 'All priorities', lookups?.priorities],
-              ['serviceType', 'All services', lookups?.serviceTypes],
-            ].map(([key, label, options]) => (
-              <select
-                key={String(key)}
-                aria-label={String(label)}
-                className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={params.get(String(key)) ?? ''}
-                onChange={(e) => set(String(key), e.target.value)}
+
+      <LeadAnalyticsStrip
+        loading={analytics.isLoading}
+        totalLeads={a?.totalLeads}
+        bookingConfirmed={a?.bookingConfirmed}
+        conversionRate={a?.conversionRate}
+        winRate={a?.winRate}
+      />
+      <section className="leads-card">
+        <header className="leads-card-header">
+          <h2 className="leads-card-title">Leads List</h2>
+          <div className="flex gap-2">
+            {canExport && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={exportLeads.isPending}
+                onClick={() => exportLeads.mutate(params)}
               >
-                <option value="">{String(label)}</option>
-                {(options as Array<{ value: string; label: string }> | undefined)?.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                <Download className="h-4 w-4" /> Export
+              </Button>
+            )}
+            {hasPermission('queries.create') && (
+              <Link aria-label="Add Lead" to="/queries/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> Create
+                </Button>
+              </Link>
+            )}
+          </div>
+        </header>
+
+        <div className="leads-toolbar">
+          <label className="leads-search">
+            <Search className="leads-search-icon h-4 w-4" aria-hidden="true" />
+            <input
+              aria-label="Search leads"
+              placeholder="Search lead ID, customer, phone or destination"
+              value={params.get('search') ?? ''}
+              onChange={(e) => set('search', e.target.value)}
+            />
+          </label>
+          <select
+            aria-label="Assigned user"
+            className="leads-select"
+            style={{ minWidth: 220 }}
+            value={params.get('assignedToId') ?? ''}
+            onChange={(e) => set('assignedToId', e.target.value)}
+          >
+            <option value="">All assignees</option>
+            {lookups?.assignableUsers.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.fullName}
+              </option>
             ))}
+          </select>
+          <label className="leads-hot">
+            <Flame className="h-4 w-4" aria-hidden="true" />
+            <input
+              type="checkbox"
+              aria-label="Hot leads only"
+              checked={params.get('leadType') === 'HOT'}
+              onChange={(event) => set('leadType', event.target.checked ? 'HOT' : '')}
+            />
+            Hot
+          </label>
+          {[
+            ['leadType', 'All lead types', lookups?.leadTypes],
+            ['leadStage', 'All lead stages', lookups?.leadStages],
+            ['leadSource', 'All lead sources', lookups?.leadSources],
+            ['priority', 'All priorities', lookups?.priorities],
+            ['serviceType', 'All services', lookups?.serviceTypes],
+          ].map(([key, label, options]) => (
             <select
-              aria-label="Assigned user"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={params.get('assignedToId') ?? ''}
-              onChange={(e) => set('assignedToId', e.target.value)}
+              key={String(key)}
+              aria-label={String(label)}
+              className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={params.get(String(key)) ?? ''}
+              onChange={(e) => set(String(key), e.target.value)}
             >
-              <option value="">All assignees</option>
-              {lookups?.assignableUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}
+              <option value="">{String(label)}</option>
+              {(options as Array<{ value: string; label: string }> | undefined)?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>
-            <input
-              aria-label="Destination"
-              className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Destination"
-              value={params.get('destination') ?? ''}
-              onChange={(e) => set('destination', e.target.value)}
-            />
-            <select
-              aria-label="Quotation required"
-              className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={params.get('quotationRequired') ?? ''}
-              onChange={(e) => set('quotationRequired', e.target.value)}
-            >
-              <option value="">Any quotation need</option>
-              <option value="true">Quotation required</option>
-              <option value="false">Not required</option>
-            </select>
-            {(
-              [
-                ['travelFrom', 'Travel from'],
-                ['travelTo', 'Travel to'],
-                ['followUpFrom', 'Follow-up from'],
-                ['followUpTo', 'Follow-up to'],
-                ['createdFrom', 'Created from'],
-                ['createdTo', 'Created to'],
-              ] as Array<[string, string]>
-            ).map(([key, label]) => (
-              <label key={key} className="hidden space-y-1 text-xs font-medium text-slate-500">
-                {label}
-                <input
-                  aria-label={label}
-                  className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                  type="date"
-                  value={params.get(key) ?? ''}
-                  onChange={(e) => set(key, e.target.value)}
-                />
-              </label>
-            ))}
-            <button
-              className="hidden text-left text-sm font-medium text-brand-700"
-              onClick={() => setParams({})}
-            >
-              Clear filters
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2 border-t-4 border-indigo-500 bg-sky-50 p-3">
-            {chips.map(([label, value, count]) => (
+          ))}
+          <input
+            aria-label="Destination"
+            className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Destination"
+            value={params.get('destination') ?? ''}
+            onChange={(e) => set('destination', e.target.value)}
+          />
+          <select
+            aria-label="Quotation required"
+            className="hidden rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={params.get('quotationRequired') ?? ''}
+            onChange={(e) => set('quotationRequired', e.target.value)}
+          >
+            <option value="">Any quotation need</option>
+            <option value="true">Quotation required</option>
+            <option value="false">Not required</option>
+          </select>
+          {(
+            [
+              ['travelFrom', 'Travel from'],
+              ['travelTo', 'Travel to'],
+              ['followUpFrom', 'Follow-up from'],
+              ['followUpTo', 'Follow-up to'],
+              ['createdFrom', 'Created from'],
+              ['createdTo', 'Created to'],
+            ] as Array<[string, string]>
+          ).map(([key, label]) => (
+            <label key={key} className="hidden space-y-1 text-xs font-medium text-slate-500">
+              {label}
+              <input
+                aria-label={label}
+                className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                type="date"
+                value={params.get(key) ?? ''}
+                onChange={(e) => set(key, e.target.value)}
+              />
+            </label>
+          ))}
+          <button
+            className="hidden text-left text-sm font-medium text-brand-700"
+            onClick={() => setParams({})}
+          >
+            Clear filters
+          </button>
+        </div>
+
+        <div className="leads-filter-panel" role="group" aria-label="Filter leads by type and stage">
+          {chips.map(([label, value, count]) => {
+            const activeKey =
+              value && ['FRESH', 'HOT', 'WARM', 'COLD'].includes(String(value))
+                ? 'leadType'
+                : 'leadStage';
+            const active =
+              (value && params.get(activeKey) === value) ||
+              (!value && !params.get('leadType') && !params.get('leadStage'));
+            return (
               <button
                 key={`${label}-${value}`}
-                className={`whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold ${params.get(value && ['FRESH', 'HOT', 'WARM', 'COLD'].includes(String(value)) ? 'leadType' : 'leadStage') === value || (!value && !params.get('leadType') && !params.get('leadStage')) ? 'border-brand-600 bg-slate-800 text-white' : 'border-blue-300 bg-card text-blue-700'}`}
+                className={cn('leads-chip', leadChipVariant(String(value)), active && 'leads-chip--active')}
+                aria-pressed={active}
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.delete('leadType');
@@ -784,17 +933,17 @@ export function LeadsPage() {
               >
                 {label} <strong>{count}</strong>
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
 
         {selected.size > 0 && (
           <div
-            className="flex flex-wrap items-center gap-3 border-b bg-brand-50 px-4 py-2.5 text-sm"
+            className="leads-bulkbar"
             role="region"
             aria-label="Bulk actions"
           >
-            <span className="font-medium text-brand-800">{selected.size} selected</span>
+            <span className="font-medium">{selected.size} selected</span>
             {canAssign && (
               <Button size="sm" variant="secondary" onClick={() => setDialog('assign')}>
                 Assign
@@ -822,7 +971,7 @@ export function LeadsPage() {
         {leads.isLoading ? (
           <div className="space-y-3 p-5" aria-label="Loading leads">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded bg-slate-100" />
+              <div key={i} className="leads-skeleton-row" />
             ))}
           </div>
         ) : leads.isError ? (
@@ -840,9 +989,9 @@ export function LeadsPage() {
           </div>
         ) : (
           <>
-            <div className="divide-y md:hidden">
+            <div className="leads-mobile-list divide-y">
               {rows.map((lead) => (
-                <article key={lead.id} className="space-y-3 p-4">
+                <article key={lead.id} className="leads-mobile-card space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2">
                       {canAssign && (
@@ -891,16 +1040,16 @@ export function LeadsPage() {
                     <QuotationCell lead={lead} />
                     <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
                   </div>
-                  <QuickActions lead={lead} canEdit={canUpdate} canDelete={canDelete} />
+                  <LeadActionsCell lead={lead} canEdit={canUpdate} canDelete={canDelete} />
                 </article>
               ))}
             </div>
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[2100px] table-auto text-left text-sm">
-                <thead className="bg-emerald-500 text-xs uppercase text-white">
+            <div className="leads-table-scroll leads-desktop-table">
+              <table className="leads-table">
+                <thead className="leads-thead">
                   <tr>
                     {canAssign && (
-                      <th className="px-3 py-3">
+                      <th className="text-center" style={{ width: 38 }}>
                         <input
                           type="checkbox"
                           aria-label="Select page"
@@ -910,15 +1059,15 @@ export function LeadsPage() {
                       </th>
                     )}
                     {headers.map(([label, sortBy]) => (
-                      <th key={label} className="whitespace-nowrap border-r border-emerald-400 px-3 py-3 last:border-r-0">
+                      <th key={label}>
                         {sortBy ? (
                           <button
-                            className="inline-flex items-center gap-1 hover:text-slate-900"
+                            className="leads-sort"
                             aria-label={`Sort by ${label}`}
                             onClick={() => sort(sortBy)}
                           >
                             {label}
-                            <ArrowUpDown className="h-3 w-3" />
+                            <ArrowUpDown className="h-3 w-3" aria-hidden="true" />
                           </button>
                         ) : (
                           label
@@ -927,11 +1076,11 @@ export function LeadsPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="leads-tbody">
                   {rows.map((lead) => (
-                    <tr key={lead.id} className="border-b border-slate-200 align-top hover:bg-slate-50 even:bg-slate-50/60">
+                    <tr key={lead.id}>
                       {canAssign && (
-                        <td className="border-r px-3 py-4">
+                        <td className="text-center" style={{ width: 38 }}>
                           <input
                             type="checkbox"
                             aria-label={`Select ${lead.queryNumber}`}
@@ -940,16 +1089,30 @@ export function LeadsPage() {
                           />
                         </td>
                       )}
-                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-brand-700">
-                        <Link to={`/queries/${lead.id}`}>{leadListId(lead.queryNumber)}</Link>
+                      <td className="leads-id">
+                        <Link className="leads-link" to={`/queries/${lead.id}`}>
+                          {leadListId(lead.queryNumber)}
+                        </Link>
                       </td>
-                      <td className="border-r px-3 py-4"><LeadInfoCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><DestinationCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><TravellersInfoCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><ServicesCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><QuotationCell lead={lead} /></td>
-                      <td className="border-r px-3 py-4"><BookingCell lead={lead} canCreateBooking={canCreateBooking} /></td>
-                      <td className="border-r px-3 py-4 text-center">
+                      <td>
+                        <LeadInfoCell lead={lead} />
+                      </td>
+                      <td>
+                        <DestinationCell lead={lead} />
+                      </td>
+                      <td>
+                        <TravellersInfoCell lead={lead} />
+                      </td>
+                      <td>
+                        <LeadServicesCell lead={lead} />
+                      </td>
+                      <td>
+                        <QuotationCell lead={lead} />
+                      </td>
+                      <td>
+                        <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
+                      </td>
+                      <td className="text-center">
                         <WeblinkCell
                           lead={lead}
                           override={weblinkState[lead.id]}
@@ -958,11 +1121,21 @@ export function LeadsPage() {
                           }
                         />
                       </td>
-                      <td className="border-r px-3 py-4"><Link aria-label={`Open logging for ${lead.queryNumber}`} to={`/queries/${lead.id}?tab=follow-ups`} className="inline-flex rounded bg-cyan-600 px-2 py-1.5 text-xs font-semibold text-white">＋ <Eye className="ml-1 h-3.5 w-3.5" /></Link></td>
-                      <td className="min-w-28 border-r px-3 py-4">{lead.assignedTo?.fullName ?? 'Unassigned'}</td>
-                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—'}</td>
-                      <td className="whitespace-nowrap border-r px-3 py-4 font-semibold text-emerald-600">{lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—'}</td>
-                      <td className="border-r px-3 py-4">
+                      <td>
+                        <LeadNotesCell lead={lead} />
+                      </td>
+                      <td>
+                        <span className="leads-assigned">
+                          {lead.assignedTo?.fullName ?? 'Unassigned'}
+                        </span>
+                      </td>
+                      <td className={cn('leads-amount', !lead.expectedAmount && 'leads-amount--empty')}>
+                        {lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—'}
+                      </td>
+                      <td className={cn('leads-amount', !lead.expectedMargin && 'leads-amount--empty')}>
+                        {lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—'}
+                      </td>
+                      <td>
                         <InlineLeadField
                           lead={lead}
                           field="leadType"
@@ -970,7 +1143,7 @@ export function LeadsPage() {
                           canEdit={canUpdate}
                         />
                       </td>
-                      <td className="border-r px-3 py-4">
+                      <td>
                         <InlineLeadField
                           lead={lead}
                           field="leadStage"
@@ -978,9 +1151,11 @@ export function LeadsPage() {
                           canEdit={canUpdate}
                         />
                       </td>
-                      <td className="whitespace-nowrap border-r px-3 py-4">{leadDate(lead.createdAt)}</td>
-                      <td className="px-3 py-4">
-                        <QuickActions lead={lead} canEdit={canUpdate} canDelete={canDelete} />
+                      <td>
+                        <span className="leads-created">{leadDate(lead.createdAt)}</span>
+                      </td>
+                      <td>
+                        <LeadActionsCell lead={lead} canEdit={canUpdate} canDelete={canDelete} />
                       </td>
                     </tr>
                   ))}
@@ -990,32 +1165,13 @@ export function LeadsPage() {
           </>
         )}
         {leads.data && (
-          <div className="flex items-center justify-between border-t p-4 text-sm">
-            <span>{leads.data.pagination.total} leads</span>
-            <div className="flex items-center gap-2">
-              <Button
-                aria-label="Previous page"
-                size="sm"
-                variant="secondary"
-                disabled={page <= 1}
-                onClick={() => set('page', String(page - 1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span>
-                Page {page} of {Math.max(1, leads.data.pagination.totalPages)}
-              </span>
-              <Button
-                aria-label="Next page"
-                size="sm"
-                variant="secondary"
-                disabled={page >= leads.data.pagination.totalPages}
-                onClick={() => set('page', String(page + 1))}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            pageSize={leads.data.pagination.pageSize}
+            totalPages={leads.data.pagination.totalPages}
+            total={leads.data.pagination.total}
+            onPage={(nextPage) => set('page', String(nextPage))}
+          />
         )}
       </section>
 
