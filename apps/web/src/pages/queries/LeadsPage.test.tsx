@@ -2419,6 +2419,7 @@ describe('Dense operational Leads table structure', () => {
     for (const header of [
       'Lead ID',
       'Lead Info',
+      'Call',
       'Destination',
       'Travellers Info',
       'Services',
@@ -2457,6 +2458,31 @@ describe('Dense operational Leads table structure', () => {
     // No Booking placeholder is left behind in the row.
     expect(within(firstRow as HTMLElement).queryByText('Quote Required')).not.toBeInTheDocument();
     expect(within(firstRow as HTMLElement).queryByText('None')).not.toBeInTheDocument();
+  });
+
+  it('renders the Call column with a tel link for the lead phone and a disabled icon without one', async () => {
+    const withPhone = { ...enrichedLead, phone: '+91 98765 43210' };
+    const withoutPhone = { ...enrichedLead, id: 'lead-nophone', queryNumber: 'Q-NOPHONE', phone: '' };
+    stubLeadList([withPhone, withoutPhone]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    // The header is present immediately after Lead Info.
+    const thead = document.querySelector('.leads-thead');
+    const headers = Array.from(thead!.querySelectorAll('th')).map((th) => th.textContent?.trim());
+    const leadInfoIdx = headers.indexOf('Lead Info');
+    expect(headers[leadInfoIdx + 1]).toBe('Call');
+    // A lead with a phone renders an anchor with href=tel:<phone>.
+    const callLink = document.querySelector('a[href="tel:+91 98765 43210"]');
+    expect(callLink).not.toBeNull();
+    // A lead without a phone renders a disabled icon, never tel:undefined.
+    const noPhoneRow = Array.from(document.querySelectorAll('.leads-tbody tr')).find((row) =>
+      row.textContent?.includes('Q-NOPHONE'),
+    );
+    expect(noPhoneRow).toBeDefined();
+    expect(noPhoneRow!.querySelector('a[href^="tel:"]')).toBeNull();
+    expect(noPhoneRow!.querySelector('[aria-disabled="true"]')).not.toBeNull();
+    expect(document.querySelector('a[href="tel:undefined"]')).toBeNull();
+    expect(document.querySelector('a[href="tel:null"]')).toBeNull();
   });
 
   it('renders compact metadata blocks for destination and travellers info', async () => {

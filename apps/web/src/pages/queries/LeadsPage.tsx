@@ -132,6 +132,32 @@ function LeadInfoCell({ lead }: { lead: Lead }) {
   );
 }
 
+/** Icon-only tel: link for the lead's phone. Disabled when no phone exists. */
+function CallCell({ lead }: { lead: Lead }) {
+  const phone = lead.phone?.trim();
+  if (!phone) {
+    return (
+      <span
+        className="inline-flex h-8 w-8 items-center justify-center text-slate-300"
+        aria-disabled="true"
+        title="No phone number"
+      >
+        <Phone className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
+  }
+  return (
+    <a
+      href={`tel:${phone}`}
+      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-brand-600"
+      aria-label={`Call ${lead.customerName}`}
+      title={`Call ${phone}`}
+    >
+      <Phone className="h-4 w-4" aria-hidden="true" />
+    </a>
+  );
+}
+
 function DestinationCell({ lead }: { lead: Lead }) {
   const totalNights = lead.itinerary.reduce((sum, item) => sum + item.nights, 0);
   if (!lead.itinerary.length) return <span className="leads-cell-muted">—</span>;
@@ -866,6 +892,7 @@ export function LeadsPage() {
   const headers: Array<[string, string?]> = [
     ['Lead ID', 'queryNumber'],
     ['Lead Info', 'customerName'],
+    ['Call'],
     ['Destination'],
     ['Travellers Info'],
     ['Services'],
@@ -1315,6 +1342,9 @@ export function LeadsPage() {
                       </td>
                       <td>
                         <LeadInfoCell lead={lead} />
+                      </td>
+                      <td className="text-center">
+                        <CallCell lead={lead} />
                       </td>
                       <td>
                         <DestinationCell lead={lead} />

@@ -95,7 +95,6 @@ describe('Phase 13A master pages', () => {
       ['Vehicles', true],
       ['Sightseeing', true],
       ['Add-On Services', true],
-      ['Hidden Global', true],
     ]);
   });
 

@@ -7,7 +7,6 @@ import {
   ChartNoAxesCombined,
   Clock,
   Database,
-  EyeOff,
   FileStack,
   FileText,
   Globe2,
@@ -301,16 +300,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
         icon: PackagePlus,
         available: true,
         permission: PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW,
-        section: NAV_SECTION.MASTERS,
-      },
-      {
-        label: 'Hidden Global',
-        to: '/masters/hidden',
-        icon: EyeOff,
-        available: true,
-        permission: PERMISSIONS.MASTERS_VIEW,
-        // The tenant restore screen is not part of the System Admin UI.
-        hideForSystemAdmin: true,
         section: NAV_SECTION.MASTERS,
       },
       ...(SHOW_VISA_TYPES_MASTER_NAVIGATION

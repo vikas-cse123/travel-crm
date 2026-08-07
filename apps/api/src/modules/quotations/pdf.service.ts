@@ -47,7 +47,7 @@ export const PDF_PAGE_HEIGHT = 841.89;
 export const PDF_TOP_MARGIN = 46;
 export const PDF_SIDE_MARGIN = 40;
 export const PDF_BOTTOM_MARGIN = 30;
-export const PDF_FOOTER_HEIGHT = 100;
+export const PDF_FOOTER_HEIGHT = 112;
 export const PDF_POST_CONTENT_GAP = 16;
 export const PDF_MIN_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
 export const PDF_MAX_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
@@ -62,19 +62,39 @@ export const CONTENT_BOTTOM_LIMIT = PDF_PAGE_HEIGHT - BOTTOM_M - FOOTER_H - POST
 /** Max content height on a page before the planner starts a continuation page. */
 export const PDF_MAX_CONTENT_HEIGHT = CONTENT_BOTTOM_LIMIT - TOP;
 
-// Fixed footer column anchors (full usable width, never derived from text).
-// Spread across most of the page width, matching the reference template.
-// Content area is M..(PDF_PAGE_WIDTH - M) = 40..555.28.
-const LOGO_X = M;
-const LOGO_W = 110;
-const CONTACT_X = M + 190;
-const CONTACT_W = 125;
-const ACHIEVEMENTS_X = M + 320;
-const ACHIEVEMENTS_W = 115;
-const LEGAL_X = M + 400;
-const LEGAL_W = 115;
+// ---- Footer grid (fixed 4-column layout, never derived from text) ----------
+// Content area is M..(PDF_PAGE_WIDTH - M) = 40..555.28 (width 515.28).
+// Columns are non-overlapping rectangles with explicit gutters; no footer text
+// may leave its assigned column rectangle.
+export const FOOTER_GUTTER = 14;
+export const FOOTER_COLUMNS = {
+  logo: { x: M, width: 100 },
+  contact: { x: M + 100 + FOOTER_GUTTER, width: 145 },
+  achievements: { x: M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER, width: 115 },
+  legal: {
+    x: M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER + 115 + FOOTER_GUTTER,
+    width: PDF_PAGE_WIDTH - M - (M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER + 115 + FOOTER_GUTTER),
+  },
+} as const;
+const LOGO_X = FOOTER_COLUMNS.logo.x;
+const LOGO_W = FOOTER_COLUMNS.logo.width;
+const CONTACT_X = FOOTER_COLUMNS.contact.x;
+const CONTACT_W = FOOTER_COLUMNS.contact.width;
+const ACHIEVEMENTS_X = FOOTER_COLUMNS.achievements.x;
+const ACHIEVEMENTS_W = FOOTER_COLUMNS.achievements.width;
+const LEGAL_X = FOOTER_COLUMNS.legal.x;
+const LEGAL_W = FOOTER_COLUMNS.legal.width;
 const FOOTER_HEADING_FONT = 9.5;
 const FOOTER_BODY_FONT = 8;
+const FOOTER_VALUE_FONT_MIN = 7;
+// Vertical footer rows (relative to the divider/footerTop), badge on its own row.
+export const FOOTER_HEADING_Y_OFF = 16;
+export const FOOTER_LINE_1_Y_OFF = 34;
+export const FOOTER_LINE_2_Y_OFF = 47;
+export const FOOTER_LINE_3_Y_OFF = 60;
+export const FOOTER_LINE_GAP = 13;
+export const PAGE_BADGE_H = 24;
+export const PAGE_BADGE_Y_OFF = FOOTER_H - 24;
 
 // Flight-card padding (points), shared by measurement and rendering.
 const FLIGHT_CARD_PADDING_X = 16;
@@ -392,19 +412,54 @@ class PagePlanner {
   }
 }
 
-/** Draw one footer body line as `Label: value` with correct fonts. */
+/**
+ * Draw one footer body line as `Label: value`, guaranteeing the whole line
+ * stays inside the given column rectangle. The value font is reduced (down to
+ * FOOTER_VALUE_FONT_MIN) if the combined label+value would overflow, and any
+ * remaining overflow is visually truncated with an ellipsis on a single line.
+ * The value never bleeds into the next footer column.
+ */
 function drawFooterTextLine(
   doc: PDFKit.PDFDocument,
   label: string,
   value: string,
   x: number,
   y: number,
-  width: number,
+  colWidth: number,
 ) {
-  doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK).text(`${label}: `, x, y, {
-    continued: true,
-  });
-  doc.font('Body').fillColor(MUTED).text(value, { width });
+  if (!value) return;
+  doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK);
+  const labelText = `${label}: `;
+  const labelW = doc.widthOfString(labelText);
+  const available = colWidth - labelW - 2;
+  if (available <= 0) return;
+
+  // Reduce ONLY the value font until it fits (or comes closest to fitting).
+  let valueFont = FOOTER_BODY_FONT;
+  doc.font('Body').fontSize(valueFont);
+  while (valueFont > FOOTER_VALUE_FONT_MIN && doc.widthOfString(value) > available) {
+    valueFont -= 0.5;
+    doc.font('Body').fontSize(valueFont);
+  }
+
+  // Truncate visually with an ellipsis if it still exceeds the column width.
+  let display = value;
+  if (doc.widthOfString(display) > available) {
+    const ellipsis = '…';
+    const ellW = doc.widthOfString(ellipsis);
+    let maxChars = display.length;
+    while (maxChars > 1 && doc.widthOfString(display.slice(0, maxChars)) + ellW > available) {
+      maxChars -= 1;
+    }
+    display = display.slice(0, maxChars).replace(/\s+$/, '') + ellipsis;
+  }
+
+  // Label (bold) then value (normal), both confined to the column rectangle,
+  // rendered on a single line so it can never enter the next column.
+  doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK);
+  doc.text(labelText, x, y, { continued: true, lineBreak: false });
+  doc.font('Body').fontSize(valueFont).fillColor(MUTED);
+  doc.text(display, { width: available, ellipsis: true, lineBreak: false });
 }
 
 /**
@@ -412,6 +467,8 @@ function drawFooterTextLine(
  * `footerTop` is the fixed bottom-anchored divider Y for every page
  * (pageHeight - bottomMargin - footerHeight), so the footer uses identical
  * coordinates on every page — cover, flight, hotel, itinerary, thank-you.
+ * All content is confined to a fixed 4-column grid; nothing may touch or
+ * overlap another column, and the Page badge sits on its own lower row.
  */
 function drawPageFooter(
   doc: PDFKit.PDFDocument,
@@ -429,18 +486,18 @@ function drawPageFooter(
     .lineTo(PDF_PAGE_WIDTH - M, footerTop)
     .stroke();
 
-  const top = footerTop + 18;
-  const headingY = top;
-  const bodyY = top + 20;
-  const lineGap = 13;
+  const headingY = footerTop + FOOTER_HEADING_Y_OFF;
+  const line1Y = footerTop + FOOTER_LINE_1_Y_OFF;
+  const line2Y = footerTop + FOOTER_LINE_2_Y_OFF;
+  const line3Y = footerTop + FOOTER_LINE_3_Y_OFF;
 
   // Company logo (contain/fit, aspect preserved; invalid/missing → omitted).
   if (company?.logo) {
     try {
       // @types/pdfkit omits the runtime-valid 'left'/'top' values; keep them via
       // a cast so the logo is top-left aligned and never stretched.
-      doc.image(company.logo, LOGO_X, top, {
-        fit: [LOGO_W, 52],
+      doc.image(company.logo, LOGO_X, line1Y - 8, {
+        fit: [LOGO_W, 46],
         align: 'left',
         valign: 'top',
       } as unknown as PDFKit.Mixins.ImageOption);
@@ -449,68 +506,53 @@ function drawPageFooter(
     }
   }
 
-  // Fixed column headings share one baseline.
+  // Fixed column headings share one baseline; each stays in its own column.
   doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
-  doc.text('CONTACT US', CONTACT_X, headingY, { width: CONTACT_W });
-  doc.text('OUR ACHIEVEMENTS', ACHIEVEMENTS_X, headingY, { width: ACHIEVEMENTS_W });
-  doc.text('LEGAL INFO', LEGAL_X, headingY, { width: LEGAL_W });
+  doc.text('CONTACT US', CONTACT_X, headingY, { width: CONTACT_W, lineBreak: false });
+  doc.text('OUR ACHIEVEMENTS', ACHIEVEMENTS_X, headingY, { width: ACHIEVEMENTS_W, lineBreak: false });
+  doc.text('LEGAL INFO', LEGAL_X, headingY, { width: LEGAL_W, lineBreak: false });
 
-  // Contact Us
-  let cy = bodyY;
+  // Contact Us — three fixed rows, values confined to the contact column.
   const cPhone = company ? toText(company.phone) : '';
   const cEmail = company ? toText(company.email) : '';
   const cWeb = company ? toText(company.website) : '';
-  if (cPhone) {
-    drawFooterTextLine(doc, 'Ph', cPhone, CONTACT_X, cy, CONTACT_W);
-    cy += lineGap;
-  }
-  if (cEmail) {
-    drawFooterTextLine(doc, 'Em', cEmail, CONTACT_X, cy, CONTACT_W);
-    cy += lineGap;
-  }
-  if (cWeb) {
-    drawFooterTextLine(doc, 'Web', cWeb, CONTACT_X, cy, CONTACT_W);
-  }
+  if (cPhone) drawFooterTextLine(doc, 'Ph', cPhone, CONTACT_X, line1Y, CONTACT_W);
+  if (cEmail) drawFooterTextLine(doc, 'Em', cEmail, CONTACT_X, line2Y, CONTACT_W);
+  if (cWeb) drawFooterTextLine(doc, 'Web', cWeb, CONTACT_X, line3Y, CONTACT_W);
 
-  // Our Achievements
-  let ay = bodyY;
+  // Our Achievements — fixed rows aligned with the contact rows.
+  let ay = line1Y;
   if (company?.tripsSold != null) {
     doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
       `${toText(company.tripsSold)} Trips Sold`,
       ACHIEVEMENTS_X,
       ay,
-      { width: ACHIEVEMENTS_W },
+      { width: ACHIEVEMENTS_W, lineBreak: false },
     );
-    ay += lineGap;
+    ay += FOOTER_LINE_GAP;
   }
   if (company?.operatingSinceYear != null) {
     doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
       `Est: ${toText(company.operatingSinceYear)}`,
       ACHIEVEMENTS_X,
       ay,
-      { width: ACHIEVEMENTS_W },
+      { width: ACHIEVEMENTS_W, lineBreak: false },
     );
   }
 
-  // Legal Info
-  let lly = bodyY;
+  // Legal Info — fixed rows aligned with the contact rows.
   const tan = company ? toText(company.tan) : '';
   const gstin = company ? toText(company.taxRegistrationNumber) : '';
-  if (tan) {
-    drawFooterTextLine(doc, 'TAN', tan, LEGAL_X, lly, LEGAL_W);
-    lly += lineGap;
-  }
-  if (gstin) {
-    drawFooterTextLine(doc, 'GSTIN', gstin, LEGAL_X, lly, LEGAL_W);
-  }
+  if (tan) drawFooterTextLine(doc, 'TAN', tan, LEGAL_X, line1Y, LEGAL_W);
+  if (gstin) drawFooterTextLine(doc, 'GSTIN', gstin, LEGAL_X, line2Y, LEGAL_W);
 
-  // Page number badge — fixed bottom-right, same on every page.
+  // Page number badge — its own lower row, fixed bottom-right, below Legal.
   const label = `Page ${pageNumber}/${totalPages}`;
   doc.font('Bold').fontSize(9.5);
   const w = doc.widthOfString(label) + 26;
   const bx = PDF_PAGE_WIDTH - M - w;
-  const by = footerTop + FOOTER_H - 34;
-  doc.save().roundedRect(bx, by, w, 24, 5).fill(GREEN).restore();
+  const by = footerTop + PAGE_BADGE_Y_OFF;
+  doc.save().roundedRect(bx, by, w, PAGE_BADGE_H, 5).fill(GREEN).restore();
   doc.fillColor('#ffffff').text(label, bx, by + 6.5, { width: w, align: 'center', lineBreak: false });
   doc.restore();
 }

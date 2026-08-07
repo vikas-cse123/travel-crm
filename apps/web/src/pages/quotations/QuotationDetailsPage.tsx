@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Copy,
@@ -14,6 +14,7 @@ import {
 import { Link, useParams } from 'react-router-dom';
 import { labelForLookup, PERMISSIONS, hotelStayNights } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   uploadQuotationAttachment,
@@ -23,15 +24,11 @@ import {
   useSendQuotation,
 } from '@/features/quotations/quotations.api';
 
-/** Open a generated document URL in a new tab, falling back to a same-tab
- *  navigation when a popup blocker prevents the new window. */
-function openDocumentUrl(url: string) {
-  const opened = window.open(url, '_blank', 'noopener,noreferrer');
-  if (opened) return;
+/** Trigger a normal browser download for a generated document URL. */
+function downloadPdf(url: string, fileName?: string) {
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.target = '_blank';
-  anchor.rel = 'noopener noreferrer';
+  if (fileName) anchor.download = fileName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -52,6 +49,44 @@ export function QuotationDetailsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [pdfError, setPdfError] = useState('');
+  // Public weblink URL once provisioned, tagged with the version it belongs to.
+  // Reset whenever the current version changes so Copy/Open always target the
+  // currently displayed version (never a stale link from an earlier version).
+  const [publicLinkUrl, setPublicLinkUrl] = useState<string | null>(null);
+  const [publicLinkVersionId, setPublicLinkVersionId] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pre-provision the public link so the Open Weblink anchor is a real href
+  // (the action is idempotent). Re-runs when the current version changes so the
+  // cached link never points at an older version. Guarded on query.data so this
+  // hook runs unconditionally before any early return.
+  useEffect(() => {
+    const data = query.data;
+    const current = data?.versions.find(
+      (version) => version.id === data.currentVersionId,
+    ) ?? data?.versions[0];
+    if (!current || current.status === 'DRAFT') {
+      setPublicLinkUrl(null);
+      setPublicLinkVersionId(null);
+      return;
+    }
+    if (publicLinkVersionId === current.id && publicLinkUrl) return;
+    setPublicLinkUrl(null);
+    setPublicLinkVersionId(null);
+    action.mutate(
+      { path: 'public-link', body: { quotationVersionId: current.id } },
+      {
+        onSuccess: (result) => {
+          const url = (result as { url?: string }).url ?? null;
+          if (url) {
+            setPublicLinkUrl(url);
+            setPublicLinkVersionId(current.id);
+          }
+        },
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.data, publicLinkVersionId, publicLinkUrl]);
   if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
     return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
@@ -61,25 +96,48 @@ export function QuotationDetailsPage() {
     new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value));
   const createRevision = () =>
     current && action.mutate({ path: 'versions', body: { sourceVersionId: current.id } });
-  const createLink = () =>
-    current &&
-    action.mutate(
-      { path: 'public-link', body: { quotationVersionId: current.id } },
-      {
-        onSuccess: (result) => {
-          const url = (result as { url?: string }).url;
-          if (url) void navigator.clipboard.writeText(url);
+  /** Provision the public weblink for the current version; stores the URL for
+   *  both Copy public link and Open Weblink. Returns the cached URL only when
+   *  it still belongs to the current version. */
+  const ensurePublicLink = (): Promise<string | null> =>
+    new Promise((resolve) => {
+      if (!current) return resolve(null);
+      if (publicLinkUrl && publicLinkVersionId === current.id) return resolve(publicLinkUrl);
+      action.mutate(
+        { path: 'public-link', body: { quotationVersionId: current.id } },
+        {
+          onSuccess: (result) => {
+            const url = (result as { url?: string }).url ?? null;
+            if (url) {
+              setPublicLinkUrl(url);
+              setPublicLinkVersionId(current.id);
+            }
+            resolve(url);
+          },
+          onError: () => resolve(null),
         },
-      },
-    );
-  // Generate the PDF for the currently displayed version and open it. The
-  // button's own loading state (isPending) blocks duplicate clicks.
+      );
+    });
+  const copyPublicLink = async () => {
+    const url = await ensurePublicLink();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setLinkCopied(false), 1800);
+    } catch {
+      // Copy failed — do not show "Copied!".
+    }
+  };
+  // Generate the PDF for the currently displayed version and download it
+  // directly — no new tab, no popup, no window.open.
   const handleGeneratePdf = () => {
     if (!current || generatePdf.isPending) return;
     setPdfError('');
     generatePdf.mutate(current.id, {
-      onSuccess: ({ url }) => {
-        if (url) openDocumentUrl(url);
+      onSuccess: ({ url, fileName }) => {
+        if (url) downloadPdf(url, fileName);
       },
       onError: () => setPdfError('PDF generation failed. Please try again.'),
     });
@@ -201,10 +259,41 @@ export function QuotationDetailsPage() {
                 </Button>
               )}
             {current?.status !== 'DRAFT' && (
-              <Button variant="secondary" onClick={createLink}>
-                <ExternalLink className="h-4 w-4" />
-                Copy public link
-              </Button>
+              <TooltipProvider delayDuration={0}>
+                <Tooltip
+                  open={linkCopied}
+                  onOpenChange={(open) => {
+                    if (!open) setLinkCopied(false);
+                  }}
+                >
+                  <TooltipTrigger asChild>
+                    <Button variant="secondary" onClick={() => void copyPublicLink()}>
+                      <Copy className="h-4 w-4" />
+                      Copy public link
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{linkCopied ? 'Copied!' : 'Copy public link'}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {current?.status !== 'DRAFT' && (
+              <a
+                href={publicLinkUrl ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => {
+                  if (publicLinkUrl) return;
+                  event.preventDefault();
+                  void ensurePublicLink().then((url) => {
+                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                  });
+                }}
+              >
+                <Button variant="secondary">
+                  <ExternalLink className="h-4 w-4" />
+                  Open Weblink
+                </Button>
+              </a>
             )}
           </div>
         </div>
@@ -390,7 +479,7 @@ export function QuotationDetailsPage() {
                           { path: `documents/${document.id}/download-url`, method: 'get' },
                           {
                             onSuccess: (result) =>
-                              window.open((result as { url: string }).url, '_blank', 'noopener'),
+                              downloadPdf((result as { url: string }).url, document.fileName),
                           },
                         )
                       }

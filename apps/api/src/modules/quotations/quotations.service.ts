@@ -26,6 +26,7 @@ import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
 import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
+import { webpToPng } from '../../services/pdf/webp-to-png.js';
 import {
   quotationObjectKey,
   sanitizeFileName,
@@ -1646,7 +1647,14 @@ export const quotationsService = {
         const cached = imageCache.get(key);
         if (cached !== undefined) return cached;
         try {
-          const buf = await storageService.getObject(key);
+          let buf = await storageService.getObject(key);
+          // PDFKit cannot decode WebP; convert it to PNG so masters that upload
+          // WebP (vehicles, hotels, cruises, ...) render in the PDF exactly as
+          // they do in the public weblink. Non-WebP buffers pass through.
+          if (buf) {
+            const png = await webpToPng(buf);
+            if (png) buf = png;
+          }
           imageCache.set(key, buf);
           return buf;
         } catch {

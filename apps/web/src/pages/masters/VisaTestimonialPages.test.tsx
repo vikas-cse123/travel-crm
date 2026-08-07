@@ -103,12 +103,9 @@ describe('Phase 21 visa type and testimonial pages', () => {
       'Vehicles',
       'Sightseeing',
       'Add-On Services',
-      'Hidden Global',
     ]) {
       expect(labels).toContain(label);
     }
-    // Hidden Global ends the Masters list (no trailing/empty entry).
-    expect(labels[labels.length - 1]).toBe('Hidden Global');
   });
 
   it('keeps the Visa Types route renderable even though its nav item is hidden', async () => {

@@ -23,6 +23,87 @@ vi.mock('@/features/auth/AuthProvider', () => ({
 const response = (data: unknown) =>
   ({ ok: true, status: 200, json: async () => ({ success: true, data }) }) as Response;
 const person = { id: 'user-1', fullName: 'Aditi Rao', username: 'owner' };
+/** Rich finalized-version + quotation detail fixture reused by copy/weblink tests. */
+const copyFinalizedVersion = {
+  id: 'version-1',
+  versionNumber: 1,
+  title: 'Goa proposal',
+  introduction: 'A coastal holiday.',
+  destinationSummary: 'Goa',
+  travelStartDate: null,
+  travelEndDate: null,
+  currency: 'INR',
+  subtotalSellingPrice: '25000',
+  markupMode: 'NONE',
+  markupValue: '0',
+  totalMarkup: '0',
+  taxRate: '0',
+  taxAmount: '0',
+  discountAmount: '0',
+  finalAmount: '25000',
+  pricingMode: 'ITEMIZED',
+  notes: null,
+  status: 'FINALIZED',
+  finalizedAt: '2026-07-21T00:00:00.000Z',
+  createdAt: '2026-07-21T00:00:00.000Z',
+  createdBy: person,
+  itinerary: [],
+  hotels: [],
+  services: [],
+  inclusions: [],
+  exclusions: [],
+  terms: [],
+};
+const copyQuotationDetail = {
+  id: 'quotation-1',
+  quotationNumber: 'QT-2026-000001',
+  queryId: 'lead-1',
+  currentVersionId: 'version-1',
+  status: 'SENT',
+  customerName: 'Aarav Mehta',
+  customerEmail: 'aarav@example.test',
+  customerPhone: '+91 90000 00000',
+  destinationSummary: 'Goa',
+  travelStartDate: null,
+  travelEndDate: null,
+  adults: 2,
+  childrenWithBed: 0,
+  childrenWithoutBed: 0,
+  infants: 0,
+  rooms: 1,
+  validUntil: null,
+  lastSentAt: '2026-07-21T00:00:00.000Z',
+  lastViewedAt: null,
+  acceptedAt: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  createdAt: '2026-07-21T00:00:00.000Z',
+  updatedAt: '2026-07-21T00:00:00.000Z',
+  createdBy: person,
+  query: {
+    id: 'lead-1',
+    queryNumber: 'QRY-1',
+    leadStage: 'QUOTATION_SENT',
+    assignedToId: 'user-1',
+    createdById: 'user-1',
+  },
+  versions: [copyFinalizedVersion],
+  documents: [
+    {
+      id: 'document-1',
+      quotationVersionId: 'version-1',
+      fileName: 'QT-2026-000001-v1.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 4096,
+      checksum: 'abc',
+      documentType: 'QUOTATION_PDF',
+      status: 'AVAILABLE',
+      createdAt: '2026-07-21T00:00:00.000Z',
+    },
+  ],
+  emailLogs: [],
+  activityTimeline: [],
+};
 const template = {
   id: '11111111-1111-4111-8111-111111111111',
   templateCode: 'QTP-2026-000001',
@@ -497,6 +578,159 @@ describe('Phase 8 quotation pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send quotation' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/send'))).toBe(true),
+    );
+  });
+
+  it('copy public link shows a Copy icon, a Copied! tooltip on success, and resets', async () => {
+    const detailForCopy = copyQuotationDetail;
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input, options) => {
+        const url = String(input);
+        if (!options || options.method === 'GET') return response(detailForCopy);
+        if (url.endsWith('/public-link'))
+          return response({ url: 'http://localhost:5173/q/customer-token' });
+        return response({ id: 'document-1', reused: true });
+      },
+    );
+    const clipboardWrite = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    await screen.findByText('Version 1');
+    // Copy public link uses the Copy icon (not the ExternalLink icon).
+    const copyButton = screen.getByRole('button', { name: 'Copy public link' });
+    expect(copyButton.querySelector('svg')).not.toBeNull();
+    // Open Weblink sits immediately after Copy public link and shares the URL.
+    const buttonsRow = copyButton.closest('div')!;
+    const rowText = buttonsRow.textContent ?? '';
+    expect(rowText.indexOf('Copy public link')).toBeLessThan(rowText.indexOf('Open Weblink'));
+    await userEvent.click(copyButton);
+    await waitFor(() =>
+      expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/customer-token'),
+    );
+    // Tooltip shows "Copied!" after a successful copy.
+    await waitFor(() => expect(screen.getByText('Copied!')).toBeInTheDocument());
+    // Tooltip resets to the default label afterwards (after ~1.8s).
+    await waitFor(
+      () => expect(screen.queryByText('Copied!')).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+    // Open Weblink is a same-origin anchor to the same URL with rel noopener.
+    const weblink = screen.getByRole('link', { name: 'Open Weblink' });
+    expect(weblink.getAttribute('href')).toBe('http://localhost:5173/q/customer-token');
+    expect(weblink.getAttribute('target')).toBe('_blank');
+    expect(weblink.getAttribute('rel')).toContain('noopener');
+    expect(weblink.getAttribute('rel')).toContain('noreferrer');
+  });
+
+  it('does not show Copied! when the clipboard write fails', async () => {
+    const detailForCopy = copyQuotationDetail;
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input, options) => {
+        const url = String(input);
+        if (!options || options.method === 'GET') return response(detailForCopy);
+        if (url.endsWith('/public-link'))
+          return response({ url: 'http://localhost:5173/q/customer-token' });
+        return response({ id: 'document-1', reused: true });
+      },
+    );
+    const clipboardWrite = vi.fn(async () => {
+      throw new Error('denied');
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await waitFor(() => expect(clipboardWrite).toHaveBeenCalled());
+    // Failed copy must NOT show "Copied!".
+    expect(screen.queryByText('Copied!')).not.toBeInTheDocument();
+  });
+
+  it('re-provisions the public link when the current version changes', async () => {
+    // Simulate the current version changing during the same page session (e.g.
+    // after finalize/duplicate): the quotation refetch returns a new
+    // currentVersionId, so the cached public link must be re-resolved for the
+    // new version rather than reused from the old one.
+    const mutableDetail = {
+      ...copyQuotationDetail,
+      versions: [
+        copyFinalizedVersion,
+        { ...copyFinalizedVersion, id: 'version-2', versionNumber: 2 },
+      ],
+    };
+    const publicLinkCalls: Array<{ versionId: string }> = [];
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input, options) => {
+        const url = String(input);
+        // Return a fresh clone each time so a refetch is a new object reference,
+        // which is what makes the component's effect re-run on version change.
+        if (!options || options.method === 'GET')
+          return response(JSON.parse(JSON.stringify(mutableDetail)));
+        if (url.endsWith('/public-link')) {
+          const body = JSON.parse(String(options.body)) as { quotationVersionId: string };
+          publicLinkCalls.push({ versionId: body.quotationVersionId });
+          return response({
+            url: `http://localhost:5173/q/token-for-${body.quotationVersionId}`,
+          });
+        }
+        if (url.endsWith('/duplicate')) {
+          // Duplicating invalidates the quotation query; flip the current
+          // version to v2 on the next refetch to simulate a session change.
+          mutableDetail.currentVersionId = 'version-2';
+          return response({ id: 'version-2' });
+        }
+        return response({ id: 'document-1', reused: true });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    // Mount provisions the link for the initially current version (v1).
+    await waitFor(() =>
+      expect(publicLinkCalls.some((call) => call.versionId === 'version-1')).toBe(true),
+    );
+    // Copy copies the v1 URL, not a stale one.
+    const clipboardWrite = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await waitFor(() =>
+      expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/token-for-version-1'),
+    );
+    // Duplicate: invalidates the quotation query and flips currentVersionId to v2.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Duplicate' })[0]!);
+    // After refetch, the component re-provisions for v2.
+    await waitFor(() =>
+      expect(publicLinkCalls.some((call) => call.versionId === 'version-2')).toBe(true),
+    );
+    // Copy now uses the v2 URL (the stale v1 URL is discarded).
+    clipboardWrite.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await waitFor(() =>
+      expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/token-for-version-2'),
     );
   });
 
@@ -8573,8 +8807,57 @@ describe('Generate PDF button — real request, open, loading and error states',
       { route: '/quotations/quotation-1' },
     );
 
-  it('generates the PDF for the exact current version and opens it in a new tab', async () => {
-    const openSpy = vi.fn(() => ({}) as Window);
+  it('generates the PDF, fetches the download URL, and triggers a download (no window.open)', async () => {
+    const openSpy = vi.fn(() => ({} as Window));
+    vi.stubGlobal('open', openSpy);
+    const anchorClickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf'))
+        return response({ id: 'doc-new', fileName: 'qt-2026-000001-aarav-mehta-v1-quotation.pdf' });
+      if (url.endsWith('/download-url'))
+        return response({ url: 'https://files.example.test/quotation.pdf' });
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await waitFor(() => expect(anchorClickSpy).toHaveBeenCalled());
+    const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
+    expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true);
+    // The download anchor points at the PDF URL with the generated filename.
+    const clickedAnchor = anchorClickSpy.mock.instances[0] as unknown as HTMLAnchorElement;
+    expect(clickedAnchor.href).toBe('https://files.example.test/quotation.pdf');
+    expect(clickedAnchor.download).toBe('qt-2026-000001-aarav-mehta-v1-quotation.pdf');
+    // window.open is NEVER used for the Generate PDF flow.
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger a download and shows an error when generation fails', async () => {
+    const openSpy = vi.fn(() => ({} as Window));
+    vi.stubGlobal('open', openSpy);
+    const anchorClickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf')) return errorResponse();
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'PDF generation failed. Please try again.',
+    );
+    expect(anchorClickSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Generate PDF' })).toBeEnabled();
+  });
+
+  it('starts no new tab or popup for the Generate PDF download', async () => {
+    const openSpy = vi.fn(() => ({} as Window));
     vi.stubGlobal('open', openSpy);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -8589,19 +8872,16 @@ describe('Generate PDF button — real request, open, loading and error states',
     await screen.findByText('Version 1');
     await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
     await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith(
-        'https://files.example.test/quotation.pdf',
-        '_blank',
-        'noopener,noreferrer',
-      ),
+      expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true),
     );
-    const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
-    expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
-    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true);
+    // Generate PDF triggers a download — no window.open, no new tab/popup.
+    expect(openSpy).not.toHaveBeenCalled();
+    // The Generate PDF control itself is a plain button, not a link.
+    const genButton = screen.getByRole('button', { name: 'Generate PDF' });
+    expect(genButton.tagName).toBe('BUTTON');
   });
 
   it('shows a loading label and disables the button while generating', async () => {
-    vi.stubGlobal('open', vi.fn(() => ({}) as Window));
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/generate-pdf')) return new Promise<Response>(() => {});
@@ -8615,22 +8895,5 @@ describe('Generate PDF button — real request, open, loading and error states',
     const busy = await screen.findByRole('button', { name: /Generating PDF/ });
     expect(busy).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(1);
-  });
-
-  it('shows an error and restores the button when generation fails', async () => {
-    vi.stubGlobal('open', vi.fn(() => ({}) as Window));
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/generate-pdf')) return errorResponse();
-      return response(detail);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    renderDetails();
-    await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'PDF generation failed. Please try again.',
-    );
-    expect(screen.getByRole('button', { name: 'Generate PDF' })).toBeEnabled();
   });
 });
