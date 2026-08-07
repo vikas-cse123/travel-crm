@@ -26,8 +26,6 @@ const AUTH_USER_SELECT = {
   emailVerifiedAt: true,
   lastLoginAt: true,
   mustChangePassword: true,
-  failedLoginAttempts: true,
-  lockedUntil: true,
   deletedAt: true,
   company: {
     select: {
@@ -69,34 +67,7 @@ export const authRepository = {
     return found !== null;
   },
 
-  /** Record a failed sign-in and lock the account once the threshold is hit. */
-  async registerFailedLogin(
-    userId: string,
-    maxAttempts: number,
-    lockoutMinutes: number,
-  ): Promise<{ attempts: number; lockedUntil: Date | null }> {
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: { failedLoginAttempts: { increment: 1 } },
-      select: { failedLoginAttempts: true },
-    });
-
-    if (user.failedLoginAttempts < maxAttempts) {
-      return { attempts: user.failedLoginAttempts, lockedUntil: null };
-    }
-
-    // Threshold reached: lock, and reset the counter so the next lockout needs
-    // another full run of failures rather than triggering on every attempt.
-    const lockedUntil = new Date(Date.now() + lockoutMinutes * 60_000);
-    await prisma.user.update({
-      where: { id: userId },
-      data: { lockedUntil, failedLoginAttempts: 0 },
-    });
-
-    return { attempts: user.failedLoginAttempts, lockedUntil };
-  },
-
-  /** Clear brute-force state and stamp the successful sign-in. */
+  /** Clear stale brute-force state and stamp the successful sign-in. */
   async registerSuccessfulLogin(userId: string): Promise<void> {
     await prisma.user.update({
       where: { id: userId },

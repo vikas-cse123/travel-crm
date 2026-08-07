@@ -10,6 +10,7 @@ import {
 } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import type { MemoryEmailProvider } from '../src/services/email/memory-email.provider.js';
+import { hashPassword } from '../src/utils/crypto.js';
 import request from 'supertest';
 
 /**
@@ -89,58 +90,50 @@ describe('POST /api/auth/login', () => {
     expect(wrongPassword.body.error.message).toBe('Invalid email or password.');
   });
 
-  it('increments the failed-login counter and locks after the threshold', async () => {
+  it('never locks the account no matter how many passwords fail', async () => {
     await createVerifiedUser();
     const owner = await db.user.findFirstOrThrow({
       where: { normalizedEmail: 'owner@bluesky.test' },
     });
 
-    // LOGIN_MAX_FAILED_ATTEMPTS defaults to 5.
-    for (let i = 0; i < 4; i += 1) {
-      await createAuthClient(app).post('/api/auth/login', {
+    // Far past the old 5-failure lockout threshold and the old 10/15min
+    // login limiter: every attempt must reach normal auth logic.
+    for (let i = 0; i < 20; i += 1) {
+      const res = await createAuthClient(app).post('/api/auth/login', {
         email: 'owner@bluesky.test',
         password: 'WrongPassword@1',
       });
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toBe('Invalid email or password.');
     }
-    const afterFour = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
-    expect(afterFour.failedLoginAttempts).toBe(4);
-    expect(afterFour.lockedUntil).toBeNull();
 
-    // Fifth failure locks the account.
-    await createAuthClient(app).post('/api/auth/login', {
+    // The account is not in a locked state, and the attempt counter was
+    // never incremented (the columns remain in the schema, unused).
+    const after = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
+    expect(after.lockedUntil).toBeNull();
+    expect(after.failedLoginAttempts).toBe(0);
+
+    // Correct credentials still work after all those failures.
+    const ok = await createAuthClient(app).post('/api/auth/login', {
       email: 'owner@bluesky.test',
-      password: 'WrongPassword@1',
+      password: PASSWORD,
     });
-    const locked = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
-    expect(locked.lockedUntil).not.toBeNull();
+    expect(ok.status).toBe(200);
+  });
 
-    // Even the correct password is refused while locked.
+  it('stamps lastLoginAt on success', async () => {
+    await createVerifiedUser();
+    const owner = await db.user.findFirstOrThrow({
+      where: { normalizedEmail: 'owner@bluesky.test' },
+    });
+
     const response = await createAuthClient(app).post('/api/auth/login', {
       email: 'owner@bluesky.test',
       password: PASSWORD,
     });
-    expect(response.status).toBe(401);
-    expect(response.body.error.message).toMatch(/locked/i);
-  });
-
-  it('resets the failure counter and stamps lastLoginAt on success', async () => {
-    await createVerifiedUser();
-    const owner = await db.user.findFirstOrThrow({
-      where: { normalizedEmail: 'owner@bluesky.test' },
-    });
-
-    await createAuthClient(app).post('/api/auth/login', {
-      email: 'owner@bluesky.test',
-      password: 'WrongPassword@1',
-    });
-
-    await createAuthClient(app).post('/api/auth/login', {
-      email: 'owner@bluesky.test',
-      password: PASSWORD,
-    });
+    expect(response.status).toBe(200);
 
     const after = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
-    expect(after.failedLoginAttempts).toBe(0);
     expect(after.lastLoginAt).not.toBeNull();
   });
 
@@ -160,6 +153,80 @@ describe('POST /api/auth/login', () => {
     // The session it hands back cannot reach verified-only routes.
     const ping = await fresh.get('/api/auth/protected-ping');
     expect(ping.status).toBe(403);
+  });
+
+  it('supports company admin and company user login modes', async () => {
+    await createVerifiedUser();
+    const owner = await db.user.findFirstOrThrow({
+      where: { normalizedEmail: 'owner@bluesky.test' },
+      include: { role: { select: { name: true } } },
+    });
+    expect(owner.role.name).toBe('Owner');
+
+    // Owner (Company Admin) logs in with COMPANY_ADMIN mode.
+    const adminLogin = await createAuthClient(app).post('/api/auth/login', {
+      email: 'owner@bluesky.test',
+      password: PASSWORD,
+      loginMode: 'COMPANY_ADMIN',
+    });
+    expect(adminLogin.status).toBe(200);
+
+    // A Manager is also a company admin.
+    const managerRole = await db.role.findFirstOrThrow({
+      where: { companyId: owner.companyId, name: 'Manager' },
+    });
+    await db.user.create({
+      data: {
+        companyId: owner.companyId,
+        roleId: managerRole.id,
+        username: 'manager1',
+        fullName: 'Manager One',
+        email: 'manager@bluesky.test',
+        normalizedEmail: 'manager@bluesky.test',
+        passwordHash: await hashPassword(PASSWORD),
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const managerLogin = await createAuthClient(app).post('/api/auth/login', {
+      email: 'manager@bluesky.test',
+      password: PASSWORD,
+      loginMode: 'COMPANY_ADMIN',
+    });
+    expect(managerLogin.status).toBe(200);
+
+    // A non-admin (Sales Executive) logs in with COMPANY_USER mode.
+    const salesRole = await db.role.findFirstOrThrow({
+      where: { companyId: owner.companyId, name: 'Sales Executive' },
+    });
+    await db.user.create({
+      data: {
+        companyId: owner.companyId,
+        roleId: salesRole.id,
+        username: 'sales1',
+        fullName: 'Sales One',
+        email: 'sales@bluesky.test',
+        normalizedEmail: 'sales@bluesky.test',
+        passwordHash: await hashPassword(PASSWORD),
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const salesLogin = await createAuthClient(app).post('/api/auth/login', {
+      email: 'sales@bluesky.test',
+      password: PASSWORD,
+      loginMode: 'COMPANY_USER',
+    });
+    expect(salesLogin.status).toBe(200);
+
+    // Modes are enforced: a Sales Executive must NOT use the admin login.
+    const misuse = await createAuthClient(app).post('/api/auth/login', {
+      email: 'sales@bluesky.test',
+      password: PASSWORD,
+      loginMode: 'COMPANY_ADMIN',
+    });
+    expect(misuse.status).toBe(401);
+    expect(misuse.body.error.message).toBe('Invalid email or password.');
   });
 
   it('rejects suspended, inactive and archived users', async () => {
@@ -217,6 +284,62 @@ describe('POST /api/auth/login', () => {
     const actions = (await db.activityLog.findMany()).map((log) => log.action);
     expect(actions).toContain('LOGIN_SUCCESS');
     expect(actions).toContain('LOGIN_FAILED');
+  });
+
+  it('does not return 429 across repeated invalid login attempts', async () => {
+    await createVerifiedUser();
+
+    // The old login limiter was 10 requests per 15 minutes in production and
+    // the global baseline is 300/15min. 20+ attempts prove neither blocks.
+    for (let i = 0; i < 20; i += 1) {
+      const client = createAuthClient(app);
+      const res = await client.post('/api/auth/login', {
+        email: 'owner@bluesky.test',
+        password: 'WrongPassword@1',
+      });
+      expect(res.status).not.toBe(429);
+      // With lockout removed, every failure is the normal generic 401.
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toBe('Invalid email or password.');
+    }
+  });
+
+  it('does not return 429 across repeated valid login attempts', async () => {
+    await createVerifiedUser();
+
+    for (let i = 0; i < 20; i += 1) {
+      const client = createAuthClient(app);
+      const res = await client.post('/api/auth/login', {
+        email: 'owner@bluesky.test',
+        password: PASSWORD,
+      });
+      expect(res.status).not.toBe(429);
+      expect(res.status).toBe(200);
+      expect(res.body.data.user.email).toBe('owner@bluesky.test');
+    }
+  });
+
+  it('correct credentials still work after many failed attempts', async () => {
+    await createVerifiedUser();
+
+    for (let i = 0; i < 20; i += 1) {
+      const client = createAuthClient(app);
+      const res = await client.post('/api/auth/login', {
+        email: 'owner@bluesky.test',
+        password: 'WrongPassword@1',
+      });
+      // Normal auth rejection only — never the application-level login 429,
+      // and never a lockout/403 because of attempt count.
+      expect(res.status).not.toBe(429);
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toBe('Invalid email or password.');
+    }
+    // The same account logs in normally afterwards.
+    const ok = await createAuthClient(app).post('/api/auth/login', {
+      email: 'owner@bluesky.test',
+      password: PASSWORD,
+    });
+    expect(ok.status).toBe(200);
   });
 });
 

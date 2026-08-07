@@ -461,6 +461,18 @@ type PolicyKey =
   | 'cancellationPolicies'
   | 'bookingTerms';
 
+/** True when rich-text HTML contains visible content (editor-empty markup excluded). */
+export const hasPolicyHtml = (html?: string | null): boolean =>
+  Boolean(html && html.replace(/<[^>]*>/g, '').trim());
+
+/** Resolve a policy field value: keep meaningful existing quotation content,
+ *  fall back to the destination master default for empty/null/editor-blank. */
+export const policyValue = (
+  versionValue: string | null | undefined,
+  masterValue: string | null | undefined,
+): string | null =>
+  hasPolicyHtml(versionValue) ? (versionValue ?? null) : (masterValue ?? null);
+
 /** Build quotation-policy prefills from the destination masters in lead order. */
 const buildDestinationPolicyPrefill = (
   destinations: Destination[],
@@ -621,15 +633,30 @@ export function QuotationBuilderPage() {
   const airlines = useAirlines(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
-  // Sightseeing master for the lead's country — used to prefill each itinerary
-  // day with real master attractions (matched by city, in sequence order).
+  // Sightseeing master resolved by destinationId for each lead itinerary stay
+  // instead of imprecise free-text search — guarantees complete city coverage.
+  const destinationIdSet = useMemo(() => {
+    const ids = new Set<string>();
+    if (!destinationMasters.data?.data) return ids;
+    const byName = new Map<string, string>();
+    for (const dest of destinationMasters.data.data)
+      byName.set(dest.name.trim().toLowerCase(), dest.id);
+    for (const stay of quotation.data?.query?.itinerary ?? []) {
+      const key = stay.country?.trim().toLowerCase();
+      if (key) {
+        const id = byName.get(key);
+        if (id) ids.add(id);
+      }
+    }
+    return ids;
+  }, [destinationMasters.data?.data, quotation.data?.query?.itinerary]);
   const sightseeingMasters = useSightseeingList(
     useMemo(() => {
       const params = new URLSearchParams({ status: 'ACTIVE', pageSize: '100' });
-      const country = quotation.data?.query?.itinerary?.find((row) => row.country)?.country?.trim();
-      if (country) params.set('search', country);
+      const firstId = [...destinationIdSet][0];
+      if (firstId) params.set('destinationId', firstId);
       return params;
-    }, [quotation.data?.query?.itinerary]),
+    }, [destinationIdSet]),
   );
   const version = quotation.data?.versions.find((row) => row.id === versionId);
   useEffect(() => {
@@ -890,7 +917,7 @@ export function QuotationBuilderPage() {
     const destinationPolicyPrefill = buildDestinationPolicyPrefill(
       destinationMasters.data?.data ?? [],
       (quotation.data?.query?.itinerary ?? [])
-        .map((stay) => stay.destination?.trim())
+        .map((stay) => stay.country?.trim())
         .filter(Boolean) as string[],
     );
     // A freshly loaded version keeps its saved tax note; the dropdown starts on
@@ -924,12 +951,12 @@ export function QuotationBuilderPage() {
       markServiceChargesOutside: version.markServiceChargesOutside ?? false,
       hidePricing: version.hidePricing ?? false,
       showIndividualPricing: version.showIndividualPricing ?? false,
-      inclusionsHtml: version.inclusionsHtml ?? destinationPolicyPrefill.inclusionsHtml ?? null,
-      exclusionsHtml: version.exclusionsHtml ?? destinationPolicyPrefill.exclusionsHtml ?? null,
-      paymentPolicies: version.paymentPolicies ?? destinationPolicyPrefill.paymentPolicies ?? null,
+      inclusionsHtml: policyValue(version.inclusionsHtml, destinationPolicyPrefill.inclusionsHtml),
+      exclusionsHtml: policyValue(version.exclusionsHtml, destinationPolicyPrefill.exclusionsHtml),
+      paymentPolicies: policyValue(version.paymentPolicies, destinationPolicyPrefill.paymentPolicies),
       cancellationPolicies:
-        version.cancellationPolicies ?? destinationPolicyPrefill.cancellationPolicies ?? null,
-      bookingTerms: version.bookingTerms ?? destinationPolicyPrefill.bookingTerms ?? null,
+        policyValue(version.cancellationPolicies, destinationPolicyPrefill.cancellationPolicies),
+      bookingTerms: policyValue(version.bookingTerms, destinationPolicyPrefill.bookingTerms),
       includeVisa: version.includeVisa ?? true,
       visaSectionTitle: version.visaSectionTitle ?? null,
       visaAmount: Number(version.visaAmount ?? 0),

@@ -1,5 +1,6 @@
 import rateLimit, { type Options } from 'express-rate-limit';
-import { ERROR_CODES } from '@interscale/shared';
+import type { Request } from 'express';
+import { API_PREFIX, ERROR_CODES } from '@interscale/shared';
 import { env, isProduction, isTest } from '../config/env.js';
 import { getRequestId } from './request-id.js';
 
@@ -7,7 +8,11 @@ import { getRequestId } from './request-id.js';
  * Rate limiters emit the same failure envelope as everything else, so the
  * client can handle a 429 without a special case.
  */
-function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit' | 'message'>) {
+function buildLimiter(
+  options: Pick<Partial<Options>, 'windowMs' | 'limit' | 'message'> & {
+    skip?: (req: Request) => boolean;
+  },
+) {
   const defaultLimit = isProduction
     ? env.RATE_LIMIT_MAX_REQUESTS
     : Math.max(env.RATE_LIMIT_MAX_REQUESTS, 2_000);
@@ -17,8 +22,9 @@ function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit' | 'me
     limit: options.limit ?? defaultLimit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    // Counting during tests makes suites order-dependent and flaky.
-    skip: () => isTest,
+    // Counting during tests makes suites order-dependent and flaky. Callers
+    // may add their own skip rule (e.g. the global limiter exempting login).
+    skip: (req) => isTest || (options.skip?.(req) ?? false),
     handler: (req, res) => {
       res.status(429).json({
         success: false,
@@ -32,8 +38,18 @@ function buildLimiter(options: Pick<Partial<Options>, 'windowMs' | 'limit' | 'me
   });
 }
 
-/** Baseline limiter applied to the whole API surface. */
-export const globalLimiter = buildLimiter({});
+/**
+ * The sign-in endpoint is exempt from the GLOBAL baseline so a user can never
+ * be blocked by the NUMBER of login attempts. This is deliberately scoped to
+ * the exact login request — registration, OTP, password reset and every other
+ * API route keep their global and per-endpoint protection.
+ */
+export function shouldSkipGlobalLimiter(req: { method?: string; path?: string }): boolean {
+  return req.method === 'POST' && req.path === `${API_PREFIX}/auth/login`;
+}
+
+/** Baseline limiter applied to the whole API surface, except sign-in. */
+export const globalLimiter = buildLimiter({ skip: shouldSkipGlobalLimiter });
 
 /** General-purpose limiter for credential endpoints. */
 export const authLimiter = buildLimiter({ windowMs: 15 * 60_000, limit: 20 });
@@ -55,12 +71,6 @@ const devMultiplier = isProduction ? 1 : 10;
 export const registerLimiter = buildLimiter({
   windowMs: 60 * 60_000,
   limit: 5 * devMultiplier,
-});
-
-/** Login: the primary credential-stuffing target. Account lockout backs this up. */
-export const loginLimiter = buildLimiter({
-  windowMs: 15 * 60_000,
-  limit: 10 * devMultiplier,
 });
 
 /** OTP verification: bounds guessing from one network location. */

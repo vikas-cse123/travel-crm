@@ -12,7 +12,6 @@ import { validateRequest } from '../../middleware/validate-request.js';
 import { optionalAuth, requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import {
   forgotPasswordLimiter,
-  loginLimiter,
   otpResendLimiter,
   otpVerifyLimiter,
   registerLimiter,
@@ -44,7 +43,6 @@ router.post(
 
 router.post(
   '/login',
-  loginLimiter,
   validateRequest({ body: loginSchema }),
   asyncHandler(authController.login),
 );

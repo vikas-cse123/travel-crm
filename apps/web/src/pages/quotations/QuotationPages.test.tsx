@@ -537,6 +537,95 @@ describe('Phase 8 quotation pages', () => {
     );
   });
 
+  it('does not render the copied-safely informational line on Create Quotation', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input) => {
+        const url = String(input);
+        if (url.includes('/queries'))
+          return response(
+            page([
+              {
+                id: 'lead-1',
+                queryNumber: 'QRY-1',
+                customerName: 'Aarav',
+                phone: '+91 90000 00000',
+              },
+            ]),
+          );
+        return response(page([template]));
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await screen.findByRole('option', { name: /QRY-1/ });
+    expect(
+      screen.queryByText(
+        'Customer and traveller details are copied safely. Templates become independent snapshots.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not render the Start from section on Create Quotation', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input) => {
+        const url = String(input);
+        if (url.includes('/queries'))
+          return response(
+            page([
+              {
+                id: 'lead-1',
+                queryNumber: 'QRY-1',
+                customerName: 'Aarav',
+                phone: '+91 90000 00000',
+              },
+            ]),
+          );
+        return response(page([template]));
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await screen.findByRole('option', { name: /QRY-1/ });
+    expect(screen.queryByText('Start from')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Quotation template')).not.toBeInTheDocument();
+    expect(screen.queryByText('Blank quotation / lead itinerary')).not.toBeInTheDocument();
+  });
+
+  it('creates a blank quotation through the default path when no template is passed', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input, options) => {
+        const url = String(input);
+        if (options?.method === 'POST') return response({ id: 'quotation-blank' });
+        if (url.includes('/queries'))
+          return response(
+            page([
+              {
+                id: 'lead-1',
+                queryNumber: 'QRY-1',
+                customerName: 'Aarav',
+                phone: '+91 90000 00000',
+              },
+            ]),
+          );
+        return response(page([template]));
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await screen.findByRole('option', { name: /QRY-1/ });
+    await userEvent.selectOptions(await screen.findByLabelText('Lead'), 'lead-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Create draft quotation' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, options]) => {
+          if (options?.method !== 'POST') return false;
+          const body = JSON.parse(String(options.body));
+          return body.queryId === 'lead-1' && body.templateId === null;
+        }),
+      ).toBe(true),
+    );
+  });
+
   it('completes the presigned attachment upload and server confirmation flow', async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
       async (input, options) => {

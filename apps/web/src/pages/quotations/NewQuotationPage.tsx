@@ -3,7 +3,7 @@ import { ArrowLeft, FilePlus2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { useLeads } from '@/features/queries/queries.api';
-import { useCreateQuotation, useQuotationTemplates } from '@/features/quotations/quotations.api';
+import { useCreateQuotation } from '@/features/quotations/quotations.api';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function NewQuotationPage() {
@@ -11,12 +11,9 @@ export function NewQuotationPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const leads = useLeads(new URLSearchParams({ pageSize: '100' }));
-  const templates = useQuotationTemplates(
-    new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }),
-  );
   const create = useCreateQuotation();
   const [queryId, setQueryId] = useState(routeQueryId ?? params.get('queryId') ?? '');
-  const [templateId, setTemplateId] = useState(params.get('templateId') ?? '');
+  const [templateId] = useState(params.get('templateId') ?? '');
   const [validUntil, setValidUntil] = useState('');
   const submit = () =>
     create.mutate(
@@ -43,9 +40,6 @@ export function NewQuotationPage() {
       </header>
       <section className="rounded-xl border bg-card p-6 shadow-sm">
         <h2 className="font-semibold">Choose the lead and starting point</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Customer and traveller details are copied safely. Templates become independent snapshots.
-        </p>
         <div className="mt-5 space-y-4">
           <label className="block text-sm font-medium">
             Lead
@@ -60,22 +54,6 @@ export function NewQuotationPage() {
               {leads.data?.data.map((lead) => (
                 <option key={lead.id} value={lead.id}>
                   {lead.queryNumber} · {lead.customerName} · {lead.phone}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm font-medium">
-            Start from
-            <select
-              aria-label="Quotation template"
-              className={`${field} mt-1`}
-              value={templateId}
-              onChange={(event) => setTemplateId(event.target.value)}
-            >
-              <option value="">Blank quotation / lead itinerary</option>
-              {templates.data?.data.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.templateCode} · {template.name} · {template.destinationSummary}
                 </option>
               ))}
             </select>

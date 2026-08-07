@@ -423,28 +423,10 @@ export const authService = {
       throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
     }
 
-    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-      await recordFailure('account_locked');
-      throw new UnauthorizedError(
-        'This account is temporarily locked after too many failed attempts. Try again later.',
-      );
-    }
-
     const passwordValid = await verifyPassword(user.passwordHash, input.password);
 
     if (!passwordValid) {
-      const { lockedUntil } = await authRepository.registerFailedLogin(
-        user.id,
-        env.LOGIN_MAX_FAILED_ATTEMPTS,
-        env.LOGIN_LOCKOUT_MINUTES,
-      );
-      await recordFailure(lockedUntil ? 'invalid_password_locked' : 'invalid_password');
-
-      if (lockedUntil) {
-        throw new UnauthorizedError(
-          'This account is temporarily locked after too many failed attempts. Try again later.',
-        );
-      }
+      await recordFailure('invalid_password');
       throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
     }
 
