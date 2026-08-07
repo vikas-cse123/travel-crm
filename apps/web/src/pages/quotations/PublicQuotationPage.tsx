@@ -109,9 +109,20 @@ async function publicRequest<T>(path: string, method = 'GET', body?: unknown) {
     headers: { 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  const payload = (await response.json()) as Envelope<T>;
-  if (!response.ok || !payload.success || !payload.data)
-    throw new Error(payload.error?.message || 'Request failed.');
+  if (!response.ok) throw new Error('Quotation unavailable. Please try again later.');
+  // Protect against non-JSON responses (e.g. an HTML fallback served instead of
+  // the API) so customers never see a raw parser error.
+  const contentType = response.headers?.get?.('Content-Type') ?? '';
+  if (contentType && !contentType.includes('json'))
+    throw new Error('Quotation unavailable. Please try again later.');
+  let payload: Envelope<T>;
+  try {
+    payload = (await response.json()) as Envelope<T>;
+  } catch {
+    throw new Error('Quotation unavailable. Please try again later.');
+  }
+  if (!payload.success || !payload.data)
+    throw new Error(payload.error?.message || 'Quotation unavailable.');
   return payload.data;
 }
 
@@ -819,7 +830,7 @@ export function PublicQuotationPage() {
   // Tab title mirrors the quotation title once loaded (fallback: "Quotation").
   useDocumentTitle(data?.version.title);
   useEffect(() => {
-    void publicRequest<PublicQuotation>(`/public/quotations/${encodeURIComponent(token)}`)
+    void publicRequest<PublicQuotation>(`/api/public/quotations/${encodeURIComponent(token)}`)
       .then((value) => {
         setData(value);
       })

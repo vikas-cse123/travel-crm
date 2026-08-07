@@ -78,7 +78,7 @@ export function createApp(): Express {
   // deliberately session-independent, even when a staff session cookie is
   // present in the browser. Authenticated API routes retain full CSRF checks.
   app.use(verifyOrigin);
-  app.use('/public/quotations', publicQuotationsRoutes);
+  app.use(`${API_PREFIX}/public/quotations`, publicQuotationsRoutes);
   app.use(verifyCsrfToken);
   app.use(API_PREFIX, apiRoutes);
 
