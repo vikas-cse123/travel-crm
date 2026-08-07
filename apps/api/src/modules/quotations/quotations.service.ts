@@ -91,6 +91,9 @@ const quotationInclude = {
       // Used to prefill the quotation Flight tab's departure city.
       departureCity: true,
       departureCountry: true,
+      // Lead-requested services drive the quotation builder's tab asterisks and
+      // default Include-in-Quotation state for NEW quotations.
+      services: { select: { serviceType: true } },
       itinerary: {
         orderBy: { sequence: 'asc' as const },
         select: {

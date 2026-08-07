@@ -448,6 +448,104 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.queryByLabelText('Net Amount')).not.toBeInTheDocument();
   });
 
+  it('marks every Lead-requested service tab with a red asterisk', async () => {
+    const draftVersion = {
+      id: 'version-1',
+      versionNumber: 1,
+      title: 'Malaysia proposal',
+      introduction: null,
+      destinationSummary: 'Kuala Lumpur',
+      travelStartDate: null,
+      travelEndDate: null,
+      currency: 'INR',
+      subtotalSellingPrice: '0',
+      subtotalCost: '0',
+      markupMode: 'NONE',
+      markupValue: '0',
+      totalMarkup: '0',
+      taxRate: '0',
+      taxAmount: '0',
+      discountAmount: '0',
+      finalAmount: '0',
+      marginAmount: '0',
+      marginPercentage: '0',
+      pricingMode: 'ITEMIZED',
+      notes: null,
+      internalNotes: null,
+      status: 'DRAFT',
+      finalizedAt: null,
+      createdAt: '2026-07-21T00:00:00.000Z',
+      createdBy: person,
+      itinerary: [],
+      hotels: [],
+      services: [
+        { serviceType: 'FLIGHT', name: 'flight', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 1 },
+        { serviceType: 'HOTEL', name: 'hotel', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 2 },
+        { serviceType: 'SIGHTSEEING', name: 'sightseeing', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 3 },
+        { serviceType: 'CRUISE', name: 'cruise', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 4 },
+        { serviceType: 'VEHICLE_TRANSFER', name: 'vehicle', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 5 },
+        { serviceType: 'OTHER_ADD_ON', name: 'add-on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 6 },
+      ],
+      inclusions: [],
+      exclusions: [],
+      terms: [],
+    };
+    const quotation = {
+      id: 'quotation-1',
+      quotationNumber: 'QT-2026-000001',
+      customerName: 'Aarav Mehta',
+      currentVersionId: 'version-1',
+      destinationSummary: 'Kuala Lumpur',
+      travelStartDate: null,
+      travelEndDate: null,
+      adults: 1,
+      childrenWithBed: 0,
+      childrenWithoutBed: 0,
+      infants: 0,
+      rooms: 1,
+      query: {
+        id: 'lead-1',
+        queryNumber: 'QRY-1',
+        leadStage: 'QUOTATION_SENT',
+        assignedToId: null,
+        createdById: 'user-1',
+        departureCity: null,
+        departureCountry: null,
+        services: [
+          { serviceType: 'FLIGHT' },
+          { serviceType: 'HOTEL' },
+          { serviceType: 'SIGHTSEEING' },
+          { serviceType: 'CRUISE' },
+          { serviceType: 'VEHICLE_TRANSFER' },
+          { serviceType: 'OTHER_ADD_ON' },
+        ],
+      },
+      versions: [draftVersion],
+      documents: [],
+      emailLogs: [],
+      booking: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(quotation)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/quotations/:quotationId/versions/:versionId/edit"
+          element={<QuotationBuilderPage />}
+        />
+      </Routes>,
+      { route: '/quotations/quotation-1/versions/version-1/edit' },
+    );
+    await screen.findByRole('button', { name: 'Flight' });
+    // Every Lead-requested service tab shows a red `*` inside its button text.
+    for (const label of ['Flight', 'Hotel', 'Sightseeing', 'Cruise', 'Vehicle', 'Add-on Services']) {
+      const tab = screen.getByRole('button', { name: label });
+      expect(tab.textContent).toContain('*');
+    }
+  });
+
   it('shows version history and runs revision, PDF, public-link and send actions', async () => {
     const finalizedVersion = {
       id: 'version-1',

@@ -307,6 +307,7 @@ export interface Quotation {
     createdById: string;
     departureCity: string | null;
     departureCountry: string | null;
+    services?: Array<{ serviceType: string }>;
     itinerary?: Array<{
       id: string;
       country: string;

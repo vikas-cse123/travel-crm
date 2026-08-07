@@ -78,7 +78,6 @@ interface TabDef {
   key: string;
   label: string;
   types?: ServiceType[];
-  required?: boolean;
 }
 const ADDON_TYPES: ServiceType[] = [
   'TRAVEL_INSURANCE',
@@ -214,16 +213,51 @@ const hotelSectionTitle = (value: string | null | undefined) => {
 };
 
 const TABS: TabDef[] = [
-  { key: 'flight', label: 'Flight', required: true },
-  { key: 'hotel', label: 'Hotel', required: true },
-  { key: 'sightseeing', label: 'Sightseeing', required: true },
+  { key: 'flight', label: 'Flight' },
+  { key: 'hotel', label: 'Hotel' },
+  { key: 'sightseeing', label: 'Sightseeing' },
   { key: 'cruise', label: 'Cruise', types: ['CRUISE'] },
-  { key: 'vehicle', label: 'Vehicle', types: ['VEHICLE_TRANSFER'], required: true },
-  ...(SHOW_VISA_QUOTATION_TAB ? [{ key: 'visa', label: 'Visa', required: true }] : []),
+  { key: 'vehicle', label: 'Vehicle', types: ['VEHICLE_TRANSFER'] },
+  ...(SHOW_VISA_QUOTATION_TAB ? [{ key: 'visa', label: 'Visa' }] : []),
   { key: 'addon', label: 'Add-on Services', types: ADDON_TYPES },
   { key: 'inclusions', label: 'Inclusions & Exclusions' },
   { key: 'summary', label: 'Summary & Pricing' },
 ];
+
+/**
+ * Lead-requested services → quotation tab keys. The Lead's selected services are
+ * the source of truth for which quotation tabs show the red `*` and which
+ * Include-in-Quotation checkboxes default to checked on a NEW quotation.
+ * Every service tab is mapped here so no service (Add-on, Cruise, …) is missed.
+ */
+const SERVICE_TAB_TYPES: Record<string, ServiceType[]> = {
+  flight: ['FLIGHT'],
+  hotel: ['HOTEL'],
+  sightseeing: ['SIGHTSEEING'],
+  cruise: ['CRUISE'],
+  vehicle: ['VEHICLE_TRANSFER'],
+  addon: ADDON_TYPES,
+};
+
+/** Map a Lead service type to its quotation tab key, or null. */
+export function serviceTypeToTabKey(serviceType: string): string | null {
+  for (const [key, types] of Object.entries(SERVICE_TAB_TYPES)) {
+    if ((types as string[]).includes(serviceType)) return key;
+  }
+  return null;
+}
+
+/** Set of tab keys requested by the Lead (the tab shows a red `*`). */
+export function leadRequestedTabs(
+  query: { services?: Array<{ serviceType: string }> } | undefined,
+): Set<string> {
+  const requested = new Set<string>();
+  for (const row of query?.services ?? []) {
+    const tab = serviceTypeToTabKey(row.serviceType);
+    if (tab) requested.add(tab);
+  }
+  return requested;
+}
 
 const defaults: QuotationVersionInput = {
   title: '',
@@ -586,9 +620,10 @@ export function QuotationBuilderPage() {
   // Cruise starts excluded: the user explicitly enables it (auto-creating the
   // first entry). Saved quotations with Cruise rows re-enable it on load.
   const [excluded, setExcluded] = useState<Record<string, boolean>>({ cruise: true });
-  // Tracks whether the user has explicitly toggled the Cruise checkbox so the
-  // init-time sync never re-enables it after a manual choice.
-  const autoCruiseRef = useRef<{ userToggled: boolean }>({ userToggled: false });
+  // Tracks whether the user has explicitly toggled a section's Include checkbox
+  // so the init-time sync (from the lead's requested services) never re-enables
+  // a section after a manual choice.
+  const autoToggleRef = useRef<Set<string>>(new Set());
   // Keep the resolver in sync with the latest include/exclude state without
   // re-creating the whole form. Hotel is the only tab that always carries a
   // default empty row, so excluding it must bypass hotel validation entirely.
@@ -675,6 +710,14 @@ export function QuotationBuilderPage() {
     }, [destinationIdSet]),
   );
   const version = quotation.data?.versions.find((row) => row.id === versionId);
+  // Tabs requested by the Lead — the source of truth for the red `*` on each
+  // service tab. Derived from the lead's own service selections, never from the
+  // quotation's saved state (so a requested-but-unchecked service still shows
+  // its `*`, meaning "requested on the Lead").
+  const leadRequested = useMemo(
+    () => leadRequestedTabs(quotation.data?.query),
+    [quotation.data?.query],
+  );
   useEffect(() => {
     if (!version) return;
     // Prefill a fresh Flight tab from the lead: outbound = departure city → main
@@ -1079,13 +1122,18 @@ export function QuotationBuilderPage() {
       autoHotelRef.current.enabledByAuto = true;
       setExcluded((current) => ({ ...current, hotel: false }));
     }
-    // Saved quotations with Cruise rows keep Cruise enabled; otherwise it stays
-    // excluded (unchecked) until the user explicitly enables it.
-    if (!autoCruiseRef.current.userToggled) {
-      setExcluded((current) => ({
-        ...current,
-        cruise: !version.services.some((row) => row.serviceType === 'CRUISE'),
-      }));
+    // Cruise Include default, derived from the version's OWN saved CRUISE rows.
+    // A NEW quotation created from a Lead has its version services seeded from
+    // the Lead's requested services, so a lead-requested Cruise is included
+    // (checked) by default. An existing draft's saved service rows reflect the
+    // user's Include choice (an unchecked Cruise has no saved row), so reopening
+    // preserves that state — the Lead is never re-applied over a saved choice.
+    // An explicit user toggle always wins.
+    if (!autoToggleRef.current.has('cruise')) {
+      const hasSavedCruiseRow = (version.services ?? []).some(
+        (row) => row.serviceType === 'CRUISE',
+      );
+      setExcluded((current) => ({ ...current, cruise: !hasSavedCruiseRow }));
     }
   }, [
     version,
@@ -1094,6 +1142,7 @@ export function QuotationBuilderPage() {
     sightseeingMasters.data,
     hotelMasters.data,
     destinationMasters.data,
+    leadRequested,
   ]);
 
   // Recover the display snapshot for older drafts that only saved a vehicle id.
@@ -1440,8 +1489,9 @@ export function QuotationBuilderPage() {
 
   const isIncluded = (key: string) => !excluded[key];
   const toggleInclude = (key: string) => {
-    // Any explicit toggle on the Hotel checkbox is a user choice: automatic
-    // prefill must never re-enable it afterwards.
+    // Any explicit toggle is a user choice: automatic prefill from the Lead must
+    // never re-enable a section afterwards.
+    autoToggleRef.current.add(key);
     if (key === 'hotel') autoHotelRef.current.userToggledHotel = true;
     const next = !excluded[key];
     setExcluded((current) => ({ ...current, [key]: next }));
@@ -1458,7 +1508,6 @@ export function QuotationBuilderPage() {
     // or fills the empty section title of an existing entry; turning it off
     // clears its service-row errors (only the CRUISE rows).
     if (key === 'cruise') {
-      autoCruiseRef.current.userToggled = true;
       if (!next) {
         const cruiseIndexes = (services.fields ?? [])
           .map((_, index) => index)
@@ -2743,7 +2792,7 @@ export function QuotationBuilderPage() {
             )}
           >
             {tab.label}
-            {tab.required && <span className="ml-0.5 text-red-500">*</span>}
+            {leadRequested.has(tab.key) && <span className="ml-0.5 text-red-500">*</span>}
           </button>
         ))}
       </div>

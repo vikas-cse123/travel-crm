@@ -1,5 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { hasPolicyHtml, policyValue } from '@/pages/quotations/QuotationBuilderPage';
+import {
+  hasPolicyHtml,
+  leadRequestedTabs,
+  policyValue,
+  serviceTypeToTabKey,
+} from '@/pages/quotations/QuotationBuilderPage';
+
+describe('QuotationBuilder — lead service → quotation tab mapping', () => {
+  it('maps every Lead service type to its quotation tab', () => {
+    expect(serviceTypeToTabKey('FLIGHT')).toBe('flight');
+    expect(serviceTypeToTabKey('HOTEL')).toBe('hotel');
+    expect(serviceTypeToTabKey('SIGHTSEEING')).toBe('sightseeing');
+    expect(serviceTypeToTabKey('CRUISE')).toBe('cruise');
+    expect(serviceTypeToTabKey('VEHICLE_TRANSFER')).toBe('vehicle');
+    // Every Add-on service type maps to the Add-on Services tab.
+    for (const addon of [
+      'TRAVEL_INSURANCE',
+      'RAIL',
+      'PASSPORT_ASSISTANCE',
+      'MEAL',
+      'GUIDE',
+      'OTHER_ADD_ON',
+      'GENERAL_ENQUIRY',
+    ]) {
+      expect(serviceTypeToTabKey(addon)).toBe('addon');
+    }
+  });
+
+  it('returns null for non-service or unknown types', () => {
+    expect(serviceTypeToTabKey('VISA')).toBeNull();
+    expect(serviceTypeToTabKey('UNKNOWN')).toBeNull();
+  });
+
+  it('CASE 1 — all six services selected on the Lead → all six tabs requested', () => {
+    const requested = leadRequestedTabs({
+      services: [
+        { serviceType: 'FLIGHT' },
+        { serviceType: 'HOTEL' },
+        { serviceType: 'SIGHTSEEING' },
+        { serviceType: 'CRUISE' },
+        { serviceType: 'VEHICLE_TRANSFER' },
+        { serviceType: 'OTHER_ADD_ON' },
+      ],
+    });
+    for (const tab of ['flight', 'hotel', 'sightseeing', 'cruise', 'vehicle', 'addon']) {
+      expect(requested.has(tab)).toBe(true);
+    }
+  });
+
+  it('CASE 2 — only Hotel + Flight selected → only those tabs requested', () => {
+    const requested = leadRequestedTabs({
+      services: [{ serviceType: 'HOTEL' }, { serviceType: 'FLIGHT' }],
+    });
+    expect(requested.has('flight')).toBe(true);
+    expect(requested.has('hotel')).toBe(true);
+    for (const tab of ['sightseeing', 'cruise', 'vehicle', 'addon']) {
+      expect(requested.has(tab)).toBe(false);
+    }
+  });
+
+  it('CASE 6 — Add-on selected on the Lead → addon tab requested (no missing asterisk)', () => {
+    const requested = leadRequestedTabs({ services: [{ serviceType: 'MEAL' }] });
+    expect(requested.has('addon')).toBe(true);
+  });
+
+  it('CASE 7 — Cruise selected on the Lead → cruise tab requested', () => {
+    const requested = leadRequestedTabs({ services: [{ serviceType: 'CRUISE' }] });
+    expect(requested.has('cruise')).toBe(true);
+  });
+
+  it('returns an empty set when the Lead has no services', () => {
+    expect(leadRequestedTabs(undefined).size).toBe(0);
+    expect(leadRequestedTabs({ services: [] }).size).toBe(0);
+  });
+});
 
 describe('QuotationBuilder — hasPolicyHtml', () => {
   it('returns false for null', () => {
