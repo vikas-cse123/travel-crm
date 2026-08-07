@@ -111,8 +111,14 @@ export function errorHandler(
                   : ''),
               // P2022 message is a column-name reference ("column does not exist"); it
               // contains no row data, IDs, values or secrets — safe to expose the column.
-              ...((error as Error & { meta?: { column_name?: string } }).meta?.column_name
-                ? { diagnosticColumn: (error as Error & { meta: { column_name: string } }).meta.column_name }
+              ...((
+                error as Error & { meta?: { column_name?: string } }
+              ).meta?.column_name
+                ? {
+                    diagnosticColumn: (
+                      error as unknown as Error & { meta: { column_name: string } }
+                    ).meta.column_name,
+                  }
                 : {}),
             },
           }
