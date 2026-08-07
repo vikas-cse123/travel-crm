@@ -4,6 +4,7 @@ import {
   ArrowUpDown,
   BarChart3,
   Calendar,
+  CalendarRange,
   ChartPie,
   Download,
   ExternalLink,
@@ -38,6 +39,7 @@ import { useQuotationWeblinkAnalytics } from '@/features/quotations/quotations.a
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { labelForLookup } from '@interscale/shared';
+import type { LeadDateFilterType } from '@interscale/shared';
 import { LeadServicesCell } from '@/features/queries/LeadServicesCell';
 import { cn } from '@/utils/cn';
 import './leads.css';
@@ -58,6 +60,55 @@ const leadDate = (value: string | null) =>
 
 /** Keep the stored query number intact while hiding its year in the lead list. */
 const leadListId = (value: string) => value.replace(/^([^-]+)-\d{4}-/, '$1-');
+
+// The Booking column is temporarily hidden from the Leads table. Set this back
+// to true to restore it; booking data, hooks and BookingCell are untouched.
+const SHOW_BOOKING_COLUMN_IN_LEADS_TABLE = false;
+
+/** Local calendar-day string (YYYY-MM-DD) for a Date, avoiding UTC drift. */
+function localDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** Compact "01 Aug 2026" style label for the active date-filter summary. */
+function formatDateSummary(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(
+    date,
+  );
+}
+
+const LEAD_DATE_TYPE_LABELS: Record<LeadDateFilterType, string> = {
+  CREATED_DATE: 'Created Date',
+  TRAVEL_DATE: 'Travel Date',
+};
+
+/** Quick date-range presets (today / yesterday / last 7 days / this month). */
+const LEAD_DATE_PRESETS: Array<{ label: string; from: () => string; to: () => string }> = [
+  { label: 'Today', from: () => localDateInput(new Date()), to: () => localDateInput(new Date()) },
+  {
+    label: 'Yesterday',
+    from: () => localDateInput(new Date(Date.now() - 86_400_000)),
+    to: () => localDateInput(new Date(Date.now() - 86_400_000)),
+  },
+  {
+    label: 'Last 7 Days',
+    from: () => localDateInput(new Date(Date.now() - 6 * 86_400_000)),
+    to: () => localDateInput(new Date()),
+  },
+  {
+    label: 'This Month',
+    from: () => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    },
+    to: () => localDateInput(new Date()),
+  },
+];
 
 function LeadInfoCell({ lead }: { lead: Lead }) {
   const email = lead.email ?? lead.customer?.email;
@@ -596,7 +647,7 @@ export function LeadsPage() {
   const { hasPermission } = useAuth();
   const [params, setParams] = useSearchParams();
   const leads = useLeads(params);
-  const analytics = useLeadAnalytics();
+  const analytics = useLeadAnalytics(params);
   const { data: lookups } = useLeadLookups();
   const bulkAssign = useBulkAssign();
   const bulkStage = useBulkStage();
@@ -664,6 +715,77 @@ export function LeadsPage() {
     const sameColumn = next.get('sortBy') === sortBy;
     next.set('sortBy', sortBy);
     next.set('sortOrder', sameColumn && next.get('sortOrder') === 'asc' ? 'desc' : 'asc');
+    next.set('page', '1');
+    setParams(next);
+  };
+
+  // ----------------------------- date filter -------------------------------
+  // Draft state is committed to the URL only via Apply, so typing a partial
+  // date never triggers a request. URL changes (refresh / back / clear) sync
+  // the draft back.
+  const [dateDraft, setDateDraft] = useState<{
+    dateType: LeadDateFilterType;
+    dateFrom: string;
+    dateTo: string;
+  }>({
+    dateType: (params.get('dateType') as LeadDateFilterType) ?? 'CREATED_DATE',
+    dateFrom: params.get('dateFrom') ?? '',
+    dateTo: params.get('dateTo') ?? '',
+  });
+  const [dateError, setDateError] = useState<string | null>(null);
+
+  const dateParamKey = useMemo(
+    () => `${params.get('dateType') ?? ''}|${params.get('dateFrom') ?? ''}|${params.get('dateTo') ?? ''}`,
+    [params],
+  );
+  useEffect(() => {
+    setDateDraft({
+      dateType: (params.get('dateType') as LeadDateFilterType) ?? 'CREATED_DATE',
+      dateFrom: params.get('dateFrom') ?? '',
+      dateTo: params.get('dateTo') ?? '',
+    });
+    setDateError(null);
+  }, [dateParamKey, params]);
+
+  const activeDateFilter =
+    (params.get('dateType') as LeadDateFilterType | null) ?? 'CREATED_DATE';
+  const dateFrom = params.get('dateFrom') ?? '';
+  const dateTo = params.get('dateTo') ?? '';
+  const dateFilterActive = Boolean(dateFrom || dateTo);
+
+  const applyDateFilter = () => {
+    const { dateType: type, dateFrom: from, dateTo: to } = dateDraft;
+    if (from && to && from > to) {
+      setDateError('From Date cannot be after To Date.');
+      return;
+    }
+    setDateError(null);
+    const next = new URLSearchParams(params);
+    next.set('dateType', type);
+    if (from) next.set('dateFrom', from);
+    else next.delete('dateFrom');
+    if (to) next.set('dateTo', to);
+    else next.delete('dateTo');
+    next.set('page', '1');
+    setParams(next);
+  };
+
+  const clearDateFilter = () => {
+    const next = new URLSearchParams(params);
+    next.delete('dateType');
+    next.delete('dateFrom');
+    next.delete('dateTo');
+    next.set('page', '1');
+    setParams(next);
+  };
+
+  const applyDatePreset = (from: string, to: string) => {
+    const next = new URLSearchParams(params);
+    next.set('dateType', dateDraft.dateType);
+    if (from) next.set('dateFrom', from);
+    else next.delete('dateFrom');
+    if (to) next.set('dateTo', to);
+    else next.delete('dateTo');
     next.set('page', '1');
     setParams(next);
   };
@@ -748,7 +870,7 @@ export function LeadsPage() {
     ['Travellers Info'],
     ['Services'],
     ['Quotation'],
-    ['Booking'],
+    ...(SHOW_BOOKING_COLUMN_IN_LEADS_TABLE ? ([['Booking']] as Array<[string, string?]>) : []),
     ['Weblink'],
     ['Notes'],
     ['Assigned to'],
@@ -824,6 +946,103 @@ export function LeadsPage() {
               </option>
             ))}
           </select>
+          <div className="leads-date-filter" role="group" aria-label="Date filter">
+            <label className="leads-date-field">
+              <span className="sr-only">Date type</span>
+              <select
+                aria-label="Date type"
+                className="leads-date-type"
+                value={dateDraft.dateType}
+                onChange={(e) =>
+                  setDateDraft((prev) => ({ ...prev, dateType: e.target.value as LeadDateFilterType }))
+                }
+              >
+                {(Object.keys(LEAD_DATE_TYPE_LABELS) as LeadDateFilterType[]).map((type) => (
+                  <option key={type} value={type}>
+                    {LEAD_DATE_TYPE_LABELS[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="leads-date-field">
+              <CalendarRange className="leads-date-icon" aria-hidden="true" />
+              <span className="sr-only">From date</span>
+              <input
+                aria-label="From date"
+                aria-invalid={dateError ? true : undefined}
+                aria-describedby={dateError ? 'leads-date-range-error' : undefined}
+                type="date"
+                className="leads-date-input"
+                value={dateDraft.dateFrom}
+                onChange={(e) => setDateDraft((prev) => ({ ...prev, dateFrom: e.target.value }))}
+              />
+            </label>
+            <label className="leads-date-field">
+              <Calendar className="leads-date-icon" aria-hidden="true" />
+              <span className="sr-only">To date</span>
+              <input
+                aria-label="To date"
+                aria-invalid={dateError ? true : undefined}
+                aria-describedby={dateError ? 'leads-date-range-error' : undefined}
+                type="date"
+                className="leads-date-input"
+                value={dateDraft.dateTo}
+                onChange={(e) => setDateDraft((prev) => ({ ...prev, dateTo: e.target.value }))}
+              />
+            </label>
+            <Button
+              size="sm"
+              aria-label="Apply date filter"
+              className="leads-date-apply"
+              onClick={applyDateFilter}
+            >
+              Apply
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label="Clear date filter"
+              className="leads-date-clear"
+              disabled={!dateFilterActive}
+              onClick={clearDateFilter}
+            >
+              Clear
+            </Button>
+            {dateError && (
+              <p id="leads-date-range-error" role="alert" className="leads-date-error">
+                {dateError}
+              </p>
+            )}
+            <span className="leads-date-presets" aria-label="Date range presets">
+              {LEAD_DATE_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className="leads-date-preset"
+                  onClick={() => applyDatePreset(preset.from(), preset.to())}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </span>
+            {dateFilterActive && (
+              <span className="leads-date-summary" aria-label="Active date filter">
+                <CalendarRange className="h-3 w-3" aria-hidden="true" />
+                {LEAD_DATE_TYPE_LABELS[activeDateFilter]}:{' '}
+                {dateFrom ? `From ${formatDateSummary(dateFrom)}` : ''}
+                {dateFrom && dateTo ? ' – ' : ''}
+                {dateTo ? `Up to ${formatDateSummary(dateTo)}` : ''}
+                <button
+                  type="button"
+                  aria-label="Remove date filter"
+                  className="leads-date-remove"
+                  onClick={clearDateFilter}
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </span>
+            )}
+          </div>
           <label className="leads-hot">
             <Flame className="h-4 w-4" aria-hidden="true" />
             <input
@@ -1109,9 +1328,11 @@ export function LeadsPage() {
                       <td>
                         <QuotationCell lead={lead} />
                       </td>
-                      <td>
-                        <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
-                      </td>
+                      {SHOW_BOOKING_COLUMN_IN_LEADS_TABLE && (
+                        <td>
+                          <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
+                        </td>
+                      )}
                       <td className="text-center">
                         <WeblinkCell
                           lead={lead}

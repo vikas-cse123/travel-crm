@@ -16,7 +16,7 @@ export const queriesController = {
     sendSuccess(res, await queriesService.list(auth(req), req.query));
   },
   async analytics(req: Request, res: Response) {
-    sendSuccess(res, await queriesService.analytics(auth(req)));
+    sendSuccess(res, await queriesService.analytics(auth(req), req.query));
   },
   async lookups(req: Request, res: Response) {
     sendSuccess(res, await queriesService.lookups(auth(req)));

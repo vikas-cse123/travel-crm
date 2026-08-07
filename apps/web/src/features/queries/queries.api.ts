@@ -2,6 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { downloadCsv, type CsvPayload } from '@/lib/downloadCsv';
 import type { ContactMethodValue, QueryInput, QueryUpdateInput } from '@interscale/shared';
+import type { LeadDateFilterType } from '@interscale/shared';
+
+/** Date keys shared between the URL state and the API request. */
+export const LEAD_DATE_KEYS = ['dateType', 'dateFrom', 'dateTo'] as const;
+
+/** Build a query string carrying only the active lead date-filter params. */
+export function leadDateQuery(params: URLSearchParams): string {
+  const out = new URLSearchParams();
+  for (const key of LEAD_DATE_KEYS) {
+    const value = params.get(key);
+    if (value) out.set(key, value);
+  }
+  return out.toString();
+}
+
+export interface LeadDateFilterState {
+  dateType: LeadDateFilterType;
+  dateFrom: string;
+  dateTo: string;
+}
 
 export interface Lead {
   id: string;
@@ -257,7 +277,7 @@ export interface LeadBookingSummary {
 export const queryKeys = {
   all: ['queries'] as const,
   list: (q: string) => ['queries', 'list', q] as const,
-  analytics: ['queries', 'analytics'] as const,
+  analytics: (q: string) => ['queries', 'analytics', q] as const,
   lookups: ['queries', 'lookups'] as const,
   detail: (id: string) => ['queries', id] as const,
   workspace: (id: string) => ['queries', id, 'workspace'] as const,
@@ -273,10 +293,11 @@ export function useLeads(params: URLSearchParams) {
     queryFn: ({ signal }) => apiClient.get<Page<Lead>>(`/queries${q ? `?${q}` : ''}`, signal),
   });
 }
-export function useLeadAnalytics() {
+export function useLeadAnalytics(params: URLSearchParams) {
+  const q = leadDateQuery(params);
   return useQuery({
-    queryKey: queryKeys.analytics,
-    queryFn: ({ signal }) => apiClient.get<Analytics>('/queries/analytics', signal),
+    queryKey: queryKeys.analytics(q),
+    queryFn: ({ signal }) => apiClient.get<Analytics>(`/queries/analytics${q ? `?${q}` : ''}`, signal),
   });
 }
 export function useLeadLookups() {
@@ -387,7 +408,7 @@ export function useUpdateLeadField(id: string) {
     onSuccess: (lead) => {
       // Re-fetch list, analytics and counters; cache the returned lead as fresh.
       void qc.invalidateQueries({ queryKey: queryKeys.all });
-      void qc.invalidateQueries({ queryKey: queryKeys.analytics });
+      void qc.invalidateQueries({ queryKey: ['queries', 'analytics'] });
       qc.setQueryData(queryKeys.detail(lead.id), lead);
     },
   });

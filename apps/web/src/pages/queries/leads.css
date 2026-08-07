@@ -201,6 +201,154 @@
   accent-color: #dc2626;
 }
 
+/* ------------------------------ date filter ------------------------------ */
+
+.leads-date-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.leads-date-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.leads-date-icon {
+  position: absolute;
+  left: 8px;
+  width: 14px;
+  height: 14px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.leads-date-type,
+.leads-date-input {
+  height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: #334155;
+  background: #ffffff;
+}
+
+.leads-date-type {
+  width: 150px;
+  padding: 0 8px;
+}
+
+.leads-date-input {
+  width: 150px;
+  padding: 0 8px 0 28px;
+}
+
+.leads-date-type:focus,
+.leads-date-input:focus {
+  outline: none;
+  border-color: var(--leads-link-blue);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.leads-date-apply {
+  height: 36px;
+  border-radius: 4px;
+  background: var(--leads-link-blue);
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 0 14px;
+}
+
+.leads-date-apply:hover {
+  background: #1d4ed8;
+}
+
+.leads-date-clear {
+  height: 36px;
+  border-radius: 4px;
+}
+
+.leads-date-error {
+  width: 100%;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.leads-date-presets {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.leads-date-preset {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.leads-date-preset:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.leads-date-preset:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+}
+
+.leads-date-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #eff6ff;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.leads-date-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.leads-date-remove:hover {
+  background: #dbeafe;
+}
+
+.leads-date-remove:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+}
+
 /* ------------------------------ filter panel ------------------------------ */
 
 .leads-filter-panel {
@@ -332,7 +480,9 @@
 
 .leads-table {
   width: 100%;
-  min-width: 1750px;
+  /* min-width excludes the temporarily hidden Booking column (96px + 20px
+     padding); add 116px back when the column is restored. */
+  min-width: 1634px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;

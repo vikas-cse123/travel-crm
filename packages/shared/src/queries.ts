@@ -32,6 +32,8 @@ export const LEAD_STAGES = [
   'ON_HOLD',
 ] as const;
 export const QUERY_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
+/** Allowed date fields for the Leads list date-range filter. */
+export const LEAD_DATE_FILTER_TYPES = ['CREATED_DATE', 'TRAVEL_DATE'] as const;
 export const FOLLOW_UP_STATUSES = ['PENDING', 'COMPLETED', 'CANCELLED', 'MISSED'] as const;
 export const FOLLOW_UP_OUTCOMES = [
   'CONNECTED',
@@ -72,6 +74,7 @@ export type QueryPriorityValue = (typeof QUERY_PRIORITIES)[number];
 export type ServiceTypeValue = (typeof SERVICE_TYPES)[number];
 export type FollowUpOutcomeValue = (typeof FOLLOW_UP_OUTCOMES)[number];
 export type ContactMethodValue = (typeof CONTACT_METHODS)[number];
+export type LeadDateFilterType = (typeof LEAD_DATE_FILTER_TYPES)[number];
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 const optionalDate = z.coerce.date().nullable().optional();

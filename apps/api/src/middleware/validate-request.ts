@@ -1,10 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { AnyZodObject, ZodTypeAny } from 'zod';
+import type { ZodTypeAny } from 'zod';
 
 interface RequestSchemas {
   body?: ZodTypeAny;
-  query?: AnyZodObject;
-  params?: AnyZodObject;
+  query?: ZodTypeAny;
+  params?: ZodTypeAny;
 }
 
 /**

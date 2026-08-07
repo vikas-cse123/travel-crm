@@ -563,8 +563,9 @@ async function restrictedClient(ownerEmail: string, keys: string[], email: strin
   });
   const client = createAuthClient(app);
   expect(
-    (await client.post('/api/auth/login', { email, password: 'Sales@2026', rememberMe: false }))
-      .status,
+    (
+      (await client.post('/api/auth/login', { email, password: 'Sales@2026', rememberMe: false }))
+    ).status,
   ).toBe(200);
   return client;
 }
@@ -621,9 +622,7 @@ describe('Phase 17 lead workflow parity', () => {
 
     // Record a view through the public endpoint.
     const token = rowBefore.weblink.publicUrl.split('/q/')[1];
-    await request(app)
-      .get(`/public/quotations/${token}`)
-      .set('X-Forwarded-For', '203.0.113.99');
+    await request(app).get(`/public/quotations/${token}`).set('X-Forwarded-For', '203.0.113.99');
 
     const listAfter = await client.get('/api/queries');
     const rowAfter = listAfter.body.data.data.find((r: { id: string }) => r.id === lead.id);
@@ -787,9 +786,7 @@ describe('Phase 17 lead workflow parity', () => {
       leadStage: 'QUOTATION_SENT',
     });
     expect(bad.status).toBe(400);
-    expect(
-      (await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage,
-    ).toBe('QUALIFIED');
+    expect((await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage).toBe('QUALIFIED');
     // QUALIFIED → BOOKING_CONFIRMED is now a globally allowed transition.
     const direct = await client.post('/api/queries/bulk-stage', {
       queryIds: [a.id, b.id],
@@ -797,9 +794,9 @@ describe('Phase 17 lead workflow parity', () => {
     });
     expect(direct.status).toBe(200);
     expect(direct.body.data.updatedCount).toBe(2);
-    expect(
-      (await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage,
-    ).toBe('BOOKING_CONFIRMED');
+    expect((await db.query.findUniqueOrThrow({ where: { id: a.id } })).leadStage).toBe(
+      'BOOKING_CONFIRMED',
+    );
   });
 
   it('exports leads as CSV respecting filters, visibility and escaping', async () => {
@@ -837,5 +834,373 @@ describe('Phase 17 lead workflow parity', () => {
       'noexport@p17j.test',
     );
     expect((await restricted.get('/api/queries/export')).status).toBe(403);
+  });
+});
+
+describe('Admin/Owner lead self-assignment', () => {
+  it('returns the logged-in Admin/Owner in the assignable-users lookup', async () => {
+    const admin = await owner('owner@self.test', 'Self Travel');
+    const ownerUser = await db.user.findFirstOrThrow({ where: { email: 'owner@self.test' } });
+    const lookups = await admin.get('/api/queries/lookups');
+    expect(lookups.status).toBe(200);
+    const ids = lookups.body.data.assignableUsers.map((u: { id: string }) => u.id);
+    expect(ids).toContain(ownerUser.id);
+  });
+
+  it('lets an Admin create a lead assigned to themselves', async () => {
+    const admin = await owner('owner@self-create.test', 'Self Create');
+    const ownerUser = await db.user.findFirstOrThrow({
+      where: { email: 'owner@self-create.test' },
+    });
+    const created = await admin.post('/api/queries', { ...payload(), assignedToId: ownerUser.id });
+    expect(created.status).toBe(201);
+    expect(created.body.data.assignedToId).toBe(ownerUser.id);
+  });
+
+  it('lets an Admin create a lead assigned to another eligible team member', async () => {
+    const admin = await owner('owner@self-other.test', 'Self Other');
+    const salesUser = await employee(
+      admin,
+      'Sales Executive',
+      'sales@self-other.test',
+      'sales-other',
+    );
+    const created = await admin.post('/api/queries', {
+      ...payload(),
+      assignedToId: salesUser.body.data.id,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.assignedToId).toBe(salesUser.body.data.id);
+  });
+
+  it('lets an Admin reassign an existing lead to themselves', async () => {
+    const admin = await owner('owner@self-reassign.test', 'Self Reassign');
+    const ownerUser = await db.user.findFirstOrThrow({
+      where: { email: 'owner@self-reassign.test' },
+    });
+    const salesUser = await employee(
+      admin,
+      'Sales Executive',
+      'sales@self-reassign.test',
+      'sales-re',
+    );
+    const id = (
+      await admin.post('/api/queries', { ...payload(), assignedToId: salesUser.body.data.id })
+    ).body.data.id;
+    const reassigned = await admin.patch(`/api/queries/${id}/assignment`, {
+      assignedToId: ownerUser.id,
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.data.assignedToId).toBe(ownerUser.id);
+  });
+
+  it('never exposes the System Global Masters admin in assignable users', async () => {
+    const admin = await owner('owner@sysassign.test', 'Sys Assign');
+    const { runSystemMastersBootstrap } =
+      await import('../src/modules/system-masters/system-masters-bootstrap.service.js');
+    await runSystemMastersBootstrap();
+    const systemAdmin = await db.user.findFirstOrThrow({
+      where: { company: { isSystem: true } },
+    });
+    const lookups = await admin.get('/api/queries/lookups');
+    const ids = lookups.body.data.assignableUsers.map((u: { id: string }) => u.id);
+    expect(ids).not.toContain(systemAdmin.id);
+  });
+});
+
+describe('Lead stage lost-reason validation', () => {
+  it('accepts every non-Lost stage change without any reason', async () => {
+    const client = await owner('owner@stageok.test', 'Stage Ok');
+    const id = (await client.post('/api/queries', payload())).body.data.id;
+    const path = [
+      'CONTACTED',
+      'QUALIFIED',
+      'QUOTATION_REQUIRED',
+      'QUOTATION_SENT',
+      'IN_NEGOTIATION',
+      'ON_HOLD',
+    ];
+    for (const stage of path) {
+      const response = await client.patch(`/api/queries/${id}/stage`, { stage });
+      expect(response.status).toBe(200);
+      expect(JSON.stringify(response.body)).not.toContain('lost reason');
+    }
+  });
+
+  it('rejects Lost with a missing or whitespace-only reason and keeps the original stage', async () => {
+    const client = await owner('owner@stagelost.test', 'Stage Lost');
+    const id = (await client.post('/api/queries', payload())).body.data.id;
+    expect((await client.patch(`/api/queries/${id}/stage`, { stage: 'LOST' })).status).toBe(400);
+    expect(
+      (await client.patch(`/api/queries/${id}/stage`, { stage: 'LOST', lostReason: '   ' })).status,
+    ).toBe(400);
+    expect((await db.query.findUniqueOrThrow({ where: { id } })).leadStage).toBe('NEW_LEAD');
+  });
+
+  it('accepts Lost when a non-blank reason is provided', async () => {
+    const client = await owner('owner@stagelostok.test', 'Stage Lost Ok');
+    const id = (await client.post('/api/queries', payload())).body.data.id;
+    const response = await client.patch(`/api/queries/${id}/stage`, {
+      stage: 'LOST',
+      lostReason: 'Budget changed',
+    });
+    expect(response.status).toBe(200);
+    expect((await db.query.findUniqueOrThrow({ where: { id } })).lostReason).toBe('Budget changed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 21 — server-side date-range filtering (dateType / dateFrom / dateTo)
+// ---------------------------------------------------------------------------
+
+describe('Lead date-range filtering', () => {
+  beforeEach(async () => {
+    await truncateAll(db);
+    getMemoryEmailProvider()?.clear();
+  });
+
+  /** Create a lead at a precise createdAt (and optional travel date). */
+  async function createLeadAt(
+    companyId: string,
+    {
+      createdAt,
+      travelStartDate,
+      phone,
+      name,
+      leadType = 'HOT',
+      leadStage = 'NEW_LEAD',
+    }: {
+      createdAt: Date;
+      travelStartDate?: string | null;
+      phone: string;
+      name: string;
+      leadType?: 'HOT' | 'COLD';
+      leadStage?: 'NEW_LEAD' | 'LOST' | 'BOOKING_CONFIRMED';
+    },
+  ) {
+    const counter = await db.queryCounter.upsert({
+      where: { companyId_year: { companyId, year: 0 } },
+      create: { companyId, year: 0, value: 1 },
+      update: { value: { increment: 1 } },
+      select: { value: true },
+    });
+    const row = await db.query.create({
+      data: {
+        companyId,
+        queryNumber: `QRY-${String(counter.value).padStart(6, '0')}`,
+        customerName: name,
+        phone,
+        normalizedPhone: phone.replace(/\D/g, ''),
+        leadSource: 'REFERRAL',
+        leadType,
+        leadStage,
+        priority: 'HIGH',
+        rooms: 1,
+        adults: 2,
+        travellerSummary: '1 Room, 2 Adults',
+        createdById: (await db.user.findFirstOrThrow({ where: { companyId } })).id,
+        assignedToId: (await db.user.findFirstOrThrow({ where: { companyId } })).id,
+        createdAt,
+        travelStartDate: travelStartDate ? new Date(`${travelStartDate}T00:00:00.000Z`) : null,
+        services: { create: [{ companyId, serviceType: 'HOTEL' }] },
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  const ownerClient = async () => {
+    const client = await owner('owner@datefilter.test', 'Date Filter Co');
+    const company = await db.company.findUniqueOrThrow({ where: { slug: 'date-filter-co' } });
+    return { client, companyId: company.id };
+  };
+
+  it('filters by Created Date from-only (records on or after From)', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90001 00001', name: 'Early' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-10T00:00:00Z'), phone: '+91 90001 00002', name: 'Later' });
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-05');
+    expect(res.status).toBe(200);
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names).toEqual(['Later']);
+    expect(res.body.data.pagination.total).toBe(1);
+  });
+
+  it('filters by Created Date to-only (records on or before To)', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90002 00001', name: 'Early' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-10T00:00:00Z'), phone: '+91 90002 00002', name: 'Later' });
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateTo=2026-08-05');
+    expect(res.status).toBe(200);
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names).toEqual(['Early']);
+    expect(res.body.data.pagination.total).toBe(1);
+  });
+
+  it('filters by Created Date full range and includes both boundaries', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90003 00001', name: 'BoundaryFrom' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-04T12:00:00Z'), phone: '+91 90003 00002', name: 'Middle' });
+    // 2026-08-07T18:29:59Z is still Aug 7 in Asia/Kolkata (+05:30).
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-07T18:29:59Z'), phone: '+91 90003 00003', name: 'BoundaryTo' });
+    // 2026-08-07T18:30:00Z is exactly Aug 8 00:00 in Asia/Kolkata -> excluded.
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-07T18:30:00Z'), phone: '+91 90003 00004', name: 'After' });
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    expect(res.status).toBe(200);
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names.sort()).toEqual(['BoundaryFrom', 'BoundaryTo', 'Middle']);
+    expect(res.body.data.pagination.total).toBe(3);
+  });
+
+  it('excludes a record after To and before From', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-07-31T00:00:00Z'), phone: '+91 90004 00001', name: 'Before' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-09T00:00:00Z'), phone: '+91 90004 00002', name: 'After' });
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    expect(res.body.data.pagination.total).toBe(0);
+  });
+
+  it('filters by Travel Date from-only', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90005 00001', name: 'TravelAug' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-07-01', phone: '+91 90005 00002', name: 'TravelJul' });
+    const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01');
+    expect(res.status).toBe(200);
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names).toEqual(['TravelAug']);
+    expect(res.body.data.pagination.total).toBe(1);
+  });
+
+  it('filters by Travel Date to-only', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-07-01', phone: '+91 90006 00001', name: 'TravelJul' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90006 00002', name: 'TravelAug' });
+    const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateTo=2026-08-01');
+    expect(res.status).toBe(200);
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names).toEqual(['TravelJul']);
+    expect(res.body.data.pagination.total).toBe(1);
+  });
+
+  it('filters by Travel Date full inclusive range', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-10', phone: '+91 90007 00001', name: 'InRange' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-20', phone: '+91 90007 00002', name: 'InRangeTo' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-09-01', phone: '+91 90007 00003', name: 'OutOfRange' });
+    const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31');
+    expect(res.body.data.pagination.total).toBe(2);
+  });
+
+  it('excludes leads with null travelDate when Travel Date filtering is active', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: null, phone: '+91 90008 00001', name: 'NoTravelDate' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90008 00002', name: 'HasTravelDate' });
+    const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01');
+    const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
+    expect(names).toEqual(['HasTravelDate']);
+    expect(res.body.data.pagination.total).toBe(1);
+  });
+
+  it('keeps leads with null travelDate visible without Travel Date filtering', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: null, phone: '+91 90009 00001', name: 'NoTravelDate' });
+    const res = await client.get('/api/queries');
+    expect(res.body.data.pagination.total).toBe(1);
+    expect(res.body.data.data[0].customerName).toBe('NoTravelDate');
+  });
+
+  it('rejects From greater than To', async () => {
+    const { client } = await ownerClient();
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01');
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an invalid date format', async () => {
+    const { client } = await ownerClient();
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=07/08/2026');
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an invalid dateType', async () => {
+    const { client } = await ownerClient();
+    const res = await client.get('/api/queries?dateType=UPDATED_AT&dateFrom=2026-08-01');
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an arbitrary Prisma field name as dateType', async () => {
+    const { client } = await ownerClient();
+    const res = await client.get('/api/queries?dateType=internalRemarks&dateFrom=2026-08-01');
+    expect(res.status).toBe(400);
+  });
+
+  it('enforces tenant isolation with the date filter', async () => {
+    await owner('owner@alpha-date.test', 'Alpha Date');
+    const alphaCompany = await db.company.findUniqueOrThrow({ where: { slug: 'alpha-date' } });
+    await createLeadAt(alphaCompany.id, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90010 00001', name: 'AlphaLead' });
+    const beta = await owner('owner@beta-date.test', 'Beta Date');
+    const res = await beta.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    expect(res.status).toBe(200);
+    expect(res.body.data.pagination.total).toBe(0);
+  });
+
+  it('combines the date range with search, assignee, type, stage and Hot', async () => {
+    const { client, companyId } = await ownerClient();
+    const salesUser = await db.user.findFirstOrThrow({ where: { companyId } });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90011 00001', name: 'Singapore Bound', leadType: 'HOT', leadStage: 'NEW_LEAD' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90011 00002', name: 'Another Lead', leadType: 'COLD', leadStage: 'NEW_LEAD' });
+    const res = await client.get(
+      `/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&search=Singapore&leadType=HOT&leadStage=NEW_LEAD&assignedToId=${salesUser.id}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data.pagination.total).toBe(1);
+    expect(res.body.data.data[0].customerName).toBe('Singapore Bound');
+  });
+
+  it('reports the filtered total in pagination', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90012 00001', name: 'InRange' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), phone: '+91 90012 00002', name: 'OutOfRange' });
+    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&page=1&pageSize=10');
+    expect(res.body.data.pagination).toMatchObject({ page: 1, pageSize: 10, total: 1 });
+  });
+
+  it('applies the same date filter to analytics counts and distributions', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90013 00001', name: 'InRange' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'BOOKING_CONFIRMED', phone: '+91 90013 00002', name: 'InRangeWon' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90013 00003', name: 'OutOfRange' });
+    const res = await client.get('/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    expect(res.status).toBe(200);
+    expect(res.body.data.totalLeads).toBe(2);
+    expect(res.body.data.bookingConfirmed).toBe(1);
+    expect(res.body.data.byLeadStage).toMatchObject({ NEW_LEAD: 1, BOOKING_CONFIRMED: 1 });
+    expect(res.body.data.byLeadType).toMatchObject({ HOT: 2 });
+  });
+
+  it('uses the same date filter for Type and Stage counts in analytics', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'COLD', leadStage: 'LOST', phone: '+91 90014 00001', name: 'ColdLost' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90014 00002', name: 'HotNew' });
+    const res = await client.get('/api/queries/analytics?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31');
+    // No travel dates set -> zero leads within the travel range.
+    expect(res.body.data.totalLeads).toBe(0);
+    expect(res.body.data.byLeadType).toEqual({});
+    expect(res.body.data.byLeadStage).toEqual({});
+  });
+
+  it('applies the date filter to the CSV export', async () => {
+    const { client, companyId } = await ownerClient();
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90015 00001', name: 'ExportInRange' });
+    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), phone: '+91 90015 00002', name: 'ExportOutOfRange' });
+    const res = await client.get('/api/queries/export?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    expect(res.status).toBe(200);
+    expect(res.body.data.content).toContain('ExportInRange');
+    expect(res.body.data.content).not.toContain('ExportOutOfRange');
+  });
+
+  it('rejects the date filter on analytics when From is after To', async () => {
+    const { client } = await ownerClient();
+    const res = await client.get('/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01');
+    expect(res.status).toBe(400);
   });
 });

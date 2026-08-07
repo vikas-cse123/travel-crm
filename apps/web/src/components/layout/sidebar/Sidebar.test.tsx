@@ -10,6 +10,10 @@ import {
   SIDEBAR_COLLAPSED_KEY,
 } from './sidebar-state';
 import { isNavPathActive } from '../navigation';
+import {
+  SHOW_BOOKINGS_NAVIGATION,
+  SHOW_QUOTATION_TEMPLATES_NAVIGATION,
+} from '../navigation';
 
 const auth = vi.hoisted(() => ({
   permissions: new Set<string>(),
@@ -81,7 +85,7 @@ describe('Sidebar expanded state', () => {
   it('renders the labels of every permitted module', () => {
     renderSidebar();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Bookings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Customers' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Quotations' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Masters' })).toBeInTheDocument();
   });
@@ -97,34 +101,77 @@ describe('Sidebar expanded state', () => {
   });
 });
 
+// Quotation Templates and Bookings are temporarily hidden from the sidebar via
+// SHOW_QUOTATION_TEMPLATES_NAVIGATION / SHOW_BOOKINGS_NAVIGATION. Their routes
+// and pages remain fully intact (see AppRoutes).
+describe('Temporarily hidden sidebar modules', () => {
+  it('does not render Quotation Templates or Bookings links', () => {
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: 'Quotation Templates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Bookings' })).not.toBeInTheDocument();
+    // Nothing invisible-but-focusable is left behind.
+    expect(screen.queryByText('Quotation Templates')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bookings')).not.toBeInTheDocument();
+  });
+
+  it('keeps them out of the collapsed rail and the mobile drawer', () => {
+    renderSidebar({ collapsed: true, mobileOpen: true });
+    expect(screen.queryByRole('link', { name: 'Quotation Templates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Bookings' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Quotation Templates')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bookings')).not.toBeInTheDocument();
+  });
+
+  it('keeps the remaining Sales and Operations entries unchanged', () => {
+    renderSidebar();
+    expect(screen.getByRole('link', { name: 'Quotations' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Customers' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Vendors' })).toBeInTheDocument();
+    // Both sections still render because their other items remain.
+    expect(screen.getByText('Sales')).toBeInTheDocument();
+    expect(screen.getByText('Operations')).toBeInTheDocument();
+  });
+
+  it('does not hide the unrelated Booking Reminders entry', () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole('button', { name: 'Reminders' }));
+    expect(screen.getByRole('link', { name: 'Booking Reminders' })).toBeInTheDocument();
+  });
+
+  it('hides the modules through explicit, reversible visibility flags', () => {
+    expect(SHOW_QUOTATION_TEMPLATES_NAVIGATION).toBe(false);
+    expect(SHOW_BOOKINGS_NAVIGATION).toBe(false);
+  });
+});
+
 describe('Sidebar collapsed state', () => {
   it('hides labels on the collapsed rail', () => {
     renderSidebar({ collapsed: true });
     // Labels stay in the DOM for the mobile drawer but are hidden on the rail.
-    const label = screen.getByText('Bookings');
+    const label = screen.getByText('Customers');
     expect(label.className).toContain('lg:hidden');
   });
 
   it('still exposes an accessible name for icon-only links', () => {
     renderSidebar({ collapsed: true });
-    expect(screen.getByRole('link', { name: 'Bookings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Quotations' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Customers' })).toBeInTheDocument();
   });
 
   it('shows a tooltip on hover with a small delay', async () => {
     renderSidebar({ collapsed: true });
-    const bookings = screen.getByRole('link', { name: 'Bookings' });
-    fireEvent.mouseEnter(bookings);
+    const customers = screen.getByRole('link', { name: 'Customers' });
+    fireEvent.mouseEnter(customers);
     await screen.findByRole('tooltip');
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Bookings');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Customers');
   });
 
   it('hides the tooltip on pointer leave', async () => {
     renderSidebar({ collapsed: true });
-    const bookings = screen.getByRole('link', { name: 'Bookings' });
-    fireEvent.mouseEnter(bookings);
+    const customers = screen.getByRole('link', { name: 'Customers' });
+    fireEvent.mouseEnter(customers);
     await screen.findByRole('tooltip');
-    fireEvent.mouseLeave(bookings);
+    fireEvent.mouseLeave(customers);
     await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 
@@ -176,29 +223,24 @@ describe('Collapse preference persistence', () => {
 
 describe('Active route detection', () => {
   it('sets aria-current="page" on the active flat item', () => {
-    renderSidebar({ route: '/bookings/123' });
-    expect(screen.getByRole('link', { name: 'Bookings' })).toHaveAttribute('aria-current', 'page');
+    renderSidebar({ route: '/customers/123' });
+    expect(screen.getByRole('link', { name: 'Customers' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
-  it('does not activate Quotation Templates from a Quotation route', () => {
+  it('does not activate Quotations from a Quotation Templates route', () => {
+    renderSidebar({ route: '/quotation-templates' });
+    expect(screen.getByRole('link', { name: 'Quotations' })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('activates Quotations from its own route', () => {
     renderSidebar({ route: '/quotations/123' });
     expect(screen.getByRole('link', { name: 'Quotations' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    expect(screen.getByRole('link', { name: 'Quotation Templates' })).not.toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-  });
-
-  it('activates Quotation Templates from its own route, not Quotations', () => {
-    renderSidebar({ route: '/quotation-templates' });
-    expect(screen.getByRole('link', { name: 'Quotation Templates' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    expect(screen.getByRole('link', { name: 'Quotations' })).not.toHaveAttribute(
       'aria-current',
       'page',
     );

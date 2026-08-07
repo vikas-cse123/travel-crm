@@ -9,6 +9,7 @@ import {
   followUpCompleteSchema,
   followUpInputSchema,
   followUpUpdateSchema,
+  LEAD_DATE_FILTER_TYPES,
   noteInputSchema,
   noteUpdateSchema,
   PERMISSIONS,
@@ -27,47 +28,97 @@ const queryId = z.object({ queryId: z.string().uuid() });
 const noteId = queryId.extend({ noteId: z.string().uuid() });
 const followUpId = queryId.extend({ followUpId: z.string().uuid() });
 const date = z.coerce.date();
+/** Strict calendar-date string in YYYY-MM-DD form. */
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format.')
+  .refine((value) => {
+    const parts = value.split('-').map(Number);
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2];
+    if (year === undefined || month === undefined || day === undefined) return false;
+    const check = new Date(Date.UTC(year, month - 1, day));
+    return (
+      check.getUTCFullYear() === year &&
+      check.getUTCMonth() === month - 1 &&
+      check.getUTCDate() === day
+    );
+  }, 'Date is not a valid calendar date.');
+/**
+ * Date-range filter params shared by the list, export and analytics endpoints.
+ * `dateType` is an allowlisted enum (never a raw Prisma field name) that the
+ * service maps to the correct Query column.
+ */
+const leadDateFilter = {
+  dateType: z.enum(LEAD_DATE_FILTER_TYPES).optional(),
+  dateFrom: calendarDate.optional(),
+  dateTo: calendarDate.optional(),
+};
 const paging = {
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(100).optional(),
 };
-const list = z.object({
-  ...paging,
-  search: z.string().trim().max(120).optional(),
-  leadStage: z.nativeEnum(LeadStage).optional(),
-  leadType: z.nativeEnum(LeadType).optional(),
-  leadSource: z.nativeEnum(LeadSource).optional(),
-  priority: z.nativeEnum(QueryPriority).optional(),
-  assignedToId: z.string().uuid().optional(),
-  createdById: z.string().uuid().optional(),
-  destination: z.string().trim().max(120).optional(),
-  serviceType: z.nativeEnum(ServiceType).optional(),
-  quotationRequired: z
-    .enum(['true', 'false'])
-    .transform((v) => v === 'true')
-    .optional(),
-  travelFrom: date.optional(),
-  travelTo: date.optional(),
-  followUpFrom: date.optional(),
-  followUpTo: date.optional(),
-  createdFrom: date.optional(),
-  createdTo: date.optional(),
-  sortBy: z
-    .enum([
-      'queryNumber',
-      'customerName',
-      'leadStage',
-      'leadType',
-      'priority',
-      'travelStartDate',
-      'nextFollowUpAt',
-      'expectedAmount',
-      'createdAt',
-      'updatedAt',
-    ])
-    .optional(),
-  sortOrder: z.enum(['asc', 'desc']).optional(),
-});
+const list = z
+  .object({
+    ...paging,
+    ...leadDateFilter,
+    search: z.string().trim().max(120).optional(),
+    leadStage: z.nativeEnum(LeadStage).optional(),
+    leadType: z.nativeEnum(LeadType).optional(),
+    leadSource: z.nativeEnum(LeadSource).optional(),
+    priority: z.nativeEnum(QueryPriority).optional(),
+    assignedToId: z.string().uuid().optional(),
+    createdById: z.string().uuid().optional(),
+    destination: z.string().trim().max(120).optional(),
+    serviceType: z.nativeEnum(ServiceType).optional(),
+    quotationRequired: z
+      .enum(['true', 'false'])
+      .transform((v) => v === 'true')
+      .optional(),
+    travelFrom: date.optional(),
+    travelTo: date.optional(),
+    followUpFrom: date.optional(),
+    followUpTo: date.optional(),
+    createdFrom: date.optional(),
+    createdTo: date.optional(),
+    sortBy: z
+      .enum([
+        'queryNumber',
+        'customerName',
+        'leadStage',
+        'leadType',
+        'priority',
+        'travelStartDate',
+        'nextFollowUpAt',
+        'expectedAmount',
+        'createdAt',
+        'updatedAt',
+      ])
+      .optional(),
+    sortOrder: z.enum(['asc', 'desc']).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'From date cannot be after To date.',
+        path: ['dateFrom'],
+      });
+  });
+/** Date filter + pagination used by the analytics endpoint. */
+const analyticsList = z
+  .object({
+    ...leadDateFilter,
+  })
+  .superRefine((value, ctx) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'From date cannot be after To date.',
+        path: ['dateFrom'],
+      });
+  });
 const timeline = z.object(paging);
 const phone = z.object({ phone: z.string().trim().min(5).max(32) });
 const notesOverview = z.object({
@@ -81,6 +132,7 @@ router.use(requireAuth, requireVerifiedEmail);
 router.get(
   '/analytics',
   requirePermission(PERMISSIONS.QUERIES_VIEW),
+  validateRequest({ query: analyticsList }),
   asyncHandler(queriesController.analytics),
 );
 router.get(

@@ -37,6 +37,12 @@ import { PERMISSIONS } from '@interscale/shared';
 // are untouched.
 export const SHOW_VISA_TYPES_MASTER_NAVIGATION = false;
 
+// The "Quotation Templates" and "Bookings" items are temporarily hidden from
+// the sidebar. Set these back to true to restore them; their routes, pages,
+// permissions and data are untouched.
+export const SHOW_QUOTATION_TEMPLATES_NAVIGATION = false;
+export const SHOW_BOOKINGS_NAVIGATION = false;
+
 /**
  * Sidebar navigation sections. Items are grouped into these headings so the
  * rail stays scannable. Empty sections are never rendered.
@@ -169,14 +175,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // -------------------------------------------------------------------------
   // Sales
   // -------------------------------------------------------------------------
-  {
-    label: 'Quotation Templates',
-    to: '/quotation-templates',
-    icon: FileStack,
-    available: true,
-    permission: PERMISSIONS.QUOTATION_TEMPLATES_VIEW,
-    section: NAV_SECTION.SALES,
-  },
+  ...(SHOW_QUOTATION_TEMPLATES_NAVIGATION
+    ? [
+        {
+          label: 'Quotation Templates',
+          to: '/quotation-templates',
+          icon: FileStack,
+          available: true,
+          permission: PERMISSIONS.QUOTATION_TEMPLATES_VIEW,
+          section: NAV_SECTION.SALES,
+        },
+      ]
+    : []),
   {
     label: 'Quotations',
     to: '/quotations',
@@ -189,14 +199,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // -------------------------------------------------------------------------
   // Operations
   // -------------------------------------------------------------------------
-  {
-    label: 'Bookings',
-    to: '/bookings',
-    icon: TicketCheck,
-    available: true,
-    permission: PERMISSIONS.BOOKINGS_VIEW,
-    section: NAV_SECTION.OPERATIONS,
-  },
+  ...(SHOW_BOOKINGS_NAVIGATION
+    ? [
+        {
+          label: 'Bookings',
+          to: '/bookings',
+          icon: TicketCheck,
+          available: true,
+          permission: PERMISSIONS.BOOKINGS_VIEW,
+          section: NAV_SECTION.OPERATIONS,
+        },
+      ]
+    : []),
   {
     label: 'Customers',
     to: '/customers',

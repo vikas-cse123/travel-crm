@@ -583,7 +583,7 @@ describe('Phase 17 lead list enrichment', () => {
     ]);
   });
 
-  it('renders lead info, quotation, booking and notes columns with the four row actions', async () => {
+  it('renders lead info, quotation and notes columns with the four row actions', async () => {
     stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
     // The year is hidden in the list: QRY-2026-000001 renders as QRY-000001.
@@ -591,7 +591,8 @@ describe('Phase 17 lead list enrichment', () => {
     // Column headers.
     expect(screen.getByText('Lead Info')).toBeInTheDocument();
     expect(screen.getByText('Quotation')).toBeInTheDocument();
-    expect(screen.getByText('Booking')).toBeInTheDocument();
+    // The Booking column is temporarily hidden from the Leads table.
+    expect(screen.queryByText('Booking')).not.toBeInTheDocument();
     expect(screen.getByText('Notes')).toBeInTheDocument();
     // Quotation status badge stays in the Quotation column.
     expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
@@ -605,7 +606,7 @@ describe('Phase 17 lead list enrichment', () => {
     expect(screen.queryByRole('link', { name: 'Create quotation' })).not.toBeInTheDocument();
   });
 
-  it('shows the booking number in the Booking column and keeps the Action column clean once booked', async () => {
+  it('keeps the Booking column out of the desktop table and the Action column clean once booked', async () => {
     stubLeadList([
       {
         ...enrichedLead,
@@ -623,8 +624,13 @@ describe('Phase 17 lead list enrichment', () => {
     ]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('QRY-000001');
-    // The booking number is shown in the Booking column.
-    expect(screen.getAllByRole('link', { name: 'BK-2026-000001' }).length).toBeGreaterThan(0);
+    // The booking number is not shown in the desktop table while the Booking
+    // column is hidden; booking data itself is untouched.
+    const desktopTable = document.querySelector('.leads-desktop-table') as HTMLElement;
+    expect(desktopTable).not.toBeNull();
+    expect(
+      within(desktopTable).queryByRole('link', { name: 'BK-2026-000001' }),
+    ).not.toBeInTheDocument();
     // The Action column never adds booking/convert shortcuts.
     expect(screen.queryByRole('link', { name: 'Convert to booking' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'View booking' })).not.toBeInTheDocument();
@@ -2417,7 +2423,6 @@ describe('Dense operational Leads table structure', () => {
       'Travellers Info',
       'Services',
       'Quotation',
-      'Booking',
       'Weblink',
       'Notes',
       'Assigned to',
@@ -2430,9 +2435,28 @@ describe('Dense operational Leads table structure', () => {
     ]) {
       expect(thead!.textContent).toContain(header);
     }
+    // The Booking column is temporarily hidden from the Leads table.
+    expect(thead!.textContent).not.toContain('Booking');
     // Notes column keeps its name (not Logging).
     expect(thead!.textContent).toContain('Notes');
     expect(thead!.textContent).not.toContain('Logging');
+  });
+
+  it('keeps every row cell aligned with the headers after the Booking column was hidden', async () => {
+    stubLeadList([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const headerCells = document.querySelectorAll('.leads-thead th');
+    const firstRow = document.querySelector('.leads-tbody tr');
+    expect(firstRow).not.toBeNull();
+    const rowCells = firstRow!.querySelectorAll('td');
+    // Header count matches the row's cell count exactly — no blank column,
+    // no missing cell, no leftover Booking width.
+    expect(headerCells.length).toBe(rowCells.length);
+    expect(headerCells.length).toBeGreaterThan(0);
+    // No Booking placeholder is left behind in the row.
+    expect(within(firstRow as HTMLElement).queryByText('Quote Required')).not.toBeInTheDocument();
+    expect(within(firstRow as HTMLElement).queryByText('None')).not.toBeInTheDocument();
   });
 
   it('renders compact metadata blocks for destination and travellers info', async () => {
@@ -2456,5 +2480,253 @@ describe('Dense operational Leads table structure', () => {
     expect(view).toHaveAttribute('href', `/queries/${enrichedLead.id}/notes`);
     // No follow-up wiring from the Notes column.
     expect(screen.queryByRole('link', { name: /Open logging/ })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lead date-range filter (dateType / dateFrom / dateTo) UI + URL behaviour
+// ---------------------------------------------------------------------------
+
+describe('Lead date-range filter', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set([
+      'queries.view',
+      'queries.create',
+      'queries.update',
+      'queries.delete',
+      'queries.assign',
+      'queries.export',
+    ]);
+  });
+
+  function stubDates(rows: unknown[], analyticsData = analytics) {
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analyticsData);
+      if (url.includes('/lookups')) return response(lookups);
+      if (options?.method === 'POST' || url.includes('/bulk') || url.includes('/export'))
+        return response({ updatedCount: rows.length, unchangedCount: 0, results: [] });
+      return response({
+        data: rows,
+        pagination: { page: 1, pageSize: 20, total: rows.length, totalPages: 1 },
+      });
+    });
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  }
+
+  it('renders the Date Type control with Created Date as the default', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const select = screen.getByLabelText('Date type') as HTMLSelectElement;
+    expect(select.value).toBe('CREATED_DATE');
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      'Created Date',
+      'Travel Date',
+    ]);
+  });
+
+  it('allows Travel Date to be selected', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const select = screen.getByLabelText('Date type') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'TRAVEL_DATE' } });
+    expect(select.value).toBe('TRAVEL_DATE');
+  });
+
+  it('renders From Date and To Date inputs, Apply and Clear buttons', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByLabelText('From date')).toBeInTheDocument();
+    expect(screen.getByLabelText('To date')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply date filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear date filter' })).toBeInTheDocument();
+  });
+
+  it('applies a valid full range and updates the URL with page reset to 1', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, { route: '/?page=3' });
+    await screen.findAllByText('Aarav Mehta');
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-08-01' } });
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-07' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const value = String(url);
+          return (
+            value.includes('dateType=CREATED_DATE') &&
+            value.includes('dateFrom=2026-08-01') &&
+            value.includes('dateTo=2026-08-07') &&
+            value.includes('page=1')
+          );
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('applies a from-only filter', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-08-01' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => {
+        const v = String(url);
+        return v.includes('dateType=CREATED_DATE') && v.includes('dateFrom=2026-08-01') && !v.includes('dateTo=');
+      })).toBe(true),
+    );
+  });
+
+  it('applies a to-only filter', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-07' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => {
+        const v = String(url);
+        return v.includes('dateType=CREATED_DATE') && v.includes('dateTo=2026-08-07') && !v.includes('dateFrom=');
+      })).toBe(true),
+    );
+  });
+
+  it('shows inline validation when From is after To and does not call the API', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-08-07' } });
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-01' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
+    expect(screen.getByText('From Date cannot be after To Date.')).toBeInTheDocument();
+    expect(screen.getByLabelText('From date')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('To date')).toHaveAttribute('aria-invalid', 'true');
+    const afterApply = mock.mock.calls.filter(([url]) => String(url).includes('/queries?'));
+    expect(afterApply.some(([url]) => String(url).includes('dateFrom='))).toBe(false);
+  });
+
+  it('Clear removes only the date parameters and preserves search and other filters', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&leadType=HOT&page=1',
+    });
+    await screen.findAllByText('Aarav Mehta');
+    await userEvent.click(screen.getByRole('button', { name: 'Clear date filter' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const v = String(url);
+          return (
+            v.includes('search=Singapore') &&
+            v.includes('leadType=HOT') &&
+            !v.includes('dateType=') &&
+            !v.includes('dateFrom=') &&
+            !v.includes('dateTo=')
+          );
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('restores the controls from URL parameters after a refresh-like mount', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?dateType=TRAVEL_DATE&dateFrom=2026-08-10&dateTo=2026-08-20',
+    });
+    await screen.findAllByText('Aarav Mehta');
+    expect((screen.getByLabelText('Date type') as HTMLSelectElement).value).toBe('TRAVEL_DATE');
+    expect((screen.getByLabelText('From date') as HTMLInputElement).value).toBe('2026-08-10');
+    expect((screen.getByLabelText('To date') as HTMLInputElement).value).toBe('2026-08-20');
+    expect(screen.getByLabelText('Active date filter')).toBeInTheDocument();
+  });
+
+  it('includes date-filter values in the leads query key (via distinct requests)', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-08-01' } });
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-07' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).includes('dateFrom=2026-08-01'))).toBe(true),
+    );
+  });
+
+  it('renders the active-filter summary and a removable chip', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    });
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByText(/Created Date: From 01 Aug 2026/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove date filter' })).toBeInTheDocument();
+  });
+
+  it('shows the filtered pagination total and a safe empty state', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/analytics')) return response(analytics);
+      if (url.includes('/lookups')) return response(lookups);
+      return response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } });
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    });
+    await screen.findByText('No leads found');
+    expect(screen.getByText('Showing 0 to 0 of 0 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+
+  it('includes the active date parameters in the export request', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    });
+    await screen.findAllByText('Aarav Mehta');
+    await userEvent.click(screen.getByRole('button', { name: /Export/ }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const v = String(url);
+          return v.includes('/queries/export') && v.includes('dateFrom=2026-08-01') && v.includes('dateTo=2026-08-07');
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('keeps other filters working alongside the date range', async () => {
+    const mock = stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, {
+      route: '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&assignedToId=me',
+    });
+    await screen.findAllByText('Aarav Mehta');
+    expect(screen.getByLabelText('Search leads')).toHaveValue('Singapore');
+    expect((screen.getByLabelText('Assigned user') as HTMLSelectElement).value).toBe('me');
+    // Typing in search keeps the date params in the request.
+    fireEvent.change(screen.getByLabelText('Search leads'), { target: { value: 'Bangkok' } });
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const v = String(url);
+          return v.includes('search=Bangkok') && v.includes('dateFrom=2026-08-01');
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('does not send a raw Prisma field name as dateType from unchecked UI input', async () => {
+    stubDates([enrichedLead]);
+    renderWithProviders(<LeadsPage />, { route: '/?dateType=internalRemarks&dateFrom=2026-08-01' });
+    await screen.findAllByText('Aarav Mehta');
+    // The uncontrolled unknown value is normalised back to Created Date on sync.
+    expect((screen.getByLabelText('Date type') as HTMLSelectElement).value).toBe('CREATED_DATE');
   });
 });

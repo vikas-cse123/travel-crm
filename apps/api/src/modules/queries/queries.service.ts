@@ -17,18 +17,11 @@ import type { AuthContext } from '../../middleware/authenticate.js';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { normalizeEmail, normalizePhone } from '../../utils/normalize.js';
-import {
-  ForbiddenError,
-  NotFoundError,
-  ValidationError,
-} from '../../utils/errors.js';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { resolvePagination } from '../../utils/pagination.js';
-import { localDayBounds } from '../../utils/timezone.js';
+import { localDayBounds, zonedTimeToUtc } from '../../utils/timezone.js';
 import { permissionsService } from '../auth/permissions.service.js';
-import {
-  getVisibleCustomer,
-  recalculateCustomerMetrics,
-} from '../customers/customers.service.js';
+import { getVisibleCustomer, recalculateCustomerMetrics } from '../customers/customers.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 export type RequestContext = { ipAddress: string | null; userAgent: string | null };
@@ -185,8 +178,8 @@ export function presentLeadRow(
               : null,
           isGenerated: Boolean(
             latestQuotation.publicToken &&
-              (!latestQuotation.publicTokenExpiresAt ||
-                latestQuotation.publicTokenExpiresAt >= new Date()),
+            (!latestQuotation.publicTokenExpiresAt ||
+              latestQuotation.publicTokenExpiresAt >= new Date()),
           ),
           totalViews: weblinkViews.get(latestQuotation.id) ?? 0,
         }
@@ -345,6 +338,11 @@ export async function buildLeadListWhere(auth: AuthContext, q: Record<string, un
       : undefined;
   };
   const search = str('search');
+  // Unified date-range filter: an allowlisted `dateType` maps to the matching
+  // Query column, and the calendar dates are widened to safe inclusive
+  // boundaries in the company's timezone (`>= from` local midnight,
+  // `< day-after-to` local midnight).
+  const dateFilter = await buildLeadDateRangeFilter(auth, q);
   return visibleWhere(auth, {
     ...(search
       ? {
@@ -376,6 +374,7 @@ export async function buildLeadListWhere(auth: AuthContext, q: Record<string, un
       ? { services: { some: { serviceType: str('serviceType') as Prisma.EnumServiceTypeFilter } } }
       : {}),
     ...(typeof q.quotationRequired === 'boolean' ? { quotationRequired: q.quotationRequired } : {}),
+    ...dateFilter,
     ...(dateRange('travelFrom', 'travelTo')
       ? { travelStartDate: dateRange('travelFrom', 'travelTo') }
       : {}),
@@ -386,6 +385,72 @@ export async function buildLeadListWhere(auth: AuthContext, q: Record<string, un
       ? { createdAt: dateRange('createdFrom', 'createdTo') }
       : {}),
   } as Prisma.QueryWhereInput);
+}
+
+/**
+ * Resolve the unified `dateType`/`dateFrom`/`dateTo` filter into a Prisma
+ * condition. `dateType` is an allowlisted enum (validated upstream) mapped to a
+ * fixed Query column — never a caller-supplied field name.
+ *
+ * Created Date filters the full `createdAt` timestamp, so boundaries are widened
+ * in the tenant's timezone (start of the selected From day to start of the day
+ * after To). Travel Date filters `travelStartDate`, a `@db.Date` column whose
+ * value is a pure calendar date stored at UTC midnight — there we use plain
+ * UTC-midnight boundaries so the range is always calendar-exact regardless of
+ * the company timezone.
+ */
+async function buildLeadDateRangeFilter(
+  auth: AuthContext,
+  q: Record<string, unknown>,
+): Promise<Prisma.QueryWhereInput> {
+  const type = typeof q.dateType === 'string' ? q.dateType : undefined;
+  const from = typeof q.dateFrom === 'string' ? q.dateFrom : undefined;
+  const to = typeof q.dateTo === 'string' ? q.dateTo : undefined;
+  if (!type || (!from && !to)) return {};
+
+  const field =
+    type === 'TRAVEL_DATE' ? 'travelStartDate' : type === 'CREATED_DATE' ? 'createdAt' : null;
+  if (!field) return {};
+
+  if (type === 'TRAVEL_DATE') {
+    // `travelStartDate` is `@db.Date`: compare against calendar midnights so
+    // the two selected days are inclusive on both ends.
+    const start = from ? new Date(`${from}T00:00:00.000Z`) : undefined;
+    const end = to ? new Date(`${to}T00:00:00.000Z`) : undefined;
+    if (end) end.setUTCDate(end.getUTCDate() + 1);
+    return {
+      [field]: {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lt: end } : {}),
+      },
+    };
+  }
+
+  // `createdAt` is a full timestamp: widen in the tenant timezone.
+  const company = await prisma.company.findUniqueOrThrow({
+    where: { id: auth.companyId },
+    select: { timezone: true },
+  });
+  const timezone = company.timezone || 'Asia/Kolkata';
+
+  const boundary = (value: string | undefined, dayOffset: number) => {
+    if (!value) return undefined;
+    const parts = value.split('-').map(Number);
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2];
+    if (year === undefined || month === undefined || day === undefined) return undefined;
+    return zonedTimeToUtc(timezone, year, month, day + dayOffset);
+  };
+  const start = boundary(from, 0);
+  const end = boundary(to, 1);
+  if (!start && !end) return {};
+  return {
+    [field]: {
+      ...(start ? { gte: start } : {}),
+      ...(end ? { lt: end } : {}),
+    },
+  };
 }
 export async function getVisible(auth: AuthContext, id: string) {
   const query = await prisma.query.findFirst({ where: await visibleWhere(auth, { id }), include });
@@ -738,7 +803,14 @@ export const queriesService = {
   },
   async lookups(auth: AuthContext) {
     const users = await prisma.user.findMany({
-      where: { companyId: auth.companyId, status: 'ACTIVE', deletedAt: null },
+      where: {
+        companyId: auth.companyId,
+        status: 'ACTIVE',
+        deletedAt: null,
+        // Never expose the hidden System Global Masters company or its users
+        // through lead-assignment APIs.
+        company: { isSystem: false },
+      },
       select: userSelect,
       orderBy: { fullName: 'asc' },
     });
@@ -1251,8 +1323,14 @@ export const queriesService = {
     };
   },
 
-  async analytics(auth: AuthContext) {
-    const where = await visibleWhere(auth);
+  async analytics(auth: AuthContext, q: Record<string, unknown> = {}) {
+    const baseWhere = await visibleWhere(auth);
+    // Apply the same unified date-range filter to the analytics population so
+    // counts, Type/Stage distributions and rate numerators all reflect the
+    // active date range. Formulas are unchanged.
+    const dateFilter = await buildLeadDateRangeFilter(auth, q);
+    const where: Prisma.QueryWhereInput =
+      Object.keys(dateFilter).length > 0 ? { ...baseWhere, ...dateFilter } : baseWhere;
     const now = new Date();
     const [total, newLeads, qualified, due, quotationRequired, ready, won, lost, byType, byStage] =
       await prisma.$transaction([
@@ -1317,7 +1395,13 @@ export const queriesService = {
    */
   async notesOverview(
     auth: AuthContext,
-    params: { search?: string; stage?: LeadStage; userId?: string; page?: number; pageSize?: number },
+    params: {
+      search?: string;
+      stage?: LeadStage;
+      userId?: string;
+      page?: number;
+      pageSize?: number;
+    },
   ) {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 12));
@@ -1381,7 +1465,12 @@ export const queriesService = {
         if (!lead) return null;
         const leadNotes = notes.filter((n) => n.queryId === qid);
         const [latestNote, ...previousNotes] = leadNotes;
-        return { ...lead, noteCount: leadNotes.length, latestNote: latestNote ?? null, previousNotes };
+        return {
+          ...lead,
+          noteCount: leadNotes.length,
+          latestNote: latestNote ?? null,
+          previousNotes,
+        };
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
     return {
