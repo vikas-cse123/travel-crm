@@ -98,7 +98,7 @@ export function errorHandler(
     {
       // TEMP-DIAG: safe step identifier only (never the exception itself).
       ...(error instanceof Error && 'diagnosticStep' in error
-        ? { diagnosticStep: (error as Error & { diagnosticStep: string }).diagnosticStep }
+        ? { details: { diagnosticStep: (error as Error & { diagnosticStep: string }).diagnosticStep } }
         : {}),
       requestId,
     },
