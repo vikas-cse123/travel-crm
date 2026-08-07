@@ -2090,9 +2090,17 @@ export const quotationsService = {
         quotation.versions[0]);
     if (!selected || selected.status === 'DRAFT')
       throw new ConflictError('A finalized version is required for a public link.');
-    // Idempotent: an existing active link for this quotation is returned as-is
-    // so repeated clicks never reset analytics or the token. Links never expire.
+    // A normal Open Weblink (no explicit versionId) always targets the CURRENT
+    // (latest) version. Keep publicVersionId in sync so the shared token serves
+    // the latest customer-facing content, even when a token already exists.
+    const isExplicitHistorical = Boolean(versionId);
     if (quotation.publicToken) {
+      if (!isExplicitHistorical && quotation.publicVersionId !== selected.id) {
+        await prisma.quotation.update({
+          where: { id },
+          data: { publicVersionId: selected.id },
+        });
+      }
       return {
         url: `${env.WEB_URL}/q/${quotation.publicToken}`,
         expiresAt: quotation.publicTokenExpiresAt,
@@ -2302,9 +2310,12 @@ export const quotationsService = {
       },
     });
     if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
+    // The public weblink always serves the CURRENT (latest) customer-facing
+    // version. `publicVersionId` is kept in sync by createPublicLink, but if it
+    // is missing/stale the current version is authoritative.
     const version =
-      quotation.versions.find((row) => row.id === quotation.publicVersionId) ??
-      quotation.versions.find((row) => row.id === quotation.currentVersionId);
+      quotation.versions.find((row) => row.id === quotation.currentVersionId) ??
+      quotation.versions.find((row) => row.id === quotation.publicVersionId);
     if (!version || version.status === 'DRAFT')
       throw new NotFoundError('Quotation version not available.');
     const likelyBot = /bot|crawler|spider|preview|headless|health/i.test(options?.userAgent ?? '');
@@ -2469,8 +2480,8 @@ export const quotationsService = {
     if (['ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(quotation.status))
       throw new ConflictError('A final response has already been recorded.');
     const version =
-      quotation.versions.find((row) => row.id === quotation.publicVersionId) ??
-      quotation.versions.find((row) => row.id === quotation.currentVersionId);
+      quotation.versions.find((row) => row.id === quotation.currentVersionId) ??
+      quotation.versions.find((row) => row.id === quotation.publicVersionId);
     if (!version || version.status === 'DRAFT')
       throw new ConflictError('The linked version is not finalized.');
     const now = new Date();

@@ -1223,6 +1223,90 @@ describe('Phase 8 quotation pages', () => {
     expect(footer).toHaveTextContent('Alpha Travel. All rights reserved.');
   });
 
+  it('hides an excluded service (hotelDetails.include=false) from the public weblink', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: 'https://storage.example.test/alpha-logo.png',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000001',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        // Hotel explicitly excluded in the quotation → must not render.
+        hotelDetails: { include: false, sectionTitle: 'Accommodation Details' },
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [
+          {
+            id: 'hotel-1',
+            city: 'Goa',
+            hotelName: 'Coastal Bay Resort',
+            category: '5 Star',
+            roomType: 'Deluxe Room',
+            mealPlan: 'BB',
+            nights: 3,
+            selected: true,
+            notes: null,
+          },
+        ],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      heroImageUrl: null,
+      hotelPresentations: {},
+      vehiclePresentations: {},
+      airlinePresentations: {},
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+    // The excluded Hotel section is completely absent.
+    expect(screen.queryByRole('heading', { name: /Your Hotels|Accommodation Details/ })).toBeNull();
+    expect(screen.queryByText('Coastal Bay Resort')).not.toBeInTheDocument();
+    // "Hotels" does not appear in Services Include.
+    const servicesInclude = screen.queryByText('Services Include')?.closest('section');
+    if (servicesInclude) {
+      expect(within(servicesInclude).queryByText('Hotels')).not.toBeInTheDocument();
+    }
+  });
+
   it('shows the Master destination (Malaysia) in Destinations while the hero stays the city', async () => {
     const publicData = {
       company: {

@@ -333,6 +333,7 @@ export const sightseeingDetailsSchema = z.object({
 });
 
 export const hotelDetailsSchema = z.object({
+  include: z.boolean().default(true),
   sectionTitle: optionalText(200).default('Your Hotels'),
   amount: optionalMoney,
   description: optionalText(8000),

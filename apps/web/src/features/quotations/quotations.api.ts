@@ -138,6 +138,7 @@ export interface FlightDetails {
   returnJourney: FlightJourney;
 }
 export interface HotelDetails {
+  include?: boolean;
   sectionTitle?: string | null;
   amount?: number | null;
   description?: string | null;

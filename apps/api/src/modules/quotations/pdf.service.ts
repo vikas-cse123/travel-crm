@@ -254,6 +254,7 @@ export interface QuotationPdfInput {
     visaVfsCharge: unknown;
     flightDetails: unknown;
     sightseeingDetails: unknown;
+    hotelDetails?: { include?: boolean } | null;
     hotels: Array<{
       city: string;
       hotelName: string;
@@ -1027,6 +1028,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   const flightData = v.flightDetails as FlightDetails | null | undefined;
   const sightData =
     v.sightseeingDetails as { include?: boolean; days?: SightDay[] } | null | undefined;
+  // Hotels only render when included in the quotation (hotelDetails.include).
+  const hotelIncluded = v.hotelDetails?.include !== false && v.hotels.length > 0;
   const hasFlights =
     !!flightData?.include &&
     ((flightData.outbound?.segments?.length ?? 0) > 0 ||
@@ -1043,7 +1046,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
   const serviceChips = [
     hasFlights && 'Flights',
-    v.hotels.length > 0 && 'Hotels',
+    hotelIncluded && 'Hotels',
     (sightDays.length > 0 || v.itinerary.length > 0) && 'Tours',
     vehicleServices.length > 0 && 'Transport',
     cruiseServices.length > 0 && 'Cruise',
@@ -1247,7 +1250,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   // HOTELS — measured cards, continuation at card boundaries
   // ==========================================================================
-  if (v.hotels.length) {
+  if (hotelIncluded) {
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Hotels'));
     const imageW = 150;

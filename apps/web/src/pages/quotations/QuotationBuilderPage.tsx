@@ -180,6 +180,7 @@ const defaultFlightDetails = (): NonNullable<QuotationVersionInput['flightDetail
   },
 });
 const defaultHotelDetails = (): NonNullable<QuotationVersionInput['hotelDetails']> => ({
+  include: true,
   sectionTitle: 'Your Hotels',
   amount: 0,
   description: null,
@@ -352,18 +353,6 @@ const emptyHotel = (
 });
 
 /** True when a quotation hotel row's city matches a Hotel Master's city or destination. */
-const hotelCityMatches = (
-  rowCity: string,
-  hotel: { city: { name: string }; destination: { name: string } },
-) => {
-  const city = rowCity.trim().toLowerCase();
-  const hotelCity = hotel.city.name.trim().toLowerCase();
-  const destination = hotel.destination.name.trim().toLowerCase();
-  return (
-    hotelCity === city || destination === city || hotelCity.includes(city) || city.includes(hotelCity)
-  );
-};
-
 type DefaultHotelMaster = {
   id: string;
   name: string;
@@ -391,8 +380,15 @@ const isHotelStay = (city: string | null | undefined): boolean => {
 const matchDefaultHotel = (rowCity: string, masters: DefaultHotelMaster[]) => {
   const city = rowCity.trim().toLowerCase();
   if (!city) return undefined;
-  return masters.find(
-    (hotel) => hotel.status === 'ACTIVE' && hotel.isDefaultForCity && hotelCityMatches(city, hotel),
+  const defaults = masters.filter(
+    (hotel) => hotel.status === 'ACTIVE' && hotel.isDefaultForCity,
+  );
+  // Prefer an exact city match, then destination match — never a substring match
+  // that could pick a default hotel from a different city.
+  return (
+    defaults.find((hotel) => hotel.city.name.trim().toLowerCase() === city) ??
+    defaults.find((hotel) => hotel.destination.name.trim().toLowerCase() === city) ??
+    undefined
   );
 };
 
@@ -1111,16 +1107,23 @@ export function QuotationBuilderPage() {
       terms: version.terms,
     });
     // A brand-new quotation with a prefilled default hotel keeps the Hotel
-    // section included unless the user explicitly turned it off.
+    // section included unless the user explicitly turned it off. A saved
+    // quotation's `hotelDetails.include` is authoritative (an explicitly
+    // excluded hotel stays excluded).
     const prefilledHotelRows = !version.hotels.length
       ? autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? [])
       : [];
-    if (
-      prefilledHotelRows.some((row) => row.hotelId) &&
-      !autoHotelRef.current.userToggledHotel
-    ) {
-      autoHotelRef.current.enabledByAuto = true;
-      setExcluded((current) => ({ ...current, hotel: false }));
+    const savedHotelInclude = version.hotelDetails?.include ?? true;
+    if (savedHotelInclude && !autoHotelRef.current.userToggledHotel) {
+      if (
+        prefilledHotelRows.some((row) => row.hotelId) ||
+        version.hotels.length > 0
+      ) {
+        autoHotelRef.current.enabledByAuto = true;
+        setExcluded((current) => ({ ...current, hotel: false }));
+      }
+    } else if (!savedHotelInclude && !autoHotelRef.current.userToggledHotel) {
+      setExcluded((current) => ({ ...current, hotel: true }));
     }
     // Cruise Include default, derived from the version's OWN saved CRUISE rows.
     // A NEW quotation created from a Lead has its version services seeded from
@@ -1451,6 +1454,12 @@ export function QuotationBuilderPage() {
         {
           ...value,
           flightDetails,
+          hotelDetails: {
+            sectionTitle: value.hotelDetails?.sectionTitle ?? 'Your Hotels',
+            amount: value.hotelDetails?.amount ?? 0,
+            description: value.hotelDetails?.description ?? null,
+            include: !excludedRef.current.hotel,
+          },
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
           hotels: seq(value.hotels).map((hotel) => ({
             ...hotel,

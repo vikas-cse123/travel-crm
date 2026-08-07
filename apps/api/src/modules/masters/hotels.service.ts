@@ -365,6 +365,7 @@ export const hotelsService = {
         id: true,
         name: true,
         starCategory: true,
+        status: true,
         isDefaultForCity: true,
         destination: { select: { id: true, name: true } },
         city: { select: { id: true, name: true } },

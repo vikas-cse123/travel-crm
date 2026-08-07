@@ -867,6 +867,8 @@ export function PublicQuotationPage() {
 
   const selectedHotels = v.hotels.filter((hotel) => hotel.selected);
   const visibleHotels = selectedHotels.length > 0 ? selectedHotels : v.hotels;
+  // Hotels only appear when included in the quotation (hotelDetails.include).
+  const hotelIncluded = v.hotelDetails?.include !== false && visibleHotels.length > 0;
   const hotelNights = visibleHotels.reduce((sum, hotel) => sum + Number(hotel.nights ?? 0), 0);
   const nights =
     q.travelStartDate && q.travelEndDate
@@ -981,7 +983,7 @@ export function PublicQuotationPage() {
   const includedServices: ServiceCard[] = [];
   const addService = (key: string, label: string) => includedServices.push({ key, label });
   if (hasFlights) addService('flights', 'Flights');
-  if (v.hotels.length > 0) addService('hotels', 'Hotels');
+  if (hotelIncluded) addService('hotels', 'Hotels');
   if (hasSightseeing) addService('sightseeing', 'Sightseeing');
   if (cruises.length > 0) addService('cruise', 'Cruise');
   if (vehicles.length > 0) addService('transportation', 'Transportation');
@@ -1182,7 +1184,7 @@ export function PublicQuotationPage() {
         )}
 
         {/* Hotels */}
-        {visibleHotels.length > 0 && (
+        {hotelIncluded && (
           <section>
             <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
             <div className="grid gap-5">
