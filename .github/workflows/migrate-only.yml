@@ -26,22 +26,103 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Inspect ECS service + task definition family
+      - name: Run prisma migrate deploy (migration-only)
         run: |
-          echo "cluster=${{ vars.ECS_CLUSTER }} service=${{ vars.API_ECS_SERVICE }}"
-          aws ecs describe-services \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --services "${{ vars.API_ECS_SERVICE }}" \
-            --query 'services[0].{status:status, taskDef:taskDefinition}' --output json
-          echo "--- task definition family ---"
-          FAMILY="${{ vars.API_ECS_SERVICE }}"
-          aws ecs describe-task-definition --task-definition "$FAMILY" \
-            --query 'taskDefinition.{family:family, revision:revision, arn:taskDefinitionArn}' --output json
+          set -euo pipefail
+          cluster="${{ vars.ECS_CLUSTER }}"
+          api_family="${{ vars.API_ECS_SERVICE }}"
+          migrate_image="${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-16cb2d3fde22b3d0666f308b278fd7e363d267d2"
 
-      - name: Run prisma migrate deploy (migration-only, no image build / ECS update)
-        run: |
-          chmod +x .github/scripts/run-ecs-migration.sh
-          ./.github/scripts/run-ecs-migration.sh \
-            "${{ vars.ECS_CLUSTER }}" \
-            "${{ vars.API_ECS_SERVICE }}" \
-            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-16cb2d3fde22b3d0666f308b278fd7e363d267d2"
+          echo "cluster=$cluster family=$api_family"
+          echo "migrate image=$migrate_image"
+
+          # Network configuration of the running API service.
+          net="$(aws ecs describe-services --cluster "$cluster" --services "$api_family" --query 'services[0].networkConfiguration.awsvpcConfiguration' --output json)"
+          subnets="$(printf '%s' "$net" | jq -r '.subnets | join(",")')"
+          sgs="$(printf '%s' "$net" | jq -r '.securityGroups | join(",")')"
+          assign_pub="$(printf '%s' "$net" | jq -r '.assignPublicIp')"
+          echo "subnets=$subnets sgs=$sgs assign_pub=$assign_pub"
+
+          # Source task definition: roles + environment (DB_* secrets) intact.
+          td="$(aws ecs describe-task-definition --task-definition "$api_family" --query 'taskDefinition' --output json)"
+          task_role="$(printf '%s' "$td" | jq -r '.taskRoleArn')"
+          exec_role="$(printf '%s' "$td" | jq -r '.executionRoleArn')"
+          cpu="$(printf '%s' "$td" | jq -r '.cpu')"
+          memory="$(printf '%s' "$td" | jq -r '.memory')"
+          env="$(printf '%s' "$td" | jq -c '[.containerDefinitions[0].environment[]? | select(.name == "DB_HOST" or .name == "DB_PORT" or .name == "DB_USER" or .name == "DB_PASSWORD" or .name == "DB_NAME")]')"
+          secrets="$(printf '%s' "$td" | jq -c '[.containerDefinitions[0].secrets[]? | select(.name == "DB_HOST" or .name == "DB_PORT" or .name == "DB_USER" or .name == "DB_PASSWORD" or .name == "DB_NAME")]')"
+          echo "task_role=$task_role exec_role=$exec_role cpu=$cpu memory=$memory"
+          echo "env_count=$(printf '%s' "$env" | jq length) secrets_count=$(printf '%s' "$secrets" | jq length)"
+
+          # Build a minimal migration task definition (register API only accepts
+          # these fields; never clones the API container definition wholesale).
+          migration_td="$(jq -n \
+            --arg family "interscale-travel-crm-prod-migrate" \
+            --arg image "$migrate_image" \
+            --arg taskRole "$task_role" \
+            --arg execRole "$exec_role" \
+            --arg cpu "$cpu" \
+            --arg memory "$memory" \
+            --argjson env "$env" \
+            --argjson secrets "$secrets" \
+            '{
+              family: $family,
+              taskRoleArn: $taskRole,
+              executionRoleArn: $execRole,
+              networkMode: "awsvpc",
+              requiresCompatibilities: ["FARGATE"],
+              cpu: $cpu,
+              memory: $memory,
+              containerDefinitions: [{
+                name: "migrate",
+                image: $image,
+                essential: true,
+                command: ["node", "apps/api/docker-entrypoint.mjs", "npx", "prisma", "migrate", "deploy", "--schema", "apps/api/prisma/schema.prisma"],
+                environment: $env,
+                secrets: $secrets,
+                logConfiguration: {
+                  logDriver: "awslogs",
+                  options: {
+                    "awslogs-group": "/ecs/interscale-travel-crm-prod/migrations",
+                    "awslogs-region": "${{ vars.AWS_REGION }}",
+                    "awslogs-stream-prefix": "migrate"
+                  }
+                }
+              }]
+            }')"
+
+          migration_def_arn="$(printf '%s' "$migration_td" | aws ecs register-task-definition --cli-input-json /dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text)"
+          echo "registered migration task def: $migration_def_arn"
+
+          task_arn="$(aws ecs run-task \
+            --cluster "$cluster" \
+            --task-definition "$migration_def_arn" \
+            --launch-type FARGATE \
+            --count 1 \
+            --network-configuration "awsvpcConfiguration={subnets=[${subnets}],securityGroups=[${sgs}],assignPublicIp=${assign_pub}}" \
+            --query 'tasks[0].taskArn' --output text)"
+          echo "migration task started: $task_arn"
+
+          status=""
+          for _ in $(seq 1 90); do
+            status="$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].lastStatus' --output text)"
+            [[ "$status" == "STOPPED" ]] && break
+            sleep 10
+          done
+          if [[ "$status" != "STOPPED" ]]; then
+            echo "migration task did not stop in time" >&2
+            exit 1
+          fi
+
+          exit_code="$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].containers[0].exitCode' --output text)"
+          echo "migration task exit code: $exit_code"
+          if [[ "$exit_code" != "0" ]]; then
+            log_group="/ecs/interscale-travel-crm-prod/migrations"
+            stream="$(aws logs describe-log-streams --log-group-name "$log_group" --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)"
+            if [[ -n "$stream" && "$stream" != "None" ]]; then
+              aws logs get-log-events --log-group-name "$log_group" --log-stream-name "$stream" \
+                --query 'events[].message' --output text | tail -40
+            fi
+            exit 1
+          fi
+          echo "migration succeeded"
