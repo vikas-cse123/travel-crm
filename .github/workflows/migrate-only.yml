@@ -1,0 +1,35 @@
+name: Run Production Migrations Only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: production-migrate-only
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Run prisma migrate deploy (migration-only, no image build / ECS update)
+        run: |
+          chmod +x .github/scripts/run-ecs-migration.sh
+          ./.github/scripts/run-ecs-migration.sh \
+            "${{ vars.ECS_CLUSTER }}" \
+            "${{ vars.API_ECS_SERVICE }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-16cb2d3fde22b3d0666f308b278fd7e363d267d2"
