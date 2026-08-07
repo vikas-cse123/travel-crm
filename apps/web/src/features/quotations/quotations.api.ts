@@ -472,9 +472,11 @@ export function useGenerateQuotationPdf(quotationId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (versionId: string) => {
+      // force: true — an explicit "Generate PDF" always produces a fresh
+      // document so the latest destination image / footer is included.
       const document = await apiClient.post<{ id: string; fileName: string }>(
         `/quotations/${quotationId}/versions/${versionId}/generate-pdf`,
-        {},
+        { force: true },
       );
       const { url } = await apiClient.get<{ url: string }>(
         `/quotations/${quotationId}/documents/${document.id}/download-url`,
