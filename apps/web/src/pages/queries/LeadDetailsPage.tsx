@@ -28,6 +28,7 @@ import {
   useNotes,
   useTimeline,
 } from '@/features/queries/queries.api';
+import { leadTravelDatesLabel } from '@/features/quotations/travel-dates';
 
 const inputClass = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
 const localDateTimeValue = (value: string) => {
@@ -343,9 +344,13 @@ export function LeadDetailsPage() {
             <h2 className="font-semibold">Travel and travellers</h2>
             <dl className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <Info label="Dates">
-                {q.travelStartDate
-                  ? `${new Date(q.travelStartDate).toLocaleDateString()} – ${q.travelEndDate ? new Date(q.travelEndDate).toLocaleDateString() : 'Open'}`
-                  : 'Flexible'}
+                {leadTravelDatesLabel(
+                  q.travelStartDate,
+                  q.travelEndDate,
+                  q.itinerary.length
+                    ? q.itinerary.reduce((sum, row) => sum + row.nights, 0) + 1
+                    : undefined,
+                ) || 'Flexible'}
               </Info>
               <Info label="Departure">
                 {[q.departureCity, q.departureCountry].filter(Boolean).join(', ')}
@@ -419,7 +424,6 @@ export function LeadDetailsPage() {
                   <thead className="text-xs uppercase text-slate-500">
                     <tr>
                       <th className="py-2 pr-4">Quotation</th>
-                      <th className="py-2 pr-4">Status</th>
                       <th className="py-2 pr-4">Version</th>
                       <th className="py-2 pr-4">Final amount</th>
                       <th className="py-2 pr-4">Last sent</th>
@@ -440,7 +444,6 @@ export function LeadDetailsPage() {
                               {quotation.quotationNumber}
                             </Link>
                           </td>
-                          <td className="py-3 pr-4">{labelForLookup(quotation.status)}</td>
                           <td className="py-3 pr-4">
                             {version ? `v${version.versionNumber}` : '—'}
                           </td>

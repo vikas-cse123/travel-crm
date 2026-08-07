@@ -1,12 +1,11 @@
 import { FilePlus2, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { labelForLookup, PERMISSIONS } from '@interscale/shared';
+import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotations } from '@/features/quotations/quotations.api';
 
 const field = 'h-10 rounded-lg border border-slate-300 bg-card px-3 text-sm';
-const statuses = ['DRAFT', 'SENT', 'VIEWED', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const;
 export function QuotationsPage() {
   const { hasPermission } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -26,7 +25,7 @@ export function QuotationsPage() {
           <p className="text-sm font-medium text-brand-700">Commercial workspace</p>
           <h1 className="text-2xl font-semibold">Customer quotations</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Versioned proposals, delivery tracking and secure customer decisions.
+            Versioned proposals, delivery tracking and secure customer access.
           </p>
         </div>
         {hasPermission(PERMISSIONS.QUOTATIONS_CREATE) && (
@@ -38,13 +37,7 @@ export function QuotationsPage() {
           </Link>
         )}
       </header>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
-        {statuses.map((status) => (
-          <article key={status} className="rounded-xl border bg-card p-4">
-            <p className="text-2xl font-semibold">{metrics?.byStatus[status] ?? 0}</p>
-            <p className="text-xs text-slate-500">{labelForLookup(status)}</p>
-          </article>
-        ))}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <article className="rounded-xl border bg-card p-4">
           <p className="text-xl font-semibold">
             ₹{Number(metrics?.totalQuotedValue ?? 0).toLocaleString('en-IN')}
@@ -52,13 +45,17 @@ export function QuotationsPage() {
           <p className="text-xs text-slate-500">Quoted value</p>
         </article>
         <article className="rounded-xl border bg-card p-4">
-          <p className="text-2xl font-semibold">{metrics?.acceptanceRate ?? 0}%</p>
-          <p className="text-xs text-slate-500">Acceptance</p>
+          <p className="text-2xl font-semibold">{list.data?.data.length ?? 0}</p>
+          <p className="text-xs text-slate-500">Quotations</p>
+        </article>
+        <article className="rounded-xl border bg-card p-4">
+          <p className="text-2xl font-semibold">{list.data?.pagination.total ?? 0}</p>
+          <p className="text-xs text-slate-500">Total</p>
         </article>
       </section>
       <section className="rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-3 border-b p-4 md:grid-cols-4">
-          <label className="relative md:col-span-2">
+        <div className="grid gap-3 border-b p-4 md:grid-cols-2">
+          <label className="relative md:col-span-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <input
               aria-label="Search quotations"
@@ -68,17 +65,6 @@ export function QuotationsPage() {
               onChange={(event) => update('search', event.target.value)}
             />
           </label>
-          <select
-            aria-label="Quotation status"
-            className={field}
-            value={params.get('status') ?? ''}
-            onChange={(event) => update('status', event.target.value)}
-          >
-            <option value="">All statuses</option>
-            {statuses.map((status) => (
-              <option key={status}>{status}</option>
-            ))}
-          </select>
           <input
             aria-label="Quotation destination"
             className={field}
@@ -110,11 +96,9 @@ export function QuotationsPage() {
                       'Destination',
                       'Version',
                       'Final amount',
-                      'Status',
                       'Created by',
                       'Last sent',
                       'Last viewed',
-                      'Valid until',
                       'Created',
                     ].map((value) => (
                       <th key={value} className="px-4 py-3">
@@ -152,11 +136,6 @@ export function QuotationsPage() {
                               }).format(Number(version.finalAmount))
                             : '—'}
                         </td>
-                        <td className="px-4 py-4">
-                          <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                            {labelForLookup(quotation.status)}
-                          </span>
-                        </td>
                         <td className="px-4 py-4">{quotation.createdBy.fullName}</td>
                         <td className="px-4 py-4">
                           {quotation.lastSentAt
@@ -166,11 +145,6 @@ export function QuotationsPage() {
                         <td className="px-4 py-4">
                           {quotation.lastViewedAt
                             ? new Date(quotation.lastViewedAt).toLocaleDateString()
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-4">
-                          {quotation.validUntil
-                            ? new Date(quotation.validUntil).toLocaleDateString()
                             : '—'}
                         </td>
                         <td className="px-4 py-4">
@@ -194,9 +168,6 @@ export function QuotationsPage() {
                       >
                         {quotation.quotationNumber}
                       </Link>
-                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                        {labelForLookup(quotation.status)}
-                      </span>
                     </div>
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {quotation.customerName}

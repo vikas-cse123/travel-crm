@@ -344,13 +344,9 @@ describe('Phase 8 quotation pages', () => {
     renderWithProviders(<QuotationsPage />);
     expect((await screen.findAllByText('QT-2026-000001')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Aarav Mehta').length).toBeGreaterThan(0);
-    expect(screen.getByText('50%')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search quotations'), 'Aarav');
-    await userEvent.selectOptions(screen.getByLabelText('Quotation status'), 'SENT');
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(([url]) => String(url).includes('search=Aarav&status=SENT')),
-      ).toBe(true),
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('search=Aarav'))).toBe(true),
     );
   });
 
@@ -579,6 +575,55 @@ describe('Phase 8 quotation pages', () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/send'))).toBe(true),
     );
+  });
+
+  it('shows inclusive travel dates and no lifecycle status on the detail page', async () => {
+    const detail = {
+      ...copyQuotationDetail,
+      travelStartDate: '2026-09-02',
+      travelEndDate: null,
+      validUntil: '2026-09-20',
+      status: 'SENT',
+      versions: [
+        {
+          ...copyFinalizedVersion,
+          travelStartDate: '2026-09-02',
+          travelEndDate: null,
+          itinerary: [
+            { id: 'i1', dayNumber: 1, title: 'Arrive', destination: 'Kuala Lumpur', description: 'a', meals: null, overnightLocation: null, activities: null, transfers: null, notes: null, sequence: 1 },
+            { id: 'i2', dayNumber: 7, title: 'Depart', destination: 'Kuala Lumpur', description: 'b', meals: null, overnightLocation: null, activities: null, transfers: null, notes: null, sequence: 2 },
+          ],
+        },
+      ],
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (_input, options) => {
+        if (!options || options.method === 'GET') return response(detail);
+        return response({ id: 'doc-new', reused: true });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    await screen.findByText('Version 1');
+    // Travel dates: 7-day trip starting 02/09/2026 ends 08/09/2026 (inclusive).
+    const start = new Date('2026-09-02').toLocaleDateString();
+    const end = new Date('2026-09-08').toLocaleDateString();
+    expect(screen.getByText(`${start} – ${end}`)).toBeInTheDocument();
+    // No "Open" anywhere in the travel dates row.
+    expect(screen.queryByText(/– Open/)).not.toBeInTheDocument();
+    // No lifecycle Status card and no Valid until row.
+    expect(screen.queryByText('Valid until')).not.toBeInTheDocument();
+    const statusLabel = screen.queryByText((_content, element) =>
+      element?.textContent === 'Status' &&
+      element?.tagName === 'P' &&
+      element?.className?.includes('uppercase'),
+    );
+    expect(statusLabel).toBeNull();
   });
 
   it('copy public link shows a Copy icon, a Copied! tooltip on success, and resets', async () => {

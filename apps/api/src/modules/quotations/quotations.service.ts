@@ -143,14 +143,6 @@ async function getQuotation(auth: AuthContext, id: string) {
   return value;
 }
 
-function effectiveStatus(value: { status: string; validUntil: Date | null }) {
-  return value.validUntil &&
-    value.validUntil < new Date() &&
-    !['ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(value.status)
-    ? 'EXPIRED'
-    : value.status;
-}
-
 /**
  * Destination/Master-country names for a quotation, preserving first-seen
  * itinerary order and de-duplicating repeated stays. The lead itinerary's
@@ -301,7 +293,7 @@ function presentQuotation(value: FullQuotation, canViewCosting: boolean, custome
   void deletedAt;
   return {
     ...quotation,
-    status: effectiveStatus(value),
+    status: value.status,
     versions: value.versions.map((version) =>
       presentVersion(version, canViewCosting, customerSafe),
     ),
@@ -1036,14 +1028,7 @@ export const quotationsService = {
     const status = typeof query.status === 'string' ? query.status : undefined;
     const destination = typeof query.destination === 'string' ? query.destination : undefined;
     const where = await visibleWhere(auth, {
-      ...(status === 'EXPIRED'
-        ? {
-            validUntil: { lt: new Date() },
-            status: { notIn: ['ACCEPTED', 'REJECTED', 'ARCHIVED'] },
-          }
-        : status
-          ? { status: status as Prisma.EnumQuotationStatusFilter }
-          : {}),
+      ...(status ? { status: status as Prisma.EnumQuotationStatusFilter } : {}),
       ...(destination
         ? { destinationSummary: { contains: destination, mode: 'insensitive' } }
         : {}),
@@ -2102,12 +2087,9 @@ export const quotationsService = {
         quotation.versions[0]);
     if (!selected || selected.status === 'DRAFT')
       throw new ConflictError('A finalized version is required for a public link.');
-    // Idempotent: an existing, unexpired active link for this quotation is
-    // returned as-is so repeated clicks never reset analytics or the token.
-    if (
-      quotation.publicToken &&
-      (!quotation.publicTokenExpiresAt || quotation.publicTokenExpiresAt >= new Date())
-    ) {
+    // Idempotent: an existing active link for this quotation is returned as-is
+    // so repeated clicks never reset analytics or the token. Links never expire.
+    if (quotation.publicToken) {
       return {
         url: `${env.WEB_URL}/q/${quotation.publicToken}`,
         expiresAt: quotation.publicTokenExpiresAt,
@@ -2316,11 +2298,7 @@ export const quotationsService = {
         },
       },
     });
-    if (
-      !quotation ||
-      (quotation.publicTokenExpiresAt && quotation.publicTokenExpiresAt < new Date())
-    )
-      throw new NotFoundError('This quotation link is invalid or expired.');
+    if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
     const version =
       quotation.versions.find((row) => row.id === quotation.publicVersionId) ??
       quotation.versions.find((row) => row.id === quotation.currentVersionId);
@@ -2468,7 +2446,7 @@ export const quotationsService = {
         rooms: quotation.rooms,
         validUntil: quotation.validUntil,
         createdAt: quotation.createdAt,
-        status: effectiveStatus(quotation),
+        status: quotation.status,
       },
       version: presentVersion(version, false, true),
       downloadUrl,
@@ -2484,11 +2462,7 @@ export const quotationsService = {
       where: { publicTokenHash: hashToken(token), deletedAt: null },
       include: quotationInclude,
     });
-    if (
-      !quotation ||
-      (quotation.publicTokenExpiresAt && quotation.publicTokenExpiresAt < new Date())
-    )
-      throw new NotFoundError('This quotation link is invalid or expired.');
+    if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
     if (['ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(quotation.status))
       throw new ConflictError('A final response has already been recorded.');
     const version =

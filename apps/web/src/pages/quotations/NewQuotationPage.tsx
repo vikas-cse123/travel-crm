@@ -14,13 +14,11 @@ export function NewQuotationPage() {
   const create = useCreateQuotation();
   const [queryId, setQueryId] = useState(routeQueryId ?? params.get('queryId') ?? '');
   const [templateId] = useState(params.get('templateId') ?? '');
-  const [validUntil, setValidUntil] = useState('');
   const submit = () =>
     create.mutate(
       {
         queryId,
         templateId: templateId || null,
-        validUntil: validUntil ? new Date(validUntil) : null,
       },
       { onSuccess: (quotation) => navigate(`/quotations/${quotation.id}`) },
     );
@@ -57,16 +55,6 @@ export function NewQuotationPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label className="block text-sm font-medium">
-            Valid until
-            <input
-              aria-label="Valid until"
-              className={`${field} mt-1`}
-              type="date"
-              value={validUntil}
-              onChange={(event) => setValidUntil(event.target.value)}
-            />
           </label>
           {create.isError && (
             <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{create.error.message}</p>

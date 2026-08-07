@@ -63,9 +63,7 @@ interface PublicQuotation {
     childrenWithoutBed: number;
     infants: number;
     rooms: number;
-    validUntil: string | null;
     createdAt?: string | null;
-    status: string;
   };
   version: QuotationVersion;
   heroImageUrl?: string | null;

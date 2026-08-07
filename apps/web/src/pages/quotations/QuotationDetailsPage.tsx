@@ -23,6 +23,7 @@ import {
   useQuotationAction,
   useSendQuotation,
 } from '@/features/quotations/quotations.api';
+import { resolveTravelDates } from '@/features/quotations/travel-dates';
 
 /** Trigger a normal browser download for a generated document URL. */
 function downloadPdf(url: string, fileName?: string) {
@@ -191,14 +192,12 @@ export function QuotationDetailsPage() {
               </Button>
             </Link>
           )}
-          {current?.status !== 'DRAFT' &&
-            q.status !== 'ACCEPTED' &&
-            hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
-              <Button variant="secondary" onClick={createRevision}>
-                <Plus className="h-4 w-4" />
-                Create revision
-              </Button>
-            )}
+          {current?.status !== 'DRAFT' && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
+            <Button variant="secondary" onClick={createRevision}>
+              <Plus className="h-4 w-4" />
+              Create revision
+            </Button>
+          )}
           {current?.status === 'FINALIZED' && hasPermission(PERMISSIONS.QUOTATIONS_SEND) && (
             <Button
               onClick={() => {
@@ -212,13 +211,9 @@ export function QuotationDetailsPage() {
           )}
         </div>
       </header>
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ['Status', labelForLookup(q.status)],
-          [
-            'Current version',
-            current ? `v${current.versionNumber} · ${labelForLookup(current.status)}` : '—',
-          ],
+          ['Current version', current ? `v${current.versionNumber}` : '—'],
           ['Final amount', current ? money(current.finalAmount, current.currency) : '—'],
           ['Last sent', q.lastSentAt ? new Date(q.lastSentAt).toLocaleString() : 'Never'],
           ['Last viewed', q.lastViewedAt ? new Date(q.lastViewedAt).toLocaleString() : 'Never'],
@@ -314,8 +309,15 @@ export function QuotationDetailsPage() {
           <div>
             <dt className="text-xs text-slate-500">Travel dates</dt>
             <dd>
-              {q.travelStartDate ? new Date(q.travelStartDate).toLocaleDateString() : 'Flexible'} –{' '}
-              {q.travelEndDate ? new Date(q.travelEndDate).toLocaleDateString() : 'Open'}
+              {resolveTravelDates({
+                start: q.travelStartDate,
+                end: q.travelEndDate,
+                // Canonical trip duration: the itinerary's highest day number is
+                // the number of travel days (Day 1 = start day).
+                totalDays: current?.itinerary.length
+                  ? Math.max(...current.itinerary.map((day) => day.dayNumber))
+                  : undefined,
+              }).label || '—'}
             </dd>
           </div>
           <div>
@@ -324,10 +326,6 @@ export function QuotationDetailsPage() {
               {q.adults} adults · {q.childrenWithBed + q.childrenWithoutBed} children · {q.infants}{' '}
               infants
             </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-slate-500">Valid until</dt>
-            <dd>{q.validUntil ? new Date(q.validUntil).toLocaleDateString() : 'Not set'}</dd>
           </div>
         </dl>
       </section>
@@ -419,7 +417,7 @@ export function QuotationDetailsPage() {
                   <span className="font-semibold">
                     {money(version.finalAmount, version.currency)}
                   </span>
-                  {hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && q.status !== 'ACCEPTED' && (
+                  {hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -576,7 +574,7 @@ export function QuotationDetailsPage() {
                   checked={includePublicLink}
                   onChange={(event) => setIncludePublicLink(event.target.checked)}
                 />
-                Include customer view/accept link
+                Include customer view link
               </label>
               {send.isError && <p className="text-sm text-red-700">{send.error.message}</p>}
             </div>
