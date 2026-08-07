@@ -148,39 +148,29 @@ export const authService = {
   async register(input: RegisterInput, context: RequestContext) {
     const normalizedEmail = normalizeEmail(input.email);
 
-    // TEMP-DIAG: track how far registration got before any unexpected throw.
-    let diagnosticStep = 'REGISTER_01_START';
-    const mark = (step: string): void => {
-      diagnosticStep = step;
-    };
+    // Advisory pre-check for a friendly field error. The unique constraint is
+    // the real guarantee, and the catch below handles the race.
+    if (await authRepository.emailExists(normalizedEmail)) {
+      throw new ConflictError('An account with this email already exists.');
+    }
+
+    const passwordHash = await hashPassword(input.password);
+    await ensurePermissionCatalog();
+
+    const slug = await generateUniqueSlug(input.companyName, async (candidate) => {
+      const existing = await prisma.company.findUnique({
+        where: { slug: candidate },
+        select: { id: true },
+      });
+      return existing !== null;
+    });
 
     let ownerUserId: string;
     let companyId: string;
 
     try {
-      mark('REGISTER_02_DUPLICATE_CHECK');
-      // Advisory pre-check for a friendly field error. The unique constraint is
-      // the real guarantee, and the catch below handles the race.
-      if (await authRepository.emailExists(normalizedEmail)) {
-        throw new ConflictError('An account with this email already exists.');
-      }
-
-      mark('REGISTER_03_PASSWORD_HASHED');
-      const passwordHash = await hashPassword(input.password);
-      await ensurePermissionCatalog();
-
-      const slug = await generateUniqueSlug(input.companyName, async (candidate) => {
-        const existing = await prisma.company.findUnique({
-          where: { slug: candidate },
-          select: { id: true },
-        });
-        return existing !== null;
-      });
-
-      mark('REGISTER_04_TX_STARTED');
       const result = await prisma.$transaction(
         async (tx) => {
-          mark('REGISTER_05_TX_CALLBACK_STARTED');
           const company = await tx.company.create({
             data: {
               name: input.companyName,
@@ -190,12 +180,10 @@ export const authService = {
               status: 'ACTIVE',
             },
           });
-          mark('REGISTER_06_COMPANY_CREATED');
 
           // Same provisioning the seed uses, so a registered tenant and the
           // demo tenant have identical role and permission structures.
           const { ownerRoleId } = await provisionCompanyDefaults(tx, company.id);
-          mark('REGISTER_07_ROLE_PERMISSIONS_READY');
 
           const owner = await tx.user.create({
             data: {
@@ -214,7 +202,6 @@ export const authService = {
               emailVerifiedAt: null,
             },
           });
-          mark('REGISTER_08_USER_CREATED');
 
           await tx.activityLog.create({
             data: {
@@ -228,7 +215,6 @@ export const authService = {
               userAgent: context.userAgent,
             },
           });
-          mark('REGISTER_11_ACTIVITY_CREATED');
 
           return { companyId: company.id, ownerId: owner.id };
         },
@@ -238,9 +224,7 @@ export const authService = {
 
       companyId = result.companyId;
       ownerUserId = result.ownerId;
-      mark('REGISTER_12_TX_COMMITTED');
       await reminderRulesService.ensureDefaults(companyId, ownerUserId);
-      mark('REGISTER_13_DEFAULTS_READY');
     } catch (error) {
       // The unique index is the authority; a concurrent registration lands here.
       if (
@@ -251,19 +235,13 @@ export const authService = {
       ) {
         throw new ConflictError('An account with this email already exists.');
       }
-      if (error instanceof Error) {
-        // TEMP-DIAG: expose only the step identifier for this unexpected failure.
-        (error as Error & { diagnosticStep?: string }).diagnosticStep = diagnosticStep;
-      }
       throw error;
     }
 
-    mark('REGISTER_14_OWNER_LOADED');
     const owner = await authRepository.findById(ownerUserId);
     if (!owner) throw new Error('Registration completed but the owner could not be loaded.');
 
     // Outside the transaction: OTP issuance plus delivery.
-    mark('REGISTER_15_OTP_ISSUED');
     await issueAndSendOtp(
       { id: owner.id, fullName: owner.fullName, email: owner.email, companyId },
       owner.company.name,
