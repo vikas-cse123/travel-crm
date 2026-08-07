@@ -474,14 +474,26 @@ function DayCard({
 }
 
 /** Reference "Sightseeing" tab — day-wise activity itinerary. */
-export function SightseeingSection({ form }: { form: Form }) {
+export function SightseeingSection({
+  form,
+  destination,
+}: {
+  form: Form;
+  /** Resolved destination/country name (e.g. "Malaysia") for the activities lookup. */
+  destination?: string | null;
+}) {
   const destinationSummary = (form.watch('destinationSummary') as string) ?? '';
   const destinationToken = destinationSummary.split(/[•(→>,]/)[0]?.trim() ?? '';
   // Resolve active sightseeing records by exact destination name, never by text
   // search or paginated admin list. The backend resolves the name to a
   // destination ID and returns all matching records (tenant-scoped, no limit).
+  //
+  // The quotation's destinationSummary often holds the CITY (e.g. "Kuala Lumpur")
+  // while the Master Destination is the country (e.g. "Malaysia"), so the parent
+  // passes the resolved destination name from the lead itinerary when available.
+  const resolvedDestination = destination?.trim() || destinationToken || undefined;
   const attractionsQuery = useSightseeingActivities(
-    destinationToken || undefined,
+    resolvedDestination,
     undefined,
   );
   const attractionsStatus = {
@@ -492,11 +504,11 @@ export function SightseeingSection({ form }: { form: Form }) {
     attractionsQuery.data?.activities ?? [];
   // Display name for the dropdown heading, e.g. "Singapore".
   const destinationLabel = useMemo(
-    () =>
-      destinationToken
-        ? destinationToken.charAt(0).toUpperCase() + destinationToken.slice(1)
-        : '',
-    [destinationToken],
+    () => {
+      const source = resolvedDestination ?? destinationToken;
+      return source ? source.charAt(0).toUpperCase() + source.slice(1) : '';
+    },
+    [resolvedDestination, destinationToken],
   );
   const days = useFieldArray({ control: form.control, name: 'sightseeingDetails.days' });
   const include = form.watch('sightseeingDetails.include') ?? true;

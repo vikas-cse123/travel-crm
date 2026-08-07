@@ -7580,6 +7580,148 @@ describe('Phase 14 master selectors', () => {
     expect(within(listbox).getByText('Sentosa Tour')).toBeInTheDocument();
   });
 
+  it('shows Kuala Lumpur sightseeing records when the destinationSummary is the city', async () => {
+    const klMaster1 = {
+      id: 'kl-1',
+      title: 'Batu Caves Tour',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-my', name: 'Malaysia', countryName: 'Malaysia' },
+      city: { id: 'city-kl', name: 'Kuala Lumpur' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const klMaster2 = {
+      id: 'kl-2',
+      title: 'Petronas Towers Tour',
+      sequence: 2,
+      status: 'ACTIVE',
+      destination: { id: 'dest-my', name: 'Malaysia', countryName: 'Malaysia' },
+      city: { id: 'city-kl', name: 'Kuala Lumpur' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    // The lead itinerary carries country="Malaysia" (Master destination) while the
+    // quotation destinationSummary holds the CITY "Kuala Lumpur". Simulate the real
+    // backend: activities are resolved by the destination NAME (Malaysia), so the
+    // client must send destination=Malaysia (not the city token) to receive them.
+    const quotation = {
+      ...builderQuotation({ destinationSummary: 'Kuala Lumpur' }),
+      query: {
+        id: 'lead-kl',
+        queryNumber: 'QRY-KL',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 'kl-stay', country: 'Malaysia', destination: 'Kuala Lumpur', nights: 3, sequence: 1 },
+        ],
+      },
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing',
+        amount: '0',
+        description: null,
+        days: [{
+          dayNumber: 1, title: 'Day 1', city: 'Kuala Lumpur', date: null,
+          meals: { breakfast: true, lunch: false, dinner: false },
+          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
+          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+        }],
+      },
+    };
+    const baseFetch = masterFetch(quotation, {
+      '/masters/sightseeing': page([klMaster1, klMaster2]),
+      '/masters/destinations': page([{
+        id: 'dest-my', countryCode: 'MY', countryName: 'Malaysia', name: 'Malaysia',
+        destinationType: 'CITY', status: 'ACTIVE',
+        inclusions: null, exclusions: null, paymentPolicies: null, cancellationPolicies: null, bookingTerms: null,
+        cities: [], _count: { cities: 0 },
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      }]),
+    });
+    let activitiesUrl = '';
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/sightseeing/activities')) {
+        activitiesUrl = url;
+        // Backend resolves by destination name; only Malaysia returns the KL rows.
+        if (url.includes('destination=Malaysia')) {
+          return response({
+            destination: { id: 'dest-my', name: 'Malaysia' },
+            city: null,
+            activities: [klMaster1, klMaster2],
+          });
+        }
+        return response({ destination: null, city: null, activities: [] });
+      }
+      return baseFetch(input, init);
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    // The request must resolve the destination by its Master name, not the city token.
+    expect(activitiesUrl).toMatch(/destination=Malaysia/);
+    expect(within(listbox).getByText('Activities in Kuala Lumpur')).toBeInTheDocument();
+    expect(within(listbox).getByText('Batu Caves Tour')).toBeInTheDocument();
+    expect(within(listbox).getByText('Petronas Towers Tour')).toBeInTheDocument();
+    expect(within(listbox).queryByText(/No sightseeing activities found/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state only when the resolved destination has zero sightseeing', async () => {
+    const quotation = {
+      ...builderQuotation({ destinationSummary: 'Kuala Lumpur' }),
+      query: {
+        id: 'lead-kl',
+        queryNumber: 'QRY-KL',
+        leadStage: 'NEW_LEAD',
+        departureCity: 'Delhi',
+        departureCountry: 'India',
+        itinerary: [
+          { id: 'kl-stay', country: 'Malaysia', destination: 'Kuala Lumpur', nights: 3, sequence: 1 },
+        ],
+      },
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing',
+        amount: '0',
+        description: null,
+        days: [{
+          dayNumber: 1, title: 'Day 1', city: 'Kuala Lumpur', date: null,
+          meals: { breakfast: true, lunch: false, dinner: false },
+          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
+          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+        }],
+      },
+    };
+    const baseFetch = masterFetch(quotation, {
+      '/masters/sightseeing': page([]),
+      '/masters/destinations': page([{
+        id: 'dest-my', countryCode: 'MY', countryName: 'Malaysia', name: 'Malaysia',
+        destinationType: 'CITY', status: 'ACTIVE',
+        inclusions: null, exclusions: null, paymentPolicies: null, cancellationPolicies: null, bookingTerms: null,
+        cities: [], _count: { cities: 0 },
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      }]),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/masters/sightseeing/activities')) {
+        return response({ destination: { id: 'dest-my', name: 'Malaysia' }, city: null, activities: [] });
+      }
+      return baseFetch(input, init);
+    }));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    fireEvent.focus(picker);
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(listbox).getByText('Day at Leisure')).toBeInTheDocument();
+    expect(within(listbox).getByText(/No sightseeing activities found for Malaysia/i)).toBeInTheDocument();
+  });
+
   it('prefills the final day with a departure master regardless of sequence', async () => {
     const departureMaster = {
       id: 'sg-departure',

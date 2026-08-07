@@ -650,6 +650,22 @@ export function QuotationBuilderPage() {
     }
     return ids;
   }, [destinationMasters.data?.data, quotation.data?.query?.itinerary]);
+  // Resolved Master Destination name (country) from the lead itinerary — the
+  // sightseeing feed resolves activities by destination, while the quotation's
+  // destinationSummary often holds the city (e.g. "Kuala Lumpur").
+  const sightseeingDestinationName = useMemo(() => {
+    const byName = new Map<string, string>();
+    for (const dest of destinationMasters.data?.data ?? [])
+      byName.set(dest.name.trim().toLowerCase(), dest.name.trim());
+    for (const stay of quotation.data?.query?.itinerary ?? []) {
+      const key = stay.country?.trim().toLowerCase();
+      if (key) {
+        const name = byName.get(key);
+        if (name) return name;
+      }
+    }
+    return null;
+  }, [destinationMasters.data?.data, quotation.data?.query?.itinerary]);
   const sightseeingMasters = useSightseeingList(
     useMemo(() => {
       const params = new URLSearchParams({ status: 'ACTIVE', pageSize: '100' });
@@ -2744,7 +2760,9 @@ export function QuotationBuilderPage() {
         {activeTab === 'flight' && flightSection()}
 
         {/* Sightseeing — day-wise activity itinerary (reference layout). */}
-        {activeTab === 'sightseeing' && <SightseeingSection form={form} />}
+        {activeTab === 'sightseeing' && (
+          <SightseeingSection form={form} destination={sightseeingDestinationName} />
+        )}
 
         {/* Add-on Services — master-driven include-table. */}
         {activeTab === 'addon' && addonTable()}
