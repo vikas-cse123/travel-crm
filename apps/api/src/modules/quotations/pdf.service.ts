@@ -63,16 +63,18 @@ export const CONTENT_BOTTOM_LIMIT = PDF_PAGE_HEIGHT - BOTTOM_M - FOOTER_H - POST
 export const PDF_MAX_CONTENT_HEIGHT = CONTENT_BOTTOM_LIMIT - TOP;
 
 // Fixed footer column anchors (full usable width, never derived from text).
+// Spread across most of the page width, matching the reference template.
+// Content area is M..(PDF_PAGE_WIDTH - M) = 40..555.28.
 const LOGO_X = M;
 const LOGO_W = 110;
-const CONTACT_X = M + 158;
-const CONTACT_W = 132;
-const ACHIEVEMENTS_X = M + 296;
-const ACHIEVEMENTS_W = 132;
-const LEGAL_X = M + 434;
-const LEGAL_W = 121;
+const CONTACT_X = M + 190;
+const CONTACT_W = 125;
+const ACHIEVEMENTS_X = M + 320;
+const ACHIEVEMENTS_W = 115;
+const LEGAL_X = M + 400;
+const LEGAL_W = 115;
 const FOOTER_HEADING_FONT = 9.5;
-const FOOTER_BODY_FONT = 8.5;
+const FOOTER_BODY_FONT = 8;
 
 // Flight-card padding (points), shared by measurement and rendering.
 const FLIGHT_CARD_PADDING_X = 16;
@@ -427,10 +429,10 @@ function drawPageFooter(
     .lineTo(PDF_PAGE_WIDTH - M, footerTop)
     .stroke();
 
-  const top = footerTop + 12;
+  const top = footerTop + 18;
   const headingY = top;
-  const bodyY = top + 16;
-  const lineGap = 12;
+  const bodyY = top + 20;
+  const lineGap = 13;
 
   // Company logo (contain/fit, aspect preserved; invalid/missing → omitted).
   if (company?.logo) {
@@ -504,12 +506,12 @@ function drawPageFooter(
 
   // Page number badge — fixed bottom-right, same on every page.
   const label = `Page ${pageNumber}/${totalPages}`;
-  doc.font('Bold').fontSize(9);
-  const w = doc.widthOfString(label) + 22;
+  doc.font('Bold').fontSize(9.5);
+  const w = doc.widthOfString(label) + 26;
   const bx = PDF_PAGE_WIDTH - M - w;
-  const by = footerTop + FOOTER_H - 30;
-  doc.save().roundedRect(bx, by, w, 22, 4).fill(GREEN).restore();
-  doc.fillColor('#ffffff').text(label, bx, by + 6, { width: w, align: 'center', lineBreak: false });
+  const by = footerTop + FOOTER_H - 34;
+  doc.save().roundedRect(bx, by, w, 24, 5).fill(GREEN).restore();
+  doc.fillColor('#ffffff').text(label, bx, by + 6.5, { width: w, align: 'center', lineBreak: false });
   doc.restore();
 }
 
@@ -743,18 +745,29 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           doc.restore();
         }
         doc.save().roundedRect(M, y0, CONTENT_W, heroH, 6).clip();
-        doc.fillOpacity(0.55).rect(M, y0 + heroH - 58, CONTENT_W, 58).fill('#0A2033');
+        doc.fillOpacity(1);
+        const heroTitle = primaryDestination.toUpperCase();
+        const heroTitleX = M + 18;
+        const heroTitleY = y0 + heroH - 48;
+        const heroTitleW = CONTENT_W - 36;
+        // Subtle text shadow for readability over a photo — no background box.
+        doc.save().font('Bold').fontSize(34);
+        doc.fillOpacity(0.45).fillColor('#000000');
+        doc.text(heroTitle, heroTitleX + 1.2, heroTitleY + 1.2, {
+          width: heroTitleW,
+          ellipsis: true,
+          height: 30,
+        });
+        doc.restore();
+        doc.save().font('Bold').fontSize(34).fillColor('#ffffff');
+        doc.text(heroTitle, heroTitleX, heroTitleY, {
+          width: heroTitleW,
+          ellipsis: true,
+          height: 30,
+        });
+        doc.restore();
         doc.restore();
         doc.fillOpacity(1);
-        doc
-          .fillColor('#ffffff')
-          .font('Bold')
-          .fontSize(34)
-          .text(primaryDestination.toUpperCase(), M + 18, y0 + heroH - 42, {
-            width: CONTENT_W - 36,
-            ellipsis: true,
-            height: 30,
-          });
         doc.fillColor(DARK);
         return y0 + heroH + 14;
       },
@@ -1196,35 +1209,58 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Hotels'));
     const imageW = 150;
+    const cardPadX = 14;
+    const cardPadTop = 14;
+    const cardPadBottom = 14;
     v.hotels.forEach((hotel, i) => {
-      const cardH = 150;
+      const tx = M + cardPadX + imageW + 16;
+      const tw = PDF_PAGE_WIDTH - M - 14 - tx;
+      const stayNights = hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights;
+
+      // Measure the text column height so the card never clips its content.
+      doc.font('Bold').fontSize(15);
+      const titleH = doc.heightOfString(hotel.hotelName, { width: tw });
+      const stars = Number((hotel.category || '').match(/\d+/)?.[0] ?? 0);
+      let textY = cardPadTop + 18 + titleH;
+      if (stars > 0) textY += 16;
+      textY += 4;
+      const rows = [
+        hotel.city && `City: ${hotel.city}`,
+        hotel.roomType && `Room Type: ${hotel.roomType}`,
+        hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
+        hotel.checkInDate && `Check-in: ${dateFmt(hotel.checkInDate)}`,
+        hotel.checkOutDate && `Check-out: ${dateFmt(hotel.checkOutDate)}`,
+      ].filter(Boolean) as string[];
+      doc.font('Body').fontSize(10);
+      const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));
+      const rowGap = 4;
+      const textH = rowHeights.reduce((sum, h) => sum + h + rowGap, 0);
+      const textBottom = textY + textH;
+
+      // Card height = max(text bottom, image area minimum) + bottom padding.
+      // The image stretches to the available height, so only a minimum keeps
+      // the left column from collapsing on short cards.
+      const minImageH = cardPadTop + 40;
+      const cardH = Math.max(textBottom, minImageH) + cardPadBottom;
       planner.add({
         height: cardH + 12,
         render: (y0) => {
           const top = y0;
           doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
-          drawImage(images.hotels?.[i], M + 14, top + 14, imageW, cardH - 28, 'Hotel');
-          const tx = M + 180;
-          const tw = PDF_PAGE_WIDTH - M - 14 - tx;
-          const stayNights = hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights;
-          badge(`Nights: ${stayNights}`, tx, top + 14, GREEN, '#ffffff');
-          doc.fillColor(DARK).font('Bold').fontSize(15).text(hotel.hotelName, tx, top + 42, { width: tw });
-          const stars = Number((hotel.category || '').match(/\d+/)?.[0] ?? 0);
+          drawImage(images.hotels?.[i], M + cardPadX, top + cardPadTop, imageW, cardH - cardPadTop - cardPadBottom, 'Hotel');
+          badge(`Nights: ${stayNights}`, tx, top + cardPadTop, GREEN, '#ffffff');
+          let yy = top + cardPadTop + 18;
+          doc.fillColor(DARK).font('Bold').fontSize(15).text(hotel.hotelName, tx, yy, { width: tw });
+          yy = doc.y;
           if (stars > 0) {
-            doc.fillColor(AMBER).font('Bold').fontSize(12).text('★'.repeat(Math.min(5, stars)), tx, doc.y + 2);
+            yy += 4;
+            doc.fillColor(AMBER).font('Bold').fontSize(12).text('★'.repeat(Math.min(5, stars)), tx, yy);
+            yy = doc.y + 4;
           }
           doc.fillColor(MUTED).font('Body').fontSize(10);
-          const rows = [
-            hotel.city && `City: ${hotel.city}`,
-            hotel.roomType && `Room Type: ${hotel.roomType}`,
-            hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
-            hotel.checkInDate && `Check-in: ${dateFmt(hotel.checkInDate)}`,
-            hotel.checkOutDate && `Check-out: ${dateFmt(hotel.checkOutDate)}`,
-          ].filter(Boolean) as string[];
-          let hy = doc.y + 6;
           rows.forEach((r) => {
-            doc.fillColor(MUTED).text(r, tx, hy, { width: tw });
-            hy = doc.y + 2;
+            doc.text(r, tx, yy, { width: tw });
+            yy = doc.y + rowGap;
           });
           doc.fillColor(DARK);
           return y0 + cardH + 12;

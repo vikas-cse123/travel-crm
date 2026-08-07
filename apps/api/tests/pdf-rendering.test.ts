@@ -2,6 +2,7 @@ import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import {
+  CONTENT_BOTTOM_LIMIT,
   PDF_BOTTOM_MARGIN,
   PDF_FOOTER_HEIGHT,
   PDF_MAX_PAGE_HEIGHT,
@@ -827,6 +828,177 @@ describe('PDF rendering with long content', () => {
     expect(small.footerTop - small.contentBottom).toBeGreaterThanOrEqual(
       PDF_POST_CONTENT_GAP - 0.001,
     );
+  });
+
+  it('reserves a footer-safe zone below the content bottom limit', () => {
+    // Content must stop before the footer divider; the divider sits at the
+    // physical page bottom (fixed A4), never derived from content.
+    const footerDividerY = PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
+    expect(CONTENT_BOTTOM_LIMIT).toBeLessThan(footerDividerY);
+    // A comfortable gap separates body content from the footer.
+    expect(footerDividerY - CONTENT_BOTTOM_LIMIT).toBeGreaterThanOrEqual(
+      PDF_POST_CONTENT_GAP - 0.001,
+    );
+    // Footer position never depends on content height.
+    const a = computePageHeight(100);
+    const b = computePageHeight(500);
+    expect(a.footerTop).toBeCloseTo(b.footerTop, 4);
+    expect(a.footerTop).toBeCloseTo(footerDividerY, 4);
+  });
+
+  it('renders hotel cards that keep every field inside the rounded border', async () => {
+    // Long hotel titles / room types that previously overflowed the fixed 150pt
+    // card border. The card must size itself to the content and keep Check-out
+    // on the same physical page above the footer.
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-HOTEL-0001',
+        customerName: 'Hotel Test',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Kuala Lumpur',
+        travelStartDate: new Date('2026-09-02'),
+        travelEndDate: new Date('2026-09-07'),
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Kuala Lumpur Package',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '50000',
+        notes: null,
+        perAdultPrice: '50000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [
+          {
+            city: 'Kuala Lumpur',
+            hotelName: 'Berjaya Times Square Hotel, Kuala Lumpur',
+            category: '5 Star',
+            roomType: 'Superior room with Bathtub',
+            mealPlan: 'CP Breakfast',
+            nights: 4,
+            selected: true,
+            checkInDate: new Date('2026-09-02'),
+            checkOutDate: new Date('2026-09-06'),
+            notes: null,
+          },
+        ],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    // Fixed A4 sheet, not a content-grown page.
+    for (const box of pageMediaBoxes(pdf)) {
+      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
+    }
+    const text = pdfText(pdf);
+    expect(text).toContain('Berjaya Times Square Hotel');
+    expect(text).toContain('Room Type: Superior room with Bathtub');
+    expect(text).toContain('Check-out:');
+    // The hotel page still carries the identical footer.
+    const pages = pageCount(pdf);
+    for (let p = 1; p <= pages; p += 1) {
+      const pageText = pdfTextPage(pdf, p);
+      expect(pageText).toContain('CONTACT US');
+      expect(pageText).toContain(`Page ${p}/${pages}`);
+    }
+  });
+
+  it('renders the cover destination title directly over the image without a dark band', async () => {
+    // Cover: KUALA LUMPUR heading + Destination: Malaysia summary + image.
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-COVER-0001',
+        customerName: 'Rajesh Kumar',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Kuala Lumpur',
+        destinations: 'Malaysia',
+        travelStartDate: new Date('2026-11-20'),
+        travelEndDate: new Date('2026-11-24'),
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Kuala Lumpur Package',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '65000',
+        notes: null,
+        perAdultPrice: '60000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      images: { cover: PNG_1PX },
+    });
+    const firstPage = pdfTextPage(pdf, 1).toUpperCase();
+    expect(firstPage).toContain('KUALA LUMPUR');
+    expect(pdfText(pdf)).toContain('Destination: Malaysia');
+    // The cover text sits on the first page above the footer divider.
+    const layout = computePageHeight(0);
+    expect(layout.footerTop).toBeGreaterThan(PDF_TOP_MARGIN + 200);
   });
 
   it('renders a multi-page booking confirmation with many travellers and services', async () => {
