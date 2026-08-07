@@ -96,6 +96,10 @@ export interface Lead {
     acceptedVersionId: string | null;
     latestVersionAmount: string | null;
     currency: string | null;
+    // Costing figures — present only when the caller holds quotation-costing
+    // permission. Used to surface Amount/Margin in the Leads table.
+    netAmount?: string | null;
+    marginAmount?: string | null;
     bookingId: string | null;
     lastSentAt: string | null;
     acceptedAt: string | null;

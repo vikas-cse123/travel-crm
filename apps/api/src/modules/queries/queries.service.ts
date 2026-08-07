@@ -77,7 +77,7 @@ const leadListInclude = {
       versions: {
         orderBy: { versionNumber: 'desc' as const },
         take: 1,
-        select: { finalAmount: true, currency: true },
+        select: { finalAmount: true, netAmount: true, marginAmount: true, currency: true },
       },
     },
   },
@@ -101,6 +101,7 @@ type LeadListRow = Prisma.QueryGetPayload<{ include: typeof leadListInclude }>;
 /** Capabilities that shape which linked data and row actions a lead row exposes. */
 export interface LeadRowCaps {
   canViewQuotations: boolean;
+  canViewQuotationCosting: boolean;
   canCreateQuotation: boolean;
   canViewBookings: boolean;
   canViewBookingFinancials: boolean;
@@ -159,6 +160,14 @@ export function presentLeadRow(
           acceptedVersionId: latestQuotation.acceptedVersionId,
           latestVersionAmount: latestQuotation.versions[0]?.finalAmount?.toFixed(2) ?? null,
           currency: latestQuotation.versions[0]?.currency ?? null,
+          // Costing figures (net cost + margin) are internal; only expose them
+          // when the caller holds the quotation costing permission.
+          ...(caps.canViewQuotationCosting
+            ? {
+                netAmount: latestQuotation.versions[0]?.netAmount?.toFixed(2) ?? null,
+                marginAmount: latestQuotation.versions[0]?.marginAmount?.toFixed(2) ?? null,
+              }
+            : {}),
           bookingId: latestQuotation.booking?.id ?? null,
           lastSentAt: latestQuotation.lastSentAt,
           acceptedAt: latestQuotation.acceptedAt,
@@ -306,6 +315,7 @@ export async function leadRowCaps(auth: AuthContext): Promise<LeadRowCaps> {
   const permissions = await permissionsService.resolveForUser(auth.userId);
   return {
     canViewQuotations: permissions.includes(PERMISSIONS.QUOTATIONS_VIEW),
+    canViewQuotationCosting: permissions.includes(PERMISSIONS.QUOTATIONS_VIEW_COSTING),
     canCreateQuotation: permissions.includes(PERMISSIONS.QUOTATIONS_CREATE),
     canViewBookings: permissions.includes(PERMISSIONS.BOOKINGS_VIEW),
     canViewBookingFinancials: permissions.includes(PERMISSIONS.BOOKINGS_VIEW_FINANCIALS),

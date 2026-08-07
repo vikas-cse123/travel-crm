@@ -912,26 +912,11 @@
 }
 
 /* ---------------------------------- mobile -------------------------------- */
-
-.leads-mobile-card {
-  padding: 14px;
-  border-bottom: 1px solid var(--leads-border);
-}
-
-.leads-mobile-card + .leads-mobile-card {
-  border-top: 0;
-}
-
-@media (min-width: 768px) {
-  .leads-mobile-list {
-    display: none;
-  }
-}
+/* The Leads page uses the same dense table on all screen sizes. On mobile the
+   table is horizontally scrollable (`.leads-table-scroll` + `.leads-table`
+   min-width) so every column stays readable; there is no card layout. */
 
 @media (max-width: 767px) {
-  .leads-desktop-table {
-    display: none;
-  }
   .leads-search {
     min-width: 100%;
   }

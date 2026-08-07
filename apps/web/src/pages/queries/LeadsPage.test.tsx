@@ -594,8 +594,9 @@ describe('Phase 17 lead list enrichment', () => {
     // The Booking column is temporarily hidden from the Leads table.
     expect(screen.queryByText('Booking')).not.toBeInTheDocument();
     expect(screen.getByText('Notes')).toBeInTheDocument();
-    // Quotation status badge stays in the Quotation column.
-    expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
+    // Quotation column is action-only: no status badge is shown.
+    expect(screen.queryByText('Accepted')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /^View$/ }).length).toBeGreaterThan(0);
     // The Action column exposes only the four approved actions.
     expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThan(0);
@@ -624,9 +625,9 @@ describe('Phase 17 lead list enrichment', () => {
     ]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('QRY-000001');
-    // The booking number is not shown in the desktop table while the Booking
-    // column is hidden; booking data itself is untouched.
-    const desktopTable = document.querySelector('.leads-desktop-table') as HTMLElement;
+    // The booking number is not shown in the table while the Booking column is
+    // hidden; booking data itself is untouched.
+    const desktopTable = document.querySelector('.leads-table-scroll') as HTMLElement;
     expect(desktopTable).not.toBeNull();
     expect(
       within(desktopTable).queryByRole('link', { name: 'BK-2026-000001' }),
@@ -1140,9 +1141,11 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       quotationSummary: { quotationId: 'quote-1', quotationStatus: 'ACCEPTED' },
     });
     renderWithProviders(<LeadsPage />);
-    const links = await screen.findAllByRole('link', { name: /Create booking for/ });
-    expect(links.length).toBeGreaterThan(0);
-    expect(links[0]).toHaveAttribute('href', `/bookings/new?leadId=${lead.id}&quotationId=quote-1`);
+    await screen.findAllByText(lead.customerName);
+    // The Booking column is temporarily hidden from the Leads table, and the
+    // mobile card (which previously surfaced Create Booking) has been removed —
+    // the table is now the single representation on every screen size.
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
   });
 
   it('shows View Booking instead of Create Booking when a booking already exists', async () => {
@@ -1158,7 +1161,9 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       },
     });
     renderWithProviders(<LeadsPage />);
-    expect((await screen.findAllByText('BK-1')).length).toBeGreaterThan(0);
+    await screen.findAllByText(lead.customerName);
+    // Booking column hidden from the table; no card duplicate exists.
+    expect(screen.queryByText('BK-1')).not.toBeInTheDocument();
     expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
   });
 
@@ -1211,12 +1216,11 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       await screen.findByRole('button', { name: 'Change lead type from Fresh' }),
     );
     pickOption('Change lead type', 'Hot');
-    // Refetch returns the lead with leadType HOT → action appears.
-    await waitFor(() =>
-      expect(screen.queryAllByRole('link', { name: /Create booking for/ }).length).toBeGreaterThan(
-        0,
-      ),
-    );
+    // Refetch returns the lead with leadType HOT, but the Booking column is
+    // hidden from the table (no mobile card duplicate), so no Create Booking
+    // action is surfaced on the Leads list.
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
     void current;
   });
 
@@ -1258,9 +1262,10 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
       await screen.findByRole('button', { name: 'Change lead stage from New Lead' }),
     );
     pickOption('Change lead stage', 'Booking Confirmed');
-    expect(
-      (await screen.findAllByRole('link', { name: /Create booking for/ })).length,
-    ).toBeGreaterThan(0);
+    // Booking column hidden from the table (no mobile card), so no Create
+    // Booking action surfaces after the stage update.
+    await screen.findAllByText(lead.customerName);
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
   });
 
   it('Create Booking disappears after an inline Type update away from Hot', async () => {
@@ -1296,9 +1301,9 @@ describe('Phase 6 Create Booking action on the Leads List', () => {
     });
     vi.stubGlobal('fetch', mock);
     renderWithProviders(<LeadsPage />);
-    expect(
-      (await screen.findAllByRole('link', { name: /Create booking for/ })).length,
-    ).toBeGreaterThan(0);
+    await screen.findAllByText(lead.customerName);
+    // Booking column hidden from the table (no mobile card duplicate).
+    expect(screen.queryAllByRole('link', { name: /Create booking for/ })).toHaveLength(0);
     await userEvent.click(await screen.findByRole('button', { name: 'Change lead type from Hot' }));
     pickOption('Change lead type', 'Warm');
     await waitFor(() =>
@@ -1896,13 +1901,16 @@ describe('Lead row actions are limited to the four approved actions', () => {
     expect(cell.querySelector('[aria-haspopup]')).toBeNull();
   });
 
-  it('keeps the Quotation column status badge intact', async () => {
-    // With a quotation summary: status badge + View link stay in the column.
+  it('keeps the Quotation column an action-only cell (no status badge or amount)', async () => {
+    // With a quotation summary: the View link stays, but the status badge and
+    // the quotation INR amount are no longer shown in the column (amount/margin
+    // live in the dedicated Amount/Margin columns).
     stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
-    expect(screen.getAllByText('Accepted').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: /^View$/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Accepted')).not.toBeInTheDocument();
+    expect(screen.queryByText(/₹50,000/)).not.toBeInTheDocument();
   });
 
   it('keeps the "+ New" quotation shortcut intact in the Quotation column', async () => {
@@ -1928,18 +1936,24 @@ describe('Lead row actions are limited to the four approved actions', () => {
     ]);
   });
 
-  it('keeps the four actions on the mobile/responsive card with no extra menu', async () => {
+  it('keeps the four actions on the single table with no card duplicate or extra menu', async () => {
     stubLeadList([enrichedLead]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
-    // One set per lead (mobile card) plus one set in the desktop table.
-    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBeGreaterThanOrEqual(
-      2,
-    );
+    // The Leads page is a table on every screen size (no mobile card renderer),
+    // so each lead's action set appears exactly once — in the table's Action column.
+    expect(screen.getAllByRole('link', { name: 'View lead' }).length).toBe(1);
+    expect(screen.getAllByRole('link', { name: 'Edit lead' }).length).toBe(1);
+    expect(screen.getAllByRole('button', { name: 'Delete lead' }).length).toBe(1);
+    expect(screen.getAllByRole('link', { name: 'Create follow-up' }).length).toBe(1);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    // The single table is horizontally scrollable on small screens.
+    const tableScroll = document.querySelector('.leads-table-scroll') as HTMLElement;
+    expect(tableScroll).not.toBeNull();
+    expect(tableScroll.style.overflowX).not.toBe('hidden');
+    // No mobile card markup exists in the DOM.
+    expect(document.querySelector('.leads-mobile-card')).toBeNull();
+    expect(document.querySelector('.leads-mobile-list')).toBeNull();
   });
 });
 
@@ -2458,6 +2472,77 @@ describe('Dense operational Leads table structure', () => {
     // No Booking placeholder is left behind in the row.
     expect(within(firstRow as HTMLElement).queryByText('Quote Required')).not.toBeInTheDocument();
     expect(within(firstRow as HTMLElement).queryByText('None')).not.toBeInTheDocument();
+  });
+
+  it('shows quotation amount and margin in the Amount/Margin columns when net cost exists', async () => {
+    stubLeadList([
+      {
+        ...enrichedLead,
+        quotationSummary: {
+          quotationId: 'quote-1',
+          quotationNumber: 'QT-2026-000001',
+          quotationStatus: 'ACCEPTED',
+          acceptedVersionId: 'ver-1',
+          latestVersionAmount: '80000.00',
+          netAmount: '65000.00',
+          marginAmount: '15000.00',
+          currency: 'INR',
+          bookingId: null,
+          lastSentAt: null,
+          acceptedAt: '2026-07-22T00:00:00.000Z',
+        },
+      },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const row = document.querySelector('.leads-tbody tr') as HTMLElement;
+    // Amount = quotation final amount (₹80,000) using en-IN currency formatting.
+    expect(within(row).getByText('₹80,000.00')).toBeInTheDocument();
+    // Margin = existing quotation margin (₹15,000).
+    expect(within(row).getByText('₹15,000.00')).toBeInTheDocument();
+    // Quotation column is an action-only cell: no status badge, no INR amount.
+    expect(within(row).getAllByRole('link', { name: /^View$/ }).length).toBeGreaterThan(0);
+    expect(within(row).queryByText('Accepted')).not.toBeInTheDocument();
+    expect(within(row).queryByText(/₹50,000/)).not.toBeInTheDocument();
+  });
+
+  it('does not show a quotation margin when netAmount is zero or missing', async () => {
+    stubLeadList([
+      {
+        ...enrichedLead,
+        quotationSummary: {
+          quotationId: 'quote-1',
+          quotationNumber: 'QT-2026-000001',
+          quotationStatus: 'ACCEPTED',
+          acceptedVersionId: 'ver-1',
+          latestVersionAmount: '80000.00',
+          netAmount: '0.00',
+          marginAmount: '15000.00',
+          currency: 'INR',
+          bookingId: null,
+          lastSentAt: null,
+          acceptedAt: '2026-07-22T00:00:00.000Z',
+        },
+      },
+    ]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const row = document.querySelector('.leads-tbody tr') as HTMLElement;
+    // netAmount is 0 → no artificial margin is shown; the existing fallback
+    // (expected margin is null) renders the empty-state dash.
+    expect(within(row).queryByText('₹15,000.00')).not.toBeInTheDocument();
+    expect(within(row).getByText('—')).toBeInTheDocument();
+  });
+
+  it('keeps the existing fallback when there is no quotation', async () => {
+    stubLeadList([{ ...enrichedLead, quotationSummary: null }]);
+    renderWithProviders(<LeadsPage />);
+    await screen.findAllByText('Aarav Mehta');
+    const row = document.querySelector('.leads-tbody tr') as HTMLElement;
+    // No quotation → Amount falls back to the lead's expected amount.
+    expect(within(row).getByText(/250000/)).toBeInTheDocument();
+    // Quotation cell shows the + New action (lead can create quotations).
+    expect(within(row).getByRole('link', { name: '+ New' })).toBeInTheDocument();
   });
 
   it('renders the Call column with a tel link for the lead phone and a disabled icon without one', async () => {

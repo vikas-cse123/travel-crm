@@ -44,12 +44,46 @@ import { LeadServicesCell } from '@/features/queries/LeadServicesCell';
 import { cn } from '@/utils/cn';
 import './leads.css';
 
-const badge = (value: string) =>
-  value === 'HOT' || value === 'URGENT' || value === 'LOST'
-    ? 'bg-red-50 text-red-700'
-    : value === 'BOOKING_CONFIRMED' || value === 'QUALIFIED'
-      ? 'bg-emerald-50 text-emerald-700'
-      : 'bg-blue-50 text-blue-700';
+/** Format a monetary value using the app's standard en-IN currency style. */
+const formatCurrency = (value: string | number, currency: string) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  try {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(n);
+  } catch {
+    return String(n);
+  }
+};
+
+/**
+ * Quotation amount for the Amount column: the latest quotation's final amount,
+ * shown only when the quotation has a real net cost (netAmount > 0). Returns ''
+ * otherwise so the cell falls back to the lead's expected amount.
+ */
+const quotationAmountFor = (lead: Lead): string => {
+  const summary = lead.quotationSummary;
+  const amount = summary?.latestVersionAmount;
+  const net = summary?.netAmount;
+  const currency = summary?.currency ?? lead.currency;
+  if (!summary || !amount || !net) return '';
+  if (Number(amount) <= 0 || Number(net) <= 0) return '';
+  return formatCurrency(amount, currency);
+};
+
+/**
+ * Quotation margin for the Margin column: the latest quotation's computed
+ * margin, shown only when the quotation has a real net cost (netAmount > 0).
+ * Returns '' otherwise so the cell uses the existing empty-state behavior.
+ */
+const quotationMarginFor = (lead: Lead): string => {
+  const summary = lead.quotationSummary;
+  const margin = summary?.marginAmount;
+  const net = summary?.netAmount;
+  const currency = summary?.currency ?? lead.currency;
+  if (!summary || !margin || !net) return '';
+  if (Number(margin) <= 0 || Number(net) <= 0) return '';
+  return formatCurrency(margin, currency);
+};
 
 const leadDate = (value: string | null) =>
   value
@@ -207,27 +241,16 @@ function QuotationCell({ lead }: { lead: Lead }) {
     ) : (
       <span className="text-xs text-slate-400">None</span>
     );
+  // The Quotation column is a compact action column only: status and amount are
+  // not shown here (amount/margin live in the dedicated Amount/Margin columns).
   return (
-    <div className="leads-quote">
-      <Link
-        className="leads-quote-view"
-        to={`/quotations/${summary.quotationId}`}
-        title={`View quotation for ${lead.queryNumber}`}
-      >
-        <Eye className="h-3 w-3" aria-hidden="true" /> View
-      </Link>
-      <span
-        className={cn('leads-quote-badge', badge(summary.quotationStatus))}
-        title={summary.quotationNumber}
-      >
-        {labelForLookup(summary.quotationStatus)}
-      </span>
-      {summary.latestVersionAmount && (
-        <span className="leads-quote-amount">
-          {summary.currency ?? ''} {summary.latestVersionAmount}
-        </span>
-      )}
-    </div>
+    <Link
+      className="leads-quote-view"
+      to={`/quotations/${summary.quotationId}`}
+      title={`View quotation for ${lead.queryNumber}`}
+    >
+      <Eye className="h-3 w-3" aria-hidden="true" /> View
+    </Link>
   );
 }
 
@@ -1235,62 +1258,7 @@ export function LeadsPage() {
           </div>
         ) : (
           <>
-            <div className="leads-mobile-list divide-y">
-              {rows.map((lead) => (
-                <article key={lead.id} className="leads-mobile-card space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-2">
-                      {canAssign && (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${lead.queryNumber}`}
-                          className="mt-1"
-                          checked={selected.has(lead.id)}
-                          onChange={() => toggleRow(lead.id)}
-                        />
-                      )}
-                      <div>
-                        <Link className="font-semibold text-brand-700" to={`/queries/${lead.id}`}>
-                          {leadListId(lead.queryNumber)}
-                        </Link>
-                        <p className="font-medium">{lead.customerName}</p>
-                        <p className="text-xs text-slate-500">{lead.phone}</p>
-                      </div>
-                    </div>
-                    <span
-                      className={`rounded-full px-2 py-1 text-xs font-medium ${badge(lead.leadStage)}`}
-                    >
-                      {labelForLookup(lead.leadStage)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-700">
-                    {lead.itinerary.map((x) => `${x.destination} (${x.nights}N)`).join(' → ')}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-                    <span>{labelForLookup(lead.leadSource)}</span>
-                    <span>{lead.assignedTo?.fullName ?? 'Unassigned'}</span>
-                    <span>
-                      Travel:{' '}
-                      {lead.travelStartDate
-                        ? new Date(lead.travelStartDate).toLocaleDateString()
-                        : 'Flexible'}
-                    </span>
-                    <span>
-                      Follow-up:{' '}
-                      {lead.nextFollowUpAt
-                        ? new Date(lead.nextFollowUpAt).toLocaleDateString()
-                        : 'None'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-xs">
-                    <QuotationCell lead={lead} />
-                    <BookingCell lead={lead} canCreateBooking={canCreateBooking} />
-                  </div>
-                  <LeadActionsCell lead={lead} canEdit={canUpdate} canDelete={canDelete} />
-                </article>
-              ))}
-            </div>
-            <div className="leads-table-scroll leads-desktop-table">
+            <div className="leads-table-scroll">
               <table className="leads-table">
                 <thead className="leads-thead">
                   <tr>
@@ -1380,11 +1348,21 @@ export function LeadsPage() {
                           {lead.assignedTo?.fullName ?? 'Unassigned'}
                         </span>
                       </td>
-                      <td className={cn('leads-amount', !lead.expectedAmount && 'leads-amount--empty')}>
-                        {lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—'}
+                      <td
+                        className={cn(
+                          'leads-amount',
+                          !quotationAmountFor(lead) && !lead.expectedAmount && 'leads-amount--empty',
+                        )}
+                      >
+                        {quotationAmountFor(lead) || (lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—')}
                       </td>
-                      <td className={cn('leads-amount', !lead.expectedMargin && 'leads-amount--empty')}>
-                        {lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—'}
+                      <td
+                        className={cn(
+                          'leads-amount',
+                          !quotationMarginFor(lead) && !lead.expectedMargin && 'leads-amount--empty',
+                        )}
+                      >
+                        {quotationMarginFor(lead) || (lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—')}
                       </td>
                       <td>
                         <InlineLeadField
