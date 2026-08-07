@@ -150,13 +150,22 @@ jobs:
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --services "${{ vars.FRONTEND_ECS_SERVICE }}" \
             --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
-          STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
-            --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
-          echo "frontend target states: $STATES"
-          if ! printf '%s' "$STATES" | grep -qx 'healthy'; then
-            echo "frontend target is not healthy" >&2
-            exit 1
-          fi
+          # During a rolling-update tail the old target is briefly "draining"
+          # (expected) and a fresh target may report "initial" before its first
+          # probe. Retry until at least one target is healthy and none are
+          # failing, so a normal deployment tail is not misread as unhealthy.
+          for attempt in 1 2 3 4 5 6; do
+            STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
+              --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+            echo "frontend target states (attempt $attempt): $STATES"
+            if printf '%s\n' "$STATES" | grep -q 'healthy' \
+              && ! printf '%s\n' "$STATES" | grep -qE 'unhealthy|unavailable|initial|no data'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "frontend target is not healthy" >&2
+          exit 1
 
       - name: Verify production frontend
         run: |
@@ -297,13 +306,22 @@ jobs:
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --services "${{ vars.API_ECS_SERVICE }}" \
             --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
-          STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
-            --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
-          echo "api target states: $STATES"
-          if ! printf '%s' "$STATES" | grep -qx 'healthy'; then
-            echo "api target is not healthy" >&2
-            exit 1
-          fi
+          # During a rolling-update tail the old target is briefly "draining"
+          # (expected) and a fresh target may report "initial" before its first
+          # probe. Retry until at least one target is healthy and none are
+          # failing, so a normal deployment tail is not misread as unhealthy.
+          for attempt in 1 2 3 4 5 6; do
+            STATES=$(aws elbv2 describe-target-health --target-group-arn "$TG" \
+              --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+            echo "api target states (attempt $attempt): $STATES"
+            if printf '%s\n' "$STATES" | grep -q 'healthy' \
+              && ! printf '%s\n' "$STATES" | grep -qE 'unhealthy|unavailable|initial|no data'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "api target is not healthy" >&2
+          exit 1
 
       - name: Verify production API
         run: |
