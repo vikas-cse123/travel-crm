@@ -67,7 +67,7 @@ describe('Phase 18 settings page', () => {
     expect(screen.getByLabelText('Trips Sold')).toHaveValue(3400);
 
     await userEvent.click(screen.getByRole('button', { name: 'Branding' }));
-    expect(await screen.findByLabelText('Primary colour hex')).toBeInTheDocument();
+    expect(await screen.findByText('Company logo')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Tax' }));
     expect(await screen.findByLabelText('GSTIN')).toHaveValue('29ABCDE1234F1Z5');
     expect(screen.getByLabelText('TAN')).toHaveValue('ABC12345E');
@@ -75,8 +75,9 @@ describe('Phase 18 settings page', () => {
     expect(await screen.findByLabelText('Timezone')).toHaveValue('Asia/Kolkata');
     await userEvent.click(screen.getByRole('button', { name: 'Default Terms' }));
     expect(await screen.findByLabelText('Default quotation terms')).toHaveValue('Pay in 7 days');
-    await userEvent.click(screen.getByRole('button', { name: 'Bank Account' }));
-    expect(await screen.findByLabelText('Account holder')).toBeInTheDocument();
+    // Primary Colour and Bank Account are UI-hidden.
+    expect(screen.queryByRole('button', { name: 'Bank Account' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Primary colour hex')).not.toBeInTheDocument();
   });
 
   it('saves the company profile', async () => {
@@ -104,12 +105,17 @@ describe('Phase 18 settings page', () => {
     );
   });
 
-  it('updates the primary colour and preferences', async () => {
+  it('keeps primary colour data intact while hiding the control, and saves preferences', async () => {
     const mock = stub(settings());
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
+    // The colour picker/save control is hidden from the UI…
+    expect(screen.queryByLabelText('Primary colour picker')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save colour' })).not.toBeInTheDocument();
+    // …while other branding (logo) remains usable.
     await userEvent.click(screen.getByRole('button', { name: 'Branding' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Save colour' }));
+    expect(await screen.findByText('Company logo')).toBeInTheDocument();
+    // Preferences still work.
     await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
     await userEvent.selectOptions(screen.getByLabelText('Timezone'), 'Asia/Dubai');
     await userEvent.selectOptions(screen.getByLabelText('Default currency'), 'AED');
@@ -146,33 +152,22 @@ describe('Phase 18 settings page', () => {
     );
   });
 
-  it('creates a bank account and blocks a confirmation mismatch', async () => {
-    const mock = stub(settings());
+  it('hides the Bank Account section entirely while unrelated settings still work', async () => {
+    stub(settings());
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
-    await userEvent.click(screen.getByRole('button', { name: 'Bank Account' }));
-    await userEvent.type(screen.getByLabelText('Account holder'), 'Interscale Pvt Ltd');
-    await userEvent.type(screen.getByLabelText('Bank name'), 'HDFC');
-    await userEvent.type(screen.getByLabelText('Account number'), '123456789012');
-    await userEvent.type(screen.getByLabelText('Confirm account number'), '99999999');
-    await userEvent.click(screen.getByRole('button', { name: 'Save bank account' }));
-    expect(await screen.findByText('Account numbers do not match.')).toBeInTheDocument();
-    // No PUT was sent on mismatch.
-    expect(mock.mock.calls.some(([, o]) => o?.method === 'PUT')).toBe(false);
-
-    await userEvent.clear(screen.getByLabelText('Confirm account number'));
-    await userEvent.type(screen.getByLabelText('Confirm account number'), '123456789012');
-    await userEvent.click(screen.getByRole('button', { name: 'Save bank account' }));
-    await waitFor(() =>
-      expect(
-        mock.mock.calls.some(
-          ([url, o]) => String(url).endsWith('/settings/bank-account') && o?.method === 'PUT',
-        ),
-      ).toBe(true),
-    );
+    // No Bank Account navigation or controls anywhere.
+    expect(screen.queryByRole('button', { name: 'Bank Account' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Account holder')).not.toBeInTheDocument();
+    expect(screen.queryByText('Save bank account')).not.toBeInTheDocument();
+    // Unrelated settings still render and save normally.
+    await userEvent.click(screen.getByRole('button', { name: 'Tax' }));
+    expect(await screen.findByLabelText('GSTIN')).toHaveValue('29ABCDE1234F1Z5');
+    await userEvent.click(screen.getByRole('button', { name: 'Company Profile' }));
+    expect(await screen.findByLabelText('Company name')).toHaveValue('Interscale Travel');
   });
 
-  it('shows a masked existing bank account', async () => {
+  it('hides the Bank Account section even when bank data exists', async () => {
     stub(
       settings({
         bankAccount: {
@@ -188,9 +183,9 @@ describe('Phase 18 settings page', () => {
     );
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
-    await userEvent.click(screen.getByRole('button', { name: 'Bank Account' }));
-    expect(await screen.findByText(/9012/)).toBeInTheDocument();
-    expect(screen.getByText(/Replace account/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Bank Account' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/9012/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Replace account/)).not.toBeInTheDocument();
   });
 
   it('hides save controls for a view-only user', async () => {
@@ -198,8 +193,6 @@ describe('Phase 18 settings page', () => {
     renderWithProviders(<SettingsPage />);
     await screen.findByLabelText('Company name');
     expect(screen.queryByRole('button', { name: 'Save profile' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Bank Account' }));
-    expect(screen.queryByLabelText('Account holder')).not.toBeInTheDocument();
   });
 
   it('excludes numbering and other out-of-scope sections', async () => {

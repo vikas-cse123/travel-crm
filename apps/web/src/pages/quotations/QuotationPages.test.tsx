@@ -846,6 +846,144 @@ describe('Phase 8 quotation pages', () => {
     expect(footer).toHaveTextContent('Alpha Travel. All rights reserved.');
   });
 
+  it('shows the Master destination (Malaysia) in Destinations while the hero stays the city', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: '919876543210',
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: null,
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000123',
+        customerName: 'Rajesh Kumar',
+        destinationSummary: 'Kuala Lumpur',
+        destinations: 'Malaysia',
+        travelStartDate: '2026-10-23',
+        travelEndDate: '2026-10-27',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Kuala Lumpur Package for Rajesh Kumar',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '80000',
+        notes: null,
+        perAdultPrice: '40000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        weblinkHeading: 'Kuala Lumpur',
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        sightseeingDetails: { include: false, days: [] },
+        flightDetails: null,
+        hotels: [],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+        createdBy: null,
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async () => response(publicData),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    // Hero heading remains the city.
+    expect(await screen.findByRole('heading', { name: 'Kuala Lumpur' })).toBeInTheDocument();
+    // The Destinations summary card shows the Master destination (Malaysia).
+    const dest = screen.getByText('Destinations');
+    expect(dest.closest('div')?.textContent).toContain('Malaysia');
+    expect(dest.closest('div')?.textContent).not.toContain('Kuala Lumpur');
+    // Package title keeps the city.
+    expect(screen.getByText('Kuala Lumpur Package for Rajesh Kumar')).toBeInTheDocument();
+  });
+
+  it('deduplicates destination names in the Destinations summary', async () => {
+    const base = {
+      company: {
+        name: 'Alpha Travel', email: 'hello@alpha.test', phone: '919876543210',
+        website: null, address: null, primaryColor: '#2563eb',
+        operatingSince: 2015, tripsSold: 4200, tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5', logoUrl: null,
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000124', customerName: 'Rajesh Kumar',
+        destinationSummary: 'Kuala Lumpur',
+        // Malaysia repeated across two itinerary stays → deduplicated.
+        destinations: 'Malaysia → Singapore',
+        travelStartDate: '2026-10-23', travelEndDate: '2026-10-27',
+        adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1,
+        validUntil: null, createdAt: '2026-08-04T10:00:00.000Z', status: 'VIEWED',
+      },
+      version: {
+        title: 'Malaysia & Singapore Package', introduction: null, versionNumber: 1,
+        currency: 'INR', finalAmount: '80000', notes: null,
+        perAdultPrice: '40000', perChildWithBedPrice: '0', perChildWithoutBedPrice: '0', perInfantPrice: '0',
+        taxNote: null, initialPaymentAmount: '0', paymentLink: null,
+        inclusionsHtml: null, exclusionsHtml: null, paymentPolicies: null,
+        cancellationPolicies: null, bookingTerms: null, weblinkHeading: 'Kuala Lumpur',
+        includeVisa: false, visaSectionTitle: null, visaAmount: '0', visaDestination: null,
+        visaType: null, visaServiceCharge: '0', visaGstPercent: '0', visaVfsCharge: '0',
+        sightseeingDetails: { include: false, days: [] }, flightDetails: null,
+        hotels: [], services: [], itinerary: [], inclusions: [], exclusions: [], terms: [],
+        createdBy: null,
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(base)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByRole('heading', { name: 'Kuala Lumpur' });
+    const dest = screen.getByText('Destinations');
+    expect(dest.closest('div')?.textContent).toContain('Malaysia → Singapore');
+  });
+
   it('removes the optional add-ons amount line from the Total Package Price card', async () => {
     const publicData = {
       company: {

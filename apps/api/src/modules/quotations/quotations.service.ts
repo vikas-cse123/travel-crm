@@ -150,6 +150,33 @@ function effectiveStatus(value: { status: string; validUntil: Date | null }) {
     : value.status;
 }
 
+/**
+ * Destination/Master-country names for a quotation, preserving first-seen
+ * itinerary order and de-duplicating repeated stays. The lead itinerary's
+ * `country` field holds the Master Destination (e.g. "Malaysia"), while
+ * `destination` holds the city (e.g. "Kuala Lumpur"). Falls back to the
+ * destination summary only when no proper destination value exists (legacy
+ * quotations).
+ */
+function resolveDestinationNames(
+  itinerary: Array<{ country?: string | null; destination?: string | null }> | null | undefined,
+  destinationSummary: string | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const row of itinerary ?? []) {
+    const country = (row.country ?? '').trim();
+    if (!country) continue;
+    const key = country.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(country);
+  }
+  if (names.length) return names;
+  const fallback = (destinationSummary ?? '').trim();
+  return fallback ? [fallback] : [];
+}
+
 /** Short-lived signed URL for the company branding logo, or null. */
 async function publicCompanyLogoUrl(company: {
   logoObjectKey: string | null;
@@ -1733,8 +1760,31 @@ export const quotationsService = {
 
     const pdf = await renderQuotationPdf(
       images
-        ? { company, consultant, quotation, version, images }
-        : { company, consultant, quotation, version },
+        ? {
+            company,
+            consultant,
+            quotation: {
+              ...quotation,
+              destinations: resolveDestinationNames(
+                quotation.query?.itinerary,
+                quotation.destinationSummary,
+              ).join(' → '),
+            },
+            version,
+            images,
+          }
+        : {
+            company,
+            consultant,
+            quotation: {
+              ...quotation,
+              destinations: resolveDestinationNames(
+                quotation.query?.itinerary,
+                quotation.destinationSummary,
+              ).join(' → '),
+            },
+            version,
+          },
     );
     const checksum = createHash('sha256').update(pdf).digest('hex');
     const documentId = randomUUID();
@@ -2371,6 +2421,12 @@ export const quotationsService = {
         quotationNumber: quotation.quotationNumber,
         customerName: quotation.customerName,
         destinationSummary: quotation.destinationSummary,
+        // Destination/Master-country names (e.g. "Malaysia"), de-duplicated in
+        // first-seen itinerary order; falls back to the summary for legacy rows.
+        destinations: resolveDestinationNames(
+          quotation.query?.itinerary,
+          quotation.destinationSummary,
+        ).join(' → '),
         travelStartDate: quotation.travelStartDate,
         travelEndDate: quotation.travelEndDate,
         adults: quotation.adults,

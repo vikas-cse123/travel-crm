@@ -175,6 +175,8 @@ export interface QuotationPdfInput {
     customerEmail: string | null;
     customerPhone: string;
     destinationSummary: string;
+    /** Destination/Master-country names (e.g. "Malaysia"), joined with " → ". */
+    destinations?: string;
     travelStartDate: Date | null;
     travelEndDate: Date | null;
     adults: number;
@@ -306,15 +308,18 @@ export interface PdfPageLayout {
  * Single shared page-height formula:
  *   pageHeight = max(minimumHeight, topMargin + contentHeight + postContentGap
  *                    + footerHeight + bottomMargin)
- * The footer always begins exactly `postContentGap` after the last content
- * block; any extra space required to reach the minimum height is added below
- * the footer (as a larger bottom margin), never between content and footer.
+ * The footer is anchored to the physical bottom of the page:
+ *   footerTop = pageHeight - bottomMargin - footerHeight
+ * so every page — cover, flight, hotel, itinerary, thank-you — uses the same
+ * stable footer position. Extra space needed to reach the minimum page height
+ * is added below the footer (as a larger bottom margin), never between content
+ * and footer, so the footer never floats upward under the content.
  */
 export function computePageHeight(contentHeight: number): PdfPageLayout {
   const contentBottom = TOP + contentHeight;
-  const footerTop = contentBottom + POST_GAP;
-  const required = footerTop + FOOTER_H + BOTTOM_M;
+  const required = contentBottom + POST_GAP + FOOTER_H + BOTTOM_M;
   const pageHeight = Math.max(required, PDF_MIN_PAGE_HEIGHT);
+  const footerTop = pageHeight - BOTTOM_M - FOOTER_H;
   return { pageHeight, contentBottom, footerTop };
 }
 
@@ -388,9 +393,9 @@ function drawFooterTextLine(
 
 /**
  * Draw the complete repeating company footer on one buffered physical page.
- * `footerTop` is the divider Y for that page (contentBottom + POST_GAP), so the
- * footer always sits the same distance below the content regardless of the
- * page's physical height.
+ * `footerTop` is the physical bottom-anchored divider Y for that page
+ * (pageHeight - bottomMargin - footerHeight), so the footer sits in the same
+ * location on every page regardless of how much content precedes it.
  */
 function drawPageFooter(
   doc: PDFKit.PDFDocument,
@@ -792,7 +797,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
   const summaryRows: Array<[string, string]> = [
     ['Name', q.customerName],
-    ['Destination', q.destinationSummary],
+    // Destination/Master-country (e.g. "Malaysia"); the hero/primary heading and
+    // city-specific sections keep using the city value.
+    ['Destination', toText(q.destinations) || q.destinationSummary],
     ['Duration', duration],
     ['Travel Date', dateFmt(q.travelStartDate)],
     ['Pax', pax],

@@ -54,6 +54,8 @@ interface PublicQuotation {
     quotationNumber: string;
     customerName: string;
     destinationSummary: string;
+    /** Destination/Master-country names (e.g. "Malaysia"), joined with " → ". */
+    destinations?: string;
     travelStartDate: string | null;
     travelEndDate: string | null;
     adults: number;
@@ -1069,7 +1071,7 @@ export function PublicQuotationPage() {
               <Info label="Quotation ID" value={formatPublicQuotationNumber(q.quotationNumber)} />
               <Info
                 label="Destinations"
-                value={q.destinationSummary.replace(/•/g, '→')}
+                value={q.destinations || q.destinationSummary.replace(/•/g, '→')}
                 full
               />
               {preparedBy && (

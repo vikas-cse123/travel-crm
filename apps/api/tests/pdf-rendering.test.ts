@@ -346,6 +346,132 @@ describe('PDF rendering with long content', () => {
     }
   });
 
+  it('maps Destination (Malaysia) while keeping city content (Kuala Lumpur) intact', async () => {
+    const pdf = await renderQuotationPdf({
+      company: { ...company, logo: PNG_1PX },
+      quotation: {
+        quotationNumber: 'QT-MY-KL-0001',
+        customerName: 'Rajesh Kumar',
+        customerEmail: 'rajesh@example.com',
+        customerPhone: '+91 90000 00002',
+        destinationSummary: 'Kuala Lumpur',
+        // Destination/Master-country (Malaysia) from the lead itinerary.
+        destinations: 'Malaysia',
+        travelStartDate: new Date('2026-10-23'),
+        travelEndDate: new Date('2026-10-27'),
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: new Date('2026-10-20'),
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Kuala Lumpur Package for Rajesh Kumar',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '80000.00',
+        notes: null,
+        perAdultPrice: '40000.00',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '20000.00',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Kuala Lumpur',
+              city: 'Kuala Lumpur',
+              date: '2026-10-23',
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'Batu Caves Tour', description: null }],
+            },
+          ],
+        },
+        flightDetails: {
+          include: true,
+          journeyType: 'ONEWAY_OUTBOUND',
+          outbound: {
+            fromCity: 'Delhi',
+            toCity: 'Kuala Lumpur',
+            segments: [
+              {
+                airlineName: 'AirAsia',
+                flightNumber: 'AK101',
+                travelClass: 'Economy',
+                from: 'Delhi',
+                to: 'Kuala Lumpur',
+                departureDate: '2026-10-23',
+                departureTime: '23:55',
+                arrivalDate: '2026-10-24',
+                arrivalTime: '05:10',
+                duration: '5h 15m',
+              },
+            ],
+          },
+          returnJourney: { fromCity: 'Kuala Lumpur', toCity: 'Delhi', segments: [] },
+        },
+        hotels: [
+          {
+            city: 'Kuala Lumpur',
+            hotelName: 'Grand KL Hotel',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'MAP',
+            nights: 4,
+            selected: true,
+            notes: null,
+          },
+        ],
+        itinerary: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: Kuala Lumpur',
+            destination: 'Kuala Lumpur',
+            description: 'Arrival and city tour.',
+            meals: null,
+            overnightLocation: 'Kuala Lumpur',
+          },
+        ],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    // The hero/package heading keeps the city (Kuala Lumpur) — may wrap across
+    // lines in the extracted layout text, so collapse whitespace before matching.
+    expect(visible.replace(/\s+/g, ' ')).toContain('KUALA LUMPUR PACKAGE FOR RAJESH KUMAR');
+    // The Destination summary row shows the Master country (Malaysia).
+    expect(visible).toContain('Destination: Malaysia');
+    // City-specific content stays Kuala Lumpur.
+    expect(visible).toContain('Kuala Lumpur');
+    expect(visible).toContain('Grand KL Hotel');
+    expect(visible.replace(/\s+/g, ' ')).toContain('Day 1: Kuala Lumpur');
+  });
+
   it('renders a quotation PDF with missing optional data without junk or broken blocks', async () => {
     const pdf = await renderQuotationPdf({
       company: {
@@ -697,17 +823,28 @@ describe('PDF rendering with long content', () => {
     expect(outboundH).toBeGreaterThan(returnH);
   });
 
-  it('uses a consistent post-content gap in the page-height formula', () => {
+  it('anchors the footer to the physical page bottom with a consistent formula', () => {
+    // footerTop is always pageHeight - bottomMargin - footerHeight, so every
+    // page type shares the same bottom-anchored footer position.
     for (const contentHeight of [120, 260, 400, 600]) {
       const layout = computePageHeight(contentHeight);
-      expect(layout.footerTop - layout.contentBottom).toBeCloseTo(PDF_POST_CONTENT_GAP, 4);
+      expect(layout.footerTop).toBeCloseTo(
+        layout.pageHeight - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
+        4,
+      );
       expect(layout.pageHeight).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT);
       expect(layout.pageHeight).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
     }
-    // Below the minimum the page stays at the minimum while the gap holds.
+    // Below the minimum the page stays at the minimum while the footer remains
+    // anchored to the bottom (never floating upward under the content).
     const small = computePageHeight(80);
-    expect(small.footerTop - small.contentBottom).toBeCloseTo(PDF_POST_CONTENT_GAP, 4);
     expect(small.pageHeight).toBe(PDF_MIN_PAGE_HEIGHT);
+    expect(small.footerTop).toBeCloseTo(
+      PDF_MIN_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
+      4,
+    );
+    // The footer never overlaps content: it always sits at least POST_GAP below.
+    expect(small.footerTop - small.contentBottom).toBeGreaterThanOrEqual(PDF_POST_CONTENT_GAP - 0.001);
   });
 
   it('renders a multi-page booking confirmation with many travellers and services', async () => {

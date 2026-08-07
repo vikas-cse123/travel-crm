@@ -18,13 +18,20 @@ import {
 const input = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
 const card = 'rounded-xl border bg-card p-5 shadow-sm space-y-4';
 
+/**
+ * UI-only visibility flags. These hide user-facing controls without touching
+ * the underlying data/API (reversible later by flipping back to true).
+ */
+const SHOW_PRIMARY_COLOUR_SETTING = false;
+const SHOW_BANK_ACCOUNT_SETTINGS = false;
+
 const TABS = [
   ['profile', 'Company Profile'],
   ['branding', 'Branding'],
   ['tax', 'Tax'],
   ['preferences', 'Preferences'],
   ['terms', 'Default Terms'],
-  ['bank', 'Bank Account'],
+  ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -178,34 +185,38 @@ function BrandingTab({ data, canUpdate }: { data: CompanySettings; canUpdate: bo
   return (
     <section className={card}>
       <h2 className="font-semibold">Branding</h2>
-      <Field label="Primary colour">
-        <div className="flex items-center gap-2">
-          <input
-            aria-label="Primary colour picker"
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            className="h-9 w-12 rounded border"
-          />
-          <input
-            aria-label="Primary colour hex"
-            className={`${input} max-w-40`}
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-          />
-        </div>
-      </Field>
-      {canUpdate && (
-        <Button
-          isLoading={branding.isPending}
-          onClick={() => branding.mutate({ primaryColor: color })}
-        >
-          Save colour
-        </Button>
+      {SHOW_PRIMARY_COLOUR_SETTING && (
+        <>
+          <Field label="Primary colour">
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="Primary colour picker"
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                className="h-9 w-12 rounded border"
+              />
+              <input
+                aria-label="Primary colour hex"
+                className={`${input} max-w-40`}
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+              />
+            </div>
+          </Field>
+          {canUpdate && (
+            <Button
+              isLoading={branding.isPending}
+              onClick={() => branding.mutate({ primaryColor: color })}
+            >
+              Save colour
+            </Button>
+          )}
+          <Feedback error={branding.error?.message} success={branding.isSuccess} />
+        </>
       )}
-      <Feedback error={branding.error?.message} success={branding.isSuccess} />
 
-      <div className="border-t pt-4">
+      <div className={SHOW_PRIMARY_COLOUR_SETTING ? 'border-t pt-4' : ''}>
         <p className="text-sm font-medium text-slate-700">Company logo</p>
         <div className="mt-2 flex h-24 w-40 items-center justify-center overflow-hidden rounded-lg border bg-slate-50">
           {data.branding.hasLogo && data.branding.logoUrl ? (
@@ -600,7 +611,9 @@ export function SettingsPage() {
       {tab === 'tax' && <TaxTab data={data} canUpdate={canUpdate} />}
       {tab === 'preferences' && <PreferencesTab data={data} canUpdate={canUpdate} />}
       {tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
-      {tab === 'bank' && <BankTab data={data} canUpdate={canUpdate} />}
+      {SHOW_BANK_ACCOUNT_SETTINGS && tab === 'bank' && (
+        <BankTab data={data} canUpdate={canUpdate} />
+      )}
     </div>
   );
 }
