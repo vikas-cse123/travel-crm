@@ -111,15 +111,17 @@ export function errorHandler(
                   : ''),
               // P2022 message is a column-name reference ("column does not exist"); it
               // contains no row data, IDs, values or secrets — safe to expose the column.
-              // Capture `column "x" of relation "y"` / `column x does not exist`.
+              // Capture `meta.column` / `meta.column_name` or the backtick form in the
+              // message (`The column `companies.tan` does not exist`).
               ...(error instanceof Error && 'meta' in error
                 ? (() => {
                     const meta = (error as unknown as { meta?: Record<string, unknown> }).meta;
                     const col =
-                      typeof meta?.column_name === 'string'
-                        ? meta.column_name
-                        : /column "([^"]+)" of relation "([^"]+)"/.exec(error.message)?.[1] ??
-                          /column ([a-zA-Z0-9_]+) does not exist/.exec(error.message)?.[1];
+                      typeof meta?.column === 'string'
+                        ? meta.column
+                        : typeof meta?.column_name === 'string'
+                          ? meta.column_name
+                          : /The column `([^`]+)` does not exist/.exec(error.message)?.[1];
                     return col ? { diagnosticColumn: col } : {};
                   })()
                 : {}),
