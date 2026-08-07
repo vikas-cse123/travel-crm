@@ -1,6 +1,7 @@
 import { ClipboardList, Layers3, CalendarDays, Files } from 'lucide-react';
 import { labelForLookup } from '@interscale/shared';
 import { cn } from '@/utils/cn';
+import './notes.css';
 
 /** Stage → badge colour, mirroring the reference lead-stage chips. */
 const stageColors: Record<string, string> = {
@@ -73,23 +74,20 @@ export function NoteStatCards({
     year: 'numeric',
   });
   const tiles = [
-    { label: 'Total Notes', value: String(totalNotes), tone: 'bg-teal-500', Icon: ClipboardList },
-    { label: 'Total Leads', value: String(totalLeads), tone: 'bg-emerald-500', Icon: Layers3 },
-    { label: 'Today', value: today, tone: 'bg-amber-500', Icon: CalendarDays },
-    { label: 'Total Pages', value: String(totalPages), tone: 'bg-rose-500', Icon: Files },
+    { label: 'Total Notes', value: String(totalNotes), tone: 'notes-stat--teal', Icon: ClipboardList },
+    { label: 'Total Leads', value: String(totalLeads), tone: 'notes-stat--green', Icon: Layers3 },
+    { label: 'Today', value: today, tone: 'notes-stat--amber', Icon: CalendarDays },
+    { label: 'Total Pages', value: String(totalPages), tone: 'notes-stat--rose', Icon: Files },
   ];
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="notes-stats" aria-label="Notes statistics">
       {tiles.map(({ label, value, tone, Icon }) => (
-        <article
-          key={label}
-          className={cn('flex items-center justify-between rounded-xl p-4 text-white shadow-sm', tone)}
-        >
+        <article key={label} className={cn('notes-stat-card', tone)}>
           <div className="min-w-0">
-            <p className="truncate text-2xl font-bold">{value}</p>
-            <p className="text-sm font-medium opacity-90">{label}</p>
+            <p className="notes-stat-value">{value}</p>
+            <p className="notes-stat-label">{label}</p>
           </div>
-          <Icon className="h-9 w-9 shrink-0 opacity-70" />
+          <Icon className="notes-stat-icon" aria-hidden="true" />
         </article>
       ))}
     </section>

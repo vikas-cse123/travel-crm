@@ -1,18 +1,31 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, Phone, Plus, Search } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Eye,
+  NotebookPen,
+  Phone,
+  Plus,
+  Search,
+  UserRound,
+} from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Button } from '@/components/ui/Button';
 import {
   useLeadLookups,
   useNotesOverview,
   type Note,
   type NotesOverviewLead,
 } from '@/features/queries/queries.api';
-import { PageHeader } from '../reminders/ReminderUi';
 import { formatDateTime, NoteStatCards, StagePill } from './NotesUi';
+import { cn } from '@/utils/cn';
+import './notes.css';
 
-const fieldClass =
-  'h-10 w-full rounded-lg border border-slate-300 bg-card px-3 text-sm text-slate-800 outline-none focus:border-brand-500';
+/** Map a lead stage to the deterministic card accent/tint classes. */
+function cardAccent(stage: string | null): string {
+  if (!stage) return 'notes-card--new-lead';
+  return `notes-card--${stage.toLowerCase().replace(/_/g, '-')}`;
+}
 
 function NoteBlock({ note, muted = false }: { note: Note; muted?: boolean }) {
   return (
@@ -24,92 +37,105 @@ function NoteBlock({ note, muted = false }: { note: Note; muted?: boolean }) {
       <p className="mt-2 whitespace-pre-wrap break-words border-l-2 border-brand-300 pl-3 text-sm text-slate-800">
         {note.content}
       </p>
-      <p className="mt-1 pl-3 text-xs text-slate-500">👤 {note.authorUser.fullName}</p>
+      <p className="mt-1 pl-3 text-xs text-slate-500">{note.authorUser.fullName}</p>
     </div>
   );
 }
 
-function LeadCard({ lead }: { lead: NotesOverviewLead }) {
+function LeadNoteCard({ lead }: { lead: NotesOverviewLead }) {
   const [showPrevious, setShowPrevious] = useState(false);
   const latest = lead.latestNote;
+  const accent = cardAccent(lead.leadStage);
   return (
-    <article className="flex flex-col rounded-xl border border-l-4 border-l-brand-400 bg-card p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold text-slate-900">{lead.customerName}</h3>
-        <StagePill stage={lead.leadStage} />
+    <article className={cn('note-card', accent)}>
+      {/* Tinted header zone */}
+      <div className="note-card-header">
+        <div className="note-card-name-row">
+          <h3 className="note-card-name">{lead.customerName}</h3>
+          <StagePill stage={lead.leadStage} />
+        </div>
+        <p className="note-card-phone">
+          <Phone aria-hidden="true" /> {lead.phone}
+        </p>
+        <p className="note-card-count">
+          <NotebookPen aria-hidden="true" />
+          {lead.noteCount} {lead.noteCount === 1 ? 'note' : 'notes'}
+        </p>
       </div>
-      <p className="mt-1 flex items-center gap-1 text-sm text-slate-500">
-        <Phone className="h-3.5 w-3.5" /> {lead.phone}
-      </p>
-      <p className="mt-1 text-xs font-medium text-slate-500">
-        {lead.noteCount} {lead.noteCount === 1 ? 'note' : 'notes'}
-      </p>
 
-      <div className="mt-3 border-t pt-3">
+      {/* White body */}
+      <div className="note-card-body">
         {latest ? (
           <>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">Latest Note:</span>
-              <span className="text-xs text-slate-500">{formatDateTime(latest.createdAt)}</span>
+            <div className="note-card-meta-row">
+              <span className="note-card-meta-label">Latest Note:</span>
+              <span className="note-card-meta-time">{formatDateTime(latest.createdAt)}</span>
             </div>
-            <p className="mt-2 whitespace-pre-wrap break-words border-l-2 border-brand-400 pl-3 text-sm text-slate-800">
-              {latest.content}
+            <div className="note-card-panel">{latest.content}</div>
+            <p className="note-card-author">
+              <UserRound aria-hidden="true" /> {latest.authorUser.fullName}
             </p>
-            <p className="mt-1 pl-3 text-xs text-slate-500">👤 {latest.authorUser.fullName}</p>
           </>
         ) : (
-          <p className="text-sm text-slate-400">No notes yet.</p>
+          <div className="note-card-no-notes">No notes yet.</div>
         )}
       </div>
 
       {lead.previousNotes.length > 0 && (
-        <div className="mt-3 border-t pt-3">
-          <button
-            type="button"
-            onClick={() => setShowPrevious((value) => !value)}
-            className="flex items-center gap-1 text-sm font-semibold text-brand-700"
-          >
-            Previous Notes:
-            {showPrevious ? (
-              <>
-                Hide <ChevronUp className="h-4 w-4" />
-              </>
-            ) : (
-              <>
-                Show All <ChevronDown className="h-4 w-4" />
-              </>
-            )}
-          </button>
+        <>
+          <hr className="note-card-divider" />
+          <div className="note-card-previous">
+            <span className="note-card-previous-label">Previous Notes:</span>
+            <button
+              type="button"
+              onClick={() => setShowPrevious((value) => !value)}
+              className="note-card-show-all"
+            >
+              {showPrevious ? (
+                <>
+                  Hide <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                </>
+              ) : (
+                <>
+                  Show All <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </>
+              )}
+            </button>
+          </div>
           {showPrevious && (
-            <div className="mt-2 space-y-2">
+            <div className="note-card-previous-list space-y-2">
               {lead.previousNotes.map((note) => (
                 <NoteBlock key={note.id} note={note} muted />
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
 
-      <div className="mt-4 flex justify-end gap-2 pt-2">
+      {/* Bottom action area */}
+      <div className="note-card-actions">
         <Link
           to={`/queries/${lead.id}/notes`}
-          aria-label={`View all notes for ${lead.customerName}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-200 text-brand-600 hover:bg-brand-50"
+          aria-label={`View notes for ${lead.customerName}`}
+          title={`View notes for ${lead.customerName}`}
+          className="note-action-btn note-action-btn--view"
         >
-          <Eye className="h-4 w-4" />
+          <Eye aria-hidden="true" />
         </Link>
         <Link
           to={`/queries/${lead.id}/notes/new`}
           aria-label={`Add note for ${lead.customerName}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+          title={`Add note for ${lead.customerName}`}
+          className="note-action-btn note-action-btn--add"
         >
-          <Plus className="h-4 w-4" />
+          <Plus aria-hidden="true" />
         </Link>
       </div>
     </article>
   );
 }
 
+/** Four-colour statistics tiles for the All Notes dashboard. */
 export function AllNotesPage() {
   const [params, setParams] = useSearchParams();
   const overview = useNotesOverview(params);
@@ -127,12 +153,14 @@ export function AllNotesPage() {
   const totalPages = overview.data?.stats.totalPages ?? 1;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        eyebrow="Notes"
-        title="Lead Notes"
-        description="Every note logged across your leads, grouped by lead with follow-up reminders."
-      />
+    <div className="notes-page">
+      <div>
+        <p className="notes-page-breadcrumb">Notes</p>
+        <h1 className="notes-page-title">Lead Notes</h1>
+        <p className="notes-page-desc">
+          Every note logged across your leads, grouped by lead with follow-up reminders.
+        </p>
+      </div>
 
       <NoteStatCards
         totalNotes={overview.data?.stats.totalNotes ?? 0}
@@ -140,12 +168,12 @@ export function AllNotesPage() {
         totalPages={totalPages}
       />
 
-      <section className="grid gap-3 rounded-xl border bg-card p-4 shadow-sm md:grid-cols-3">
-        <label className="relative">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+      <section className="notes-filter-bar" aria-label="Filter notes">
+        <label className="notes-filter-field">
+          <Search className="notes-filter-icon" aria-hidden="true" />
           <input
             aria-label="Search notes"
-            className={`${fieldClass} pl-9`}
+            className="notes-filter-input"
             value={params.get('search') ?? ''}
             onChange={(event) => update('search', event.target.value)}
             placeholder="Search in leads or comments…"
@@ -153,7 +181,7 @@ export function AllNotesPage() {
         </label>
         <select
           aria-label="Filter stage"
-          className={fieldClass}
+          className="notes-filter-select"
           value={params.get('stage') ?? ''}
           onChange={(event) => update('stage', event.target.value)}
         >
@@ -166,7 +194,7 @@ export function AllNotesPage() {
         </select>
         <select
           aria-label="Filter user"
-          className={fieldClass}
+          className="notes-filter-select"
           value={params.get('userId') ?? ''}
           onChange={(event) => update('userId', event.target.value)}
         >
@@ -180,50 +208,51 @@ export function AllNotesPage() {
       </section>
 
       {overview.isPending ? (
-        <div className="rounded-xl border bg-card p-10 text-center text-sm text-slate-500">
+        <div className="notes-loading" aria-live="polite">
           Loading notes…
         </div>
       ) : overview.isError ? (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-700">
+        <div role="alert" className="notes-error">
           Could not load notes.
         </div>
       ) : !overview.data?.leads.length ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-card px-6 py-14 text-center">
-          <h2 className="font-semibold text-slate-800">No notes found</h2>
-          <p className="mt-1 text-sm text-slate-500">
+        <div className="notes-empty">
+          <ClipboardList className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
+          <h2 className="notes-empty-title">No notes found</h2>
+          <p className="notes-empty-text">
             Adjust the filters, or add a note from a lead to see it here.
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="notes-grid">
           {overview.data.leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} />
+            <LeadNoteCard key={lead.id} lead={lead} />
           ))}
         </div>
       )}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">
+        <div className="notes-pagination">
+          <span className="notes-pagination-info">
             Page {page} of {totalPages}
           </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
+          <div className="notes-pagination-buttons">
+            <button
+              type="button"
+              className="notes-pagination-btn"
               disabled={page <= 1}
               onClick={() => update('page', String(page - 1))}
             >
               Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
+            </button>
+            <button
+              type="button"
+              className="notes-pagination-btn"
               disabled={page >= totalPages}
               onClick={() => update('page', String(page + 1))}
             >
               Next
-            </Button>
+            </button>
           </div>
         </div>
       )}
