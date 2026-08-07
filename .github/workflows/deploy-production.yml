@@ -331,20 +331,21 @@ jobs:
       - name: Dump recent API error logs (TEMP DIAGNOSTIC)
         if: always()
         run: |
-          echo "=== API error-level logs (last 2h) ==="
-          aws logs filter-log-events \
+          LOGS="$(aws logs filter-log-events \
             --log-group-name "/ecs/interscale-travel-crm-prod/api" \
             --start-time "$(( ($(date +%s) - 7200) * 1000 ))" \
             --filter-pattern '"level":50' \
             --query 'events[].message' \
-            --output text | tail -120 || true
-          echo "=== API unhandled error logs (last 2h) ==="
-          aws logs filter-log-events \
-            --log-group-name "/ecs/interscale-travel-crm-prod/api" \
-            --start-time "$(( ($(date +%s) - 7200) * 1000 ))" \
-            --filter-pattern '"Unhandled error"' \
-            --query 'events[].message' \
-            --output text | tail -120 || true
+            --output text | tail -150 || true)"
+          echo "::group::API error-level logs (last 2h)"
+          printf '%s\n' "$LOGS"
+          echo "::endgroup::"
+          {
+            echo "## Recent production API errors (last 2h)"
+            echo '```'
+            printf '%s\n' "$LOGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: API job summary
         if: always()
