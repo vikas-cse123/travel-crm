@@ -96,9 +96,21 @@ export function errorHandler(
     ERROR_CODES.INTERNAL_ERROR,
     'Something went wrong. Please try again.',
     {
-      // TEMP-DIAG: safe step identifier only (never the exception itself).
+      // TEMP-DIAG: safe step identifier + error name/code only (never message/SQL/data).
       ...(error instanceof Error && 'diagnosticStep' in error
-        ? { details: { diagnosticStep: (error as Error & { diagnosticStep: string }).diagnosticStep } }
+        ? {
+            details: {
+              diagnosticStep: (error as Error & { diagnosticStep: string }).diagnosticStep,
+              diagnosticError:
+                error.name +
+                (typeof error === 'object' &&
+                error !== null &&
+                'code' in error &&
+                typeof (error as { code?: unknown }).code === 'string'
+                  ? `:${(error as { code: string }).code}`
+                  : ''),
+            },
+          }
         : {}),
       requestId,
     },
