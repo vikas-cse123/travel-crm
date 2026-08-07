@@ -14,7 +14,6 @@ import {
   forgotPasswordLimiter,
   otpResendLimiter,
   otpVerifyLimiter,
-  registerLimiter,
   resetPasswordLimiter,
 } from '../../middleware/rate-limiters.js';
 import { authController } from './auth.controller.js';
@@ -36,7 +35,6 @@ const router = Router();
 
 router.post(
   '/register',
-  registerLimiter,
   validateRequest({ body: registerSchema }),
   asyncHandler(authController.register),
 );

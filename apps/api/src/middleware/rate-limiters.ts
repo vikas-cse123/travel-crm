@@ -39,16 +39,19 @@ function buildLimiter(
 }
 
 /**
- * The sign-in endpoint is exempt from the GLOBAL baseline so a user can never
- * be blocked by the NUMBER of login attempts. This is deliberately scoped to
- * the exact login request — registration, OTP, password reset and every other
- * API route keep their global and per-endpoint protection.
+ * The sign-in and sign-up endpoints are exempt from the GLOBAL baseline so a
+ * user can never be blocked by the NUMBER of login or registration attempts.
+ * This is deliberately scoped to the exact requests — OTP, password reset and
+ * every other API route keep their global and per-endpoint protection.
  */
 export function shouldSkipGlobalLimiter(req: { method?: string; path?: string }): boolean {
-  return req.method === 'POST' && req.path === `${API_PREFIX}/auth/login`;
+  return (
+    req.method === 'POST' &&
+    (req.path === `${API_PREFIX}/auth/login` || req.path === `${API_PREFIX}/auth/register`)
+  );
 }
 
-/** Baseline limiter applied to the whole API surface, except sign-in. */
+/** Baseline limiter applied to the whole API surface, except sign-in and sign-up. */
 export const globalLimiter = buildLimiter({ skip: shouldSkipGlobalLimiter });
 
 /** General-purpose limiter for credential endpoints. */
@@ -58,20 +61,13 @@ export const authLimiter = buildLimiter({ windowMs: 15 * 60_000, limit: 20 });
  * Per-endpoint limiters.
  *
  * Each auth endpoint gets its own budget so exhausting one cannot lock a user
- * out of the others — hammering login must not also block password reset.
- * Development gets roomier limits so an afternoon of manual testing does not
- * trip them; production values are the tight ones.
+ * out of the others. Development gets roomier limits so an afternoon of manual
+ * testing does not trip them; production values are the tight ones.
  *
  * All of these are disabled when NODE_ENV=test (see `skip` above), because
  * shared limiter state makes suites order-dependent and flaky.
  */
 const devMultiplier = isProduction ? 1 : 10;
-
-/** Registration: expensive (Argon2 + a large transaction) and rarely repeated. */
-export const registerLimiter = buildLimiter({
-  windowMs: 60 * 60_000,
-  limit: 5 * devMultiplier,
-});
 
 /** OTP verification: bounds guessing from one network location. */
 export const otpVerifyLimiter = buildLimiter({

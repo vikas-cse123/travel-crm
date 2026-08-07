@@ -6,26 +6,25 @@ import {
   otpResendLimiter,
   otpVerifyLimiter,
   publicQuotationLimiter,
-  registerLimiter,
   resetPasswordLimiter,
   shouldSkipGlobalLimiter,
 } from '../src/middleware/rate-limiters.js';
 import { env, isProduction } from '../src/config/env.js';
 
 /**
- * Verify the login endpoint's own limiter was removed while every other
- * rate limiter (global + per-endpoint) remains in place.
+ * Verify the login and signup endpoints' own limiters were removed while every
+ * other rate limiter (global + per-endpoint) remains in place.
  */
 describe('rate limiters', () => {
-  it('no longer exports a login-specific limiter', async () => {
+  it('no longer exports a login or register-specific limiter', async () => {
     const module = await import('../src/middleware/rate-limiters.js');
     expect('loginLimiter' in module).toBe(false);
+    expect('registerLimiter' in module).toBe(false);
   });
 
-  it('still exports the global and all non-login per-endpoint limiters', () => {
+  it('still exports the global and all other per-endpoint limiters', () => {
     expect(globalLimiter).toBeTypeOf('function');
     expect(authLimiter).toBeTypeOf('function');
-    expect(registerLimiter).toBeTypeOf('function');
     expect(otpVerifyLimiter).toBeTypeOf('function');
     expect(otpResendLimiter).toBeTypeOf('function');
     expect(forgotPasswordLimiter).toBeTypeOf('function');
@@ -41,14 +40,14 @@ describe('rate limiters', () => {
     expect(defaultLimit).toBeGreaterThan(0);
   });
 
-  it('exempts only the exact login POST from the global limiter', () => {
+  it('exempts only the exact login and register POSTs from the global limiter', () => {
     expect(
       shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/login' }),
     ).toBe(true);
-    // The exemption is scoped to the sign-in request, not /api/auth/*.
     expect(
       shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/register' }),
-    ).toBe(false);
+    ).toBe(true);
+    // The exemption is scoped to the sign-in/sign-up requests, not /api/auth/*.
     expect(
       shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/forgot-password' }),
     ).toBe(false);
