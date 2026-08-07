@@ -40,22 +40,39 @@ const MUTED = '#5F6670';
 const BORDER = '#D8DDE3';
 
 // ---- Global page geometry (PDF points) ------------------------------------
+/** A4 page width. */
 export const PDF_PAGE_WIDTH = 595.28;
+/** A4 page height — every page uses the same physical size. */
+export const PDF_PAGE_HEIGHT = 841.89;
 export const PDF_TOP_MARGIN = 46;
 export const PDF_SIDE_MARGIN = 40;
 export const PDF_BOTTOM_MARGIN = 30;
 export const PDF_FOOTER_HEIGHT = 100;
-export const PDF_POST_CONTENT_GAP = 20;
-export const PDF_MIN_PAGE_HEIGHT = 456;
-export const PDF_MAX_PAGE_HEIGHT = 836;
+export const PDF_POST_CONTENT_GAP = 16;
+export const PDF_MIN_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
+export const PDF_MAX_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
 const M = PDF_SIDE_MARGIN;
 const TOP = PDF_TOP_MARGIN;
 const BOTTOM_M = PDF_BOTTOM_MARGIN;
 const FOOTER_H = PDF_FOOTER_HEIGHT;
 const POST_GAP = PDF_POST_CONTENT_GAP;
 const CONTENT_W = PDF_PAGE_WIDTH - M * 2; // 515.28
+/** Y where body content must stop so it never collides with the footer zone. */
+export const CONTENT_BOTTOM_LIMIT = PDF_PAGE_HEIGHT - BOTTOM_M - FOOTER_H - POST_GAP;
 /** Max content height on a page before the planner starts a continuation page. */
-export const PDF_MAX_CONTENT_HEIGHT = 640;
+export const PDF_MAX_CONTENT_HEIGHT = CONTENT_BOTTOM_LIMIT - TOP;
+
+// Fixed footer column anchors (full usable width, never derived from text).
+const LOGO_X = M;
+const LOGO_W = 110;
+const CONTACT_X = M + 158;
+const CONTACT_W = 132;
+const ACHIEVEMENTS_X = M + 296;
+const ACHIEVEMENTS_W = 132;
+const LEGAL_X = M + 434;
+const LEGAL_W = 121;
+const FOOTER_HEADING_FONT = 9.5;
+const FOOTER_BODY_FONT = 8.5;
 
 // Flight-card padding (points), shared by measurement and rendering.
 const FLIGHT_CARD_PADDING_X = 16;
@@ -305,20 +322,15 @@ export interface PdfPageLayout {
 }
 
 /**
- * Single shared page-height formula:
- *   pageHeight = max(minimumHeight, topMargin + contentHeight + postContentGap
- *                    + footerHeight + bottomMargin)
- * The footer is anchored to the physical bottom of the page:
- *   footerTop = pageHeight - bottomMargin - footerHeight
- * so every page — cover, flight, hotel, itinerary, thank-you — uses the same
- * stable footer position. Extra space needed to reach the minimum page height
- * is added below the footer (as a larger bottom margin), never between content
- * and footer, so the footer never floats upward under the content.
+ * Fixed A4 page layout. Every physical page is the same size (PDF_PAGE_HEIGHT),
+ * and the footer is anchored to the physical bottom:
+ *   footerTop = PDF_PAGE_HEIGHT - bottomMargin - footerHeight
+ * so the footer sits at the same position on every page regardless of content.
+ * Body content is confined above CONTENT_BOTTOM_LIMIT by the page planner.
  */
 export function computePageHeight(contentHeight: number): PdfPageLayout {
-  const contentBottom = TOP + contentHeight;
-  const required = contentBottom + POST_GAP + FOOTER_H + BOTTOM_M;
-  const pageHeight = Math.max(required, PDF_MIN_PAGE_HEIGHT);
+  const pageHeight = PDF_PAGE_HEIGHT;
+  const contentBottom = TOP + Math.min(contentHeight, CONTENT_BOTTOM_LIMIT - TOP);
   const footerTop = pageHeight - BOTTOM_M - FOOTER_H;
   return { pageHeight, contentBottom, footerTop };
 }
@@ -387,15 +399,17 @@ function drawFooterTextLine(
   y: number,
   width: number,
 ) {
-  doc.font('Bold').fontSize(7.5).fillColor(DARK).text(`${label}: `, x, y, { continued: true });
+  doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK).text(`${label}: `, x, y, {
+    continued: true,
+  });
   doc.font('Body').fillColor(MUTED).text(value, { width });
 }
 
 /**
  * Draw the complete repeating company footer on one buffered physical page.
- * `footerTop` is the physical bottom-anchored divider Y for that page
- * (pageHeight - bottomMargin - footerHeight), so the footer sits in the same
- * location on every page regardless of how much content precedes it.
+ * `footerTop` is the fixed bottom-anchored divider Y for every page
+ * (pageHeight - bottomMargin - footerHeight), so the footer uses identical
+ * coordinates on every page — cover, flight, hotel, itinerary, thank-you.
  */
 function drawPageFooter(
   doc: PDFKit.PDFDocument,
@@ -405,21 +419,26 @@ function drawPageFooter(
   footerTop: number,
 ) {
   doc.save();
+  // Thin light-gray divider spanning the full usable content width.
   doc
-    .lineWidth(0.7)
+    .lineWidth(0.8)
     .strokeColor(BORDER)
     .moveTo(M, footerTop)
     .lineTo(PDF_PAGE_WIDTH - M, footerTop)
     .stroke();
-  const top = footerTop + 10;
+
+  const top = footerTop + 12;
+  const headingY = top;
+  const bodyY = top + 16;
+  const lineGap = 12;
 
   // Company logo (contain/fit, aspect preserved; invalid/missing → omitted).
   if (company?.logo) {
     try {
       // @types/pdfkit omits the runtime-valid 'left'/'top' values; keep them via
       // a cast so the logo is top-left aligned and never stretched.
-      doc.image(company.logo, M + 4, top, {
-        fit: [64, 44],
+      doc.image(company.logo, LOGO_X, top, {
+        fit: [LOGO_W, 52],
         align: 'left',
         valign: 'top',
       } as unknown as PDFKit.Mixins.ImageOption);
@@ -428,56 +447,69 @@ function drawPageFooter(
     }
   }
 
+  // Fixed column headings share one baseline.
+  doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
+  doc.text('CONTACT US', CONTACT_X, headingY, { width: CONTACT_W });
+  doc.text('OUR ACHIEVEMENTS', ACHIEVEMENTS_X, headingY, { width: ACHIEVEMENTS_W });
+  doc.text('LEGAL INFO', LEGAL_X, headingY, { width: LEGAL_W });
+
   // Contact Us
-  const contactX = M + 92;
-  doc.fillColor(GREEN).font('Bold').fontSize(7.5).text('CONTACT US', contactX, top, { width: 122 });
-  let cy = top + 11;
+  let cy = bodyY;
   const cPhone = company ? toText(company.phone) : '';
   const cEmail = company ? toText(company.email) : '';
   const cWeb = company ? toText(company.website) : '';
-  const contactLines: Array<[string, string]> = [];
-  if (cPhone) contactLines.push(['Ph', cPhone]);
-  if (cEmail) contactLines.push(['Em', cEmail]);
-  if (cWeb) contactLines.push(['Web', cWeb]);
-  for (const [label, value] of contactLines) {
-    drawFooterTextLine(doc, label, value, contactX, cy, 122);
-    cy = doc.y + 2;
+  if (cPhone) {
+    drawFooterTextLine(doc, 'Ph', cPhone, CONTACT_X, cy, CONTACT_W);
+    cy += lineGap;
+  }
+  if (cEmail) {
+    drawFooterTextLine(doc, 'Em', cEmail, CONTACT_X, cy, CONTACT_W);
+    cy += lineGap;
+  }
+  if (cWeb) {
+    drawFooterTextLine(doc, 'Web', cWeb, CONTACT_X, cy, CONTACT_W);
   }
 
   // Our Achievements
-  const achX = M + 228;
-  doc.fillColor(GREEN).font('Bold').fontSize(7.5).text('OUR ACHIEVEMENTS', achX, top, { width: 122 });
-  let ay = top + 11;
-  const achLines: string[] = [];
-  if (company?.tripsSold != null) achLines.push(`${toText(company.tripsSold)} Trips Sold`);
-  if (company?.operatingSinceYear != null) achLines.push(`Est: ${toText(company.operatingSinceYear)}`);
-  for (const line of achLines) {
-    doc.font('Body').fontSize(7.5).fillColor(MUTED).text(line, achX, ay, { width: 122 });
-    ay = doc.y + 2;
+  let ay = bodyY;
+  if (company?.tripsSold != null) {
+    doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
+      `${toText(company.tripsSold)} Trips Sold`,
+      ACHIEVEMENTS_X,
+      ay,
+      { width: ACHIEVEMENTS_W },
+    );
+    ay += lineGap;
+  }
+  if (company?.operatingSinceYear != null) {
+    doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
+      `Est: ${toText(company.operatingSinceYear)}`,
+      ACHIEVEMENTS_X,
+      ay,
+      { width: ACHIEVEMENTS_W },
+    );
   }
 
   // Legal Info
-  const legalX = M + 366;
-  doc.fillColor(GREEN).font('Bold').fontSize(7.5).text('LEGAL INFO', legalX, top, { width: 118 });
-  let lly = top + 11;
+  let lly = bodyY;
   const tan = company ? toText(company.tan) : '';
   const gstin = company ? toText(company.taxRegistrationNumber) : '';
-  const legalLines: Array<[string, string]> = [];
-  if (tan) legalLines.push(['TAN', tan]);
-  if (gstin) legalLines.push(['GSTIN', gstin]);
-  for (const [label, value] of legalLines) {
-    drawFooterTextLine(doc, label, value, legalX, lly, 118);
-    lly = doc.y + 2;
+  if (tan) {
+    drawFooterTextLine(doc, 'TAN', tan, LEGAL_X, lly, LEGAL_W);
+    lly += lineGap;
+  }
+  if (gstin) {
+    drawFooterTextLine(doc, 'GSTIN', gstin, LEGAL_X, lly, LEGAL_W);
   }
 
-  // Page number badge (bottom-right of the footer zone).
+  // Page number badge — fixed bottom-right, same on every page.
   const label = `Page ${pageNumber}/${totalPages}`;
-  doc.font('Bold').fontSize(8);
-  const w = doc.widthOfString(label) + 18;
+  doc.font('Bold').fontSize(9);
+  const w = doc.widthOfString(label) + 22;
   const bx = PDF_PAGE_WIDTH - M - w;
-  const by = footerTop + FOOTER_H - 27;
-  doc.save().roundedRect(bx, by, w, 20, 4).fill(GREEN).restore();
-  doc.fillColor('#ffffff').text(label, bx, by + 5.5, { width: w, align: 'center', lineBreak: false });
+  const by = footerTop + FOOTER_H - 30;
+  doc.save().roundedRect(bx, by, w, 22, 4).fill(GREEN).restore();
+  doc.fillColor('#ffffff').text(label, bx, by + 6, { width: w, align: 'center', lineBreak: false });
   doc.restore();
 }
 
@@ -508,11 +540,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     doc.on('error', reject);
   });
 
-  // Measured page creation. Records footerTop per page so the footer pass uses
-  // each page's real geometry instead of a fixed A4 position.
+  // Every physical page is the same fixed A4 size. Records the fixed footerTop
+  // so the footer pass uses one consistent position on every page.
   const pageMetrics: Array<{ pageHeight: number; footerTop: number }> = [];
-  const addMeasuredPage = (contentHeight: number): void => {
-    const layout = computePageHeight(contentHeight);
+  const addMeasuredPage = (): void => {
+    const layout = computePageHeight(0);
     doc.addPage({
       size: [PDF_PAGE_WIDTH, layout.pageHeight],
       margins: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -1478,13 +1510,14 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   const planPages = planner.getPages();
   for (const page of planPages) {
-    addMeasuredPage(page.height);
+    addMeasuredPage();
     let yy = TOP;
     for (const block of page.blocks) yy = block.render(yy);
   }
 
   // ==========================================================================
-  // FOOTER PASS — complete footer on every physical page using its real height
+  // FOOTER PASS — the single shared footer on every physical page, using the
+  // fixed A4 footer position (identical on all pages).
   // ==========================================================================
   const range = doc.bufferedPageRange();
   const total = range.count;

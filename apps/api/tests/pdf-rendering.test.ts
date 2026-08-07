@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest';
 import {
   PDF_BOTTOM_MARGIN,
   PDF_FOOTER_HEIGHT,
-  PDF_MAX_CONTENT_HEIGHT,
   PDF_MAX_PAGE_HEIGHT,
   PDF_MIN_PAGE_HEIGHT,
+  PDF_PAGE_HEIGHT,
   PDF_PAGE_WIDTH,
   PDF_POST_CONTENT_GAP,
   PDF_TOP_MARGIN,
@@ -326,23 +326,17 @@ describe('PDF rendering with long content', () => {
     // No junk values anywhere in the visible document.
     expect(visible).not.toMatch(/\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/);
 
-    // Dynamic page heights: every page shares the width, is content-sized
-    // (within min/max), and pages are not all forced to one identical height.
+    // Fixed A4 geometry: every page shares the width and the same physical
+    // height (content paginates within the sheet rather than growing the page).
     const boxes = pageMediaBoxes(pdf);
     expect(boxes).toHaveLength(total);
     for (const box of boxes) {
       expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
-      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
-      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
     }
-    const heights = boxes.map((b) => b.height);
-    expect(new Set(heights).size).toBeGreaterThan(1);
-    // No page may exceed the measured content budget by creating a phantom tall
-    // page; a tall page must be paired with proportionally taller content.
+    // No page may exceed the fixed sheet size.
     for (const box of boxes) {
-      expect(box.height).toBeLessThanOrEqual(
-        PDF_TOP_MARGIN + PDF_MAX_CONTENT_HEIGHT + PDF_POST_CONTENT_GAP + PDF_FOOTER_HEIGHT + PDF_BOTTOM_MARGIN + 1,
-      );
+      expect(box.height).toBeLessThanOrEqual(PDF_PAGE_HEIGHT + 1);
     }
   });
 
@@ -633,19 +627,18 @@ describe('PDF rendering with long content', () => {
       expect(pageText).toContain('CONTACT US');
       expect(pageText).toContain(`Page ${page}/${total}`);
     }
-    // Both pages share the width and are content-sized.
+    // Both pages share the fixed A4 width and height.
     const boxes = pageMediaBoxes(pdf);
     expect(boxes).toHaveLength(total);
     for (const box of boxes) {
       expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
-      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
-      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
     }
     // Thank You remains the final page.
     expect(pdfTextPage(pdf, total)).toContain('THANK');
   });
 
-  it('measures short and long content into different physical page heights', async () => {
+  it('paginates short and long content into more fixed-A4 pages', async () => {
     // Short document: cover + thank-you only.
     const short = await renderQuotationPdf({
       company,
@@ -807,44 +800,33 @@ describe('PDF rendering with long content', () => {
     const longBoxes = pageMediaBoxes(long);
     expect(shortBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
     expect(longBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
+    // Every page is a fixed A4 sheet.
     for (const box of [...shortBoxes, ...longBoxes]) {
-      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
-      expect(box.height).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
+      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
     }
-    // The populated document contains a page taller than the short document's
-    // tallest page (short pages are physically shorter).
-    const shortTallest = Math.max(...shortBoxes.map((b) => b.height));
-    const longTallest = Math.max(...longBoxes.map((b) => b.height));
-    expect(longTallest).toBeGreaterThan(shortTallest);
-    // The long outbound flight card (long notes) grows taller than the return
-    // card (no notes): the outbound page is taller than the return page.
-    const outboundH = longBoxes[1]?.height ?? 0;
-    const returnH = longBoxes[2]?.height ?? 0;
-    expect(outboundH).toBeGreaterThan(returnH);
+    // The long document has more pages than the short one (content paginates
+    // within the fixed sheet rather than growing the page).
+    expect(longBoxes.length).toBeGreaterThan(shortBoxes.length);
   });
 
-  it('anchors the footer to the physical page bottom with a consistent formula', () => {
-    // footerTop is always pageHeight - bottomMargin - footerHeight, so every
+  it('anchors the footer to the physical A4 page bottom with a consistent formula', () => {
+    // footerTop is always PDF_PAGE_HEIGHT - bottomMargin - footerHeight, so every
     // page type shares the same bottom-anchored footer position.
     for (const contentHeight of [120, 260, 400, 600]) {
       const layout = computePageHeight(contentHeight);
+      expect(layout.pageHeight).toBeCloseTo(PDF_PAGE_HEIGHT, 4);
       expect(layout.footerTop).toBeCloseTo(
-        layout.pageHeight - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
+        PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
         4,
       );
-      expect(layout.pageHeight).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT);
-      expect(layout.pageHeight).toBeLessThanOrEqual(PDF_MAX_PAGE_HEIGHT + 1);
     }
-    // Below the minimum the page stays at the minimum while the footer remains
-    // anchored to the bottom (never floating upward under the content).
+    // The footer never overlaps content: it always sits at least POST_GAP below
+    // the content bottom limit.
     const small = computePageHeight(80);
-    expect(small.pageHeight).toBe(PDF_MIN_PAGE_HEIGHT);
-    expect(small.footerTop).toBeCloseTo(
-      PDF_MIN_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
-      4,
+    expect(small.pageHeight).toBeCloseTo(PDF_PAGE_HEIGHT, 4);
+    expect(small.footerTop - small.contentBottom).toBeGreaterThanOrEqual(
+      PDF_POST_CONTENT_GAP - 0.001,
     );
-    // The footer never overlaps content: it always sits at least POST_GAP below.
-    expect(small.footerTop - small.contentBottom).toBeGreaterThanOrEqual(PDF_POST_CONTENT_GAP - 0.001);
   });
 
   it('renders a multi-page booking confirmation with many travellers and services', async () => {

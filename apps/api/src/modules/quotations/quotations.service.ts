@@ -540,26 +540,52 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
 }
 
 /**
- * Finds a Destination master (with a confirmed image) that matches any of the
- * quote's places. Ordered: destination-summary parts first, then itinerary
- * destinations in sequence, so the first matching destination wins. Shared by
- * the customer weblink hero (signed URL) and the PDF (raw bytes via storage).
+ * Ordered candidate names for Destination-image lookup. Resolution order:
+ *   1. itinerary `country` values (Master destinations, e.g. "Malaysia")
+ *   2. destinationSummary parts (legacy fallback)
+ *   3. itinerary `destination` values (city; last resort for legacy rows)
+ * De-duplicated, first-seen order. Pure and exported for focused tests.
+ */
+export function destinationImageCandidates(
+  destinationSummary: string | null | undefined,
+  itinerary: Array<{ country?: string | null; destination?: string | null }> | null | undefined,
+): string[] {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    for (const part of (value ?? '').split(/[•,>/→|-]+/)) {
+      const trimmed = part.trim().toLowerCase();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        ordered.push(trimmed);
+      }
+    }
+  };
+  for (const row of itinerary ?? []) add(row.country);
+  add(destinationSummary);
+  for (const row of itinerary ?? []) add(row.destination);
+  return ordered;
+}
+
+/**
+ * Finds a Destination master (with a confirmed image) that matches the quote's
+ * Destination/Master country. In this data model the lead itinerary's `country`
+ * field holds the Destination Master name (e.g. "Malaysia") while `destination`
+ * holds the city (e.g. "Kuala Lumpur"). Resolution order:
+ *   1. itinerary `country` values (Master destinations) — exact match first
+ *   2. destinationSummary parts (legacy fallback)
+ *   3. itinerary `destination` values (city; last resort for legacy rows)
+ * This ensures a Malaysia → Kuala Lumpur quotation resolves the Malaysia Master
+ * image rather than looking for a "Kuala Lumpur" Destination (which never exists).
+ * Shared by the customer weblink hero (signed URL) and the PDF (raw bytes).
  * Returns null when nothing matches.
  */
 async function findDestinationImageRecord(
   companyId: string,
   destinationSummary: string,
-  itineraryDestinations: string[],
+  itinerary: Array<{ country?: string | null; destination?: string | null }> | null | undefined,
 ): Promise<{ imageObjectKey: string; imageFileName: string | null } | null> {
-  const orderedCandidates: string[] = [];
-  const add = (value: string | null | undefined) => {
-    for (const part of (value ?? '').split(/[•,>/→|-]+/)) {
-      const trimmed = part.trim().toLowerCase();
-      if (trimmed) orderedCandidates.push(trimmed);
-    }
-  };
-  add(destinationSummary);
-  itineraryDestinations.forEach(add);
+  const orderedCandidates = destinationImageCandidates(destinationSummary, itinerary);
   if (!orderedCandidates.length) return null;
   const destinations = await prisma.destination.findMany({
     where: {
@@ -599,13 +625,9 @@ async function findDestinationImageRecord(
 async function resolveDestinationHeroImage(
   companyId: string,
   destinationSummary: string,
-  itineraryDestinations: string[],
+  itinerary: Array<{ country?: string | null; destination?: string | null }> | null | undefined,
 ): Promise<string | null> {
-  const match = await findDestinationImageRecord(
-    companyId,
-    destinationSummary,
-    itineraryDestinations,
-  );
+  const match = await findDestinationImageRecord(companyId, destinationSummary, itinerary);
   if (!match) return null;
   try {
     return await storageService.createDownloadUrl(
@@ -1633,13 +1655,14 @@ export const quotationsService = {
         }
       };
 
-      // Destination hero image: first matching destination in the quotation's
-      // ordered destination/itinerary data (bytes fetched via the shared cache).
+      // Destination hero image: first matching Destination master in the quote's
+      // ordered itinerary data — the lead itinerary `country` is the Master
+      // destination name (e.g. "Malaysia"), while `destination` is the city.
       let coverImage: Buffer | null = null;
       const destRecord = await findDestinationImageRecord(
         auth.companyId,
         quotation.destinationSummary,
-        version.itinerary.map((day) => day.destination),
+        quotation.query?.itinerary,
       );
       if (destRecord) {
         coverImage = await fetchImage(destRecord.imageObjectKey);
@@ -2362,12 +2385,13 @@ export const quotationsService = {
         downloadUrl = null;
       }
     }
-    // Hero image: match this quote's places to a Destination master that has a
-    // confirmed image, and hand the page a short-lived signed URL.
+    // Hero image: match this quote's Master destination (itinerary `country`,
+    // e.g. "Malaysia") to a Destination master with a confirmed image, and hand
+    // the page a short-lived signed URL. Never keyed off the city value.
     const heroImageUrl = await resolveDestinationHeroImage(
       quotation.companyId,
       quotation.destinationSummary,
-      version.itinerary.map((day) => day.destination),
+      quotation.query?.itinerary,
     );
     const hotelPresentations = await resolveHotelPresentations(
       quotation.companyId,
