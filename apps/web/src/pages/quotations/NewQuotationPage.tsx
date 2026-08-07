@@ -61,7 +61,7 @@ export function NewQuotationPage() {
           )}
           <Button fullWidth disabled={!queryId} isLoading={create.isPending} onClick={submit}>
             <FilePlus2 className="h-4 w-4" />
-            Create draft quotation
+            Create quotation
           </Button>
         </div>
       </section>

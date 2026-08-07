@@ -804,7 +804,7 @@ describe('Phase 8 quotation pages', () => {
     });
     await screen.findByRole('option', { name: /QRY-1/ });
     await userEvent.selectOptions(await screen.findByLabelText('Lead'), 'lead-1');
-    await userEvent.click(screen.getByRole('button', { name: 'Create draft quotation' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([, options]) => {
@@ -893,7 +893,7 @@ describe('Phase 8 quotation pages', () => {
     renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
     await screen.findByRole('option', { name: /QRY-1/ });
     await userEvent.selectOptions(await screen.findByLabelText('Lead'), 'lead-1');
-    await userEvent.click(screen.getByRole('button', { name: 'Create draft quotation' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([, options]) => {
