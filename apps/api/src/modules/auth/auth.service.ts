@@ -180,6 +180,7 @@ export const authService = {
       mark('REGISTER_04_TX_STARTED');
       const result = await prisma.$transaction(
         async (tx) => {
+          mark('REGISTER_05_TX_CALLBACK_STARTED');
           const company = await tx.company.create({
             data: {
               name: input.companyName,
@@ -189,7 +190,7 @@ export const authService = {
               status: 'ACTIVE',
             },
           });
-          mark('REGISTER_05_COMPANY_CREATED');
+          mark('REGISTER_06_COMPANY_CREATED');
 
           // Same provisioning the seed uses, so a registered tenant and the
           // demo tenant have identical role and permission structures.
