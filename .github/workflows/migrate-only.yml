@@ -26,6 +26,18 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Inspect ECS service + task definition family
+        run: |
+          echo "cluster=${{ vars.ECS_CLUSTER }} service=${{ vars.API_ECS_SERVICE }}"
+          aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.API_ECS_SERVICE }}" \
+            --query 'services[0].{status:status, taskDef:taskDefinition}' --output json
+          echo "--- task definition family ---"
+          FAMILY="${{ vars.API_ECS_SERVICE }}"
+          aws ecs describe-task-definition --task-definition "$FAMILY" \
+            --query 'taskDefinition.{family:family, revision:revision, arn:taskDefinitionArn}' --output json
+
       - name: Run prisma migrate deploy (migration-only, no image build / ECS update)
         run: |
           chmod +x .github/scripts/run-ecs-migration.sh
