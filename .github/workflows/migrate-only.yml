@@ -26,7 +26,7 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Run prisma migrate deploy (migration-only)
+      - name: Run prisma migrate deploy (migration-only one-off ECS task)
         run: |
           set -euo pipefail
           cluster="${{ vars.ECS_CLUSTER }}"
@@ -41,21 +41,18 @@ jobs:
           subnets="$(printf '%s' "$net" | jq -r '.subnets | join(",")')"
           sgs="$(printf '%s' "$net" | jq -r '.securityGroups | join(",")')"
           assign_pub="$(printf '%s' "$net" | jq -r '.assignPublicIp')"
-          echo "subnets=$subnets sgs=$sgs assign_pub=$assign_pub"
+          echo "subnets=$subnets assign_pub=$assign_pub"
 
-          # Source task definition: roles + environment (DB_* secrets) intact.
+          # Source task definition: roles, cpu, memory and DB secrets (never printed).
           td="$(aws ecs describe-task-definition --task-definition "$api_family" --query 'taskDefinition' --output json)"
           task_role="$(printf '%s' "$td" | jq -r '.taskRoleArn')"
           exec_role="$(printf '%s' "$td" | jq -r '.executionRoleArn')"
           cpu="$(printf '%s' "$td" | jq -r '.cpu')"
           memory="$(printf '%s' "$td" | jq -r '.memory')"
-          env="$(printf '%s' "$td" | jq -c '[.containerDefinitions[0].environment[]? | select(.name == "DB_HOST" or .name == "DB_PORT" or .name == "DB_USER" or .name == "DB_PASSWORD" or .name == "DB_NAME")]')"
           secrets="$(printf '%s' "$td" | jq -c '[.containerDefinitions[0].secrets[]? | select(.name == "DB_HOST" or .name == "DB_PORT" or .name == "DB_USER" or .name == "DB_PASSWORD" or .name == "DB_NAME")]')"
-          echo "task_role=$task_role exec_role=$exec_role cpu=$cpu memory=$memory"
-          echo "env_count=$(printf '%s' "$env" | jq length) secrets_count=$(printf '%s' "$secrets" | jq length)"
+          echo "task_role=$task_role exec_role=$exec_role cpu=$cpu memory=$memory secrets_count=$(printf '%s' "$secrets" | jq length)"
 
-          # Build a minimal migration task definition (register API only accepts
-          # these fields; never clones the API container definition wholesale).
+          # Build a minimal migration task definition.
           migration_td="$(jq -n \
             --arg family "interscale-travel-crm-prod-migrate" \
             --arg image "$migrate_image" \
@@ -63,7 +60,6 @@ jobs:
             --arg execRole "$exec_role" \
             --arg cpu "$cpu" \
             --arg memory "$memory" \
-            --argjson env "$env" \
             --argjson secrets "$secrets" \
             '{
               family: $family,
@@ -78,7 +74,6 @@ jobs:
                 image: $image,
                 essential: true,
                 command: ["node", "apps/api/docker-entrypoint.mjs", "npx", "prisma", "migrate", "deploy", "--schema", "apps/api/prisma/schema.prisma"],
-                environment: $env,
                 secrets: $secrets,
                 logConfiguration: {
                   logDriver: "awslogs",
@@ -91,7 +86,11 @@ jobs:
               }]
             }')"
 
-          migration_def_arn="$(printf '%s' "$migration_td" | aws ecs register-task-definition --cli-input-json /dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text)"
+          # Validate JSON before registering.
+          printf '%s' "$migration_td" | jq empty
+          echo "$migration_td" > /tmp/migration-td.json
+
+          migration_def_arn="$(aws ecs register-task-definition --cli-input-json file:///tmp/migration-td.json --query 'taskDefinition.taskDefinitionArn' --output text)"
           echo "registered migration task def: $migration_def_arn"
 
           task_arn="$(aws ecs run-task \
