@@ -4,6 +4,8 @@ import { env } from '../config/env.js';
 import { AppError } from '../utils/errors.js';
 import { csrfTokenMatches, deriveCsrfToken } from '../modules/auth/session.service.js';
 import { hashToken } from '../utils/crypto.js';
+import { asyncHandler } from '../utils/async-handler.js';
+import { isTrustedOriginHostname } from '../modules/custom-domains/custom-domain.service.js';
 
 /**
  * CSRF protection, in two layers, because the flows differ.
@@ -50,38 +52,47 @@ function originOf(value: string): string | null {
   }
 }
 
-function allowedOrigins(): string[] {
-  // The API's own origin is allowed so tooling on the same host works.
-  return [env.WEB_URL, env.API_URL].map((url) => originOf(url)).filter((o): o is string => !!o);
-}
-
 /**
- * Layer 1: verify the request originated from our frontend.
+ * Layer 1: verify the request originated from a trusted origin.
+ *
+ * An origin is trusted when its hostname is one of the platform's own hosts or
+ * an ACTIVE custom domain (resolved via the Phase 1 CustomDomain lookup). The
+ * hostname is parsed and normalized, so substring/path tricks and PENDING or
+ * DISABLED domains never pass.
  */
-export function verifyOrigin(req: Request, _res: Response, next: NextFunction): void {
-  if (SAFE_METHODS.has(req.method)) {
+export const verifyOrigin = asyncHandler(
+  async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    if (SAFE_METHODS.has(req.method)) {
+      next();
+      return;
+    }
+
+    const headerOrigin = req.get('origin');
+    const referer = req.get('referer');
+    const candidate = headerOrigin ?? (referer ? originOf(referer) : null);
+
+    if (!candidate) {
+      // A browser always sends Origin on a state-changing fetch, so absence
+      // means this is not the client we support.
+      next(new CsrfError('This request is missing an Origin header and was rejected.'));
+      return;
+    }
+
+    let hostname: string | null = null;
+    try {
+      hostname = new URL(candidate).hostname;
+    } catch {
+      hostname = null;
+    }
+
+    if (!hostname || !(await isTrustedOriginHostname(hostname))) {
+      next(new CsrfError('This request came from an unrecognised origin and was rejected.'));
+      return;
+    }
+
     next();
-    return;
-  }
-
-  const headerOrigin = req.get('origin');
-  const referer = req.get('referer');
-  const candidate = headerOrigin ?? (referer ? originOf(referer) : null);
-
-  if (!candidate) {
-    // A browser always sends Origin on a state-changing fetch, so absence
-    // means this is not the client we support.
-    next(new CsrfError('This request is missing an Origin header and was rejected.'));
-    return;
-  }
-
-  if (!allowedOrigins().includes(candidate)) {
-    next(new CsrfError('This request came from an unrecognised origin and was rejected.'));
-    return;
-  }
-
-  next();
-}
+  },
+);
 
 /**
  * Layer 2: verify the double-submit token when the request carries a session.

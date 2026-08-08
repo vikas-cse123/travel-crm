@@ -11,6 +11,7 @@ import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
 import { resolveCustomDomainMiddleware } from './middleware/custom-domain.js';
+import { isTrustedOriginHostname } from './modules/custom-domains/custom-domain.service.js';
 import { apiRoutes } from './routes.js';
 import { publicQuotationsRoutes } from './modules/quotations/public-quotations.routes.js';
 
@@ -35,10 +36,26 @@ export function createApp(): Express {
     }),
   );
 
-  // Credentials are on, so the origin must be an explicit allow-list.
+  // Credentials are on, so the origin must be an explicit allow-list. The
+  // platform's own hosts plus any ACTIVE custom domain (Phase 1 resolver) are
+  // trusted; everything else gets no CORS headers. No wildcard origins.
   app.use(
     cors({
-      origin: [env.WEB_URL],
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, false);
+          return;
+        }
+        let hostname: string | null = null;
+        try {
+          hostname = new URL(origin).hostname;
+        } catch {
+          hostname = null;
+        }
+        isTrustedOriginHostname(hostname ?? '')
+          .then((allowed) => callback(null, allowed))
+          .catch(() => callback(null, false));
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-CSRF-Token'],

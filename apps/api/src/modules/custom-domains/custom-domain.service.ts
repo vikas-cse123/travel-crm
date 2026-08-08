@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import { env } from '../../config/env.js';
 import { isReservedHostname, normalizeHostname } from '../../utils/hostname.js';
 
 /**
@@ -37,4 +38,31 @@ export async function resolveCustomDomain(
   if (domain.company.status !== 'ACTIVE') return null;
 
   return { hostname: normalized, companyId: domain.companyId };
+}
+
+/** First-party platform hostnames (WEB_URL/API_URL), lower-cased. */
+function platformHostnames(): string[] {
+  return [env.WEB_URL, env.API_URL]
+    .map((url) => {
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return null;
+      }
+    })
+    .filter((host): host is string => Boolean(host));
+}
+
+/**
+ * Whether an origin hostname may be trusted by origin/CORS validation. The
+ * platform's own hosts (including dev localhost) and ACTIVE custom domains are
+ * trusted — never wildcards, PENDING/DISABLED domains, or unknown hostnames.
+ * The hostname is parsed and normalized (scheme/path/case) so substring or
+ * path tricks cannot pass.
+ */
+export async function isTrustedOriginHostname(hostname: string): Promise<boolean> {
+  const parsed = hostname.trim().toLowerCase();
+  if (!parsed) return false;
+  if (platformHostnames().includes(parsed)) return true;
+  return (await resolveCustomDomain(parsed)) !== null;
 }
