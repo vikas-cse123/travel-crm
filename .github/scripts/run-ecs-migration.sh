@@ -40,7 +40,10 @@ migration_td="$(
       )
   '
 )"
-migration_def_arn="$(printf '%s' "$migration_td" | aws ecs register-task-definition --cli-input-json /dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text)"
+migration_td_json="$(mktemp)"
+printf '%s' "$migration_td" > "$migration_td_json"
+migration_def_arn="$(aws ecs register-task-definition --cli-input-json "file://${migration_td_json}" --query 'taskDefinition.taskDefinitionArn' --output text)"
+rm -f "$migration_td_json"
 
 echo "registered migration task definition: ${migration_def_arn}"
 
