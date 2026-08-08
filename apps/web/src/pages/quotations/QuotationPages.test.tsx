@@ -1534,6 +1534,7 @@ describe('Phase 8 quotation pages', () => {
           {
             id: 'quote-addon-1',
             serviceType: 'TRAVEL_INSURANCE',
+            addOnServiceId: 'quote-addon-master-1',
             name: 'Travel Insurance',
             description: '<p>Comprehensive international cover.</p>',
             dayNumber: null,
@@ -3346,6 +3347,68 @@ describe('Phase 8 quotation pages', () => {
     expect(mealsMatches.length).toBe(1);
   });
 
+  it('shows each activity its own transfer in the itinerary', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000009', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Per Activity Transfer',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 2,
+              title: 'Day 2: Mandai Wildlife Reserve Adventure',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'NO_TRANSFER',
+              mealPreferences: { breakfast: { mode: 'NO_TRANSFER', transferDetails: null } },
+              dailyTransfer: 'SHARED',
+              activities: [
+                { name: 'Singapore City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'SHARED' },
+                { name: 'Singapore Zoo', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'NO_TRANSFER' },
+                { name: 'Day at Cruise', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'PRIVATE' },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Per Activity Transfer');
+    const article = screen
+      .getByRole('heading', { name: 'Day 2: Mandai Wildlife Reserve Adventure' })
+      .closest('article') as HTMLElement;
+    expect(within(article).getByText('Singapore City Tour')).toBeInTheDocument();
+    expect(within(article).getByText('Singapore Zoo')).toBeInTheDocument();
+    expect(within(article).getByText('Day at Cruise')).toBeInTheDocument();
+    // Each activity shows its OWN saved transfer (not one shared day badge).
+    expect(within(article).getAllByText('Shared Transfer')).toHaveLength(1);
+    expect(within(article).getByText('No Transfer')).toBeInTheDocument();
+    expect(within(article).getByText('Private Transfer')).toBeInTheDocument();
+  });
+
   it('renders legacy sightseeing snapshot shapes without crashing', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -3599,7 +3662,7 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-addon', serviceType: 'TRAVEL_INSURANCE', name: 'Travel Insurance', description: '<p><strong>Cover</strong> for the trip.</p>', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 1 },
+          { id: 's-addon', serviceType: 'TRAVEL_INSURANCE', addOnServiceId: 'addon-master-1', name: 'Travel Insurance', description: '<p><strong>Cover</strong> for the trip.</p>', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 1 },
         ],
         itinerary: [],
         inclusions: [],
@@ -3655,6 +3718,77 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Kerala Escape');
     expect(screen.queryByRole('heading', { name: 'Additional Services' })).not.toBeInTheDocument();
+  });
+
+  it('renders only add-on rows that are actually selected (have an addOnServiceId)', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Kerala Escape',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [
+          { id: 's-checked', serviceType: 'OTHER_ADD_ON', addOnServiceId: 'master-visa', name: 'Singapore Visa', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 1 },
+          { id: 's-unchecked', serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 2 },
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Kerala Escape');
+    expect(screen.getByRole('heading', { name: 'Additional Services' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Singapore Visa' })).toBeInTheDocument();
+    // The unselected add-on row must NOT appear.
+    expect(screen.queryByRole('heading', { name: 'other add on' })).not.toBeInTheDocument();
+  });
+
+  it('hides the whole Additional Services section when every add-on row is unselected', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Kerala Escape',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [
+          { id: 's-unchecked-1', serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 1 },
+          { id: 's-unchecked-2', serviceType: 'TRAVEL_INSURANCE', addOnServiceId: null, name: 'Singapore Visa', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 2 },
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Kerala Escape');
+    expect(screen.queryByRole('heading', { name: 'Additional Services' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'other add on' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Singapore Visa' })).not.toBeInTheDocument();
   });
 
   it('hides Add-ons publicly when top-level Add-on Services include is off', async () => {
@@ -7030,6 +7164,70 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Sightseeing day 1 title')).not.toBeInTheDocument();
   });
 
+  it('stores an independent daily transfer per sightseeing activity', async () => {
+    const quotation = builderQuotation({
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Singapore',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              { sightseeingId: null, name: 'Singapore City Tour', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
+              { sightseeingId: null, name: 'Singapore Zoo', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
+              { sightseeingId: null, name: 'Day at Cruise', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
+            ],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation);
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await screen.findByLabelText('Day 1 activity 1 name');
+    // Every activity has its own Daily Transfer control; the first inherits the
+    // day-level fallback, the others can differ.
+    expect(
+      screen.getByRole('radio', { name: 'Day 1 activity 1 daily transfer Shared Transfer' }),
+    ).toBeChecked();
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Day 1 activity 2 daily transfer No Transfer' }),
+    );
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Day 1 activity 3 daily transfer Private Transfer' }),
+    );
+    expect(
+      screen.getByRole('radio', { name: 'Day 1 activity 2 daily transfer No Transfer' }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole('radio', { name: 'Day 1 activity 3 daily transfer Private Transfer' }),
+    ).toBeChecked();
+    // The old shared day-level transfer control is gone.
+    expect(screen.queryByRole('radio', { name: 'Private Transfer' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    const activities = body.sightseeingDetails.days[0].activities;
+    // Untouched activity keeps null (inherits the day-level value on display).
+    expect(activities[0].dailyTransfer).toBeNull();
+    expect(activities[1].dailyTransfer).toBe('NO_TRANSFER');
+    expect(activities[2].dailyTransfer).toBe('PRIVATE');
+  });
+
   it('supports independent per-meal transfer options in the builder', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
@@ -7080,10 +7278,16 @@ describe('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'lunch' }));
     expect(screen.queryByRole('group', { name: 'lunch meal options' })).not.toBeInTheDocument();
 
-    // Daily Transfer remains a separate, independent control.
-    expect(screen.getByRole('radio', { name: 'Shared Transfer' })).toBeChecked();
-    await userEvent.click(screen.getByRole('radio', { name: 'Private Transfer' }));
-    expect(screen.getByRole('radio', { name: 'Private Transfer' })).toBeChecked();
+    // Daily Transfer is now per-activity, defaulting to the day-level value.
+    expect(
+      screen.getByRole('radio', { name: 'Day 1 activity 1 daily transfer Shared Transfer' }),
+    ).toBeChecked();
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Day 1 activity 1 daily transfer Private Transfer' }),
+    );
+    expect(
+      screen.getByRole('radio', { name: 'Day 1 activity 1 daily transfer Private Transfer' }),
+    ).toBeChecked();
     expect(
       within(screen.getByRole('group', { name: 'breakfast meal options' })).getByRole('radio', {
         name: 'No Transfer',

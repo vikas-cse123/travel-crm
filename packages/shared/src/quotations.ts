@@ -298,6 +298,9 @@ export const sightseeingActivitySchema = z.object({
   city: optionalText(120),
   description: optionalText(8000),
   imageUrl: optionalText(1000),
+  // Per-activity transfer (PRIVATE/SHARED/NO_TRANSFER). Absent on legacy rows,
+  // which fall back to the day-level dailyTransfer when displayed.
+  dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).nullish(),
   sequence: z.number().int().min(1).max(500).nullable().optional(),
 });
 

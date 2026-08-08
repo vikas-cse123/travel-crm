@@ -269,7 +269,9 @@ function presentVersion(version: FullVersion, canViewCosting: boolean, customerS
         unitSellingPrice: decimal(service.unitSellingPrice),
         totalSellingPrice: decimal(service.totalSellingPrice),
         ...(customerSafe
-          ? {}
+          ? // The add-on master link stays so customer outputs (weblink/PDF) can
+            // render only add-on rows that are actually included/selected.
+            { addOnServiceId }
           : {
               airlineId,
               cruiseId,

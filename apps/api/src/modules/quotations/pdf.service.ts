@@ -175,6 +175,46 @@ const ADDON_SERVICE_TYPES = new Set([
   'GENERAL_ENQUIRY',
 ]);
 
+/** Normalize legacy sightseeing meal-mode strings into the canonical value. */
+function normalizePdfMealMode(value: string | null | undefined): string | null {
+  const raw = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_./-]+/g, '');
+  if (raw === 'NOTRANSFER' || raw === 'NONE') return 'NO_TRANSFER';
+  if (raw === 'INCLUDEATHOTEL' || raw === 'HOTEL' || raw === 'INHOTEL') return 'INCLUDE_AT_HOTEL';
+  if (raw === 'WITHTRANSFER') return 'WITH_TRANSFER';
+  return null;
+}
+
+/**
+ * Per-meal mode label, mirroring the public weblink's itineraryMealLabel so the
+ * PDF never infers "(Hotel)" from breakfast/hotel-stay defaults. The meal's own
+ * saved preference wins; the shared legacy mealMode is used only when the meal
+ * has no per-meal preference.
+ */
+function pdfMealModeLabel(
+  pref: { mode?: string | null; transferDetails?: string | null } | undefined,
+  legacyMode: string | null | undefined,
+): string | null {
+  const mode = pref?.mode ? normalizePdfMealMode(pref.mode) : normalizePdfMealMode(legacyMode);
+  if (mode === 'WITH_TRANSFER') {
+    const details = (pref?.transferDetails ?? '').trim();
+    return details ? `With Transfer: ${details}` : 'With Transfer';
+  }
+  if (mode === 'INCLUDE_AT_HOTEL') return 'Hotel';
+  if (mode === 'NO_TRANSFER') return 'No Transfer';
+  return null;
+}
+
+/** Customer label for a transfer value (PRIVATE/SHARED/NO_TRANSFER). */
+function pdfTransferLabel(value: string | null | undefined): string | null {
+  if (value === 'PRIVATE') return 'Private Transfer';
+  if (value === 'SHARED') return 'Shared Transfer';
+  if (value === 'NO_TRANSFER') return 'No Transfer';
+  return null;
+}
+
 type Img = Buffer | null | undefined;
 
 /** Company data for the repeating footer and page-1 consultant fallback. */
@@ -279,6 +319,8 @@ export interface QuotationPdfInput {
       notes?: string | null;
       quantity: unknown;
       unitSellingPrice: unknown;
+      /** Add-on master link; only present on actually-selected Add-on rows. */
+      addOnServiceId?: string | null;
     }>;
     inclusions: Array<{ content: string }>;
     exclusions: Array<{ content: string }>;
@@ -326,6 +368,8 @@ type SightActivity = {
   startTime?: string | null;
   /** Snapshot image URL saved on the activity (may be a signed/private URL). */
   imageUrl?: string | null;
+  /** Per-activity transfer; legacy rows fall back to the day-level value. */
+  dailyTransfer?: string | null;
 };
 type SightDay = {
   dayNumber?: number;
@@ -333,6 +377,14 @@ type SightDay = {
   city?: string | null;
   date?: string | null;
   meals?: { breakfast?: boolean; lunch?: boolean; dinner?: boolean };
+  /** Shared legacy meal mode; used only when a meal has no per-meal preference. */
+  mealMode?: string | null;
+  /** Per-meal independent mode + optional transfer details (matches weblink). */
+  mealPreferences?: {
+    breakfast?: { mode?: string | null; transferDetails?: string | null };
+    lunch?: { mode?: string | null; transferDetails?: string | null };
+    dinner?: { mode?: string | null; transferDetails?: string | null };
+  };
   dailyTransfer?: string | null;
   activities?: SightActivity[];
 };
@@ -1138,7 +1190,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // Add-ons only render when the top-level Add-on Services include flag is on.
   const addOnIncluded = v.addOnDetails?.include !== false;
   const addonServices = addOnIncluded
-    ? v.services.filter((s) => ADDON_SERVICE_TYPES.has(s.serviceType))
+    ? v.services.filter((s) => ADDON_SERVICE_TYPES.has(s.serviceType) && Boolean(s.addOnServiceId))
     : [];
   const hasVisa =
     v.includeVisa &&
@@ -1415,59 +1467,86 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
 
   // ==========================================================================
-  // TOUR ITINERARY — one day per page, alternating image side, measured
-  // ==========================================================================
+  // TOUR ITINERARY — day heading once, then one self-contained block per
+  // activity with that activity's own image and transfer.
   if (sightDays.length) {
     sightDays.forEach((day, i) => {
-      const imgLeft = i % 2 === 0; // Day 1 image left, Day 2 image right, ...
-      const imgW = 190;
-      const gap = 22;
-      const imgX = imgLeft ? M : PDF_PAGE_WIDTH - M - imgW;
-      const contentX = imgLeft ? M + imgW + gap : M;
-      const contentW = CONTENT_W - imgW - gap;
-
-      const firstActivity = (day.activities ?? []).find((a) => a.name || a.description);
-      // Mirror the public weblink's canonical itinerary image: the first
-      // activity snapshot `imageUrl` wins, otherwise the first activity's
-      // sightseeing master image (keyed by sightseeingId). Keeps each day's
-      // image matched to that day's own activities.
-      const dayActivities = day.activities ?? [];
-      const dayImg =
-        dayActivities
-          .map((a) => (a.imageUrl ? images.itinerary?.[a.imageUrl] : undefined))
-          .find((buf) => buf) ??
-        dayActivities
-          .map((a) => (a.sightseeingId ? images.sightseeing?.[a.sightseeingId] : undefined))
-          .find((buf) => buf) ??
-        undefined;
-
-      // Measure the day content (image column + text column).
+      const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
       const title = (day.title || `Day ${day.dayNumber ?? i + 1}`).trim();
       const dayTitle = /^day\s*\d/i.test(title) ? title : `DAY ${day.dayNumber ?? i + 1}: ${title}`;
-      const meta = [firstActivity?.startTime && `STARTS: ${firstActivity.startTime}`]
-        .filter(Boolean)
-        .join('  |  ');
-      const meals = [
-        day.meals?.breakfast && '(B) Breakfast (Hotel)',
-        day.meals?.lunch && '(L) Lunch',
-        day.meals?.dinner && '(D) Dinner',
-      ].filter(Boolean) as string[];
-      const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
+      const mealEntries = [
+        ['breakfast', '(B) Breakfast'],
+        ['lunch', '(L) Lunch'],
+        ['dinner', '(D) Dinner'],
+      ] as const;
+      const meals = mealEntries
+        .map(([key, label]) => {
+          if (!day.meals?.[key]) return null;
+          const pref = day.mealPreferences?.[key];
+          const modeLabel = pdfMealModeLabel(pref, day.mealMode);
+          return modeLabel ? `${label} (${modeLabel})` : label;
+        })
+        .filter(Boolean) as string[];
 
-      // Image column height.
-      let imgColH = imgW + 8;
-      if (meta) imgColH += 22 + 8;
-      if (meals.length) {
-        doc.font('Bold').fontSize(12);
-        imgColH += 14 + meals.length * (hOf('x', 10.5, imgW - 10, 'Body') + 3);
+      planner.pageBreak();
+      if (i === 0) planner.add(sectionHeaderBlock('Tour Itinerary'));
+
+      // Day heading: title + date + day-level meals, kept with the first
+      // activity so a heading is never orphaned at the bottom of a page.
+      {
+        let headingH = hOf(dayTitle, 15, CONTENT_W, 'Bold');
+        if (day.date) headingH += hOf(dateFmt(day.date, true), 10, CONTENT_W, 'Body') + 4;
+        headingH += 6;
+        if (meals.length) {
+          doc.font('Bold').fontSize(12);
+          headingH += 14 + meals.length * (hOf('x', 10.5, CONTENT_W - 10, 'Body') + 3);
+        }
+        planner.add({
+          height: headingH + 10,
+          keepWithNext: validActivities.length > 0,
+          render: (y0) => {
+            doc.fillColor(DARK).font('Bold').fontSize(15).text(dayTitle, M, y0, { width: CONTENT_W });
+            let yy = doc.y;
+            if (day.date) {
+              doc.font('Body').fontSize(10).fillColor(MUTED).text(dateFmt(day.date, true), M, yy + 2, {
+                width: CONTENT_W,
+              });
+              yy = doc.y + 6;
+            }
+            if (meals.length) {
+              doc.fillColor(DARK).font('Bold').fontSize(12).text('Meals Included:', M, yy + 4);
+              doc.font('Body').fontSize(10.5).fillColor('#333');
+              meals.forEach((m) => doc.text(m, M + 10, doc.y + 3, { width: CONTENT_W - 10 }));
+              doc.fillColor(DARK);
+            }
+            return y0 + headingH + 10;
+          },
+        });
       }
 
-      // Text column height.
-      let textColH = hOf(dayTitle, 15, contentW, 'Bold');
-      if (day.date) textColH += hOf(dateFmt(day.date, true), 10, contentW, 'Body') + 4;
-      textColH += 8;
+      // One complete visual block per activity (own image, name, description,
+      // start time and transfer), alternating the image side like the weblink.
       validActivities.forEach((a, ai) => {
-        if (ai > 0) textColH += 8;
+        const imgLeft = ai % 2 === 0;
+        const imgW = 190;
+        const gap = 22;
+        const imgX = imgLeft ? M : PDF_PAGE_WIDTH - M - imgW;
+        const contentX = imgLeft ? M + imgW + gap : M;
+        const contentW = CONTENT_W - imgW - gap;
+
+        // Canonical activity image: snapshot imageUrl first, then the
+        // sightseeing master image — exactly the weblink's per-activity source.
+        const aImg =
+          (a.imageUrl ? images.itinerary?.[a.imageUrl] : undefined) ??
+          (a.sightseeingId ? images.sightseeing?.[a.sightseeingId] : undefined) ??
+          undefined;
+        const aTransfer = pdfTransferLabel(a.dailyTransfer ?? day.dailyTransfer);
+        const aMeta = a.startTime ? `STARTS: ${a.startTime}` : '';
+
+        let imgColH = imgW + 8;
+        if (aMeta) imgColH += 22 + 8;
+
+        let textColH = 0;
         if (a.name) textColH += hOf(a.name, 12, contentW, 'Bold') + 3;
         const descLines = htmlToLines(a.description);
         if (descLines.length) {
@@ -1476,76 +1555,39 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             textColH += doc.heightOfString(line, { width: contentW }) + 2;
           });
         }
-      });
-      const transferLabel =
-        day.dailyTransfer === 'PRIVATE'
-          ? 'Private Transfer'
-          : day.dailyTransfer === 'SHARED'
-            ? 'Shared Transfer'
-            : null;
-      if (transferLabel) textColH += 6 + 20 + 6;
+        if (aTransfer) textColH += 6 + 20 + 6;
 
-      const dayBlockH = Math.max(imgColH, textColH);
+        const blockH = Math.max(imgColH, textColH);
 
-      planner.pageBreak();
-      if (i === 0) planner.add(sectionHeaderBlock('Tour Itinerary'));
-      planner.add({
-        height: dayBlockH + 10,
-        render: (y0) => {
-          const top = y0;
-          drawImage(dayImg, imgX, top, imgW, imgW, 'Activity');
-          let underY = top + imgW + 8;
-          if (meta) {
-            doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
-            doc.fillColor(DARK).font('Bold').fontSize(10).text(meta, imgX, underY + 6, {
-              width: imgW,
-              align: 'center',
-            });
-            underY += 30;
-          }
-          if (meals.length) {
-            doc.fillColor(DARK).font('Bold').fontSize(12).text('Meals Included:', imgX, underY);
-            doc.font('Body').fontSize(10.5).fillColor('#333');
-            meals.forEach((m) => doc.text(m, imgX + 10, doc.y + 3, { width: imgW - 10 }));
-            doc.fillColor(DARK);
-          }
-          doc.fillColor(DARK).font('Bold').fontSize(15).text(dayTitle, contentX, top, { width: contentW });
-          if (day.date) {
-            doc.font('Body').fontSize(10).fillColor(MUTED).text(dateFmt(day.date, true), contentX, doc.y + 2, {
-              width: contentW,
-            });
-          }
-          doc.fillColor(DARK);
-          let yy = doc.y + 8;
-          validActivities.forEach((a, ai) => {
-            if (ai > 0) {
-              doc
-                .save()
-                .lineWidth(0.6)
-                .strokeColor(BORDER)
-                .moveTo(contentX, yy)
-                .lineTo(contentX + contentW, yy)
-                .stroke()
-                .restore();
-              yy += 8;
+        planner.add({
+          height: blockH + 10,
+          render: (y0) => {
+            const top = y0;
+            drawImage(aImg, imgX, top, imgW, imgW, 'Activity');
+            let underY = top + imgW + 8;
+            if (aMeta) {
+              doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
+              doc.fillColor(DARK).font('Bold').fontSize(10).text(aMeta, imgX, underY + 6, {
+                width: imgW,
+                align: 'center',
+              });
+              underY += 30;
             }
+            let yy = top;
             if (a.name) {
               doc.font('Bold').fontSize(12).fillColor(DARK).text(a.name, contentX, yy, { width: contentW });
               yy = doc.y + 3;
             }
-            const lines = htmlToLines(a.description);
-            if (lines.length) {
-              const block = flowBlock(lines, contentX, contentW, 10.5, 2);
-              yy = block.render(yy);
+            const block = flowBlock(descLines, contentX, contentW, 10.5, 2);
+            yy = block.render(yy);
+            if (aTransfer) {
+              yy += 6;
+              badge(aTransfer, contentX, yy, AMBER, DARK);
+              yy += 26;
             }
-          });
-          if (transferLabel) {
-            yy += 6;
-            badge(transferLabel, contentX, yy, AMBER, DARK);
-            yy += 26;
-          }
-          return y0 + dayBlockH + 10;
-        },
+            return y0 + blockH + 10;
+          },
+        });
       });
     });
   }

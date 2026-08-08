@@ -41,6 +41,7 @@ export const emptySightseeingActivity = (): SightActivity => ({
   city: null,
   description: null,
   imageUrl: null,
+  dailyTransfer: null,
   sequence: null,
 });
 
@@ -109,6 +110,10 @@ function DayCard({
   });
   const meals = ['breakfast', 'lunch', 'dinner'] as const;
   const dayCity = (form.watch(fp(`${base}.city`)) as string | null) ?? '';
+  // Day-level transfer is a legacy fallback for activities without their own
+  // per-activity transfer; the builder edits transfers per activity.
+  const dayDailyTransfer =
+    (form.watch(fp(`${base}.dailyTransfer`)) as string | null | undefined) ?? 'SHARED';
   const dayTitle = (form.watch(fp(`${base}.title`)) as string | null) ?? '';
   const titleTouched = form.watch(fp(`${base}.titleTouched`)) ?? false;
 
@@ -352,6 +357,38 @@ function DayCard({
                     />
                   </div>
                 </div>
+                <div>
+                  <p className={labelCls}>Daily Transfer</p>
+                  <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                    {(
+                      [
+                        ['PRIVATE', 'Private Transfer'],
+                        ['SHARED', 'Shared Transfer'],
+                        ['NO_TRANSFER', 'No Transfer'],
+                      ] as const
+                    ).map(([value, label]) => {
+                      const current =
+                        (form.watch(fp(`${abase}.dailyTransfer`)) as string | null | undefined) ??
+                        dayDailyTransfer;
+                      return (
+                        <label key={value} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} daily transfer ${label}`}
+                            value={value}
+                            checked={current === value}
+                            onChange={() =>
+                              form.setValue(fp(`${abase}.dailyTransfer`), value as never, {
+                                shouldDirty: true,
+                              })
+                            }
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
                 {activities.fields.length > 1 && (
                   <div className="flex justify-end">
                     <Button
@@ -375,7 +412,7 @@ function DayCard({
         </div>
       </div>
 
-      <div className="grid gap-4 rounded-lg bg-slate-50 p-4 md:grid-cols-2">
+      <div className="rounded-lg bg-slate-50 p-4">
         <div>
           <p className={labelCls}>Meals Included</p>
           <div className="mt-2 flex flex-wrap gap-4">
@@ -456,23 +493,6 @@ function DayCard({
                 </div>
               );
             })}
-        </div>
-        <div>
-          <p className={labelCls}>Daily Transfer</p>
-          <div className="mt-2 flex flex-wrap gap-4 text-sm">
-            {(
-              [
-                ['PRIVATE', 'Private Transfer'],
-                ['SHARED', 'Shared Transfer'],
-                ['NO_TRANSFER', 'No Transfer'],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="flex items-center gap-2">
-                <input type="radio" value={value} {...form.register(fp(`${base}.dailyTransfer`))} />
-                {label}
-              </label>
-            ))}
-          </div>
         </div>
       </div>
     </article>

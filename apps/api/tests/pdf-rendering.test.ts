@@ -57,6 +57,75 @@ function wordBoxes(
   );
 }
 
+/** Company with no footer section data, so only the Page badge sits low. */
+const footerEmptyCompanyForOverlap = () => ({
+  name: 'Alpha Travel',
+  email: '',
+  phone: null,
+  website: null,
+  address: null,
+  primaryColor: '#2563eb',
+  operatingSinceYear: null,
+  tripsSold: null,
+  tan: null,
+  taxRegistrationNumber: null,
+  logo: null,
+});
+
+const quotationOverlap = () => ({
+  quotationNumber: 'QT-OVERLAP-0002',
+  customerName: 'Mira Shah',
+  customerEmail: null,
+  customerPhone: '+91 90000 00000',
+  destinationSummary: 'Kerala',
+  travelStartDate: null,
+  travelEndDate: null,
+  adults: 2,
+  childrenWithBed: 0,
+  childrenWithoutBed: 0,
+  infants: 0,
+  rooms: 1,
+  validUntil: null,
+});
+
+/** Minimal valid version; focused tests override the section they exercise. */
+const baseVersionOverlap = () => ({
+  versionNumber: 1,
+  title: 'Kerala Escape',
+  introduction: null,
+  currency: 'INR',
+  finalAmount: '100',
+  notes: null,
+  perAdultPrice: '50',
+  perChildWithBedPrice: '0',
+  perChildWithoutBedPrice: '0',
+  perInfantPrice: '0',
+  taxNote: null,
+  initialPaymentAmount: '0',
+  paymentLink: null,
+  inclusionsHtml: null,
+  exclusionsHtml: null,
+  paymentPolicies: null,
+  cancellationPolicies: null,
+  bookingTerms: null,
+  includeVisa: false,
+  visaSectionTitle: null,
+  visaAmount: '0',
+  visaDestination: null,
+  visaType: null,
+  visaServiceCharge: '0',
+  visaGstPercent: '0',
+  visaVfsCharge: '0',
+  flightDetails: null,
+  sightseeingDetails: null,
+  hotels: [],
+  itinerary: [],
+  services: [],
+  inclusions: [],
+  exclusions: [],
+  terms: [],
+});
+
 /** 1x1 PNG used to prove images (hero/logo) are embedded without crashing. */
 const PNG_1PX = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -1161,5 +1230,189 @@ describe('PDF rendering with long content', () => {
         !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
     );
     expect(offender).toBeUndefined();
+  });
+
+  it('renders only selected add-on rows in the PDF (linked to an add-on master)', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        addOnDetails: { include: true },
+        services: [
+          { serviceType: 'OTHER_ADD_ON', addOnServiceId: 'master-visa', name: 'Singapore Visa', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '1500' },
+          { serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '500' },
+        ],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    expect(visible).toContain('ADD-ON SERVICES');
+    expect(visible).toContain('Singapore Visa');
+    // The unselected add-on row must not appear.
+    expect(visible).not.toContain('other add on');
+  });
+
+  it('hides the ADD-ON SERVICES section when no add-on row is selected', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        addOnDetails: { include: true },
+        services: [
+          { serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '500' },
+          { serviceType: 'TRAVEL_INSURANCE', addOnServiceId: null, name: 'Singapore Visa', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '1500' },
+        ],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    expect(visible).not.toContain('ADD-ON SERVICES');
+    expect(visible).not.toContain('other add on');
+    expect(visible).not.toContain('Singapore Visa');
+  });
+
+  it('renders the saved per-meal transfer mode in the itinerary meals (No Transfer)', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Kochi',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              mealPreferences: { breakfast: { mode: 'NO_TRANSFER', transferDetails: null } },
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'City tour', description: null, startTime: null }],
+            },
+          ],
+        },
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    // The saved No Transfer preference wins over the legacy "Hotel" default.
+    expect(visible).toContain('(B) Breakfast (No Transfer)');
+    expect(visible).not.toContain('(B) Breakfast (Hotel)');
+  });
+
+  it('keeps (B) Breakfast (Hotel) when the saved meal mode is include-at-hotel', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Kochi',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'NO_TRANSFER',
+              mealPreferences: { breakfast: { mode: 'INCLUDE_AT_HOTEL', transferDetails: null } },
+              dailyTransfer: 'SHARED',
+              activities: [{ name: 'City tour', description: null, startTime: null }],
+            },
+          ],
+        },
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    expect(visible).toContain('(B) Breakfast (Hotel)');
+  });
+
+  it('renders each itinerary activity as its own block with its own transfer', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 2,
+              title: 'Day 2: Mandai Wildlife Reserve Adventure',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              dailyTransfer: 'SHARED',
+              activities: [
+                { name: 'Singapore City Tour', description: '<p>City tour.</p>', startTime: '09:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'SHARED' },
+                { name: 'Singapore Zoo', description: '<p>Zoo visit.</p>', startTime: '10:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'NO_TRANSFER' },
+                { name: 'Day at Cruise', description: '<p>Cruise day.</p>', startTime: '11:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'PRIVATE' },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const visible = pdfText(pdf);
+    expect(visible).toContain('Day 2: Mandai Wildlife Reserve Adventure');
+    expect(visible).toContain('Singapore City Tour');
+    expect(visible).toContain('Singapore Zoo');
+    expect(visible).toContain('Day at Cruise');
+    // Each activity shows its OWN transfer value.
+    expect(visible).toContain('Shared Transfer');
+    expect(visible).toContain('No Transfer');
+    expect(visible).toContain('Private Transfer');
+  });
+
+  it('embeds every itinerary activity image (not just the first)', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 2,
+              title: 'Day 2',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              activities: [
+                { name: 'Singapore City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/city-tour.jpg', dailyTransfer: null },
+                { name: 'Singapore Zoo', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/zoo.jpg', dailyTransfer: null },
+                { name: 'Day at Cruise', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/cruise.jpg', dailyTransfer: null },
+              ],
+            },
+          ],
+        },
+      },
+      images: {
+        itinerary: {
+          'https://storage.example.test/city-tour.jpg': PNG_1PX,
+          'https://storage.example.test/zoo.jpg': PNG_1PX,
+          'https://storage.example.test/cruise.jpg': PNG_1PX,
+        },
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const raw = pdf.toString('latin1');
+    const imageCount = (raw.match(/\/Subtype\s*\/Image/g) ?? []).length;
+    // Three distinct activity images are embedded (no reuse of one image).
+    expect(imageCount).toBeGreaterThanOrEqual(3);
   });
 });

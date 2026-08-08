@@ -413,6 +413,9 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
     city: (entry.city ?? null) as string | null,
     description: (entry.description ?? null) as string | null,
     imageUrl: (entry.imageUrl ?? entry.image ?? null) as string | null,
+    // Per-activity transfer; legacy rows fall back to the day-level value.
+    dailyTransfer:
+      TRANSFER_CANONICAL[String((entry as AnyRecord).dailyTransfer ?? '').toUpperCase()] ?? null,
     sequence: (entry.sequence ?? null) as number | null,
   }));
   const mealsRaw = day.meals;
@@ -690,17 +693,24 @@ function SightseeingItineraryView({
                                       <ItineraryRichText html={activity.description} />
                                     </div>
                                   )}
-                                  {day.dailyTransfer !== 'NO_TRANSFER' && (
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                      <span
-                                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                        style={{ backgroundColor: color }}
-                                      >
-                                        <Car className="h-3.5 w-3.5" />
-                                        {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
-                                      </span>
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const label =
+                                      SIGHTSEEING_TRANSFER_LABELS[
+                                        activity.dailyTransfer ?? day.dailyTransfer
+                                      ];
+                                    if (!label) return null;
+                                    return (
+                                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <span
+                                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                          style={{ backgroundColor: color }}
+                                        >
+                                          <Car className="h-3.5 w-3.5" />
+                                          {label}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                               {mealsLabel && (
@@ -749,17 +759,24 @@ function SightseeingItineraryView({
                                                 <ItineraryRichText html={activity.description} />
                                               </div>
                                             )}
-                                            {day.dailyTransfer !== 'NO_TRANSFER' && (
-                                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                <span
-                                                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                                  style={{ backgroundColor: color }}
-                                                >
-                                                  <Car className="h-3.5 w-3.5" />
-                                                  {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
-                                                </span>
-                                              </div>
-                                            )}
+                                            {(() => {
+                                              const label =
+                                                SIGHTSEEING_TRANSFER_LABELS[
+                                                  activity.dailyTransfer ?? day.dailyTransfer
+                                                ];
+                                              if (!label) return null;
+                                              return (
+                                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                  <span
+                                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                                    style={{ backgroundColor: color }}
+                                                  >
+                                                    <Car className="h-3.5 w-3.5" />
+                                                    {label}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })()}
                                           </div>
                                         </div>
                                         {!isLast && <hr className="my-3 border-slate-200" />}
@@ -778,17 +795,21 @@ function SightseeingItineraryView({
                           )
                         : (
                             <>
-                              {day.dailyTransfer !== 'NO_TRANSFER' && (
-                                <div className="mt-3 flex flex-wrap items-center gap-2">
-                                  <span
-                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                    style={{ backgroundColor: color }}
-                                  >
-                                    <Car className="h-3.5 w-3.5" />
-                                    {SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer] ?? 'Transfer'}
-                                  </span>
-                                </div>
-                              )}
+                              {(() => {
+                                const label = SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer];
+                                if (!label) return null;
+                                return (
+                                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                      style={{ backgroundColor: color }}
+                                    >
+                                      <Car className="h-3.5 w-3.5" />
+                                      {label}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                               {mealsLabel && (
                                 <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
                                   <Utensils className="h-4 w-4 text-slate-400" />
@@ -931,10 +952,14 @@ export function PublicQuotationPage() {
   const cruises = svcOf('CRUISE');
   const vehicles = svcOf('VEHICLE_TRANSFER');
   // Add-ons only appear when the top-level Add-on Services include flag is on
-  // AND at least one add-on row exists (rows are the per-add-on Include toggle).
+  // AND the individual Add-on row is actually selected (linked to an Add-on
+  // master). Rows present without an addOnServiceId are not included.
   const addOnIncluded = v.addOnDetails?.include !== false;
   const addonServices = addOnIncluded
-    ? v.services.filter((service) => ADDON_SERVICE_TYPES.has(service.serviceType))
+    ? v.services.filter(
+        (service) =>
+          ADDON_SERVICE_TYPES.has(service.serviceType) && service.addOnServiceId != null,
+      )
     : [];
   // Reference "Flight Details" — structured journeys from flightDetails.
   const fd = v.flightDetails;
