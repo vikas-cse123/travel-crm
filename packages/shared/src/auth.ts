@@ -160,6 +160,10 @@ export interface AuthCompany {
   timezone?: string;
   defaultCurrency?: string;
   hasLogo?: boolean;
+  /** Signed URL for the confirmed company logo, when present. */
+  logoUrl?: string | null;
+  /** The company's ACTIVE custom domain hostname, when one exists. */
+  customDomain?: { hostname: string } | null;
 }
 
 export interface AuthRole {

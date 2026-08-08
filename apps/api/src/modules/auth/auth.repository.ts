@@ -36,6 +36,7 @@ const AUTH_USER_SELECT = {
       primaryColor: true,
       timezone: true,
       defaultCurrency: true,
+      logoObjectKey: true,
       logoConfirmedAt: true,
       isSystem: true,
     },

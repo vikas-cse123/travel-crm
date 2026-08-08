@@ -25,6 +25,7 @@ import { templateInclude } from '../quotation-templates/quotation-templates.serv
 import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
+import { preferredPublicAppBaseUrl } from '../custom-domains/custom-domain.service.js';
 import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import { webpToPng } from '../../services/pdf/webp-to-png.js';
 import {
@@ -2133,7 +2134,7 @@ export const quotationsService = {
         });
       }
       return {
-        url: `${env.WEB_URL}/q/${quotation.publicToken}`,
+        url: `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${quotation.publicToken}`,
         expiresAt: quotation.publicTokenExpiresAt,
         versionId: quotation.publicVersionId ?? selected.id,
         reused: true,
@@ -2158,7 +2159,7 @@ export const quotationsService = {
       }),
     ]);
     return {
-      url: `${env.WEB_URL}/q/${token}`,
+      url: `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${token}`,
       expiresAt: expiresAt ?? quotation.validUntil,
       versionId: selected.id,
       reused: false,
@@ -2315,7 +2316,12 @@ export const quotationsService = {
 
   async publicView(
     token: string,
-    options?: { userAgent?: string; ip?: string | null; authCompanyId?: string | null },
+    options?: {
+      userAgent?: string;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
   ) {
     const quotation = await prisma.quotation.findFirst({
       where: { publicTokenHash: hashToken(token), deletedAt: null },
@@ -2341,6 +2347,15 @@ export const quotationsService = {
       },
     });
     if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
+    // When the request arrives through an ACTIVE custom domain, the quotation
+    // must belong to that domain's company. A token is never exposed through
+    // another tenant's custom domain — safe not-found behavior.
+    if (
+      options?.customDomainCompanyId &&
+      quotation.companyId !== options.customDomainCompanyId
+    ) {
+      throw new NotFoundError('This quotation link is invalid or expired.');
+    }
     // The public weblink always serves the CURRENT (latest) customer-facing
     // version. `publicVersionId` is kept in sync by createPublicLink, but if it
     // is missing/stale the current version is authoritative.

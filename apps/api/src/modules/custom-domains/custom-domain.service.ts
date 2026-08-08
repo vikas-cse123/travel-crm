@@ -61,6 +61,20 @@ export function isPlatformHostname(hostname: string): boolean {
 }
 
 /**
+ * Preferred customer-facing app base URL for a company: the ACTIVE custom
+ * domain hostname when one exists, else the platform WEB_URL. This is the
+ * single source of truth for generating new public quotation links.
+ */
+export async function preferredPublicAppBaseUrl(companyId: string): Promise<string> {
+  const active = await prisma.customDomain.findFirst({
+    where: { companyId, status: 'ACTIVE' },
+    select: { hostname: true },
+  });
+  if (active?.hostname) return `https://${active.hostname}`;
+  return env.WEB_URL.replace(/\/$/, '');
+}
+
+/**
  * Whether an origin hostname may be trusted by origin/CORS validation. The
  * platform's own hosts (including dev localhost) and ACTIVE custom domains are
  * trusted — never wildcards, PENDING/DISABLED domains, or unknown hostnames.

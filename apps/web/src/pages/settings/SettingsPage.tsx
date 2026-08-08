@@ -590,8 +590,22 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
       : info?.status === 'DISABLED'
         ? 'Disabled'
         : info?.status === 'PENDING'
-          ? 'Waiting for DNS / SSL Pending'
+          ? (info.lastError ?? '').toLowerCase().includes('cname')
+            ? 'Waiting for DNS'
+            : (info.lastError ?? '').toLowerCase().includes('ssl')
+              ? 'SSL Pending'
+              : 'Waiting for DNS / SSL Pending'
           : 'Not configured';
+
+  const lastCheckedLabel = info?.lastCheckedAt
+    ? new Date(info.lastCheckedAt).toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
 
   const copy = async (key: string, value: string) => {
     try {
@@ -681,7 +695,10 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
               If using Cloudflare, keep the CRM CNAME DNS-only during setup.
             </p>
           )}
-          {info.lastError && <p className="text-sm text-red-600">{info.lastError}</p>}
+          {info.lastError && <p className="text-sm text-red-600">Error: {info.lastError}</p>}
+          {lastCheckedLabel && (
+            <p className="text-xs text-slate-500">Last checked: {lastCheckedLabel}</p>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <Button

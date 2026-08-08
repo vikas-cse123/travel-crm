@@ -34,6 +34,7 @@ import {
   provisionCompanyDefaults,
 } from '../companies/company-provisioning.service.js';
 import { emailService, sendEmailSafely } from '../../services/email/email.service.js';
+import { storageService } from '../../services/storage/storage.service.js';
 import { authRepository, type AuthUser } from './auth.repository.js';
 import { permissionsService } from './permissions.service.js';
 import { sessionService, type IssuedSession } from './session.service.js';
@@ -61,6 +62,20 @@ const GENERIC_LOGIN_ERROR = 'Invalid email or password.';
 /** Shape the safe user object returned by every auth endpoint. */
 async function toAuthenticatedUser(user: AuthUser): Promise<AuthenticatedUser> {
   const permissions = await permissionsService.resolveForUser(user.id);
+  const logoUrl =
+    user.company.logoObjectKey && user.company.logoConfirmedAt
+      ? await storageService
+          .createDownloadUrl(
+            user.company.logoObjectKey,
+            'logo',
+            env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS,
+          )
+          .catch(() => null)
+      : null;
+  const activeDomain = await prisma.customDomain.findFirst({
+    where: { companyId: user.companyId, status: 'ACTIVE' },
+    select: { hostname: true },
+  });
 
   return {
     id: user.id,
@@ -86,6 +101,8 @@ async function toAuthenticatedUser(user: AuthUser): Promise<AuthenticatedUser> {
       timezone: user.company.timezone,
       defaultCurrency: user.company.defaultCurrency,
       hasLogo: Boolean(user.company.logoConfirmedAt),
+      logoUrl,
+      customDomain: activeDomain ? { hostname: activeDomain.hostname } : null,
     },
     role: { id: user.role.id, name: user.role.name, hierarchyLevel: user.role.hierarchyLevel },
     permissions,

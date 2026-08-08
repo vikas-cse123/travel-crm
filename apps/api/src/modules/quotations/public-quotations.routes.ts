@@ -22,6 +22,7 @@ router.get(
         userAgent: req.get('user-agent'),
         ip: req.ip ?? null,
         authCompanyId: req.auth?.companyId ?? null,
+        customDomainCompanyId: req.customDomain?.companyId ?? null,
       }),
     ),
   ),
