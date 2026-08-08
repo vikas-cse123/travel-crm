@@ -6,6 +6,7 @@ import { AppError, ForbiddenError, UnauthorizedError } from '../utils/errors.js'
 import { clearAuthCookies } from '../utils/cookies.js';
 import { sessionService } from '../modules/auth/session.service.js';
 import { createTenantContext, type TenantContext } from '../db/tenant.js';
+import { assertCustomDomainTenant } from './custom-domain.js';
 import { asyncHandler } from '../utils/async-handler.js';
 
 /**
@@ -119,6 +120,10 @@ export const requireAuth = asyncHandler(
       throw new UnauthorizedError('You must be signed in to do that.');
     }
     req.auth = auth;
+    // When the request host is an ACTIVE custom domain, the session company
+    // must match the domain tenant; a mismatch is rejected rather than
+    // switching the user into the hostname's Company.
+    assertCustomDomainTenant(req, auth.companyId);
     next();
   },
 );

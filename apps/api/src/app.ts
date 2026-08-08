@@ -10,6 +10,7 @@ import { requestId } from './middleware/request-id.js';
 import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
+import { resolveCustomDomainMiddleware } from './middleware/custom-domain.js';
 import { apiRoutes } from './routes.js';
 import { publicQuotationsRoutes } from './modules/quotations/public-quotations.routes.js';
 
@@ -72,6 +73,12 @@ export function createApp(): Express {
   }
 
   app.use(globalLimiter);
+
+  // Custom-domain context: attach the ACTIVE hostname→company mapping for the
+  // request host, if any. Reserved platform hostnames and unknown hosts attach
+  // nothing. Runs before origin/CSRF/routes so authenticated routes can compare
+  // the domain tenant against the session tenant.
+  app.use(resolveCustomDomainMiddleware);
 
   // Origin validation covers every state-changing request. Public quotation
   // decisions additionally require their unguessable customer token and are

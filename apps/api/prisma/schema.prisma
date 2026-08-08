@@ -43,6 +43,12 @@ enum CompanyStatus {
   INACTIVE
 }
 
+enum CustomDomainStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+}
+
 enum UserStatus {
   PENDING_VERIFICATION
   ACTIVE
@@ -1037,9 +1043,32 @@ model Company {
   addOnServices                AddOnService[]
   bookingRefunds               BookingRefund[]
 
+  customDomains CustomDomain[]
+
   @@index([status])
   @@index([createdAt])
   @@map("companies")
+}
+
+/// A verified/active hostname associated with exactly one Company. Phase 1 of
+/// the Custom Domain feature: this is the secure data model + hostname→tenant
+/// resolver only. No DNS/SSL/verification is modelled yet.
+model CustomDomain {
+  id        String             @id @default(uuid()) @db.Uuid
+  companyId String             @db.Uuid
+  /// Lower-cased, protocol/path/port-free hostname (e.g. "crm.easytour.com").
+  hostname  String             @unique @db.VarChar(253)
+  status    CustomDomainStatus @default(PENDING)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  // One current custom-domain record per company in Phase 1. Replacing a domain
+  // updates this row rather than inserting a second one.
+  @@unique([companyId])
+  @@index([status])
+  @@map("custom_domains")
 }
 
 /// The company's own bank account for customer invoices (Phase 18). One per
