@@ -299,6 +299,7 @@ const defaults: QuotationVersionInput = {
   visaVfsCharge: 0,
   flightDetails: defaultFlightDetails(),
   hotelDetails: defaultHotelDetails(),
+  addOnDetails: { include: true, sectionTitle: 'Additional Services' },
   sightseeingDetails: {
     include: true,
     sectionTitle: 'Sightseeing & Experiences',
@@ -1047,6 +1048,12 @@ export function QuotationBuilderPage() {
             sectionTitle: hotelSectionTitle(version.hotelDetails.sectionTitle),
           }
         : defaultHotelDetails(),
+      addOnDetails: version.addOnDetails
+        ? {
+            include: version.addOnDetails.include !== false,
+            sectionTitle: version.addOnDetails.sectionTitle ?? 'Additional Services',
+          }
+        : { include: true, sectionTitle: 'Additional Services' },
       sightseeingDetails:
         version.sightseeingDetails && version.sightseeingDetails.days?.length
           ? version.sightseeingDetails
@@ -1137,6 +1144,17 @@ export function QuotationBuilderPage() {
         (row) => row.serviceType === 'CRUISE',
       );
       setExcluded((current) => ({ ...current, cruise: !hasSavedCruiseRow }));
+    }
+    // Add-on Services top-level include: a NEW quotation defaults from the
+    // Lead's requested services; an existing quotation keeps its saved state.
+    // `version.addOnDetails` is null on a brand-new version, so default it once.
+    if (!version.addOnDetails) {
+      const addOnIncluded = leadRequested.has('addon');
+      form.setValue(
+        'addOnDetails' as 'addOnDetails',
+        { include: addOnIncluded, sectionTitle: 'Additional Services' },
+        { shouldDirty: false },
+      );
     }
   }, [
     version,
@@ -1286,9 +1304,12 @@ export function QuotationBuilderPage() {
     const packageServices = serviceRows.filter((row) => !isAddon(row));
     const addonServices = serviceRows.filter(isAddon);
     // Add-on services are quoted separately and are NOT part of the package total.
-    const addon = addonServices
-      .map((row) => Number(row.sellingPrice ?? 0) * Number(row.quantity ?? 1))
-      .reduce((a, b) => a + b, 0);
+    const addOnIncluded = form.watch('addOnDetails.include') !== false;
+    const addon = addOnIncluded
+      ? addonServices
+          .map((row) => Number(row.sellingPrice ?? 0) * Number(row.quantity ?? 1))
+          .reduce((a, b) => a + b, 0)
+      : 0;
     const cost = [
       ...hotelRows.map((row) => Number(row.internalCost ?? 0)),
       ...packageServices.map((row) => Number(row.internalCost ?? 0) * Number(row.quantity ?? 1)),
@@ -1459,6 +1480,10 @@ export function QuotationBuilderPage() {
             amount: value.hotelDetails?.amount ?? 0,
             description: value.hotelDetails?.description ?? null,
             include: !excludedRef.current.hotel,
+          },
+          addOnDetails: {
+            include: value.addOnDetails?.include !== false,
+            sectionTitle: value.addOnDetails?.sectionTitle ?? 'Additional Services',
           },
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
           hotels: seq(value.hotels).map((hotel) => ({
@@ -2502,11 +2527,27 @@ export function QuotationBuilderPage() {
     };
     return (
       <div className="space-y-4">
-        <p className="text-sm text-slate-600">
-          Select additional services to include in this quotation:
-        </p>
-        <div className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={form.watch('addOnDetails.include') !== false}
+            onChange={(event) =>
+              form.setValue(
+                'addOnDetails.include',
+                event.target.checked,
+                { shouldDirty: true },
+              )
+            }
+          />
+          Include Add-on Services in Quotation
+        </label>
+        {form.watch('addOnDetails.include') !== false && (
+          <>
+            <p className="text-sm text-slate-600">
+              Select additional services to include in this quotation:
+            </p>
+            <div className="overflow-hidden rounded-lg border">
+              <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left text-slate-600">
                 <th className="w-20 px-4 py-3 font-semibold">Include</th>
@@ -2602,7 +2643,9 @@ export function QuotationBuilderPage() {
               </tr>
             </tfoot>
           </table>
-        </div>
+            </div>
+          </>
+        )}
       </div>
     );
   };

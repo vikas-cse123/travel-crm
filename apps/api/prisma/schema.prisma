@@ -3068,6 +3068,9 @@ model QuotationVersion {
   sightseeingDetails           Json?
   // Reference "Hotel" — editable section title, amount and description.
   hotelDetails                 Json?
+  // Reference "Add-on Services" — top-level include flag (the individual
+  // add-ons are persisted as service rows; unchecked rows are omitted).
+  addOnDetails                 Json?
   notes                        String?                @db.VarChar(4000)
   internalNotes                String?                @db.VarChar(4000)
   status                       QuotationVersionStatus @default(DRAFT)

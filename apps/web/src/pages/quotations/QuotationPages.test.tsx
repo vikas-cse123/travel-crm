@@ -350,6 +350,48 @@ describe('Phase 8 quotation pages', () => {
     );
   });
 
+  it('shows the simplified quotation table and clean header', async () => {
+    const quotation = {
+      id: '22222222-2222-4222-8222-222222222222',
+      quotationNumber: 'QT-2026-000001',
+      customerName: 'Aarav Mehta',
+      destinationSummary: 'Goa',
+      status: 'SENT',
+      currentVersionId: 'version-1',
+      lastSentAt: '2026-07-21T00:00:00.000Z',
+      lastViewedAt: null,
+      createdAt: '2026-07-20T00:00:00.000Z',
+      createdBy: person,
+      query: { id: 'lead-1', queryNumber: 'QRY-2026-000001' },
+      versions: [{ id: 'version-1', versionNumber: 1, currency: 'INR', finalAmount: '16065.87' }],
+    };
+    const fetchMock = vi.fn(async () =>
+      response({
+        ...page([quotation]),
+        analytics: { byStatus: { SENT: 1 }, totalQuotedValue: '16065.87', acceptanceRate: 50 },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<QuotationsPage />);
+    await screen.findAllByText('QT-2026-000001');
+    // Clean header: eyebrow + subtitle removed.
+    expect(screen.queryByText('Commercial workspace')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Versioned proposals/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Customer quotations' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /New quotation/ })).toBeInTheDocument();
+    // Table shows the simplified columns, LEAD heading, no removed columns.
+    const thead = document.querySelector('thead');
+    expect(thead).not.toBeNull();
+    const headerText = thead!.textContent ?? '';
+    for (const header of ['Quotation', 'Lead', 'Destination', 'Version', 'Created by', 'Created']) {
+      expect(headerText).toContain(header);
+    }
+    expect(headerText).not.toContain('Final amount');
+    expect(headerText).not.toContain('Last sent');
+    expect(headerText).not.toContain('Last viewed');
+    expect(headerText).not.toContain('Lead / customer');
+  });
+
   it('calculates a live builder summary and hides costing without permission', async () => {
     const draftVersion = {
       id: 'version-1',
@@ -3615,6 +3657,46 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.queryByRole('heading', { name: 'Additional Services' })).not.toBeInTheDocument();
   });
 
+  it('hides Add-ons publicly when top-level Add-on Services include is off', async () => {
+    const publicData = {
+      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      version: {
+        title: 'Kerala Escape',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        // Top-level Add-on include is OFF even though an add-on row exists.
+        addOnDetails: { include: false },
+        services: [
+          { id: 's-addon', serviceType: 'OTHER_ADD_ON', name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 1 },
+        ],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Kerala Escape');
+    // No Additional Services section, no `other add on`, no Add-ons chip.
+    expect(screen.queryByRole('heading', { name: 'Additional Services' })).not.toBeInTheDocument();
+    expect(screen.queryByText('other add on')).not.toBeInTheDocument();
+    const servicesInclude = screen.queryByText('Services Include')?.closest('section');
+    if (servicesInclude) {
+      expect(within(servicesInclude).queryByText('Add-ons')).not.toBeInTheDocument();
+    }
+  });
+
   it('shows Cabin: 10 kg+ on the public page for a stored 10kg value', async () => {
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
@@ -5267,6 +5349,7 @@ const builderQuotation = (overrides: Record<string, unknown> = {}) => ({
       inclusions: [],
       exclusions: [],
       terms: [],
+      addOnDetails: { include: true },
       ...overrides,
     },
   ],

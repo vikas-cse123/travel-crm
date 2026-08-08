@@ -930,9 +930,12 @@ export function PublicQuotationPage() {
   const svcOf = (type: string) => v.services.filter((service) => service.serviceType === type);
   const cruises = svcOf('CRUISE');
   const vehicles = svcOf('VEHICLE_TRANSFER');
-  const addonServices = v.services.filter((service) =>
-    ADDON_SERVICE_TYPES.has(service.serviceType),
-  );
+  // Add-ons only appear when the top-level Add-on Services include flag is on
+  // AND at least one add-on row exists (rows are the per-add-on Include toggle).
+  const addOnIncluded = v.addOnDetails?.include !== false;
+  const addonServices = addOnIncluded
+    ? v.services.filter((service) => ADDON_SERVICE_TYPES.has(service.serviceType))
+    : [];
   // Reference "Flight Details" — structured journeys from flightDetails.
   const fd = v.flightDetails;
   const flightJourneys =
@@ -988,8 +991,7 @@ export function PublicQuotationPage() {
   if (cruises.length > 0) addService('cruise', 'Cruise');
   if (vehicles.length > 0) addService('transportation', 'Transportation');
   if (showVisa) addService('visa', 'Visa');
-  if (v.services.some((service) => ADDON_SERVICE_TYPES.has(service.serviceType)))
-    addService('add-ons', 'Add-ons');
+  if (addonServices.length > 0) addService('add-ons', 'Add-ons');
 
   const preparedBy = v.createdBy?.fullName ?? '';
   // Secondary contact row under "Prepared By": only present values, separated

@@ -339,6 +339,12 @@ export const hotelDetailsSchema = z.object({
   description: optionalText(8000),
 });
 
+/** Top-level Add-on Services section state (individual add-ons are service rows). */
+export const addOnDetailsSchema = z.object({
+  include: z.boolean().default(true),
+  sectionTitle: optionalText(200).default('Additional Services'),
+});
+
 export const quotationVersionInputSchema = z
   .object({
     title: z.string().trim().min(2).max(200),
@@ -402,6 +408,8 @@ export const quotationVersionInputSchema = z
     flightDetails: flightDetailsSchema.nullable().optional(),
     // Reference "Hotel" — editable section heading, amount and description.
     hotelDetails: hotelDetailsSchema.nullable().optional(),
+    // Reference "Add-on Services" — top-level include flag.
+    addOnDetails: addOnDetailsSchema.nullable().optional(),
     // Reference "Sightseeing" — day-wise activity itinerary.
     sightseeingDetails: sightseeingDetailsSchema.nullable().optional(),
     notes: optionalText(4000),

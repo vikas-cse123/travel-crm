@@ -22,11 +22,7 @@ export function QuotationsPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-brand-700">Commercial workspace</p>
           <h1 className="text-2xl font-semibold">Customer quotations</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Versioned proposals, delivery tracking and secure customer access.
-          </p>
         </div>
         {hasPermission(PERMISSIONS.QUOTATIONS_CREATE) && (
           <Link to="/quotations/new">
@@ -87,18 +83,15 @@ export function QuotationsPage() {
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-[1100px] w-full text-left text-sm">
+              <table className="min-w-[760px] w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
                     {[
                       'Quotation',
-                      'Lead / customer',
+                      'Lead',
                       'Destination',
                       'Version',
-                      'Final amount',
                       'Created by',
-                      'Last sent',
-                      'Last viewed',
                       'Created',
                     ].map((value) => (
                       <th key={value} className="px-4 py-3">
@@ -128,25 +121,7 @@ export function QuotationsPage() {
                         </td>
                         <td className="px-4 py-4">{quotation.destinationSummary}</td>
                         <td className="px-4 py-4">v{version?.versionNumber ?? '—'}</td>
-                        <td className="px-4 py-4 font-semibold">
-                          {version
-                            ? new Intl.NumberFormat('en-IN', {
-                                style: 'currency',
-                                currency: version.currency,
-                              }).format(Number(version.finalAmount))
-                            : '—'}
-                        </td>
                         <td className="px-4 py-4">{quotation.createdBy.fullName}</td>
-                        <td className="px-4 py-4">
-                          {quotation.lastSentAt
-                            ? new Date(quotation.lastSentAt).toLocaleDateString()
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-4">
-                          {quotation.lastViewedAt
-                            ? new Date(quotation.lastViewedAt).toLocaleDateString()
-                            : '—'}
-                        </td>
                         <td className="px-4 py-4">
                           {new Date(quotation.createdAt).toLocaleDateString()}
                         </td>
@@ -173,17 +148,7 @@ export function QuotationsPage() {
                       {quotation.customerName}
                     </p>
                     <p className="text-xs text-slate-500">{quotation.destinationSummary}</p>
-                    <p className="mt-1 text-sm">
-                      v{version?.versionNumber ?? '—'} ·{' '}
-                      <span className="font-semibold">
-                        {version
-                          ? new Intl.NumberFormat('en-IN', {
-                              style: 'currency',
-                              currency: version.currency,
-                            }).format(Number(version.finalAmount))
-                          : '—'}
-                      </span>
-                    </p>
+                    <p className="mt-1 text-sm">v{version?.versionNumber ?? '—'}</p>
                     <Link
                       className="mt-2 inline-block text-sm font-medium text-brand-700"
                       to={`/quotations/${quotation.id}`}

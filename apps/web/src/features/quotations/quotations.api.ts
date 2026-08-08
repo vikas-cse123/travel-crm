@@ -236,6 +236,8 @@ export interface QuotationVersion {
   flightDetails: FlightDetails | null;
   // Reference "Hotel" — editable section metadata (JSON).
   hotelDetails: HotelDetails | null;
+  // Reference "Add-on Services" — top-level include flag (JSON).
+  addOnDetails: { include?: boolean; sectionTitle?: string | null } | null;
   // Reference "Sightseeing" — day-wise activity itinerary (JSON).
   sightseeingDetails: SightseeingDetails | null;
   notes: string | null;

@@ -255,6 +255,7 @@ export interface QuotationPdfInput {
     flightDetails: unknown;
     sightseeingDetails: unknown;
     hotelDetails?: { include?: boolean } | null;
+    addOnDetails?: { include?: boolean } | null;
     hotels: Array<{
       city: string;
       hotelName: string;
@@ -1039,7 +1040,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   );
   const vehicleServices = v.services.filter((s) => s.serviceType === 'VEHICLE_TRANSFER');
   const cruiseServices = v.services.filter((s) => s.serviceType === 'CRUISE');
-  const addonServices = v.services.filter((s) => ADDON_SERVICE_TYPES.has(s.serviceType));
+  // Add-ons only render when the top-level Add-on Services include flag is on.
+  const addOnIncluded = v.addOnDetails?.include !== false;
+  const addonServices = addOnIncluded
+    ? v.services.filter((s) => ADDON_SERVICE_TYPES.has(s.serviceType))
+    : [];
   const hasVisa =
     v.includeVisa &&
     (num(v.visaAmount) > 0 || num(v.visaServiceCharge) > 0 || !!v.visaType || !!v.visaDestination);
