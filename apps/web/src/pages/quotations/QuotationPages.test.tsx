@@ -5532,7 +5532,7 @@ describe('Phase 14 master selectors', () => {
       'role',
       'alert',
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false),
     );
@@ -5708,7 +5708,7 @@ describe('Phase 14 master selectors', () => {
     fireEvent.input(screen.getByLabelText('Cruise description'), {
       target: { innerHTML: '<p>A lovely voyage.</p>' },
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -5964,14 +5964,14 @@ describe('Phase 14 master selectors', () => {
     await openTab('Cruise');
     // Enabling Cruise creates an empty entry; saving is blocked while included.
     await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     expect(
       await screen.findByText(/services\.0\.name: String must contain at least 1 character/),
     ).toBeInTheDocument();
     // Unchecking Cruise clears the stale error and saves without cruise rows.
     await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
     expect(screen.queryByText(/services\.0\.name/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -6477,7 +6477,7 @@ describe('Phase 14 master selectors', () => {
     await openActivityPicker(picker, 'Marina Bay');
     fireEvent.change(picker, { target: { value: 'Marina Bay' } });
     await screen.findByAltText('Activity');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7018,7 +7018,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Sightseeing');
     await userEvent.click(screen.getByLabelText('Include Sightseeing in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
 
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7040,7 +7040,7 @@ describe('Phase 14 master selectors', () => {
     const lunchDetails = await screen.findByLabelText('lunch transfer details');
     await userEvent.type(lunchDetails, 'pokemon sabji');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7103,7 +7103,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     // The builder loads on a visible tab without crashing.
     await screen.findByRole('button', { name: 'Vehicle' });
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7121,7 +7121,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await screen.findByRole('button', { name: 'Vehicle' });
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7273,7 +7273,7 @@ describe('Phase 14 master selectors', () => {
     );
     expect(screen.getByLabelText('Vehicle amount')).toHaveValue(5000);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7319,7 +7319,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.type(editor, ' plus airfare assistance');
     await userEvent.clear(screen.getByLabelText('Visa Assistance price'));
     await userEvent.type(screen.getByLabelText('Visa Assistance price'), '4200');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7356,7 +7356,7 @@ describe('Phase 14 master selectors', () => {
       screen.getByLabelText('Vehicle model'),
       'aaaaaaa7-1111-4111-8111-111111111111',
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7447,7 +7447,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
 
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7472,7 +7472,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.clear(screen.getByLabelText('Hotel amount'));
     await userEvent.type(screen.getByLabelText('Hotel amount'), '12500');
     await userEvent.type(screen.getByLabelText('Hotel description'), 'Breakfast included.');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
 
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7496,7 +7496,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(screen.getByLabelText('Include Hotel in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7532,7 +7532,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(screen.getByLabelText('Include Hotel in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7548,7 +7548,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     // Hotel is included by default and the form has an empty default row.
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     expect(
       await screen.findByText(/hotels\.0\.hotelName: String must contain at least 1 character/),
     ).toBeInTheDocument();
@@ -7564,7 +7564,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     // Included hotel with an empty row → hotel-name error appears.
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     expect(
       await screen.findByText(/hotels\.0\.hotelName: String must contain at least 1 character/),
     ).toBeInTheDocument();
@@ -7576,7 +7576,7 @@ describe('Phase 14 master selectors', () => {
     ).not.toBeInTheDocument();
 
     // Saving now succeeds with hotels: [].
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7614,7 +7614,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7678,7 +7678,7 @@ describe('Phase 14 master selectors', () => {
 
     // Re-selecting and saving preserves the stored value.
     await userEvent.selectOptions(cabin, '10kg');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7742,7 +7742,7 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('3');
 
     // Saving persists the derived nights.
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7780,7 +7780,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7912,7 +7912,7 @@ describe('Phase 14 master selectors', () => {
         'Aloft Singapore Novena by Marriott',
       ),
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8086,7 +8086,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8144,7 +8144,7 @@ describe('Phase 14 master selectors', () => {
     // Automatic prefill must not change it back.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(screen.getByLabelText('Hotel master')).toHaveValue('Alternative Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8813,7 +8813,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     await openTab('Summary & Pricing');
     await userEvent.type(screen.getByLabelText('Initial amount for booking'), '2000');
     await userEvent.type(screen.getByLabelText('Payment link'), 'https://pay.example.com/abc');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8830,7 +8830,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     renderBuilderPage();
     await openTab('Summary & Pricing');
     await userEvent.selectOptions(screen.getByLabelText('Tax note'), 'Do not show');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8844,7 +8844,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     renderBuilderPage();
     await openTab('Summary & Pricing');
     await userEvent.type(screen.getByLabelText('Payment link'), 'not-a-url');
-    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
     expect((await screen.findAllByText(/valid URL starting with/i)).length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
   });

@@ -188,7 +188,7 @@ export function QuotationDetailsPage() {
             <Link to={`/quotations/${q.id}/versions/${current.id}/edit`}>
               <Button variant="secondary">
                 <Edit3 className="h-4 w-4" />
-                Edit draft
+                Edit quotation
               </Button>
             </Link>
           )}

@@ -2768,7 +2768,7 @@ export function QuotationBuilderPage() {
         </div>
         <Button type="submit" isLoading={save.isPending}>
           <Save className="h-4 w-4" />
-          Save draft
+          Save quotation
         </Button>
       </header>
       {save.isError && (
