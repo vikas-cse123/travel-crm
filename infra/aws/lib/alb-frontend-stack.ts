@@ -193,22 +193,19 @@ export class AlbFrontendStack extends Stack {
 
     // Priority 60/70: catch-all routing for dynamic custom-domain hosts. Custom
     // hostnames are created at runtime (Phase 3), so they cannot be enumerated
-    // in a static rule; these lower-precedence rules send their /api and
-    // frontend traffic to the same targets as the app domain. The higher-
-    // precedence marketing rules (40/50) and app rules (20/30) still win for
-    // their own hosts, and Phase 1/2 tenant isolation stays authoritative at
-    // the API layer.
+    // in a static rule; these lower-precedence path rules send their /api and
+    // frontend traffic to the same targets as the app domain (ELBv2 host-header
+    // conditions cannot match "any host"). The higher-precedence app rules
+    // (20/30), marketing rules (40/50) and origin rule (10) still win for their
+    // own hosts, and Phase 1/2 tenant isolation stays authoritative at the API.
     listener.addAction('CustomHostApiRule', {
       priority: 60,
-      conditions: [
-        elbv2.ListenerCondition.hostHeaders(['*']),
-        elbv2.ListenerCondition.pathPatterns(['/api', '/api/*']),
-      ],
+      conditions: [elbv2.ListenerCondition.pathPatterns(['/api', '/api/*'])],
       action: elbv2.ListenerAction.forward([apiTargetGroup]),
     });
     listener.addAction('CustomHostFrontendRule', {
       priority: 70,
-      conditions: [elbv2.ListenerCondition.hostHeaders(['*'])],
+      conditions: [elbv2.ListenerCondition.pathPatterns(['/*'])],
       action: elbv2.ListenerAction.forward([targetGroup]),
     });
 

@@ -196,7 +196,22 @@ export class ApiStack extends Stack {
     // Route53/DNS permissions are granted (customer DNS is managed by them).
     taskRole.addToPolicy(
       new iam.PolicyStatement({
-        actions: ['acm:RequestCertificate', 'acm:DescribeCertificate'],
+        actions: [
+          'acm:RequestCertificate',
+          'acm:DescribeCertificate',
+          // RequestCertificate with Tags requires this action, or ACM returns
+          // AccessDenied even though RequestCertificate itself is allowed.
+          'acm:AddTagsToCertificate',
+        ],
+        resources: ['*'],
+      }),
+    );
+    // ELBv2 Describe* actions cannot be resource-scoped (IAM requires "*"), so
+    // DescribeListenerCertificates gets its own statement; the certificate
+    // mutating operations stay scoped to this deployment's HTTPS listener.
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['elasticloadbalancing:DescribeListenerCertificates'],
         resources: ['*'],
       }),
     );
@@ -205,7 +220,6 @@ export class ApiStack extends Stack {
         actions: [
           'elasticloadbalancing:AddListenerCertificates',
           'elasticloadbalancing:RemoveListenerCertificates',
-          'elasticloadbalancing:DescribeListenerCertificates',
         ],
         resources: [config.listenerArn],
       }),
