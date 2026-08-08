@@ -1684,6 +1684,7 @@ export const quotationsService = {
 
       // Sightseeing activity images
       const sightseeingIds: string[] = [];
+      const itinerarySnapshotUrls: string[] = [];
       const ssData = version.sightseeingDetails as Record<string, unknown> | null;
       if (ssData?.days && Array.isArray(ssData.days)) {
         for (const day of ssData.days as Array<Record<string, unknown>>) {
@@ -1691,6 +1692,8 @@ export const quotationsService = {
           for (const act of acts) {
             const sid = act.sightseeingId;
             if (sid && typeof sid === 'string') sightseeingIds.push(sid);
+            const snapshotUrl = typeof act.imageUrl === 'string' ? act.imageUrl.trim() : '';
+            if (snapshotUrl) itinerarySnapshotUrls.push(snapshotUrl);
           }
         }
       }
@@ -1706,6 +1709,31 @@ export const quotationsService = {
         }
       }
       const sightseeingImages = Object.fromEntries(sightseeingImageMap);
+
+      // Itinerary snapshot images: the public weblink renders each activity's
+      // saved snapshot `imageUrl` before its sightseeing master image. The PDF
+      // must use that same canonical source, so fetch the snapshot URLs
+      // server-side (they may be presigned/private) and convert WebP exactly
+      // like the other PDF images. A broken snapshot never blocks generation.
+      const itineraryImageMap = new Map<string, Buffer>();
+      const uniqueSnapshotUrls = [...new Set(itinerarySnapshotUrls)];
+      await Promise.all(
+        uniqueSnapshotUrls.map(async (url) => {
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) return;
+            const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+            if (contentType && !contentType.startsWith('image/')) return;
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (buf.length < 12) return;
+            const png = await webpToPng(buf);
+            itineraryImageMap.set(url, png ?? buf);
+          } catch {
+            // Individual snapshot failures fall back to the master/placeholder.
+          }
+        }),
+      );
+      const itineraryImages = Object.fromEntries(itineraryImageMap);
 
       // Service images (vehicles, cruises)
       const serviceImageMap = new Map<string, Buffer | null>();
@@ -1770,6 +1798,7 @@ export const quotationsService = {
         hotels: hotelImages,
         services: serviceImages,
         sightseeing: sightseeingImages,
+        itinerary: itineraryImages,
         airlines: airlineImages,
       };
     } catch {

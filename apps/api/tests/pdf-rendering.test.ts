@@ -44,6 +44,19 @@ const pageMediaBoxes = (buffer: Buffer): Array<{ width: number; height: number }
   return boxes;
 };
 
+/** Word bounding boxes via poppler's pdftotext -bbox (y measured from the top). */
+function wordBoxes(
+  buffer: Buffer,
+): Array<{ text: string; yBottomFromTop: number }> {
+  const bbox = execFileSync('pdftotext', ['-bbox', '-', '-'], {
+    input: buffer,
+    maxBuffer: 32 * 1024 * 1024,
+  }).toString('utf8');
+  return [...bbox.matchAll(/<word[^>]*xMin="([\d.]+)"[^>]*yMin="([\d.]+)"[^>]*xMax="([\d.]+)"[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g)].map(
+    (m) => ({ text: m[5] ?? '', yBottomFromTop: Number(m[4]) }),
+  );
+}
+
 /** 1x1 PNG used to prove images (hero/logo) are embedded without crashing. */
 const PNG_1PX = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -547,11 +560,12 @@ describe('PDF rendering with long content', () => {
     expect(visible).toContain('Em: hello@alpha.test');
     expect(visible).not.toContain('Ph:');
     expect(visible).not.toContain('Web:');
-    // Achievements / Legal headings still render with their values omitted.
-    expect(visible).toContain('OUR ACHIEVEMENTS');
+    // Empty Achievements / Legal sections are hidden entirely (no heading, no
+    // empty column) — only populated footer sections render.
+    expect(visible).not.toContain('OUR ACHIEVEMENTS');
+    expect(visible).not.toContain('LEGAL INFO');
     expect(visible).not.toMatch(/Trips Sold/);
     expect(visible).not.toMatch(/Est:/);
-    expect(visible).toContain('LEGAL INFO');
     expect(visible).not.toMatch(/TAN:/);
     expect(visible).not.toMatch(/GSTIN:/);
     // Page number appears on every generated page.
@@ -1059,5 +1073,93 @@ describe('PDF rendering with long content', () => {
     expect(text).not.toMatch(
       /internal cost|vendor cost|net profit|total payable|tax summary|payment summary/i,
     );
+  });
+
+  it('keeps long body bullets above the footer divider (no footer overlap)', async () => {
+    // One inclusion bullet long enough to wrap well beyond a single page used to
+    // overflow straight through the reserved footer zone. Body text must never
+    // enter the footer area — overflow continues on the next page instead.
+    const giantBullet = 'Long inclusion bullet with repeated clauses. '.repeat(500);
+    const footerEmptyCompany = {
+      name: 'Alpha Travel',
+      email: '',
+      phone: null,
+      website: null,
+      address: null,
+      primaryColor: '#2563eb',
+      operatingSinceYear: null,
+      tripsSold: null,
+      tan: null,
+      taxRegistrationNumber: null,
+      logo: null,
+    };
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompany,
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: {
+        quotationNumber: 'QT-OVERLAP-0001',
+        customerName: 'Overlap Test',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Overlap Probe',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '100',
+        notes: null,
+        perAdultPrice: '50',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: null,
+        hotels: [],
+        itinerary: [],
+        services: [],
+        inclusions: [{ content: giantBullet }],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    // A single bullet taller than a page must paginate onto multiple pages
+    // rather than squeezing or clipping.
+    expect(pageCount(pdf)).toBeGreaterThan(1);
+    // The footer company has no contact/achievements/legal data, so the only
+    // text allowed below the divider is the "Page X/Y" badge.
+    const footerTop = PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
+    const offender = wordBoxes(pdf).find(
+      (word) =>
+        word.yBottomFromTop > footerTop &&
+        !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
+    );
+    expect(offender).toBeUndefined();
   });
 });

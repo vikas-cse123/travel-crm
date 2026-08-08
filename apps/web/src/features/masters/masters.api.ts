@@ -826,9 +826,10 @@ export interface SightseeingActivities {
 }
 
 /**
- * Quotation builder sightseeing dropdown feed — resolves destination/city
- * by exact name match, not by text search or pagination. Lightweight,
- * permission-compatible with quotation editing.
+ * Quotation builder sightseeing dropdown feed. Destination/city are optional
+ * narrowers; with neither supplied the feed returns every tenant-visible active
+ * sightseeing record so the builder can search across all destinations/cities.
+ * Lightweight, permission-compatible with quotation editing.
  */
 export function useSightseeingActivities(destination?: string, city?: string) {
   const params = new URLSearchParams();
@@ -842,7 +843,6 @@ export function useSightseeingActivities(destination?: string, city?: string) {
         `/masters/sightseeing/activities${query ? `?${query}` : ''}`,
         signal,
       ),
-    enabled: Boolean(destination?.trim()),
   });
 }
 

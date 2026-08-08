@@ -752,23 +752,28 @@ export const sightseeingService = {
         .replace(/\s+/g, ' ') || '';
 
     const destName = normName(destinationName);
-    if (!destName) return { activities: [], destination: null, city: null };
-
-    const destination = await prisma.destination.findFirst({
-      where: {
-        ...buildVisibleWhere(scope),
-        normalizedName: destName,
-        deletedAt: null,
-        status: 'ACTIVE',
-      },
-      select: { id: true, name: true },
-    });
-    if (!destination) return { activities: [], destination: null, city: null };
+    // Destination/city are optional narrowers. When the builder supplies no
+    // destination it browses every tenant-visible active sightseeing record so
+    // users can search and pick activities from any destination/city. Tenant
+    // isolation and active/archive rules are always enforced via
+    // buildVisibleWhere/status below.
+    const destination = destName
+      ? await prisma.destination.findFirst({
+          where: {
+            ...buildVisibleWhere(scope),
+            normalizedName: destName,
+            deletedAt: null,
+            status: 'ACTIVE',
+          },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (destName && !destination) return { activities: [], destination: null, city: null };
 
     const cityNameNorm = normName(cityName);
     let cityId: string | null = null;
     let cityNameResolved: string | null = null;
-    if (cityNameNorm) {
+    if (cityNameNorm && destination) {
       const city = await prisma.city.findFirst({
         where: {
           ...buildVisibleWhere(scope),
@@ -789,7 +794,7 @@ export const sightseeingService = {
       ...buildVisibleWhere(scope),
       status: 'ACTIVE',
       deletedAt: null,
-      destinationId: destination.id,
+      ...(destination ? { destinationId: destination.id } : {}),
       ...(cityId ? { cityId } : {}),
     };
 
@@ -809,7 +814,7 @@ export const sightseeingService = {
     });
 
     return {
-      destination: { id: destination.id, name: destination.name },
+      destination: destination ? { id: destination.id, name: destination.name } : null,
       city: cityId ? { id: cityId, name: cityNameResolved } : null,
       activities: rows.map((row) => ({
         ...row,

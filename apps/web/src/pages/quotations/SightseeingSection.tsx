@@ -112,20 +112,26 @@ function DayCard({
   const dayTitle = (form.watch(fp(`${base}.title`)) as string | null) ?? '';
   const titleTouched = form.watch(fp(`${base}.titleTouched`)) ?? false;
 
-  // City-specific activities win; otherwise (service cities such as Cruise,
-  // Airport, In Transit, Transfer, Leisure, or zero city matches) fall back to
-  // every active master of the quotation destination.
+  // Current-day city activities stay at the top; every other destination/city
+  // remains available below so users can pick any tenant activity (search is
+  // global across the tenant, not restricted to the itinerary day's city).
   const dayContext = useMemo(() => {
-    const cityMatches = attractions.filter(
-      (row) => cityKey(row.city?.name) === cityKey(dayCity),
-    );
-    const pool = cityMatches.length ? cityMatches : attractions;
-    const options = [...pool].sort(
+    const sortedAll = [...attractions].sort(
       (a, b) =>
         (a.sequence ?? 0) - (b.sequence ?? 0) ||
         a.title.localeCompare(b.title),
     );
-    return { options, cityHasMatch: cityMatches.length > 0 };
+    const currentCity = cityKey(dayCity);
+    const cityMatches = sortedAll.filter(
+      (row) => cityKey(row.city?.name) === currentCity,
+    );
+    const others = sortedAll.filter(
+      (row) => cityKey(row.city?.name) !== currentCity,
+    );
+    return {
+      options: [...cityMatches, ...others],
+      cityHasMatch: cityMatches.length > 0,
+    };
   }, [attractions, dayCity]);
 
   const groupLabel = dayContext.cityHasMatch
@@ -492,10 +498,10 @@ export function SightseeingSection({
   // while the Master Destination is the country (e.g. "Malaysia"), so the parent
   // passes the resolved destination name from the lead itinerary when available.
   const resolvedDestination = destination?.trim() || destinationToken || undefined;
-  const attractionsQuery = useSightseeingActivities(
-    resolvedDestination,
-    undefined,
-  );
+  // Fetch every tenant-visible active sightseeing record (no destination/city
+  // narrow), so the activity picker can search across all destinations. The
+  // dropdown still prioritises the current day's city below.
+  const attractionsQuery = useSightseeingActivities();
   const attractionsStatus = {
     loading: attractionsQuery.isLoading,
     error: attractionsQuery.isError,

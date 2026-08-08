@@ -17,7 +17,6 @@ export function QuotationsPage() {
     next.delete('page');
     setParams(next);
   };
-  const metrics = list.data?.analytics;
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -33,22 +32,6 @@ export function QuotationsPage() {
           </Link>
         )}
       </header>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <article className="rounded-xl border bg-card p-4">
-          <p className="text-xl font-semibold">
-            ₹{Number(metrics?.totalQuotedValue ?? 0).toLocaleString('en-IN')}
-          </p>
-          <p className="text-xs text-slate-500">Quoted value</p>
-        </article>
-        <article className="rounded-xl border bg-card p-4">
-          <p className="text-2xl font-semibold">{list.data?.data.length ?? 0}</p>
-          <p className="text-xs text-slate-500">Quotations</p>
-        </article>
-        <article className="rounded-xl border bg-card p-4">
-          <p className="text-2xl font-semibold">{list.data?.pagination.total ?? 0}</p>
-          <p className="text-xs text-slate-500">Total</p>
-        </article>
-      </section>
       <section className="rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-2">
           <label className="relative md:col-span-1">

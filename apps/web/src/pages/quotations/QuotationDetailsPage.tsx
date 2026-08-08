@@ -211,12 +211,10 @@ export function QuotationDetailsPage() {
           )}
         </div>
       </header>
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2">
         {[
           ['Current version', current ? `v${current.versionNumber}` : '—'],
           ['Final amount', current ? money(current.finalAmount, current.currency) : '—'],
-          ['Last sent', q.lastSentAt ? new Date(q.lastSentAt).toLocaleString() : 'Never'],
-          ['Last viewed', q.lastViewedAt ? new Date(q.lastViewedAt).toLocaleString() : 'Never'],
         ].map(([label, value]) => (
           <article key={label} className="rounded-xl border bg-card p-4">
             <p className="text-xs uppercase text-slate-500">{label}</p>
@@ -312,11 +310,15 @@ export function QuotationDetailsPage() {
               {resolveTravelDates({
                 start: q.travelStartDate,
                 end: q.travelEndDate,
-                // Canonical trip duration: the itinerary's highest day number is
-                // the number of travel days (Day 1 = start day).
+                // Canonical trip duration from the itinerary day numbers (only
+                // meaningful when the itinerary has more than one day). A
+                // Day-1-only itinerary must not hide a real multi-night stay,
+                // so the hotel-night total is always offered as the fallback.
                 totalDays: current?.itinerary.length
                   ? Math.max(...current.itinerary.map((day) => day.dayNumber))
                   : undefined,
+                nights:
+                  current?.hotels.reduce((sum, hotel) => sum + (hotel.nights ?? 0), 0) || undefined,
               }).label || '—'}
             </dd>
           </div>

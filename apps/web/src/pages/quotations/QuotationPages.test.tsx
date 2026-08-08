@@ -5532,7 +5532,7 @@ describe('Phase 14 master selectors', () => {
       'role',
       'alert',
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false),
     );
@@ -5708,7 +5708,7 @@ describe('Phase 14 master selectors', () => {
     fireEvent.input(screen.getByLabelText('Cruise description'), {
       target: { innerHTML: '<p>A lovely voyage.</p>' },
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -5964,14 +5964,14 @@ describe('Phase 14 master selectors', () => {
     await openTab('Cruise');
     // Enabling Cruise creates an empty entry; saving is blocked while included.
     await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     expect(
       await screen.findByText(/services\.0\.name: String must contain at least 1 character/),
     ).toBeInTheDocument();
     // Unchecking Cruise clears the stale error and saves without cruise rows.
     await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
     expect(screen.queryByText(/services\.0\.name/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -6477,7 +6477,7 @@ describe('Phase 14 master selectors', () => {
     await openActivityPicker(picker, 'Marina Bay');
     fireEvent.change(picker, { target: { value: 'Marina Bay' } });
     await screen.findByAltText('Activity');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -6582,7 +6582,7 @@ describe('Phase 14 master selectors', () => {
     );
   });
 
-  it('excludes wrong-destination activities and sorts master options by sequence', async () => {
+  it('keeps other-destination activities available after the current city, sorted by sequence', async () => {
     const singaporeMaster = {
       id: 'sg-2',
       title: 'Singapore Zoo',
@@ -6638,9 +6638,14 @@ describe('Phase 14 master selectors', () => {
     const labels = within(listbox)
       .getAllByRole('option')
       .map((option) => option.textContent ?? '');
-    // Wrong-destination master never appears; the right one is sorted (only one here).
-    expect(labels.some((text) => text.includes('Batu Caves'))).toBe(false);
+    // Other-destination activities are no longer hidden: both are selectable.
+    expect(labels.some((text) => text.includes('Batu Caves'))).toBe(true);
     expect(labels.some((text) => text.includes('Singapore Zoo'))).toBe(true);
+    // Current-day city (Singapore) activities stay at the top of the list.
+    const singaporeIndex = labels.findIndex((text) => text.includes('Singapore Zoo'));
+    const kualaIndex = labels.findIndex((text) => text.includes('Batu Caves'));
+    expect(singaporeIndex).toBeGreaterThanOrEqual(0);
+    expect(kualaIndex).toBeGreaterThan(singaporeIndex);
   });
 
   it('falls back to destination masters for a Cruise day and uses the destination heading', async () => {
@@ -6886,6 +6891,80 @@ describe('Phase 14 master selectors', () => {
     expect(img).toHaveAttribute('src', 'https://storage.example.test/city-tour.jpg');
   });
 
+  it('searches and selects a cross-destination activity without changing the day city', async () => {
+    const klMaster = {
+      id: 'kl-1',
+      title: 'Batu Caves Tour',
+      sequence: 1,
+      status: 'ACTIVE',
+      destination: { id: 'dest-my', name: 'Malaysia', countryName: 'Malaysia' },
+      city: { id: 'city-kl', name: 'Kuala Lumpur' },
+      estimatedHours: 4,
+      suggestedStartTime: '09:00',
+      description: '<p>Limestone caves.</p>',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const sgMasterCross = {
+      ...sgMaster('sg-9', 'Universal Studios Singapore', 9),
+      description: '<p>Theme park day.</p>',
+    };
+    const quotation = builderQuotation({
+      destinationSummary: 'Kuala Lumpur',
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Kuala Lumpur',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+          },
+        ],
+      },
+    });
+    const fetchMock = masterFetch(quotation, {
+      '/masters/sightseeing': page([klMaster, sgMasterCross]),
+      '/masters/sightseeing/presentations': {
+        'sg-9': { imageUrl: 'https://storage.example.test/universal-studios.jpg' },
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    // Both the current-day (Kuala Lumpur) and cross-destination (Singapore)
+    // masters are available in the same dropdown.
+    fireEvent.focus(picker);
+    await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(listbox).getByText('Batu Caves Tour')).toBeInTheDocument();
+    expect(within(listbox).getByText('Universal Studios Singapore')).toBeInTheDocument();
+    // Searching finds the Singapore activity even though the day is Kuala Lumpur.
+    fireEvent.change(picker, { target: { value: 'Universal Studios' } });
+    const searchList = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
+    expect(within(searchList).getByText('Universal Studios Singapore')).toBeInTheDocument();
+    // Selecting it autofills from the selected master record.
+    fireEvent.change(picker, { target: { value: 'Universal Studios Singapore' } });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Universal Studios Singapore'),
+    );
+    expect(screen.getByLabelText('Day 1 activity 1 start time')).toHaveValue('09:00');
+    expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent('Theme park day.');
+    // The itinerary day city is untouched.
+    expect(screen.getByLabelText('Sightseeing day 1 city')).toHaveValue('Kuala Lumpur');
+    // The image comes from the selected activity's own master presentation.
+    const img = await screen.findByAltText('Activity');
+    expect(img).toHaveAttribute('src', 'https://storage.example.test/universal-studios.jpg');
+  });
+
   it('keeps two activities in one day separate', async () => {
     const first = {
       id: 'sg-1',
@@ -7018,7 +7097,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Sightseeing');
     await userEvent.click(screen.getByLabelText('Include Sightseeing in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
 
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7040,7 +7119,7 @@ describe('Phase 14 master selectors', () => {
     const lunchDetails = await screen.findByLabelText('lunch transfer details');
     await userEvent.type(lunchDetails, 'pokemon sabji');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7103,7 +7182,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     // The builder loads on a visible tab without crashing.
     await screen.findByRole('button', { name: 'Vehicle' });
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7121,7 +7200,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await screen.findByRole('button', { name: 'Vehicle' });
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7273,7 +7352,7 @@ describe('Phase 14 master selectors', () => {
     );
     expect(screen.getByLabelText('Vehicle amount')).toHaveValue(5000);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7319,7 +7398,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.type(editor, ' plus airfare assistance');
     await userEvent.clear(screen.getByLabelText('Visa Assistance price'));
     await userEvent.type(screen.getByLabelText('Visa Assistance price'), '4200');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7356,7 +7435,7 @@ describe('Phase 14 master selectors', () => {
       screen.getByLabelText('Vehicle model'),
       'aaaaaaa7-1111-4111-8111-111111111111',
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patchCall).toBeDefined();
@@ -7447,7 +7526,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
 
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7472,7 +7551,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.clear(screen.getByLabelText('Hotel amount'));
     await userEvent.type(screen.getByLabelText('Hotel amount'), '12500');
     await userEvent.type(screen.getByLabelText('Hotel description'), 'Breakfast included.');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
 
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -7496,7 +7575,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(screen.getByLabelText('Include Hotel in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7532,7 +7611,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(screen.getByLabelText('Include Hotel in Quotation'));
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7548,7 +7627,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     // Hotel is included by default and the form has an empty default row.
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     expect(
       await screen.findByText(/hotels\.0\.hotelName: String must contain at least 1 character/),
     ).toBeInTheDocument();
@@ -7564,7 +7643,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     // Included hotel with an empty row → hotel-name error appears.
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     expect(
       await screen.findByText(/hotels\.0\.hotelName: String must contain at least 1 character/),
     ).toBeInTheDocument();
@@ -7576,7 +7655,7 @@ describe('Phase 14 master selectors', () => {
     ).not.toBeInTheDocument();
 
     // Saving now succeeds with hotels: [].
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7614,7 +7693,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7678,7 +7757,7 @@ describe('Phase 14 master selectors', () => {
 
     // Re-selecting and saving preserves the stored value.
     await userEvent.selectOptions(cabin, '10kg');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7742,7 +7821,7 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('3');
 
     // Saving persists the derived nights.
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7780,7 +7859,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -7912,7 +7991,7 @@ describe('Phase 14 master selectors', () => {
         'Aloft Singapore Novena by Marriott',
       ),
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8086,7 +8165,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8144,7 +8223,7 @@ describe('Phase 14 master selectors', () => {
     // Automatic prefill must not change it back.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(screen.getByLabelText('Hotel master')).toHaveValue('Alternative Hotel');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8154,7 +8233,7 @@ describe('Phase 14 master selectors', () => {
     });
   });
 
-  it('sends destination and city by name to the activities lookup endpoint', async () => {
+  it('fetches the activities lookup without a destination/city narrow so all tenant activities are searchable', async () => {
     const quotation = builderQuotation({ destinationSummary: 'Singapore' });
     const baseFetch = masterFetch(quotation);
     let activitiesUrl = '';
@@ -8168,7 +8247,11 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Sightseeing');
     await screen.findByLabelText('Day 1 activity 1');
-    expect(activitiesUrl).toMatch(/destination=Singapore/);
+    // The dropdown is not scoped to a destination/city: the backend returns
+    // every tenant-visible activity and the builder orders current-city first.
+    expect(activitiesUrl).toContain('/masters/sightseeing/activities');
+    expect(activitiesUrl).not.toMatch(/destination=/);
+    expect(activitiesUrl).not.toMatch(/city=/);
   });
 
   it('shows loading state when sightseeing master data is pending', async () => {
@@ -8327,15 +8410,13 @@ describe('Phase 14 master selectors', () => {
       const url = String(input);
       if (url.includes('/masters/sightseeing/activities')) {
         activitiesUrl = url;
-        // Backend resolves by destination name; only Malaysia returns the KL rows.
-        if (url.includes('destination=Malaysia')) {
-          return response({
-            destination: { id: 'dest-my', name: 'Malaysia' },
-            city: null,
-            activities: [klMaster1, klMaster2],
-          });
-        }
-        return response({ destination: null, city: null, activities: [] });
+        // The endpoint is global: all tenant-visible activities are returned,
+        // and the builder orders current-day-city options first.
+        return response({
+          destination: { id: 'dest-my', name: 'Malaysia' },
+          city: null,
+          activities: [klMaster1, klMaster2],
+        });
       }
       return baseFetch(input, init);
     }));
@@ -8344,8 +8425,11 @@ describe('Phase 14 master selectors', () => {
     const picker = await screen.findByLabelText('Day 1 activity 1');
     fireEvent.focus(picker);
     const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
-    // The request must resolve the destination by its Master name, not the city token.
-    expect(activitiesUrl).toMatch(/destination=Malaysia/);
+    // No destination/city narrow is sent; the dropdown browses every tenant
+    // activity and keeps the Kuala Lumpur (current day city) records visible.
+    expect(activitiesUrl).toContain('/masters/sightseeing/activities');
+    expect(activitiesUrl).not.toMatch(/destination=/);
+    expect(activitiesUrl).not.toMatch(/city=/);
     expect(within(listbox).getByText('Activities in Kuala Lumpur')).toBeInTheDocument();
     expect(within(listbox).getByText('Batu Caves Tour')).toBeInTheDocument();
     expect(within(listbox).getByText('Petronas Towers Tour')).toBeInTheDocument();
@@ -8813,7 +8897,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     await openTab('Summary & Pricing');
     await userEvent.type(screen.getByLabelText('Initial amount for booking'), '2000');
     await userEvent.type(screen.getByLabelText('Payment link'), 'https://pay.example.com/abc');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8830,7 +8914,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     renderBuilderPage();
     await openTab('Summary & Pricing');
     await userEvent.selectOptions(screen.getByLabelText('Tax note'), 'Do not show');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
@@ -8844,7 +8928,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     renderBuilderPage();
     await openTab('Summary & Pricing');
     await userEvent.type(screen.getByLabelText('Payment link'), 'not-a-url');
-    await userEvent.click(screen.getByRole('button', { name: 'Save quotation' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     expect((await screen.findAllByText(/valid URL starting with/i)).length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
   });

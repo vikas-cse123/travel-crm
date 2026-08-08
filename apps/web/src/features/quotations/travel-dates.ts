@@ -25,6 +25,8 @@ export interface TravelDateInput {
   end: string | Date | null | undefined;
   /** Number of travel DAYS (e.g. a 7-day trip → 7). Inclusive end = start + (days - 1). */
   totalDays?: number | null | undefined;
+  /** Number of NIGHTS (fallback when no reliable totalDays). End = start + nights. */
+  nights?: number | null | undefined;
 }
 
 export interface TravelDateResult {
@@ -36,19 +38,31 @@ export interface TravelDateResult {
 /**
  * Resolve a quotation/lead's travel-date range.
  *
- * Priority:
- *  1. start + end present            → show both actual dates.
- *  2. start present, end missing, but a reliable trip-duration exists → derive
- *     inclusive end = start + (totalDays - 1) (only when totalDays > 0).
- *  3. start present, no reliable duration → show only the start date.
- *  4. no start → empty label (the caller's existing empty state, e.g. "—").
+ * Precedence:
+ *  1. start + a stored end strictly LATER than the start → show both actual
+ *     dates. An end equal to (or before) the start is stale/invalid.
+ *  2. otherwise, reliable totalDays > 1 → derive inclusive end = start + (days-1).
+ *  3. otherwise, reliable nights > 0 → derive end = start + nights
+ *     (6 nights → 7 calendar travel days). A Day-1-only itinerary (maxDay = 1)
+ *     must never suppress a real multi-night stay.
+ *  4. otherwise → show only the start date (never a fake "start – start" range).
  */
 export function resolveTravelDates(input: TravelDateInput): TravelDateResult {
   const start = utcDay(input.start);
-  let end = utcDay(input.end);
+  const storedEnd = utcDay(input.end);
 
-  if (start && !end && input.totalDays != null && input.totalDays > 0) {
-    end = new Date(start.getTime() + (input.totalDays - 1) * 86_400_000);
+  // A stored end is only trustworthy when it is strictly after the start.
+  // end === start (or end before start) is treated as stale/invalid.
+  let end = start && storedEnd && storedEnd.getTime() > start.getTime() ? storedEnd : null;
+
+  if (start && !end) {
+    const days = input.totalDays;
+    const nights = input.nights;
+    if (days != null && days > 1) {
+      end = new Date(start.getTime() + (days - 1) * 86_400_000);
+    } else if (nights != null && nights > 0) {
+      end = new Date(start.getTime() + nights * 86_400_000);
+    }
   }
 
   if (!start) return { start: null, end: null, label: '' };

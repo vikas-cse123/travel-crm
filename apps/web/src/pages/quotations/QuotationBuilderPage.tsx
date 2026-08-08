@@ -3427,7 +3427,7 @@ export function QuotationBuilderPage() {
       <div className="flex gap-2">
         <Button type="submit" isLoading={save.isPending}>
           <Save className="h-4 w-4" />
-          Save quotation draft
+          Save quotation
         </Button>
         <Link to={`/quotations/${quotationId}`}>
           <Button variant="secondary" type="button">

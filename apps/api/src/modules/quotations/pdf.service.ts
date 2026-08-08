@@ -62,10 +62,11 @@ export const CONTENT_BOTTOM_LIMIT = PDF_PAGE_HEIGHT - BOTTOM_M - FOOTER_H - POST
 /** Max content height on a page before the planner starts a continuation page. */
 export const PDF_MAX_CONTENT_HEIGHT = CONTENT_BOTTOM_LIMIT - TOP;
 
-// ---- Footer grid (fixed 4-column layout, never derived from text) ----------
+// ---- Footer grid (fixed logo column; the three data sections reflow) -------
 // Content area is M..(PDF_PAGE_WIDTH - M) = 40..555.28 (width 515.28).
-// Columns are non-overlapping rectangles with explicit gutters; no footer text
-// may leave its assigned column rectangle.
+// The logo column is fixed; the CONTACT US / OUR ACHIEVEMENTS / LEGAL INFO
+// sections share the remaining width evenly, each in its own non-overlapping
+// column, and reflow to skip any section whose data is entirely missing.
 export const FOOTER_GUTTER = 14;
 export const FOOTER_COLUMNS = {
   logo: { x: M, width: 100 },
@@ -78,12 +79,6 @@ export const FOOTER_COLUMNS = {
 } as const;
 const LOGO_X = FOOTER_COLUMNS.logo.x;
 const LOGO_W = FOOTER_COLUMNS.logo.width;
-const CONTACT_X = FOOTER_COLUMNS.contact.x;
-const CONTACT_W = FOOTER_COLUMNS.contact.width;
-const ACHIEVEMENTS_X = FOOTER_COLUMNS.achievements.x;
-const ACHIEVEMENTS_W = FOOTER_COLUMNS.achievements.width;
-const LEGAL_X = FOOTER_COLUMNS.legal.x;
-const LEGAL_W = FOOTER_COLUMNS.legal.width;
 const FOOTER_HEADING_FONT = 9.5;
 const FOOTER_BODY_FONT = 8;
 const FOOTER_VALUE_FONT_MIN = 7;
@@ -295,6 +290,8 @@ export interface QuotationPdfInput {
     hotels?: Img[]; // aligned to version.hotels
     services?: Img[]; // aligned to version.services
     sightseeing?: Record<string, Img>; // keyed by sightseeingId
+    /** Keyed by the activity snapshot image URL (matches the public weblink). */
+    itinerary?: Record<string, Img>;
     airlines?: Record<string, Img>; // keyed by flight-segment airlineId
   };
 }
@@ -327,6 +324,8 @@ type SightActivity = {
   name?: string | null;
   description?: string | null;
   startTime?: string | null;
+  /** Snapshot image URL saved on the activity (may be a signed/private URL). */
+  imageUrl?: string | null;
 };
 type SightDay = {
   dayNumber?: number;
@@ -508,45 +507,92 @@ function drawPageFooter(
     }
   }
 
-  // Fixed column headings share one baseline; each stays in its own column.
-  doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
-  doc.text('CONTACT US', CONTACT_X, headingY, { width: CONTACT_W, lineBreak: false });
-  doc.text('OUR ACHIEVEMENTS', ACHIEVEMENTS_X, headingY, { width: ACHIEVEMENTS_W, lineBreak: false });
-  doc.text('LEGAL INFO', LEGAL_X, headingY, { width: LEGAL_W, lineBreak: false });
-
-  // Contact Us — three fixed rows, values confined to the contact column.
+  // Each footer section renders only when it has at least one real value, and
+  // the visible sections reflow to fill the footer: with all three present the
+  // original fixed widths are preserved exactly, and when any section is hidden
+  // the remaining sections expand proportionally so no empty fixed-width column
+  // is left behind.
   const cPhone = company ? toText(company.phone) : '';
   const cEmail = company ? toText(company.email) : '';
   const cWeb = company ? toText(company.website) : '';
-  if (cPhone) drawFooterTextLine(doc, 'Ph', cPhone, CONTACT_X, line1Y, CONTACT_W);
-  if (cEmail) drawFooterTextLine(doc, 'Em', cEmail, CONTACT_X, line2Y, CONTACT_W);
-  if (cWeb) drawFooterTextLine(doc, 'Web', cWeb, CONTACT_X, line3Y, CONTACT_W);
+  const contactVisible = Boolean(cPhone || cEmail || cWeb);
 
-  // Our Achievements — fixed rows aligned with the contact rows.
-  let ay = line1Y;
-  if (company?.tripsSold != null) {
-    doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
-      `${toText(company.tripsSold)} Trips Sold`,
-      ACHIEVEMENTS_X,
-      ay,
-      { width: ACHIEVEMENTS_W, lineBreak: false },
-    );
-    ay += FOOTER_LINE_GAP;
-  }
-  if (company?.operatingSinceYear != null) {
-    doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
-      `Est: ${toText(company.operatingSinceYear)}`,
-      ACHIEVEMENTS_X,
-      ay,
-      { width: ACHIEVEMENTS_W, lineBreak: false },
-    );
-  }
+  const tripsVisible = company?.tripsSold != null;
+  const estVisible = company?.operatingSinceYear != null;
+  const achievementsVisible = tripsVisible || estVisible;
 
-  // Legal Info — fixed rows aligned with the contact rows.
   const tan = company ? toText(company.tan) : '';
   const gstin = company ? toText(company.taxRegistrationNumber) : '';
-  if (tan) drawFooterTextLine(doc, 'TAN', tan, LEGAL_X, line1Y, LEGAL_W);
-  if (gstin) drawFooterTextLine(doc, 'GSTIN', gstin, LEGAL_X, line2Y, LEGAL_W);
+  const legalVisible = Boolean(tan || gstin);
+
+  const gridLeft = LOGO_X + LOGO_W + FOOTER_GUTTER;
+  const gridRight = PDF_PAGE_WIDTH - M;
+  const gridWidth = gridRight - gridLeft;
+  // Original per-section widths (contact, achievements, legal) used when every
+  // section is present; hidden sections donate their width to the visible ones.
+  const origWidths = [
+    145,
+    115,
+    gridWidth - 145 - FOOTER_GUTTER - 115 - FOOTER_GUTTER,
+  ] as const;
+  const flags = [contactVisible, achievementsVisible, legalVisible] as const;
+  const visibleIndices = flags
+    .map((visible, index) => (visible ? index : -1))
+    .filter((index) => index >= 0);
+  const visibleCount = visibleIndices.length;
+  const availableWidth = gridWidth - (visibleCount > 0 ? (visibleCount - 1) * FOOTER_GUTTER : 0);
+  const origVisibleSum = visibleIndices.reduce((sum, index) => sum + origWidths[index]!, 0);
+
+  let colX = gridLeft;
+  const nextColumn = (index: number): { x: number; w: number } => {
+    const w = (origWidths[index]! * availableWidth) / origVisibleSum;
+    const r = { x: colX, w };
+    colX += w + FOOTER_GUTTER;
+    return r;
+  };
+
+  if (contactVisible) {
+    const c = nextColumn(0);
+    doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
+    doc.text('CONTACT US', c.x, headingY, { width: c.w, lineBreak: false });
+    if (cPhone) drawFooterTextLine(doc, 'Ph', cPhone, c.x, line1Y, c.w);
+    if (cEmail) drawFooterTextLine(doc, 'Em', cEmail, c.x, line2Y, c.w);
+    if (cWeb) drawFooterTextLine(doc, 'Web', cWeb, c.x, line3Y, c.w);
+  }
+
+  // Our Achievements — rows aligned with the contact rows within its column.
+  if (achievementsVisible) {
+    const c = nextColumn(1);
+    doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
+    doc.text('OUR ACHIEVEMENTS', c.x, headingY, { width: c.w, lineBreak: false });
+    let ay = line1Y;
+    if (tripsVisible) {
+      doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
+        `${toText(company?.tripsSold)} Trips Sold`,
+        c.x,
+        ay,
+        { width: c.w, lineBreak: false },
+      );
+      ay += FOOTER_LINE_GAP;
+    }
+    if (estVisible) {
+      doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
+        `Est: ${toText(company?.operatingSinceYear)}`,
+        c.x,
+        ay,
+        { width: c.w, lineBreak: false },
+      );
+    }
+  }
+
+  // Legal Info — rows aligned with the contact rows within its column.
+  if (legalVisible) {
+    const c = nextColumn(2);
+    doc.fillColor(GREEN).font('Bold').fontSize(FOOTER_HEADING_FONT);
+    doc.text('LEGAL INFO', c.x, headingY, { width: c.w, lineBreak: false });
+    if (tan) drawFooterTextLine(doc, 'TAN', tan, c.x, line1Y, c.w);
+    if (gstin) drawFooterTextLine(doc, 'GSTIN', gstin, c.x, line2Y, c.w);
+  }
 
   // Page number badge — its own lower row, fixed bottom-right, below Legal.
   const label = `Page ${pageNumber}/${totalPages}`;
@@ -573,7 +619,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     size: [PDF_PAGE_WIDTH, PDF_MAX_PAGE_HEIGHT],
     bufferPages: true,
     autoFirstPage: false,
-    margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    // The bottom margin reserves the footer zone: any text() auto-pagination
+    // during body rendering stops at the footer boundary (never through it),
+    // including on pages PDFKit creates itself mid-text.
+    margins: { top: 0, right: 0, bottom: BOTTOM_M + FOOTER_H, left: 0 },
     info: { Title: v.title },
   });
   doc.registerFont('Body', DEJAVU_SANS);
@@ -593,7 +642,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     const layout = computePageHeight(0);
     doc.addPage({
       size: [PDF_PAGE_WIDTH, layout.pageHeight],
-      margins: { top: 0, right: 0, bottom: 0, left: 0 },
+      margins: { top: 0, right: 0, bottom: BOTTOM_M + FOOTER_H, left: 0 },
     });
     pageMetrics.push({ pageHeight: layout.pageHeight, footerTop: layout.footerTop });
   };
@@ -644,18 +693,64 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     const chunks: string[][] = [];
     let current: string[] = [];
     let currentHeight = 0;
-    for (const line of lines) {
-      const lineHeight = doc.heightOfString(line, { width }) + gap;
-      if (current.length && currentHeight + lineHeight > PDF_MAX_CONTENT_HEIGHT) {
+    const budget = PDF_MAX_CONTENT_HEIGHT;
+    const pushToChunks = (part: string) => {
+      const partHeight = doc.heightOfString(part, { width }) + gap;
+      if (current.length && currentHeight + partHeight > budget) {
         chunks.push(current);
         current = [];
         currentHeight = 0;
       }
-      current.push(line);
-      currentHeight += lineHeight;
+      current.push(part);
+      currentHeight += partHeight;
+    };
+    for (const line of lines) {
+      // A single wrapped paragraph can be taller than a whole page (long
+      // bullets/terms). Split it with the library's real wrapped-text height so
+      // every flow block fits inside one page and can never run into the footer.
+      const parts = splitWrappedToFit(line, width, budget);
+      for (const part of parts) pushToChunks(part);
     }
     if (current.length) chunks.push(current);
     return chunks.map((chunk) => flowBlock(chunk, x, width, size, gap));
+  };
+
+  /**
+   * Split one wrapped paragraph into sub-parts, each of which wraps to no more
+   * than `maxHeight` for the current font/size at the given width. Uses the
+   * library's real wrapped-text height measurement (same font/size/width the
+   * block will be rendered with) via binary search over the longest fitting
+   * prefix, preferring a whitespace boundary so the visual break looks natural.
+   */
+  const splitWrappedToFit = (text: string, width: number, maxHeight: number): string[] => {
+    if (!text) return [];
+    if (doc.heightOfString(text, { width }) <= maxHeight) return [text];
+    const parts: string[] = [];
+    let rest = text;
+    while (rest) {
+      if (doc.heightOfString(rest, { width }) <= maxHeight) {
+        parts.push(rest);
+        break;
+      }
+      let lo = 1;
+      let hi = rest.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (doc.heightOfString(rest.slice(0, mid), { width }) <= maxHeight) lo = mid;
+        else hi = mid - 1;
+      }
+      let splitAt = lo;
+      const space = rest.lastIndexOf(' ', splitAt);
+      if (space > splitAt * 0.4) splitAt = space;
+      const part = rest.slice(0, splitAt).trimEnd();
+      if (!part) {
+        parts.push(rest);
+        break;
+      }
+      parts.push(part);
+      rest = rest.slice(splitAt).trimStart();
+    }
+    return parts;
   };
 
   // --- drawing primitives ----------------------------------------------------
@@ -1332,8 +1427,19 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       const contentW = CONTENT_W - imgW - gap;
 
       const firstActivity = (day.activities ?? []).find((a) => a.name || a.description);
-      const sightId = firstActivity?.sightseeingId ?? '';
-      const dayImg = sightId ? images.sightseeing?.[sightId] : undefined;
+      // Mirror the public weblink's canonical itinerary image: the first
+      // activity snapshot `imageUrl` wins, otherwise the first activity's
+      // sightseeing master image (keyed by sightseeingId). Keeps each day's
+      // image matched to that day's own activities.
+      const dayActivities = day.activities ?? [];
+      const dayImg =
+        dayActivities
+          .map((a) => (a.imageUrl ? images.itinerary?.[a.imageUrl] : undefined))
+          .find((buf) => buf) ??
+        dayActivities
+          .map((a) => (a.sightseeingId ? images.sightseeing?.[a.sightseeingId] : undefined))
+          .find((buf) => buf) ??
+        undefined;
 
       // Measure the day content (image column + text column).
       const title = (day.title || `Day ${day.dayNumber ?? i + 1}`).trim();
