@@ -46,6 +46,19 @@ export interface CompanySettings {
   capabilities: { canView: boolean; canUpdate: boolean };
 }
 
+/** Customer-safe Custom Domain setup (never AWS ARNs/listener internals). */
+export interface CustomDomainInfo {
+  hostname: string | null;
+  status: string;
+  cnameTarget: string;
+  validationName: string | null;
+  validationValue: string | null;
+  dnsVerifiedAt: string | null;
+  activatedAt: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+}
+
 const key = ['settings'] as const;
 
 export function useSettings() {
@@ -93,7 +106,6 @@ export function useSaveBankAccount() {
   });
 }
 
-/** Two-phase logo upload: request a signed URL, PUT the file, then confirm. */
 export function useUploadLogo() {
   const qc = useQueryClient();
   return useMutation({
@@ -128,5 +140,39 @@ export function useRemoveLogo() {
   return useMutation({
     mutationFn: () => apiClient.delete<CompanySettings>('/settings/logo'),
     onSuccess: (data) => qc.setQueryData(key, data),
+  });
+}
+
+const customDomainKey = ['settings', 'custom-domain'] as const;
+
+export function useCustomDomain() {
+  return useQuery({
+    queryKey: customDomainKey,
+    queryFn: ({ signal }) => apiClient.get<CustomDomainInfo>('/settings/custom-domain', signal),
+  });
+}
+
+export function useSetUpCustomDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (hostname: string) =>
+      apiClient.post<CustomDomainInfo>('/settings/custom-domain', { hostname }),
+    onSuccess: (data) => qc.setQueryData(customDomainKey, data),
+  });
+}
+
+export function useCheckCustomDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<CustomDomainInfo>('/settings/custom-domain/check'),
+    onSuccess: (data) => qc.setQueryData(customDomainKey, data),
+  });
+}
+
+export function useDisableCustomDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<CustomDomainInfo>('/settings/custom-domain/disable'),
+    onSuccess: (data) => qc.setQueryData(customDomainKey, data),
   });
 }

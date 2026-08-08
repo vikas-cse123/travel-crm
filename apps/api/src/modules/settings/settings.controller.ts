@@ -2,6 +2,12 @@ import type { Request, Response } from 'express';
 import { sendSuccess } from '../../utils/api-response.js';
 import { UnauthorizedError } from '../../utils/errors.js';
 import { settingsService } from './settings.service.js';
+import {
+  checkCustomDomain,
+  createCustomDomain,
+  disableCustomDomain,
+  getCustomDomain,
+} from '../custom-domains/custom-domain-provisioning.service.js';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
@@ -61,4 +67,16 @@ export const settingsController = {
     sendSuccess(res, await settingsService.getLogoUrl(auth(req))),
   deleteLogo: async (req: Request, res: Response) =>
     sendSuccess(res, await settingsService.deleteLogo(auth(req), context(req)), 'Logo removed.'),
+  getCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(res, await getCustomDomain(auth(req))),
+  createCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await createCustomDomain(auth(req), String(req.body.hostname ?? '')),
+      'Custom domain setup started.',
+    ),
+  checkCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(res, await checkCustomDomain(auth(req))),
+  disableCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(res, await disableCustomDomain(auth(req)), 'Custom domain disabled.'),
 };

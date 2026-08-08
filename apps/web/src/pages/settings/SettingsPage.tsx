@@ -3,8 +3,12 @@ import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import {
+  useCheckCustomDomain,
+  useCustomDomain,
+  useDisableCustomDomain,
   useRemoveLogo,
   useSaveBankAccount,
+  useSetUpCustomDomain,
   useSettings,
   useUpdateBranding,
   useUpdateDefaultTerms,
@@ -31,6 +35,7 @@ const TABS = [
   ['tax', 'Tax'],
   ['preferences', 'Preferences'],
   ['terms', 'Default Terms'],
+  ['custom-domain', 'Custom Domain'],
   ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
 ] as const;
 type TabKey = (typeof TABS)[number][0];
@@ -570,6 +575,141 @@ function BankTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boolea
   );
 }
 
+function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
+  const domain = useCustomDomain();
+  const setUp = useSetUpCustomDomain();
+  const check = useCheckCustomDomain();
+  const disable = useDisableCustomDomain();
+  const [hostname, setHostname] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const info = domain.data;
+
+  const statusLabel =
+    info?.status === 'ACTIVE'
+      ? 'Active'
+      : info?.status === 'DISABLED'
+        ? 'Disabled'
+        : info?.status === 'PENDING'
+          ? 'Waiting for DNS / SSL Pending'
+          : 'Not configured';
+
+  const copy = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1500);
+    } catch {
+      // Clipboard unavailable — the record is still visible for manual copy.
+    }
+  };
+
+  return (
+    <section className={card}>
+      <h2 className="font-semibold">Custom Domain</h2>
+      {!info || info.status === 'NONE' ? (
+        <>
+          <p className="text-sm text-slate-500">
+            Use a subdomain such as crm.yourcompany.com.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              aria-label="Custom domain hostname"
+              className={`${input} max-w-sm`}
+              placeholder="crm.example.com"
+              value={hostname}
+              onChange={(event) => setHostname(event.target.value)}
+            />
+            <Button
+              type="button"
+              onClick={() => setUp.mutate(hostname)}
+              disabled={!canUpdate || setUp.isPending || !hostname.trim()}
+            >
+              Set Up Domain
+            </Button>
+          </div>
+          <Feedback error={setUp.error?.message} />
+        </>
+      ) : (
+        <>
+          <dl className="grid gap-2 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Custom Domain</dt>
+              <dd className="font-medium">{info.hostname}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">Status</dt>
+              <dd className="font-medium">{statusLabel}</dd>
+            </div>
+          </dl>
+
+          <div className="rounded-lg border border-slate-200 p-3 text-sm">
+            <p className="font-semibold">DNS Record 1 — CRM CNAME</p>
+            <p>Type: CNAME</p>
+            <p>Name: {info.hostname}</p>
+            <div className="flex items-center gap-2">
+              <p>Value: {info.cnameTarget}</p>
+              <button
+                type="button"
+                className="text-xs font-semibold text-brand-700"
+                onClick={() => copy('cname', info.cnameTarget)}
+              >
+                {copiedKey === 'cname' ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          {info.validationName && info.validationValue && (
+            <div className="rounded-lg border border-slate-200 p-3 text-sm">
+              <p className="font-semibold">SSL Verification Record</p>
+              <p>Type: CNAME</p>
+              <p>Name: {info.validationName}</p>
+              <div className="flex items-center gap-2">
+                <p>Value: {info.validationValue}</p>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-brand-700"
+                  onClick={() => copy('ssl', info.validationValue ?? '')}
+                >
+                  {copiedKey === 'ssl' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {info.status === 'PENDING' && (
+            <p className="text-xs text-slate-500">
+              If using Cloudflare, keep the CRM CNAME DNS-only during setup.
+            </p>
+          )}
+          {info.lastError && <p className="text-sm text-red-600">{info.lastError}</p>}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => check.mutate()}
+              disabled={!canUpdate || check.isPending}
+            >
+              Check Again
+            </Button>
+            {info.status === 'ACTIVE' && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => disable.mutate()}
+                disabled={!canUpdate || disable.isPending}
+              >
+                Disable Domain
+              </Button>
+            )}
+          </div>
+          <Feedback error={check.error?.message || disable.error?.message} />
+        </>
+      )}
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const settings = useSettings();
   const [tab, setTab] = useState<TabKey>('profile');
@@ -611,6 +751,7 @@ export function SettingsPage() {
       {tab === 'tax' && <TaxTab data={data} canUpdate={canUpdate} />}
       {tab === 'preferences' && <PreferencesTab data={data} canUpdate={canUpdate} />}
       {tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
+      {tab === 'custom-domain' && <CustomDomainTab canUpdate={canUpdate} />}
       {SHOW_BANK_ACCOUNT_SETTINGS && tab === 'bank' && (
         <BankTab data={data} canUpdate={canUpdate} />
       )}

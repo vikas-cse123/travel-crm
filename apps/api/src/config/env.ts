@@ -99,6 +99,12 @@ const envSchema = z.object({
   AWS_S3_FORCE_PATH_STYLE: booleanWithDefault(false),
   AWS_S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).default('AES256'),
   AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),
+  // Phase 3 Custom Domain: the stable CNAME target customers point their
+  // subdomain at (the existing application hostname), and the HTTPS listener
+  // that customer certificates are attached to. Empty in local/test where the
+  // AWS integration is mocked.
+  CUSTOM_DOMAIN_CNAME_TARGET: z.string().trim().min(1).default('app.travelagencycrm.in'),
+  CUSTOM_DOMAIN_HTTPS_LISTENER_ARN: z.string().trim().optional().default(''),
   MAX_UPLOAD_SIZE_MB: intWithDefault(10),
   BOOKING_DOCUMENT_MAX_UPLOAD_SIZE_MB: intWithDefault(15),
   BOOKING_PRESIGNED_URL_EXPIRY_SECONDS: intWithDefault(300),

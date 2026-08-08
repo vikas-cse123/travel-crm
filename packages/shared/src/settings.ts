@@ -177,6 +177,10 @@ export const logoUploadRequestSchema = z.object({
     .max(50 * 1024 * 1024),
 });
 
+export const customDomainCreateSchema = z.object({
+  hostname: z.string().trim().min(1).max(253),
+});
+
 export type SettingsProfileInput = z.infer<typeof settingsProfileSchema>;
 export type SettingsBrandingInput = z.infer<typeof settingsBrandingSchema>;
 export type SettingsTaxInput = z.infer<typeof settingsTaxSchema>;
@@ -184,3 +188,4 @@ export type SettingsPreferencesInput = z.infer<typeof settingsPreferencesSchema>
 export type SettingsDefaultTermsInput = z.infer<typeof settingsDefaultTermsSchema>;
 export type CompanyBankAccountInput = z.infer<typeof companyBankAccountSchema>;
 export type LogoUploadRequestInput = z.infer<typeof logoUploadRequestSchema>;
+export type CustomDomainCreateInput = z.infer<typeof customDomainCreateSchema>;

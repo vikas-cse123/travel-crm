@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   PERMISSIONS,
   companyBankAccountSchema,
+  customDomainCreateSchema,
   logoUploadRequestSchema,
   settingsBrandingSchema,
   settingsDefaultTermsSchema,
@@ -68,5 +69,16 @@ router.post(
 router.post('/logo/confirm', update, asyncHandler(c.confirmLogo));
 router.get('/logo/url', view, asyncHandler(c.logoUrl));
 router.delete('/logo', update, asyncHandler(c.deleteLogo));
+
+// Phase 3 Custom Domain — Company Settings administrators/owners only.
+router.get('/custom-domain', view, asyncHandler(c.getCustomDomain));
+router.post(
+  '/custom-domain',
+  update,
+  validateRequest({ body: customDomainCreateSchema }),
+  asyncHandler(c.createCustomDomain),
+);
+router.post('/custom-domain/check', update, asyncHandler(c.checkCustomDomain));
+router.post('/custom-domain/disable', update, asyncHandler(c.disableCustomDomain));
 
 export { router as settingsRoutes };

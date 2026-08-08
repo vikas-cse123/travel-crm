@@ -10,7 +10,10 @@ import { requestId } from './middleware/request-id.js';
 import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
-import { resolveCustomDomainMiddleware } from './middleware/custom-domain.js';
+import {
+  resolveCustomDomainMiddleware,
+  validateRequestHost,
+} from './middleware/custom-domain.js';
 import { isTrustedOriginHostname } from './modules/custom-domains/custom-domain.service.js';
 import { apiRoutes } from './routes.js';
 import { publicQuotationsRoutes } from './modules/quotations/public-quotations.routes.js';
@@ -96,6 +99,11 @@ export function createApp(): Express {
   // nothing. Runs before origin/CSRF/routes so authenticated routes can compare
   // the domain tenant against the session tenant.
   app.use(resolveCustomDomainMiddleware);
+
+  // Host validation: only platform hosts and ACTIVE custom domains may reach
+  // the application (dynamic ALB routing accepts any host). Unknown/PENDING/
+  // DISABLED hosts are rejected; internal health-check paths are exempt.
+  app.use(validateRequestHost);
 
   // Origin validation covers every state-changing request. Public quotation
   // decisions additionally require their unguessable customer token and are

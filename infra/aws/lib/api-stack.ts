@@ -189,6 +189,28 @@ export class ApiStack extends Stack {
     });
     filesBucket.grantReadWrite(taskRole);
 
+    // Phase 3 Custom Domain: request/describe ACM certificates and attach/remove
+    // certificates on the single shared HTTPS listener. ACM certificate actions
+    // cannot be resource-scoped, so they are granted on all certificates; the
+    // listener operations are scoped to this deployment's HTTPS listener. No
+    // Route53/DNS permissions are granted (customer DNS is managed by them).
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['acm:RequestCertificate', 'acm:DescribeCertificate'],
+        resources: ['*'],
+      }),
+    );
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'elasticloadbalancing:AddListenerCertificates',
+          'elasticloadbalancing:RemoveListenerCertificates',
+          'elasticloadbalancing:DescribeListenerCertificates',
+        ],
+        resources: [config.listenerArn],
+      }),
+    );
+
     // ----------------------------------------------------- CloudWatch logs
     const apiLogGroup = new logs.LogGroup(this, 'ApiLogGroup', {
       logGroupName: '/ecs/interscale-travel-crm-prod/api',
@@ -231,6 +253,10 @@ export class ApiStack extends Stack {
         AWS_S3_BUCKET: filesBucket.bucketName,
         AWS_S3_SERVER_SIDE_ENCRYPTION: 'AES256',
         DATA_ENCRYPTION_KEY_VERSION: 'v1',
+        // Phase 3 Custom Domain: stable CNAME target customers point their
+        // subdomain at, and the HTTPS listener certificates attach to.
+        CUSTOM_DOMAIN_CNAME_TARGET: config.appDomain,
+        CUSTOM_DOMAIN_HTTPS_LISTENER_ARN: config.listenerArn,
       },
       secrets: {
         DB_HOST: ecs.Secret.fromSecretsManager(db.secret!, 'host'),

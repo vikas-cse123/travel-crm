@@ -53,6 +53,13 @@ function platformHostnames(): string[] {
     .filter((host): host is string => Boolean(host));
 }
 
+/** Whether a hostname is one of the platform's own hosts (incl. dev localhost
+ * and the reserved production platform domain). */
+export function isPlatformHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return platformHostnames().includes(normalized) || isReservedHostname(normalized);
+}
+
 /**
  * Whether an origin hostname may be trusted by origin/CORS validation. The
  * platform's own hosts (including dev localhost) and ACTIVE custom domains are
