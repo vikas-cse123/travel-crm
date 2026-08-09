@@ -262,6 +262,82 @@ export type FollowUpCompleteInput = z.infer<typeof followUpCompleteSchema>;
 export type BulkAssignmentInput = z.infer<typeof bulkAssignmentSchema>;
 export type BulkStageInput = z.infer<typeof bulkStageSchema>;
 
+/**
+ * CSV lead import (bulk). Each row is already mapped from CSV columns to the
+ * same field vocabulary as the create form. Values arrive as strings (CSV cells)
+ * and are intentionally permissive here: the import service validates each row
+ * individually so a single bad row fails that row rather than the whole request.
+ * Rows are capped so a single request stays bounded.
+ */
+export const LEAD_IMPORT_MAX_ROWS = 2000;
+
+/** A lead field that CSV columns may map to. */
+export const LEAD_IMPORT_FIELDS = {
+  CUSTOMER_NAME: 'customerName',
+  PHONE: 'phone',
+  ALTERNATE_PHONE: 'alternatePhone',
+  EMAIL: 'email',
+  LEAD_SOURCE: 'leadSource',
+  LEAD_TYPE: 'leadType',
+  LEAD_STAGE: 'leadStage',
+  PRIORITY: 'priority',
+  DEPARTURE_COUNTRY: 'departureCountry',
+  DEPARTURE_CITY: 'departureCity',
+  DESTINATION: 'destination',
+  TRAVEL_START_DATE: 'travelStartDate',
+  TRAVEL_END_DATE: 'travelEndDate',
+  ADULTS: 'adults',
+  CHILDREN_WITH_BED: 'childrenWithBed',
+  CHILDREN_WITHOUT_BED: 'childrenWithoutBed',
+  INFANTS: 'infants',
+  EXPECTED_AMOUNT: 'expectedAmount',
+  BUDGET_MIN: 'budgetMin',
+  BUDGET_MAX: 'budgetMax',
+  CURRENCY: 'currency',
+  TRIP_TYPE: 'tripType',
+  INTERNAL_REMARKS: 'internalRemarks',
+  SERVICES: 'services',
+  ASSIGNED_TO: 'assignedTo',
+} as const;
+export type LeadImportFieldKey = (typeof LEAD_IMPORT_FIELDS)[keyof typeof LEAD_IMPORT_FIELDS];
+
+/** Permissive transport row; every scalar arrives as a CSV string cell. */
+export const leadImportRowSchema = z.object({
+  customerName: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().max(32).nullable().optional(),
+  alternatePhone: z.string().trim().max(32).nullable().optional(),
+  email: z.string().trim().max(255).nullable().optional(),
+  leadSource: z.string().trim().max(60).nullable().optional(),
+  leadType: z.string().trim().max(40).nullable().optional(),
+  leadStage: z.string().trim().max(60).nullable().optional(),
+  priority: z.string().trim().max(30).nullable().optional(),
+  departureCountry: z.string().trim().max(80).nullable().optional(),
+  departureCity: z.string().trim().max(100).nullable().optional(),
+  destination: z.string().trim().max(120).nullable().optional(),
+  travelStartDate: z.string().trim().max(10).nullable().optional(),
+  travelEndDate: z.string().trim().max(10).nullable().optional(),
+  adults: z.unknown().nullable().optional(),
+  childrenWithBed: z.unknown().nullable().optional(),
+  childrenWithoutBed: z.unknown().nullable().optional(),
+  infants: z.unknown().nullable().optional(),
+  expectedAmount: z.unknown().nullable().optional(),
+  budgetMin: z.unknown().nullable().optional(),
+  budgetMax: z.unknown().nullable().optional(),
+  currency: z.string().trim().max(3).nullable().optional(),
+  tripType: z.string().trim().max(40).nullable().optional(),
+  internalRemarks: z.string().trim().max(2000).nullable().optional(),
+  services: z.array(z.string().trim()).max(20).nullable().optional(),
+  assignedTo: z.string().trim().max(120).nullable().optional(),
+});
+
+export const leadImportSchema = z.object({
+  rows: z.array(leadImportRowSchema).min(1).max(LEAD_IMPORT_MAX_ROWS),
+  skipDuplicates: z.boolean().default(false),
+});
+
+export type LeadImportRow = z.infer<typeof leadImportRowSchema>;
+export type LeadImportInput = z.infer<typeof leadImportSchema>;
+
 export const labelForLookup = (value: string) =>
   value
     .toLowerCase()

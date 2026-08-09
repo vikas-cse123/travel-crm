@@ -146,13 +146,13 @@ export function QuotationDetailsPage() {
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link to="/quotations" className="rounded-lg p-2 hover:bg-card">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link to="/quotations" className="shrink-0 rounded-lg p-2 hover:bg-card">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <div>
+          <div className="min-w-0">
             <p className="text-sm text-slate-500">Customer quotations / {q.quotationNumber}</p>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="break-words text-2xl font-semibold">
               {q.customerName} · {q.destinationSummary}
             </h1>
             {q.customer && (
@@ -224,7 +224,7 @@ export function QuotationDetailsPage() {
       </section>
       <section className="rounded-xl border bg-card p-5">
         <div className="flex flex-wrap justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="font-semibold">Customer and travel</h2>
             <p className="mt-1 text-sm text-slate-500">
               Linked lead{' '}
@@ -233,9 +233,14 @@ export function QuotationDetailsPage() {
               </Link>
             </p>
           </div>
-          <div className="flex gap-2">
+          {/* Stacked full-width on phones — these labels are too long to sit
+              side by side under ~640px — and the original inline row from sm up. */}
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
             {current?.status === 'DRAFT' && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
-              <Button onClick={() => action.mutate({ path: `versions/${current.id}/finalize` })}>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => action.mutate({ path: `versions/${current.id}/finalize` })}
+              >
                 Finalize v{current.versionNumber}
               </Button>
             )}
@@ -243,6 +248,7 @@ export function QuotationDetailsPage() {
               current.status !== 'DRAFT' &&
               hasPermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF) && (
                 <Button
+                  className="w-full sm:w-auto"
                   variant="secondary"
                   isLoading={generatePdf.isPending}
                   onClick={handleGeneratePdf}
@@ -260,7 +266,11 @@ export function QuotationDetailsPage() {
                   }}
                 >
                   <TooltipTrigger asChild>
-                    <Button variant="secondary" onClick={() => void copyPublicLink()}>
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="secondary"
+                      onClick={() => void copyPublicLink()}
+                    >
                       <Copy className="h-4 w-4" />
                       Copy public link
                     </Button>
@@ -271,6 +281,7 @@ export function QuotationDetailsPage() {
             )}
             {current?.status !== 'DRAFT' && (
               <a
+                className="w-full sm:w-auto"
                 href={publicLinkUrl ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -282,7 +293,7 @@ export function QuotationDetailsPage() {
                   });
                 }}
               >
-                <Button variant="secondary">
+                <Button className="w-full sm:w-auto" variant="secondary">
                   <ExternalLink className="h-4 w-4" />
                   Open Weblink
                 </Button>
@@ -296,9 +307,10 @@ export function QuotationDetailsPage() {
           </p>
         )}
         <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
+          <div className="min-w-0">
             <dt className="text-xs text-slate-500">Contact</dt>
-            <dd>
+            {/* A long address must wrap rather than push the card wider. */}
+            <dd className="break-words">
               {q.customerEmail || '—'}
               <br />
               {q.customerPhone}

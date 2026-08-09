@@ -215,24 +215,32 @@ describe('Phase 16 dashboard page', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the analytics tab by default with lead KPIs', async () => {
+  it('renders analytics content directly with lead KPIs', async () => {
     stub(analytics(), operations());
     renderDashboard();
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-    expect(await screen.findByText('Total leads')).toBeInTheDocument();
+    expect(await screen.findByText('Total Leads')).toBeInTheDocument();
     expect(screen.getByText('40')).toBeInTheDocument();
-    expect(screen.getByText('Converted leads')).toBeInTheDocument();
+    expect(screen.getByText('Converted Leads')).toBeInTheDocument();
     // No account/session panel remains from the old dashboard.
     expect(screen.queryByText('Your account')).not.toBeInTheDocument();
+  });
+
+  it('does not show an Analytics/Operations selector', async () => {
+    stub(analytics(), operations());
+    renderDashboard();
+    await screen.findByText('Total Leads');
+    expect(screen.queryByRole('button', { name: 'operations' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'analytics' })).not.toBeInTheDocument();
   });
 
   it('shows financial tiles and the profit table with financial permission', async () => {
     stub(analytics(), operations());
     renderDashboard();
-    await screen.findByText('Total leads');
-    expect(screen.getByText('Agency revenue')).toBeInTheDocument();
-    expect(screen.getAllByText('Net profit').length).toBeGreaterThan(0);
-    expect(screen.getByText('Top performers — profit earned')).toBeInTheDocument();
+    await screen.findByText('Total Leads');
+    expect(screen.getByText('Agency Revenue')).toBeInTheDocument();
+    expect(screen.getAllByText('Net Profit').length).toBeGreaterThan(0);
+    expect(screen.getByText('Top Performers — Profit Earned')).toBeInTheDocument();
     expect(screen.getByText('Refunds')).toBeInTheDocument();
   });
 
@@ -246,61 +254,35 @@ describe('Phase 16 dashboard page', () => {
       operations(),
     );
     renderDashboard();
-    await screen.findByText('Total leads');
-    expect(screen.queryByText('Agency revenue')).not.toBeInTheDocument();
-    expect(screen.queryByText('Top performers — profit earned')).not.toBeInTheDocument();
+    await screen.findByText('Total Leads');
+    expect(screen.queryByText('Agency Revenue')).not.toBeInTheDocument();
+    expect(screen.queryByText('Top Performers — Profit Earned')).not.toBeInTheDocument();
     // Non-financial lead panels still render.
-    expect(screen.getByText('Lead sources')).toBeInTheDocument();
+    expect(screen.getByText('Lead Sources')).toBeInTheDocument();
   });
 
   it('renders the lead-source and destination charts with accessible values', async () => {
     stub(analytics(), operations());
     renderDashboard();
-    await screen.findByText('Lead sources');
+    await screen.findByText('Lead Sources');
     // Legend carries the real counts and percentages.
     expect(screen.getByText('Referral')).toBeInTheDocument();
     expect(screen.getByText('50%')).toBeInTheDocument();
-    expect(screen.getByText('Top destination enquiries')).toBeInTheDocument();
+    expect(screen.getByText('Top Destination Enquiries')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Goa: 15' })).toBeInTheDocument();
   });
 
   it('renders the staff conversion table', async () => {
     stub(analytics(), operations());
     renderDashboard();
-    await screen.findByText('Top performers — conversion rate');
+    await screen.findByText('Top Performers — Conversion Rate');
     expect(screen.getAllByText('Aditi Rao').length).toBeGreaterThan(0);
-  });
-
-  it('switches to the operations tab and shows actionable panels', async () => {
-    stub(analytics(), operations());
-    renderDashboard();
-    await screen.findByText('Total leads');
-    await userEvent.click(screen.getByRole('button', { name: 'operations' }));
-    expect(await screen.findByText('Priority follow-ups')).toBeInTheDocument();
-    expect(screen.getByText('Near travel dates')).toBeInTheDocument();
-    expect(screen.getByText('Upcoming trips')).toBeInTheDocument();
-    expect(screen.getByText('Pending completion')).toBeInTheDocument();
-    expect(screen.getByText('Client payments due')).toBeInTheDocument();
-    expect(screen.getByText('Vendor payments due')).toBeInTheDocument();
-    // Row content and View All links.
-    expect(screen.getByText('Ravi Kumar')).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /View all/ }).length).toBeGreaterThan(0);
-  });
-
-  it('omits client and vendor payment panels without financial permission', async () => {
-    stub(analytics(), operations({ clientPaymentsDue: undefined, vendorPaymentsDue: undefined }));
-    renderDashboard();
-    await screen.findByText('Total leads');
-    await userEvent.click(screen.getByRole('button', { name: 'operations' }));
-    await screen.findByText('Priority follow-ups');
-    expect(screen.queryByText('Client payments due')).not.toBeInTheDocument();
-    expect(screen.queryByText('Vendor payments due')).not.toBeInTheDocument();
   });
 
   it('exposes the period selector and custom range fields', async () => {
     const mock = stub(analytics(), operations());
     renderDashboard();
-    await screen.findByText('Total leads');
+    await screen.findByText('Total Leads');
     await userEvent.selectOptions(screen.getByLabelText('Dashboard period'), 'CUSTOM');
     expect(screen.getByLabelText('Custom from date')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Custom from date'), '2026-01-01');
@@ -322,15 +304,9 @@ describe('Phase 16 dashboard page', () => {
   });
 
   it('shows empty panel states', async () => {
-    stub(
-      analytics({ leadSources: [], topDestinations: [], staffConversions: [] }),
-      operations({
-        priorityFollowUps: { totalCount: 0, viewAllPath: '/follow-ups', items: [] },
-      }),
-    );
+    stub(analytics({ leadSources: [], topDestinations: [], staffConversions: [] }), operations());
     renderDashboard();
-    await screen.findByText('Total leads');
-    await userEvent.click(screen.getByRole('button', { name: 'operations' }));
-    expect(await screen.findByText('Nothing pending.')).toBeInTheDocument();
+    await screen.findByText('Total Leads');
+    expect(screen.getByText('No staff activity in this period.')).toBeInTheDocument();
   });
 });

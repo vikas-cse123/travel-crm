@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   Eye,
+  FileSpreadsheet,
   Flame,
   Globe,
   Home,
@@ -42,6 +43,7 @@ import { labelForLookup } from '@interscale/shared';
 import type { LeadDateFilterType } from '@interscale/shared';
 import { LeadServicesCell } from '@/features/queries/LeadServicesCell';
 import { cn } from '@/utils/cn';
+import { LeadImportModal } from './LeadImportModal';
 import './leads.css';
 
 /** Format a monetary value using the app's standard en-IN currency style. */
@@ -710,6 +712,7 @@ export function LeadsPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<null | 'assign' | 'stage'>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [assignTo, setAssignTo] = useState('');
   const [bulkStageValue, setBulkStageValue] = useState('');
   const [bulkReason, setBulkReason] = useState('');
@@ -968,6 +971,11 @@ export function LeadsPage() {
                   <Plus className="h-4 w-4" /> Create
                 </Button>
               </Link>
+            )}
+            {hasPermission('queries.create') && (
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>
+                <FileSpreadsheet className="h-4 w-4" /> Import CSV
+              </Button>
             )}
           </div>
         </header>
@@ -1476,6 +1484,7 @@ export function LeadsPage() {
           onCount={(total) => syncWeblinkCount(analyticsFor.leadId, total)}
         />
       )}
+      {importOpen && <LeadImportModal onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

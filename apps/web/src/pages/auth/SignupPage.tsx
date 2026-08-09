@@ -69,7 +69,7 @@ export function SignupPage() {
   return (
     <AuthLayout
       title="Create your company account"
-      subtitle="Set up your travel agency on Interscale in a couple of minutes."
+      subtitle="Set up your travel agency on Travel CRM in a couple of minutes."
       footer={
         <>
           Already have an account?{' '}

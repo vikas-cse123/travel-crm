@@ -219,14 +219,23 @@ describe('POST /api/auth/login', () => {
     });
     expect(salesLogin.status).toBe(200);
 
-    // Modes are enforced: a Sales Executive must NOT use the admin login.
-    const misuse = await createAuthClient(app).post('/api/auth/login', {
+    // loginMode is a UX hint, not a security boundary: a correct password
+    // authenticates regardless of the selected mode. Roles and permissions are
+    // resolved from the user's role server-side, so selecting the "admin" mode
+    // cannot elevate a non-admin, and a role change (e.g. Sales Executive to
+    // Manager) must never make a previously-working password fail.
+    const otherMode = await createAuthClient(app).post('/api/auth/login', {
       email: 'sales@bluesky.test',
       password: PASSWORD,
       loginMode: 'COMPANY_ADMIN',
     });
-    expect(misuse.status).toBe(401);
-    expect(misuse.body.error.message).toBe('Invalid email or password.');
+    expect(otherMode.status).toBe(200);
+    const viaAdminMode = await createAuthClient(app).post('/api/auth/login', {
+      email: 'sales@bluesky.test',
+      password: PASSWORD,
+      loginMode: 'COMPANY_ADMIN',
+    });
+    expect(viaAdminMode.status).toBe(200);
   });
 
   it('rejects suspended, inactive and archived users', async () => {

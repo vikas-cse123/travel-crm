@@ -78,7 +78,7 @@ check_status "$root/robots.txt" 200 || failed=1
 check_status "$root/sitemap.xml" 200 || failed=1
 check_status "$root/healthz" 200 || failed=1
 check_status "$root/missing-file-ci.js" 404 || failed=1
-check_contains "$root/" "<title>Interscale Travel CRM" "page title" || failed=1
+check_contains "$root/" "<title>Travel CRM" "page title" || failed=1
 check_contains "$root/" "Run your agency's complete workflow" "primary headline" || failed=1
 check_contains "$root/" "href=\"https://app.travelagencycrm.in/login\"" "Go to App link" || failed=1
 

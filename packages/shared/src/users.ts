@@ -47,6 +47,17 @@ export const updateUserSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, 'Provide at least one field');
 
+/**
+ * Owner-only administrative password set. Reuses the exact same password rules
+ * as signup/reset; `oldPassword` is deliberately not accepted because this is
+ * an administrative reset, not the normal change-password flow.
+ */
+export const setUserPasswordSchema = z.object({
+  password: passwordSchema,
+});
+
+export type SetUserPasswordInput = z.infer<typeof setUserPasswordSchema>;
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 

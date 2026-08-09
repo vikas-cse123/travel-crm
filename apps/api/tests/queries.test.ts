@@ -198,6 +198,45 @@ describe('Phase 6 travel lead management', () => {
       ).status,
     ).toBe(403);
   });
+  it('keeps a lead search inside the caller visibility scope', async () => {
+    // A search term must narrow what the caller can already see, never widen
+    // it: the search clause and the own-leads-only clause have to apply
+    // together. Both leads below match "Vikas", but only one is the agent's.
+    const admin = await owner('owner@alpha.test', 'Alpha');
+    const salesUser = await employee(admin, 'Sales Executive', 'sales@alpha.test', 'sales-agent');
+    const mine = await admin.post('/api/queries', {
+      ...payload('+91 91111 11111'),
+      customerName: 'Vikas Singh',
+      email: 'vikas.singh@alpha.test',
+      assignedToId: salesUser.body.data.id,
+    });
+    const hidden = await admin.post('/api/queries', {
+      ...payload('+91 92222 22222'),
+      customerName: 'Vikas Sharma',
+      email: 'vikas.sharma@alpha.test',
+    });
+    const ids = (response: { body: { data: { data: Array<{ id: string }> } } }) =>
+      response.body.data.data.map((lead) => lead.id);
+
+    // The Owner sees both, so the search term itself does match each lead.
+    expect(ids(await admin.get('/api/queries?search=Vikas')).sort()).toEqual(
+      [mine.body.data.id, hidden.body.data.id].sort(),
+    );
+
+    const sales = await signIn('sales@alpha.test');
+    const scoped = await sales.get('/api/queries?search=Vikas');
+    expect(ids(scoped)).toEqual([mine.body.data.id]);
+    expect(scoped.body.data.pagination.total).toBe(1);
+
+    // The same holds for every other searchable column.
+    expect(ids(await sales.get('/api/queries?search=92222'))).toEqual([]);
+    expect(ids(await sales.get('/api/queries?search=vikas.sharma@alpha.test'))).toEqual([]);
+    expect(ids(await sales.get('/api/queries?search=QRY-000002'))).toEqual([]);
+
+    // Tenant isolation still holds for a search issued from another company.
+    const beta = await owner('owner@beta.test', 'Beta');
+    expect(ids(await beta.get('/api/queries?search=Vikas'))).toEqual([]);
+  });
   it('enforces transitions and manages notes and follow-ups with audit history', async () => {
     const client = await owner('owner@alpha.test', 'Alpha');
     const id = (await client.post('/api/queries', payload())).body.data.id;
@@ -632,6 +671,42 @@ describe('Phase 17 lead workflow parity', () => {
       totalViews: 1,
     });
     expect(rowAfter.weblink.publicUrl).toContain(token);
+  });
+
+  it('prefers the ACTIVE custom domain hostname for the lead weblink URL', async () => {
+    const email = 'owner@p17e.test';
+    const client = await owner(email, 'P17e Travel');
+    const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
+    await db.customDomain.create({
+      data: {
+        companyId: ownerUser.companyId,
+        hostname: 'quotation.p17e.test',
+        status: 'ACTIVE',
+      },
+    });
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    const { quotation } = await acceptedQuotation(client, lead.id);
+
+    const list = await client.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.weblink).toMatchObject({
+      quotationId: quotation.id,
+      isGenerated: true,
+    });
+    expect(row.weblink.publicUrl).toMatch(/^https:\/\/quotation\.p17e\.test\/q\/[A-Za-z0-9_-]{32,}$/);
+    expect(row.weblink.publicUrl).not.toContain('app.travelagencycrm.in');
+  });
+
+  it('falls back to the platform URL for the lead weblink without an ACTIVE custom domain', async () => {
+    const client = await owner('owner@p17f.test', 'P17f Travel');
+    const lead = (await client.post('/api/queries', payload())).body.data;
+    await acceptedQuotation(client, lead.id);
+
+    const list = await client.get('/api/queries');
+    const row = list.body.data.data.find((r: { id: string }) => r.id === lead.id);
+    expect(row.weblink.publicUrl).toMatch(
+      new RegExp(`^${process.env.WEB_URL ?? 'http://localhost:5173'}/q/[A-Za-z0-9_-]{32,}$`),
+    );
   });
 
   it('suppresses conversion and shows the booking summary once converted', async () => {

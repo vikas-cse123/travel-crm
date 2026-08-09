@@ -447,18 +447,8 @@ export const authService = {
       throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
     }
 
-    const isCompanyAdmin =
-      user.role.name === ROLE_NAME.OWNER ||
-      user.role.name === ROLE_NAME.MANAGER ||
-      user.role.name === SYSTEM_ADMIN_ROLE_NAME;
-    const usingAdminLogin = input.loginMode === 'COMPANY_ADMIN';
-    if (usingAdminLogin !== isCompanyAdmin) {
-      await recordFailure(usingAdminLogin ? 'user_used_admin_login' : 'admin_used_user_login');
-      throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
-    }
-
-    // Password is correct from here on, so specific messages no longer leak
-    // anything an attacker did not already know.
+    // Company settings can require the account to be active regardless of the
+    // password being correct.
     if (user.company.status !== 'ACTIVE') {
       await recordFailure('company_inactive');
       throw new ForbiddenError('This company account is not currently active.');

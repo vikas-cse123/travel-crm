@@ -398,6 +398,57 @@ export const usersService = {
     return { requested: true };
   },
 
+  /**
+   * Owner-only administrative password set for another same-company user.
+   *
+   * The caller must hold Owner authority, must not target themselves (the Owner
+   * uses the normal change-password flow), and the target must belong to the
+   * caller's tenant. The old password is never required or accepted. After the
+   * update every existing session of the target user is revoked so old sessions
+   * are signed out; the Owner's own session is untouched.
+   */
+  async setPassword(auth: AuthContext, id: string, password: string, context: UserRequestContext) {
+    const [c, target] = await Promise.all([caller(auth), targetOr404(auth, id)]);
+    // Owner authority only — not merely a permission grant.
+    if (c.role.hierarchyLevel !== 100)
+      throw new ForbiddenError('Only an Owner may set another user\'s password.');
+    if (id === auth.userId)
+      throw new ForbiddenError('Use your own change-password flow for your account.');
+    // Preserve existing Owner protection rules (e.g. an Owner cannot be
+    // modified by anyone without Owner authority — already true here — and the
+    // final active Owner is protected from destructive changes).
+    assertCanModify(c, target);
+    await assertNotFinalActiveOwner(auth, target);
+
+    const passwordHash = await hashPassword(password);
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id },
+        data: {
+          passwordHash,
+          passwordChangedAt: now,
+          // Clear brute-force state, matching the reset-password behaviour.
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+      // Sign out every session the target user holds; the Owner's own session
+      // belongs to a different user and is unaffected.
+      await tx.session.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await tx.activityLog.create({
+        data: auditData(auth, id, ACTIVITY_ACTION.USER_PASSWORD_RESET, context, {
+          performedBy: 'OWNER',
+          // Never any password/hash/token data.
+        }),
+      });
+    });
+    return { updated: true };
+  },
+
   async activity(
     auth: AuthContext,
     id: string,

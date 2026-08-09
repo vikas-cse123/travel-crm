@@ -1,5 +1,5 @@
 /** Product identity. */
-export const APP_NAME = 'Interscale Travel CRM';
+export const APP_NAME = 'Travel CRM';
 
 /** Default local development ports. */
 export const DEFAULT_API_PORT = 4000;

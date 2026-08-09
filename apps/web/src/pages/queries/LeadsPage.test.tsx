@@ -2841,3 +2841,172 @@ describe('Lead date-range filter', () => {
     expect((screen.getByLabelText('Date type') as HTMLSelectElement).value).toBe('CREATED_DATE');
   });
 });
+
+describe('Lead CSV import', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    authState.permissions = new Set(['queries.view', 'queries.create']);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        response(
+          String(input).includes('analytics')
+            ? analytics
+            : String(input).includes('lookups')
+              ? lookups
+              : { data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } },
+        ),
+      ),
+    );
+  });
+
+  it('renders an Import CSV button and opens the import modal', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    const button = screen.getByRole('button', { name: /Import CSV/i });
+    await userEvent.click(button);
+    expect(
+      screen.getByRole('dialog', { name: 'Import Leads' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Download Sample CSV/i })).toBeInTheDocument();
+  });
+
+  it('accepts a CSV file and shows the column-mapping step with an auto-mapped preview', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(
+      ['Customer Name,Phone,Source\nAarav Mehta,+91 98765 43210,Referral\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    expect(await screen.findByText('leads.csv')).toBeInTheDocument();
+    expect(screen.getByText('1 data rows detected')).toBeInTheDocument();
+    // Auto-mapped Customer Name / Phone / Source columns and the preview row.
+    expect(screen.getAllByText('Customer Name').length).toBeGreaterThan(0);
+    expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
+  });
+
+  it('enables the modal Import button when required fields are auto-mapped and a valid row exists', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(
+      ['Name,Phone,Lead Source\nAarav Mehta,+91 98765 43210,Referral\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await screen.findByText('1 data rows detected');
+    const importButton = within(dialog).getByRole('button', { name: /^Import$/ });
+    expect(await waitFor(() => expect(importButton).toBeEnabled()));
+    // The footer warning disappears once the import is possible.
+    expect(
+      within(dialog).queryByText(/Map at least Customer Name, Phone and Lead Source to continue\./),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the modal Import button disabled when a required field is not mapped', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(['Name,Phone\nAarav Mehta,+91 98765 43210\n'], 'leads.csv', {
+      type: 'text/csv',
+    });
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    // Wait for the file to be parsed and the mapping step to render.
+    await screen.findByText('1 data rows detected');
+    const importButton = within(dialog).getByRole('button', { name: /^Import$/ });
+    expect(importButton).toBeDisabled();
+    expect(
+      within(dialog).getByText(/Map at least Customer Name, Phone and Lead Source to continue\./),
+    ).toBeInTheDocument();
+  });
+
+  it('disables the modal Import button immediately when a required mapping is set to Ignore', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(
+      ['Name,Phone,Lead Source\nAarav Mehta,+91 98765 43210,Referral\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await screen.findByText('1 data rows detected');
+    const importButton = within(dialog).getByRole('button', { name: /^Import$/ });
+    expect(await waitFor(() => expect(importButton).toBeEnabled()));
+
+    // Change the "Name" mapping back to "Ignore this column".
+    const nameSelect = within(dialog).getAllByRole('combobox')[0];
+    await userEvent.selectOptions(nameSelect, '');
+    await waitFor(() => expect(importButton).toBeDisabled());
+  });
+
+  it('re-enables the modal Import button when a required mapping is restored', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(
+      ['Name,Phone,Lead Source\nAarav Mehta,+91 98765 43210,Referral\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await screen.findByText('1 data rows detected');
+    const importButton = within(dialog).getByRole('button', { name: /^Import$/ });
+    expect(await waitFor(() => expect(importButton).toBeEnabled()));
+
+    // Break then restore the customer-name mapping.
+    const nameSelect = within(dialog).getAllByRole('combobox')[0];
+    await userEvent.selectOptions(nameSelect, '');
+    await waitFor(() => expect(importButton).toBeDisabled());
+    await userEvent.selectOptions(nameSelect, 'customerName');
+    await waitFor(() => expect(importButton).toBeEnabled());
+  });
+
+  it('keeps the modal Import button disabled when required fields are mapped but no row is importable', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    // All three mapped, but the only row has a blank phone.
+    const file = new File(
+      ['Name,Phone,Lead Source\nAarav Mehta,,Referral\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await screen.findByText('1 data rows detected');
+    const importButton = within(dialog).getByRole('button', { name: /^Import$/ });
+    expect(importButton).toBeDisabled();
+  });
+
+  it('rejects a non-CSV file', async () => {
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+
+    const file = new File(['not a csv'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/only .csv/i);
+  });
+});

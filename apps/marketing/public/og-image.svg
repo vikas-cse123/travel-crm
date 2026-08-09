@@ -3,7 +3,7 @@
   <rect x="80" y="60" width="64" height="64" rx="16" fill="#ffffff" opacity="0.15"/>
   <rect x="88" y="68" width="48" height="48" rx="12" fill="#2563eb"/>
   <path fill="#ffffff" d="M121 94.4 112 102.1l9.6 3.7-2.2 2.9-7.9-4.1-4.9 6.2h-3l2.4-6.7-6.9-3v-2.5l13.3-5.6-1.4-3.9c1.5.2 3.1.9 4.4 2.1.5.5.7 1.1.7 1.7 0 .6-.2 1.2-.7 1.7z"/>
-  <text x="168" y="106" font-family="Helvetica, Arial, sans-serif" font-size="40" font-weight="bold" fill="#ffffff">Interscale Travel CRM</text>
+  <text x="168" y="106" font-family="Helvetica, Arial, sans-serif" font-size="40" font-weight="bold" fill="#ffffff">Travel CRM</text>
   <text x="168" y="146" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#bfdbfe">The complete operational workflow for travel agencies</text>
   <g transform="translate(80,240)">
     <rect width="1040" height="300" rx="20" fill="#1e40af"/>

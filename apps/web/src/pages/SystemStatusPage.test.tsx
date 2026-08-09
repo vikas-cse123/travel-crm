@@ -130,7 +130,7 @@ describe('SystemStatusPage', () => {
     renderPage();
 
     expect(
-      screen.getByRole('heading', { name: 'Interscale Travel CRM', level: 1 }),
+      screen.getByRole('heading', { name: 'Travel CRM', level: 1 }),
     ).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { sendSuccess } from '../../utils/api-response.js';
 import { UnauthorizedError } from '../../utils/errors.js';
 import { queriesService } from './queries.service.js';
+import { queriesImportService } from './queries-import.service.js';
 
 function auth(req: Request) {
   if (!req.auth) throw new UnauthorizedError();
@@ -14,6 +15,9 @@ function context(req: Request) {
 export const queriesController = {
   async list(req: Request, res: Response) {
     sendSuccess(res, await queriesService.list(auth(req), req.query));
+  },
+  async importCsv(req: Request, res: Response) {
+    sendSuccess(res, await queriesImportService.importCsv(auth(req), req.body, context(req)));
   },
   async analytics(req: Request, res: Response) {
     sendSuccess(res, await queriesService.analytics(auth(req), req.query));

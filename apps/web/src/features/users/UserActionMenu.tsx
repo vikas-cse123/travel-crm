@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { MoreHorizontal } from 'lucide-react';
+import { KeyRound, MoreHorizontal } from 'lucide-react';
 import type { ManagedUser } from '@interscale/shared';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useUserAction } from './users.api';
+import { SetPasswordModal } from './SetPasswordModal';
 
 export function UserActionMenu({ user }: { user: ManagedUser }) {
   const { hasPermission, user: me } = useAuth();
@@ -12,7 +13,11 @@ export function UserActionMenu({ user }: { user: ManagedUser }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [setPasswordFor, setSetPasswordFor] = useState<ManagedUser | null>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  const isOwner = me?.role.hierarchyLevel === 100;
+  const canSetPassword = isOwner && user.id !== me?.id;
 
   const openMenu = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -77,6 +82,18 @@ export function UserActionMenu({ user }: { user: ManagedUser }) {
           Edit
         </Link>
       )}
+      {canSetPassword && (
+        <button
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left hover:bg-slate-50"
+          onClick={() => {
+            setOpen(false);
+            setSetPasswordFor(user);
+          }}
+        >
+          <KeyRound className="h-4 w-4 text-slate-400" />
+          Set New Password
+        </button>
+      )}
       {hasPermission('users.change_status') && user.id !== me?.id && (
         <>
           {user.status !== 'ACTIVE' && (
@@ -130,6 +147,9 @@ export function UserActionMenu({ user }: { user: ManagedUser }) {
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open ? createPortal(menu, document.body) : null}
+      {setPasswordFor && (
+        <SetPasswordModal user={setPasswordFor} onClose={() => setSetPasswordFor(null)} />
+      )}
     </>
   );
 }

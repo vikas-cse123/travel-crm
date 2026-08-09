@@ -2,15 +2,13 @@ import { useState } from 'react';
 import { ArrowLeft, FilePlus2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
-import { useLeads } from '@/features/queries/queries.api';
+import { LeadSearchSelect } from '@/features/queries/LeadSearchSelect';
 import { useCreateQuotation } from '@/features/quotations/quotations.api';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 export function NewQuotationPage() {
   const { queryId: routeQueryId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const leads = useLeads(new URLSearchParams({ pageSize: '100' }));
   const create = useCreateQuotation();
   const [queryId, setQueryId] = useState(routeQueryId ?? params.get('queryId') ?? '');
   const [templateId] = useState(params.get('templateId') ?? '');
@@ -39,23 +37,19 @@ export function NewQuotationPage() {
       <section className="rounded-xl border bg-card p-6 shadow-sm">
         <h2 className="font-semibold">Choose the lead and starting point</h2>
         <div className="mt-5 space-y-4">
-          <label className="block text-sm font-medium">
-            Lead
-            <select
-              aria-label="Lead"
-              className={`${field} mt-1`}
-              value={queryId}
-              onChange={(event) => setQueryId(event.target.value)}
-              disabled={Boolean(routeQueryId)}
-            >
-              <option value="">Select a visible lead…</option>
-              {leads.data?.data.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {lead.queryNumber} · {lead.customerName} · {lead.phone}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* Not a <label>: the combobox renders its option list inside this
+              block, and a wrapping label would re-focus the input on every
+              option click. The input carries its own aria-label instead. */}
+          <div>
+            <p className="text-sm font-medium">Lead</p>
+            <div className="mt-1">
+              <LeadSearchSelect
+                value={queryId}
+                onChange={setQueryId}
+                disabled={Boolean(routeQueryId)}
+              />
+            </div>
+          </div>
           {create.isError && (
             <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{create.error.message}</p>
           )}

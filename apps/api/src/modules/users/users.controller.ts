@@ -63,6 +63,18 @@ export const usersController = {
       'Password-reset instructions have been sent.',
     );
   },
+  async setPassword(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await usersService.setPassword(
+        auth(req),
+        req.params.userId!,
+        req.body.password,
+        context(req),
+      ),
+      "Password updated successfully. The user's active sessions have been signed out.",
+    );
+  },
   async activity(req: Request, res: Response) {
     sendSuccess(res, await usersService.activity(auth(req), req.params.userId!, req.query));
   },

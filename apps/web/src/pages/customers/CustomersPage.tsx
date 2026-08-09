@@ -4,6 +4,7 @@ import {
   IndianRupee,
   Pencil,
   Phone,
+  Plus,
   Search,
   Trash2,
   UserRoundCheck,
@@ -113,8 +114,15 @@ export function CustomersPage() {
 
   return (
     <div className="space-y-5">
-      <header>
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">Customers</h1>
+        {hasPermission(PERMISSIONS.CUSTOMERS_CREATE) && (
+          <Link to="/customers/new">
+            <Button className="rounded-md bg-blue-600 hover:bg-blue-700">
+              <Plus className="h-4 w-4" /> New Customer
+            </Button>
+          </Link>
+        )}
       </header>
 
       <section aria-label="Customer summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

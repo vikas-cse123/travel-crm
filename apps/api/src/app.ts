@@ -66,7 +66,10 @@ export function createApp(): Express {
     }),
   );
 
-  // Body-size caps blunt trivial memory-exhaustion attempts.
+  // Body-size caps blunt trivial memory-exhaustion attempts. The bulk lead CSV
+  // import sends up to 2000 mapped rows in one request, so it gets its own
+  // larger JSON cap; the default cap stays for every other endpoint.
+  app.use(`${API_PREFIX}/queries/import`, express.json({ limit: '2mb' }));
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
   app.use(cookieParser(env.SESSION_SECRET));

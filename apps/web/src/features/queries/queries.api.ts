@@ -1,7 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { downloadCsv, type CsvPayload } from '@/lib/downloadCsv';
-import type { ContactMethodValue, QueryInput, QueryUpdateInput } from '@interscale/shared';
+import type {
+  ContactMethodValue,
+  LeadImportInput,
+  QueryInput,
+  QueryUpdateInput,
+} from '@interscale/shared';
 import type { LeadDateFilterType } from '@interscale/shared';
 
 /** Date keys shared between the URL state and the API request. */
@@ -297,6 +302,40 @@ export function useLeads(params: URLSearchParams) {
     queryFn: ({ signal }) => apiClient.get<Page<Lead>>(`/queries${q ? `?${q}` : ''}`, signal),
   });
 }
+/** Rows a lead type-ahead asks for per keystroke pause. */
+export const LEAD_SEARCH_PAGE_SIZE = 20;
+
+/** Pause in typing before a lead type-ahead hits the server. */
+export const LEAD_SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Type-ahead lookup over the leads the caller is allowed to see.
+ *
+ * Deliberately the same `GET /queries` list endpoint the Leads page uses, via
+ * its existing `search` parameter: tenant scoping, RBAC and per-user lead
+ * visibility are applied server-side there, so a search can never surface a
+ * lead the caller could not already list. Filtering in the browser instead
+ * would only ever see one page of leads, so an account with more leads than
+ * `LEAD_SEARCH_PAGE_SIZE` would silently hide matches.
+ *
+ * The cache key matches `useLeads` for identical parameters, so both share
+ * results and the existing `queryKeys.all` invalidations already cover this.
+ */
+export function useLeadSearch(search: string, options: { enabled?: boolean } = {}) {
+  const params = new URLSearchParams({ pageSize: String(LEAD_SEARCH_PAGE_SIZE) });
+  const term = search.trim();
+  if (term) params.set('search', term);
+  const q = params.toString();
+  return useQuery({
+    queryKey: queryKeys.list(q),
+    queryFn: ({ signal }) => apiClient.get<Page<Lead>>(`/queries?${q}`, signal),
+    // Keep the previous matches on screen while the next search resolves so the
+    // list does not blank out between keystrokes.
+    placeholderData: keepPreviousData,
+    enabled: options.enabled ?? true,
+  });
+}
+
 export function useLeadAnalytics(params: URLSearchParams) {
   const q = leadDateQuery(params);
   return useQuery({
@@ -452,6 +491,38 @@ export function useLeadExport() {
       return downloadCsv(csv);
     },
   });
+}
+
+export interface LeadImportRowResult {
+  row: number;
+  customerName: string;
+  status: 'IMPORTED' | 'SKIPPED' | 'FAILED';
+  reason?: string;
+}
+export interface LeadImportSummary {
+  total: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  results: LeadImportRowResult[];
+  errorCsv: CsvPayload;
+}
+/** Bulk-import mapped lead rows; refreshes the list on success. */
+export function useLeadImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LeadImportInput) =>
+      apiClient.post<LeadImportSummary>('/queries/import', input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.all });
+      void qc.invalidateQueries({ queryKey: queryKeys.analytics('') });
+    },
+  });
+}
+export function useLeadImportErrorDownload() {
+  return {
+    download: (payload: CsvPayload) => downloadCsv(payload),
+  };
 }
 export function useNotes(id: string) {
   return useQuery({

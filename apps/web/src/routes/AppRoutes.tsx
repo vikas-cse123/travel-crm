@@ -374,6 +374,14 @@ export function AppRoutes() {
             }
           />
           <Route
+            path="/customers/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.CUSTOMERS_CREATE}>
+                <CustomerFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
             path="/customers/:customerId"
             element={
               <PermissionRoute permission={PERMISSIONS.CUSTOMERS_VIEW}>

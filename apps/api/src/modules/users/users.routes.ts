@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ActivityAction, UserStatus } from '@prisma/client';
-import { createUserSchema, updateUserSchema, PERMISSIONS } from '@interscale/shared';
+import {
+  createUserSchema,
+  setUserPasswordSchema,
+  updateUserSchema,
+  PERMISSIONS,
+} from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
 import { validateRequest } from '../../middleware/validate-request.js';
@@ -67,6 +72,14 @@ router.post(
   requirePermission(PERMISSIONS.USERS_RESET_PASSWORD),
   validateRequest({ params: id }),
   asyncHandler(usersController.reset),
+);
+// Owner-only administrative password set. The permission gate is a first layer;
+// the service additionally requires Owner authority and tenant scope.
+router.post(
+  '/:userId/set-password',
+  requirePermission(PERMISSIONS.USERS_RESET_PASSWORD),
+  validateRequest({ params: id, body: setUserPasswordSchema }),
+  asyncHandler(usersController.setPassword),
 );
 router.patch(
   '/:userId/status',

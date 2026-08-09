@@ -166,7 +166,7 @@ describe('SEO', () => {
   });
 
   it('unique page title exists', () => {
-    expect(home).toContain('<title>Interscale Travel CRM — Travel Agency Operations Software</title>');
+    expect(home).toContain('<title>Travel CRM — Travel Agency Operations Software</title>');
   });
 });
 

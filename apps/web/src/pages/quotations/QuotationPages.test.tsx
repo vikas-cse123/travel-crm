@@ -136,6 +136,72 @@ const page = (data: unknown[]) => ({
   pagination: { page: 1, pageSize: 20, total: data.length, totalPages: data.length ? 1 : 0 },
 });
 
+/* ------------------------------------------------------------------ *
+ * Create Quotation — searchable lead field
+ * ------------------------------------------------------------------ */
+
+const visibleLead = {
+  id: 'lead-1',
+  queryNumber: 'QRY-1',
+  customerName: 'Aarav Mehta',
+  phone: '+91 90000 00000',
+  email: 'aarav@example.test',
+};
+const searchableLead = {
+  id: 'lead-1042',
+  queryNumber: 'QRY-1042',
+  customerName: 'Vikas Singh',
+  phone: '9876543210',
+  email: 'vikas@example.test',
+};
+
+/** Every `?search=` term the lead field actually sent to the list endpoint. */
+const searchTerms = (mock: { mock: { calls: unknown[][] } }) =>
+  mock.mock.calls
+    .map(([input]) => new URL(String(input), 'http://localhost').searchParams.get('search'))
+    .filter((term): term is string => term !== null);
+
+/**
+ * Stand-in for `GET /queries`, filtering the way the server does: the caller
+ * only ever sees `visible`, and `search` narrows *within* that set across
+ * customer name, phone, email and query number. Passing a smaller `visible`
+ * models a user with a narrower lead visibility scope.
+ */
+const leadSearchFetch = (visible: Array<typeof visibleLead> = [visibleLead, searchableLead]) =>
+  vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+    async (input, options) => {
+      if (options?.method === 'POST') return response({ id: 'quotation-new' });
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname.startsWith('/api/queries')) {
+        const id = url.pathname.slice('/api/queries'.length).replace(/^\//, '');
+        if (id) return response(visible.find((lead) => lead.id === id) ?? null);
+        const term = (url.searchParams.get('search') ?? '').toLowerCase();
+        const matches = term
+          ? visible.filter((lead) =>
+              [lead.customerName, lead.phone, lead.email, lead.queryNumber]
+                .join(' ')
+                .toLowerCase()
+                .includes(term),
+            )
+          : visible;
+        return response(page(matches));
+      }
+      return response(page([template]));
+    },
+  );
+
+/** Open the lead combobox and wait for its listbox. */
+const openLeadList = async () => {
+  await userEvent.click(await screen.findByLabelText('Lead'));
+  return screen.findByRole('listbox');
+};
+
+/** Open the lead combobox and choose the option matching `name`. */
+const pickLead = async (name: RegExp) => {
+  await openLeadList();
+  await userEvent.click(await screen.findByRole('option', { name }));
+};
+
 describe('Phase 8 quotation pages', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -920,30 +986,12 @@ describe('Phase 8 quotation pages', () => {
   });
 
   it('creates from a visible lead and saved template', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-      async (input, options) => {
-        const url = String(input);
-        if (options?.method === 'POST') return response({ id: 'quotation-new' });
-        if (url.includes('/queries'))
-          return response(
-            page([
-              {
-                id: 'lead-1',
-                queryNumber: 'QRY-1',
-                customerName: 'Aarav',
-                phone: '+91 90000 00000',
-              },
-            ]),
-          );
-        return response(page([template]));
-      },
-    );
+    const fetchMock = leadSearchFetch();
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<NewQuotationPage />, {
       route: '/quotations/new?templateId=11111111-1111-4111-8111-111111111111',
     });
-    await screen.findByRole('option', { name: /QRY-1/ });
-    await userEvent.selectOptions(await screen.findByLabelText('Lead'), 'lead-1');
+    await pickLead(/Aarav Mehta/);
     await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
     await waitFor(() =>
       expect(
@@ -957,26 +1005,9 @@ describe('Phase 8 quotation pages', () => {
   });
 
   it('does not render the copied-safely informational line on Create Quotation', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-      async (input) => {
-        const url = String(input);
-        if (url.includes('/queries'))
-          return response(
-            page([
-              {
-                id: 'lead-1',
-                queryNumber: 'QRY-1',
-                customerName: 'Aarav',
-                phone: '+91 90000 00000',
-              },
-            ]),
-          );
-        return response(page([template]));
-      },
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', leadSearchFetch());
     renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
-    await screen.findByRole('option', { name: /QRY-1/ });
+    await openLeadList();
     expect(
       screen.queryByText(
         'Customer and traveller details are copied safely. Templates become independent snapshots.',
@@ -985,54 +1016,161 @@ describe('Phase 8 quotation pages', () => {
   });
 
   it('does not render the Start from section on Create Quotation', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-      async (input) => {
-        const url = String(input);
-        if (url.includes('/queries'))
-          return response(
-            page([
-              {
-                id: 'lead-1',
-                queryNumber: 'QRY-1',
-                customerName: 'Aarav',
-                phone: '+91 90000 00000',
-              },
-            ]),
-          );
-        return response(page([template]));
-      },
-    );
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', leadSearchFetch());
     renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
-    await screen.findByRole('option', { name: /QRY-1/ });
+    await openLeadList();
     expect(screen.queryByText('Start from')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Quotation template')).not.toBeInTheDocument();
     expect(screen.queryByText('Blank quotation / lead itinerary')).not.toBeInTheDocument();
   });
 
-  it('creates a blank quotation through the default path when no template is passed', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-      async (input, options) => {
-        const url = String(input);
-        if (options?.method === 'POST') return response({ id: 'quotation-blank' });
-        if (url.includes('/queries'))
-          return response(
-            page([
-              {
-                id: 'lead-1',
-                queryNumber: 'QRY-1',
-                customerName: 'Aarav',
-                phone: '+91 90000 00000',
-              },
-            ]),
-          );
-        return response(page([template]));
-      },
-    );
+  it('searches leads by customer name and shows the distinguishing detail line', async () => {
+    const fetchMock = leadSearchFetch();
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
-    await screen.findByRole('option', { name: /QRY-1/ });
-    await userEvent.selectOptions(await screen.findByLabelText('Lead'), 'lead-1');
+    await userEvent.type(await screen.findByLabelText('Lead'), 'Vikas');
+
+    // The unfiltered list holds both leads, so wait for the narrowed result.
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Vikas Singh/ })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /Aarav Mehta/ })).not.toBeInTheDocument();
+    });
+    const option = screen.getByRole('option', { name: /Vikas Singh/ });
+    expect(
+      within(option).getByText('QRY-1042 · 9876543210 · vikas@example.test'),
+    ).toBeInTheDocument();
+    expect(searchTerms(fetchMock)).toContain('Vikas');
+  });
+
+  it('searches leads by phone number and by email', async () => {
+    const fetchMock = leadSearchFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    const input = await screen.findByLabelText('Lead');
+
+    await userEvent.type(input, '9876543210');
+    await screen.findByRole('option', { name: /Vikas Singh/ });
+    await waitFor(() => expect(searchTerms(fetchMock)).toContain('9876543210'));
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'aarav@example.test');
+    await screen.findByRole('option', { name: /Aarav Mehta/ });
+    await waitFor(() => expect(searchTerms(fetchMock)).toContain('aarav@example.test'));
+  });
+
+  it('searches leads by lead/query id', async () => {
+    vi.stubGlobal('fetch', leadSearchFetch());
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await userEvent.type(await screen.findByLabelText('Lead'), 'QRY-1042');
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Vikas Singh/ })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /Aarav Mehta/ })).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows "No leads found" when the search matches nothing', async () => {
+    vi.stubGlobal('fetch', leadSearchFetch());
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await userEvent.type(await screen.findByLabelText('Lead'), 'Nobody');
+    expect(await screen.findByText('No leads found')).toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+  });
+
+  it('surfaces an error state when the lead search request fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 500,
+            json: async () => ({ success: false, message: 'Server error' }),
+          }) as Response,
+      ),
+    );
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await userEvent.click(await screen.findByLabelText('Lead'));
+    expect(await screen.findByText('Unable to search leads.')).toBeInTheDocument();
+  });
+
+  it('selecting a search result sets that lead and creates the quotation with its id', async () => {
+    const fetchMock = leadSearchFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+
+    await userEvent.type(await screen.findByLabelText('Lead'), 'Vikas');
+    await userEvent.click(await screen.findByRole('option', { name: /Vikas Singh/ }));
+
+    // The chosen lead is shown in the closed field...
+    expect(screen.getByLabelText('Lead')).toHaveValue('Vikas Singh · QRY-1042');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    // ...and the unchanged create action posts that lead's id.
+    await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, options]) => {
+          if (options?.method !== 'POST') return false;
+          const body = JSON.parse(String(options.body));
+          return body.queryId === 'lead-1042' && body.templateId === null;
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('searches only the leads the server makes visible to the caller', async () => {
+    // This caller may see one lead. The other exists in the tenant but is
+    // outside their visibility, so the server never returns it — and the
+    // combobox must therefore never offer it.
+    const fetchMock = leadSearchFetch([visibleLead]);
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+
+    await userEvent.type(await screen.findByLabelText('Lead'), 'Vikas');
+    expect(await screen.findByText('No leads found')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Vikas Singh/ })).not.toBeInTheDocument();
+
+    // Every lookup goes through the permission-scoped list endpoint; the field
+    // never reaches for an unscoped or bespoke search route.
+    const leadUrls = fetchMock.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.includes('/queries'));
+    expect(leadUrls.length).toBeGreaterThan(0);
+    for (const url of leadUrls) expect(url).toMatch(/\/api\/queries\?pageSize=\d+/);
+  });
+
+  it('locks the lead field to the route lead and still creates with it', async () => {
+    const fetchMock = leadSearchFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/queries/:queryId/quotations/new" element={<NewQuotationPage />} />
+      </Routes>,
+      { route: '/queries/lead-1/quotations/new' },
+    );
+
+    const input = await screen.findByLabelText('Lead');
+    await waitFor(() => expect(input).toHaveValue('Aarav Mehta · QRY-1'));
+    expect(input).toBeDisabled();
+    await userEvent.click(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, options]) => {
+          if (options?.method !== 'POST') return false;
+          return JSON.parse(String(options.body)).queryId === 'lead-1';
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it('creates a blank quotation through the default path when no template is passed', async () => {
+    const fetchMock = leadSearchFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<NewQuotationPage />, { route: '/quotations/new' });
+    await pickLead(/Aarav Mehta/);
     await userEvent.click(screen.getByRole('button', { name: 'Create quotation' }));
     await waitFor(() =>
       expect(
@@ -4921,7 +5059,7 @@ describe('Phase 8 quotation pages', () => {
   });
 
   it('sets the browser tab title from the quotation title and restores it on leave', async () => {
-    document.title = 'Interscale Travel CRM';
+    document.title = 'Travel CRM';
     const publicData = {
       company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
       quotation: {
@@ -4965,7 +5103,7 @@ describe('Phase 8 quotation pages', () => {
     await screen.findByText('Dubai Honeymoon Package');
     expect(document.title).toBe('Dubai Honeymoon Package');
     view.unmount();
-    expect(document.title).toBe('Interscale Travel CRM');
+    expect(document.title).toBe('Travel CRM');
   });
 
   it('falls back to the Quotation title when the quotation has no title', async () => {

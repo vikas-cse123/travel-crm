@@ -88,3 +88,16 @@ export function useUserAction() {
     onSuccess: () => qc.invalidateQueries({ queryKey: userKeys.all }),
   });
 }
+/** Owner-only administrative password set for another same-company user. */
+export function useSetUserPassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      apiClient.post<{ updated: boolean }>(`/users/${id}/set-password`, { password }),
+    onSuccess: (_data, { id }) => {
+      void qc.invalidateQueries({ queryKey: userKeys.all });
+      void qc.invalidateQueries({ queryKey: userKeys.detail(id) });
+      void qc.invalidateQueries({ queryKey: userKeys.activity(id) });
+    },
+  });
+}

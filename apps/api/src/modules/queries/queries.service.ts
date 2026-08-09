@@ -21,6 +21,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/erro
 import { resolvePagination } from '../../utils/pagination.js';
 import { localDayBounds, zonedTimeToUtc } from '../../utils/timezone.js';
 import { permissionsService } from '../auth/permissions.service.js';
+import { preferredPublicAppBaseUrl } from '../custom-domains/custom-domain.service.js';
 import { getVisibleCustomer, recalculateCustomerMetrics } from '../customers/customers.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
@@ -143,6 +144,7 @@ export function presentLeadRow(
   value: LeadListRow,
   caps: LeadRowCaps,
   weblinkViews: Map<string, number> = new Map(),
+  preferredPublicBaseUrl = env.WEB_URL.replace(/\/$/, ''),
 ) {
   const { quotations, bookings, ...rest } = value;
   const base = presentQuery(rest as IncludedQuery);
@@ -183,7 +185,7 @@ export function presentLeadRow(
             latestQuotation.publicToken &&
             (!latestQuotation.publicTokenExpiresAt ||
               latestQuotation.publicTokenExpiresAt >= new Date())
-              ? `${env.WEB_URL}/q/${latestQuotation.publicToken}`
+              ? `${preferredPublicBaseUrl}/q/${latestQuotation.publicToken}`
               : null,
           isGenerated: Boolean(
             latestQuotation.publicToken &&
@@ -354,16 +356,25 @@ export async function buildLeadListWhere(auth: AuthContext, q: Record<string, un
   // `< day-after-to` local midnight).
   const dateFilter = await buildLeadDateRangeFilter(auth, q);
   return visibleWhere(auth, {
+    // Nested under `AND` rather than sitting at the top level: `visibleWhere`
+    // spreads this object last, so a top-level `OR` here would replace the
+    // caller's own-leads-only visibility `OR` and widen the result set to the
+    // whole company. Keeping the search terms in their own `AND` branch lets
+    // both clauses apply together.
     ...(search
       ? {
-          OR: [
-            { queryNumber: { contains: search, mode: 'insensitive' } },
-            { customerName: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search } },
-            { alternatePhone: { contains: search } },
-            { email: { contains: search, mode: 'insensitive' } },
-            { departureCity: { contains: search, mode: 'insensitive' } },
-            { itinerary: { some: { destination: { contains: search, mode: 'insensitive' } } } },
+          AND: [
+            {
+              OR: [
+                { queryNumber: { contains: search, mode: 'insensitive' } },
+                { customerName: { contains: search, mode: 'insensitive' } },
+                { phone: { contains: search } },
+                { alternatePhone: { contains: search } },
+                { email: { contains: search, mode: 'insensitive' } },
+                { departureCity: { contains: search, mode: 'insensitive' } },
+                { itinerary: { some: { destination: { contains: search, mode: 'insensitive' } } } },
+              ],
+            },
           ],
         }
       : {}),
@@ -651,8 +662,12 @@ export const queriesService = {
       });
       for (const row of grouped) weblinkViews.set(row.quotationId, row._sum.viewCount ?? 0);
     }
+    // The customer-facing quotation hostname is the company's ACTIVE custom
+    // domain when one exists, else the platform WEB_URL. Resolved once per list
+    // so every weblink on the page uses the same preferred hostname.
+    const preferredPublicBaseUrl = await preferredPublicAppBaseUrl(auth.companyId);
     return {
-      data: data.map((row) => presentLeadRow(row, caps, weblinkViews)),
+      data: data.map((row) => presentLeadRow(row, caps, weblinkViews, preferredPublicBaseUrl)),
       pagination: { ...p, total, totalPages: total ? Math.ceil(total / p.pageSize) : 0 },
     };
   },

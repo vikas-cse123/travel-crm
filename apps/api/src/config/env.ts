@@ -84,7 +84,7 @@ const envSchema = z.object({
    * `console` prints to the log (development only).
    */
   EMAIL_PROVIDER: z.enum(['console', 'smtp', 'memory']).default('console'),
-  EMAIL_FROM: z.string().min(1).default('Interscale Travel CRM <no-reply@interscale.local>'),
+  EMAIL_FROM: z.string().min(1).default('Travel CRM <no-reply@interscale.local>'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),

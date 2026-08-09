@@ -10,6 +10,7 @@ import {
   followUpInputSchema,
   followUpUpdateSchema,
   LEAD_DATE_FILTER_TYPES,
+  leadImportSchema,
   noteInputSchema,
   noteUpdateSchema,
   PERMISSIONS,
@@ -157,6 +158,13 @@ router.post(
   requirePermission(PERMISSIONS.QUERIES_CREATE),
   validateRequest({ body: queryInputSchema }),
   asyncHandler(queriesController.create),
+);
+// Bulk CSV import: one request carries every mapped row (capped in the schema).
+router.post(
+  '/import',
+  requirePermission(PERMISSIONS.QUERIES_CREATE),
+  validateRequest({ body: leadImportSchema }),
+  asyncHandler(queriesController.importCsv),
 );
 // Registered before the /:queryId routes so these fixed paths are not captured.
 router.get(

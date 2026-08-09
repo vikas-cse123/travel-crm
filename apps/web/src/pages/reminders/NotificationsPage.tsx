@@ -86,29 +86,34 @@ export function NotificationsPage() {
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           {list.data.data.map((row) => (
+            // Wraps on phones: the actions block takes the full row width, so
+            // it drops to its own line under the icon + text instead of
+            // squeezing them. From sm up it sits inline exactly as before.
             <article
               key={row.id}
-              className={`flex gap-4 border-b p-4 last:border-b-0 ${row.status === 'UNREAD' ? 'bg-brand-50/50' : ''}`}
+              className={`flex flex-wrap gap-3 border-b p-4 last:border-b-0 sm:flex-nowrap sm:gap-4 ${row.status === 'UNREAD' ? 'bg-brand-50/50' : ''}`}
             >
               <div
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${row.severity === 'CRITICAL' ? 'bg-red-100 text-red-700' : row.severity === 'WARNING' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}
               >
                 <Bell className="h-5 w-5" />
               </div>
-              <div className="min-w-0 flex-1">
+              {/* basis-64 keeps the text a readable width on the wrapped mobile
+                  row; sm:basis-0 restores the original desktop flex sizing. */}
+              <div className="min-w-0 flex-1 basis-64 sm:basis-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-semibold text-slate-900">{row.title}</h2>
+                  <h2 className="min-w-0 break-words font-semibold text-slate-900">{row.title}</h2>
                   <Pill>{row.status}</Pill>
                   <span className="text-xs font-medium text-slate-500">
                     {row.category.replaceAll('_', ' ')}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-slate-600">{row.message}</p>
+                <p className="mt-1 break-words text-sm text-slate-600">{row.message}</p>
                 <p className="mt-2 text-xs text-slate-400">
                   {new Date(row.createdAt).toLocaleString()}
                 </p>
               </div>
-              <div className="flex shrink-0 items-start gap-1">
+              <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:items-start sm:gap-1">
                 {row.actionUrl && (
                   <Link to={row.actionUrl}>
                     <Button size="sm" variant="secondary">

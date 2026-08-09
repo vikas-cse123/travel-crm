@@ -16,13 +16,13 @@ export function RolesPage() {
   };
   return (
     <div className="space-y-5">
-      <header className="flex justify-between">
-        <div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <div className="min-w-0">
           <p className="text-sm text-slate-500">Users / Roles</p>
           <h1 className="text-2xl font-semibold">Roles</h1>
         </div>
         {hasPermission('roles.create') && (
-          <Link to="/roles/new">
+          <Link to="/roles/new" className="shrink-0">
             <Button>
               <Plus className="h-4 w-4" />
               New role
@@ -31,7 +31,7 @@ export function RolesPage() {
         )}
       </header>
       <div className="rounded-xl border bg-card">
-        <div className="flex gap-3 border-b p-4">
+        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
           <label className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4" />
             <input
@@ -45,7 +45,7 @@ export function RolesPage() {
             aria-label="Role type"
             value={p.get('isSystem') ?? ''}
             onChange={(e) => set('isSystem', e.target.value)}
-            className="rounded-lg border px-3"
+            className="h-10 rounded-lg border px-3 sm:h-auto"
           >
             <option value="">All roles</option>
             <option value="true">System</option>
@@ -65,7 +65,10 @@ export function RolesPage() {
         ) : !q.data?.data.length ? (
           <p className="p-10 text-center">No roles found.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Table from md up; stacked cards below it — a six-column table is
+                not readable at phone widths. */}
+            <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50">
                 <tr>
@@ -112,7 +115,59 @@ export function RolesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <ul className="divide-y md:hidden">
+              {q.data.data.map((r) => (
+                <li key={r.id} className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <Link
+                      className="min-w-0 break-words font-semibold text-brand-700"
+                      to={`/roles/${r.id}`}
+                    >
+                      {r.name}
+                    </Link>
+                    {r.isSystem && (
+                      <span className="shrink-0 rounded bg-blue-50 px-2 py-1 text-xs">System</span>
+                    )}
+                  </div>
+                  <dl className="space-y-1 text-sm">
+                    {[
+                      ['Hierarchy', r.hierarchyLevel],
+                      ['Permissions', r.permissionCount],
+                      ['Active users', r.activeUserCount],
+                      ['Type', r.isSystem ? 'System' : 'Custom'],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="flex justify-between gap-3">
+                        <dt className="text-slate-500">{label}</dt>
+                        <dd className="text-right font-medium">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {(hasPermission('roles.update') ||
+                    (hasPermission('roles.delete') && !r.isSystem)) && (
+                    <div className="flex flex-wrap gap-2">
+                      {hasPermission('roles.update') && (
+                        <Link to={`/roles/${r.id}/edit`}>
+                          <Button size="sm" variant="secondary">
+                            Edit
+                          </Button>
+                        </Link>
+                      )}
+                      {hasPermission('roles.delete') && !r.isSystem && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => window.confirm(`Delete ${r.name}?`) && del.mutate(r.id)}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </div>
