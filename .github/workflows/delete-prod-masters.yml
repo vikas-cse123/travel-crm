@@ -1,0 +1,120 @@
+name: Hard Delete Production Masters
+
+on:
+  workflow_dispatch:
+    inputs:
+      companyId:
+        description: 'Company id (UUID) whose destination/city master data should be permanently deleted'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-interscale-prod-masters
+
+      - name: Permanently delete destination/city masters in the production VPC
+        env:
+          COMPANY_ID: ${{ github.event.inputs.companyId }}
+        run: |
+          set -Eeuo pipefail
+          cluster="${{ vars.ECS_CLUSTER }}"
+          api_family="${{ vars.API_ECS_SERVICE }}"
+
+          net="$(aws ecs describe-services --cluster "$cluster" --services "$api_family" --query 'services[0].networkConfiguration.awsvpcConfiguration' --output json)"
+          subnets="$(printf '%s' "$net" | jq -r '.subnets | join(",")')"
+          sgs="$(printf '%s' "$net" | jq -r '.securityGroups | join(",")')"
+          assign_pub="$(printf '%s' "$net" | jq -r '.assignPublicIp')"
+
+          cat > /tmp/delete.cjs <<'EOF'
+          const { PrismaClient } = require('@prisma/client');
+          const p = new PrismaClient();
+          const companyId = process.argv[1];
+          const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (!uuidRe.test(companyId)) { console.error('INVALID_COMPANY_ID'); process.exit(1); }
+          const c = companyId;
+          const count = async (table) =>
+            (await p.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${table} WHERE "companyId" = $1::uuid`, c))[0].n;
+          (async () => {
+            console.log('PRE ' + JSON.stringify({
+              sightseeing: await count('sightseeings'),
+              hotels: await count('hotels'),
+              visa_types: await count('visa_types'),
+              destination_cities: await count('destination_cities'),
+              destinations: await count('destinations'),
+              cities: await count('cities'),
+            }));
+            await p.$transaction(async (tx) => {
+              const del = async (table) => tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE "companyId" = $1::uuid`, c);
+              await del('sightseeings');
+              await del('hotels');
+              await del('visa_types');
+              await del('destination_cities');
+              await del('destinations');
+              await del('cities');
+            });
+            console.log('POST ' + JSON.stringify({
+              sightseeing: await count('sightseeings'),
+              hotels: await count('hotels'),
+              visa_types: await count('visa_types'),
+              destination_cities: await count('destination_cities'),
+              destinations: await count('destinations'),
+              cities: await count('cities'),
+            }));
+            await p.$disconnect();
+          })().catch((e) => { console.error('DELETE_FAILED ' + (e && e.message ? e.message : String(e))); process.exit(1); });
+          EOF
+
+          task_json="$(aws ecs describe-task-definition --task-definition "$api_family" --query 'taskDefinition' --output json)"
+          td="$(
+            printf '%s' "$task_json" | jq --rawfile cmd /tmp/delete.cjs --arg companyId "$COMPANY_ID" '
+              del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+              | .family = "interscale-travel-crm-prod-masters"
+              | .containerDefinitions = (.containerDefinitions | map(
+                  .name = "delete"
+                  | .command = ["node", "apps/api/docker-entrypoint.mjs", "node", "-e", $cmd, $companyId]
+                ))
+            '
+          )"
+          td_file="$(mktemp)"
+          printf '%s' "$td" > "$td_file"
+          td_arn="$(aws ecs register-task-definition --cli-input-json "file://$td_file" --query 'taskDefinition.taskDefinitionArn' --output text)"
+          rm -f "$td_file"
+          echo "registered: $td_arn"
+
+          task_arn="$(aws ecs run-task --cluster "$cluster" --task-definition "$td_arn" --launch-type FARGATE --count 1 --network-configuration "awsvpcConfiguration={subnets=[${subnets}],securityGroups=[${sgs}],assignPublicIp=${assign_pub}}" --query 'tasks[0].taskArn' --output text)"
+          echo "delete task: $task_arn"
+
+          status="PENDING"
+          for _ in $(seq 1 60); do
+            status="$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].lastStatus' --output text)"
+            [ "$status" = "STOPPED" ] && break
+            sleep 10
+          done
+          [ "$status" = "STOPPED" ] || { echo "delete task did not stop in time" >&2; exit 1; }
+          code="$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task_arn" --query 'tasks[0].containers[0].exitCode' --output text)"
+          echo "delete task exit code: $code"
+
+          log_group="$(printf '%s' "$td" | jq -r '.containerDefinitions[0].logConfiguration.options["awslogs-group"] // empty')"
+          task_id="${task_arn##*/}"
+          stream="$(aws logs describe-log-streams --log-group-name "$log_group" --query "logStreams[?contains(logStreamName, '$task_id')].logStreamName" --output text | tr '\t' '\n' | head -1)"
+          echo "--- delete output ---"
+          if [ -n "$stream" ] && [ "$stream" != "None" ]; then
+            aws logs get-log-events --log-group-name "$log_group" --log-stream-name "$stream" --query 'events[].message' --output text || true
+          else
+            echo "(no log stream found for $task_id)"
+          fi
+          [ "$code" = "0" ] || exit 1
