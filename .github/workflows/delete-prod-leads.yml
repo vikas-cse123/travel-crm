@@ -51,12 +51,10 @@ jobs:
           const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
           if (!uuidRe.test(companyId)) { console.error('INVALID_COMPANY_ID'); process.exit(1); }
           if (assignedToId && !uuidRe.test(assignedToId)) { console.error('INVALID_ASSIGNEE_ID'); process.exit(1); }
-          const sql = assignedToId
-            ? 'UPDATE queries SET "deletedAt" = now() WHERE "companyId" = $1 AND "assignedToId" = $2 AND "deletedAt" IS NULL'
-            : 'UPDATE queries SET "deletedAt" = now() WHERE "companyId" = $1 AND "deletedAt" IS NULL';
+          const leadWhere = assignedToId ? '"companyId" = $1::uuid AND "assignedToId" = $2::uuid' : '"companyId" = $1::uuid';
           const args = assignedToId ? [companyId, assignedToId] : [companyId];
-          p.$executeRawUnsafe(sql, ...args)
-            .then((count) => { console.log('SOFT_DELETED_ROWS:' + count); return p.$disconnect(); })
+          p.$executeRawUnsafe(`DELETE FROM queries WHERE ${leadWhere}`, ...args)
+            .then((count) => { console.log('PERMANENTLY_DELETED_LEADS:' + count); return p.$disconnect(); })
             .catch((e) => { console.error('DELETE_FAILED ' + (e && e.message ? e.message : String(e))); process.exit(1); });
           EOF
 
