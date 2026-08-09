@@ -255,7 +255,7 @@ async function notify(
     entityType: 'QueryFollowUp',
     entityId: row.id,
     deduplicationKey: `reminder:${row.id}:${event}:${row.updatedAt.toISOString()}`,
-    channels: ['IN_APP', 'EMAIL'],
+    channels: ['IN_APP'],
   });
 }
 

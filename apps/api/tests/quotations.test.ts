@@ -1354,3 +1354,220 @@ describe('Phase 14 quotation master references', () => {
     expect(updated.body.data.services[0].sightseeingId).toBe(m.sightseeing.id);
   });
 });
+
+/**
+ * Per-activity informational pricing survives the full round-trip: save, reload,
+ * edit and Create Revision — and never reaches quotation totals.
+ */
+describe('Phase 8 quotation activity pricing', () => {
+  const sightseeing = (activities: unknown[]) => ({
+    include: true,
+    sectionTitle: 'Sightseeing & Experiences',
+    amount: 0,
+    description: null,
+    days: [
+      {
+        dayNumber: 1,
+        title: 'Day 1: Singapore highlights',
+        city: 'Singapore',
+        meals: { breakfast: false, lunch: false, dinner: false },
+        mealMode: 'INCLUDE_AT_HOTEL',
+        dailyTransfer: 'SHARED',
+        activities,
+      },
+    ],
+  });
+  const activitiesOf = (version: { sightseeingDetails?: { days?: Array<{ activities?: unknown[] }> } }) =>
+    (version.sightseeingDetails?.days?.[0]?.activities ?? []) as Array<{
+      name?: string;
+      dailyTransfer?: string | null;
+      pricingOptions?: Array<{ label: string; price: number }>;
+    }>;
+
+  it('saves, reloads and re-edits per-activity pricing without losing it', async () => {
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const version = quotation.versions[0];
+
+    const saved = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      sightseeingDetails: sightseeing([
+        {
+          name: 'Singapore Zoo',
+          description: '<p>Meet the animals.</p>',
+          dailyTransfer: 'SHARED',
+          pricingOptions: [
+            { label: 'Adult', price: 3500 },
+            // Untouched defaults and blank rows must not persist.
+            { label: 'Child', price: '' },
+            { label: 'Senior', price: null },
+            { label: '  Infant  ', price: 500 },
+          ],
+        },
+        {
+          name: 'Gardens by the Bay',
+          description: '<p>Evening show.</p>',
+          dailyTransfer: 'PRIVATE',
+          pricingOptions: [{ label: 'Adult', price: 1200 }],
+        },
+      ]),
+    });
+    expect(saved.status).toBe(200);
+
+    // Reload from the API — the snapshot round-trips exactly.
+    const reloaded = await client.get(`/api/quotations/${quotation.id}`);
+    const [zoo, gardens] = activitiesOf(
+      reloaded.body.data.versions.find((v: { id: string }) => v.id === version.id),
+    );
+    expect(zoo?.pricingOptions).toEqual([
+      { label: 'Adult', price: 3500 },
+      { label: 'Infant', price: 500 },
+    ]);
+    expect(gardens?.pricingOptions).toEqual([{ label: 'Adult', price: 1200 }]);
+
+    // Editing an unrelated field on the activity leaves pricing untouched.
+    const edited = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      sightseeingDetails: sightseeing([
+        {
+          name: 'Singapore Zoo (Morning)',
+          description: '<p>Meet the animals.</p>',
+          dailyTransfer: 'NO_TRANSFER',
+          pricingOptions: zoo?.pricingOptions,
+        },
+      ]),
+    });
+    expect(edited.status).toBe(200);
+    const afterEdit = activitiesOf(edited.body.data)[0];
+    expect(afterEdit?.name).toBe('Singapore Zoo (Morning)');
+    expect(afterEdit?.dailyTransfer).toBe('NO_TRANSFER');
+    expect(afterEdit?.pricingOptions).toEqual([
+      { label: 'Adult', price: 3500 },
+      { label: 'Infant', price: 500 },
+    ]);
+  });
+
+  it('rejects duplicate labels, missing labels and negative prices on save', async () => {
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const version = quotation.versions[0];
+    const save = (pricingOptions: unknown) =>
+      client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+        sightseeingDetails: sightseeing([{ name: 'Singapore Zoo', pricingOptions }]),
+      });
+
+    const duplicate = await save([
+      { label: 'Adult', price: 3500 },
+      { label: 'adult', price: 3600 },
+    ]);
+    expect(duplicate.status).toBe(400);
+
+    const noLabel = await save([{ label: '   ', price: 500 }]);
+    expect(noLabel.status).toBe(400);
+
+    const negative = await save([{ label: 'Adult', price: -1 }]);
+    expect(negative.status).toBe(400);
+  });
+
+  it('copies activity pricing into the version created by Create Revision', async () => {
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const first = quotation.versions[0];
+    // Creating a version (including a revision) requires the final day to be a
+    // departure day — a pre-existing rule, unrelated to pricing.
+    const withDepartureDay = {
+      ...sightseeing([
+        {
+          name: 'Singapore Zoo',
+          dailyTransfer: 'SHARED',
+          pricingOptions: [
+            { label: 'Adult', price: 3500 },
+            { label: 'Infant', price: 500 },
+          ],
+        },
+      ]),
+      days: [
+        sightseeing([
+          {
+            name: 'Singapore Zoo',
+            dailyTransfer: 'SHARED',
+            pricingOptions: [
+              { label: 'Adult', price: 3500 },
+              { label: 'Infant', price: 500 },
+            ],
+          },
+        ]).days[0],
+        {
+          ...sightseeing([{ name: 'Check Out and Departure', dailyTransfer: 'PRIVATE' }]).days[0],
+          dayNumber: 2,
+          title: 'Day 2: Departure',
+        },
+      ],
+    };
+    await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
+      sightseeingDetails: withDepartureDay,
+    });
+    await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`);
+
+    const revision = await client.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(revision.status).toBe(201);
+    expect(revision.body.data.versionNumber).toBe(2);
+
+    // The new version's snapshot carries the pricing across verbatim.
+    const copied = activitiesOf(revision.body.data)[0];
+    expect(copied?.name).toBe('Singapore Zoo');
+    expect(copied?.pricingOptions).toEqual([
+      { label: 'Adult', price: 3500 },
+      { label: 'Infant', price: 500 },
+    ]);
+
+    // And it is persisted, not just echoed.
+    const stored = await db.quotationVersion.findUniqueOrThrow({
+      where: { id: revision.body.data.id },
+      select: { sightseeingDetails: true },
+    });
+    const storedActivities = (
+      stored.sightseeingDetails as { days: Array<{ activities: Array<{ pricingOptions: unknown }> }> }
+    ).days[0]?.activities;
+    expect(storedActivities?.[0]?.pricingOptions).toEqual([
+      { label: 'Adult', price: 3500 },
+      { label: 'Infant', price: 500 },
+    ]);
+  });
+
+  it('keeps a pre-feature quotation working and leaves totals untouched', async () => {
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const version = quotation.versions[0];
+
+    // A snapshot written before this feature has no pricingOptions at all.
+    const legacy = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      sightseeingDetails: sightseeing([
+        { name: 'Legacy activity', description: '<p>Saved long ago.</p>', dailyTransfer: 'SHARED' },
+      ]),
+    });
+    expect(legacy.status).toBe(200);
+    expect(activitiesOf(legacy.body.data)[0]?.pricingOptions).toEqual([]);
+    const legacyTotal = legacy.body.data.finalAmount;
+
+    // Adding activity pricing must not move any money field.
+    const priced = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      sightseeingDetails: sightseeing([
+        {
+          name: 'Legacy activity',
+          description: '<p>Saved long ago.</p>',
+          dailyTransfer: 'SHARED',
+          pricingOptions: [
+            { label: 'Adult', price: 3500 },
+            { label: 'Child', price: 2500 },
+          ],
+        },
+      ]),
+    });
+    expect(priced.status).toBe(200);
+    expect(priced.body.data.finalAmount).toBe(legacyTotal);
+    expect(priced.body.data.subtotalSellingPrice).toBe(legacy.body.data.subtotalSellingPrice);
+    expect(priced.body.data.totalMarkup).toBe(legacy.body.data.totalMarkup);
+    expect(priced.body.data.taxAmount).toBe(legacy.body.data.taxAmount);
+  });
+});

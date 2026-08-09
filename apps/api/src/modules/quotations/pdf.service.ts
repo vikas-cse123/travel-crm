@@ -49,7 +49,8 @@ export const PDF_SIDE_MARGIN = 40;
 export const PDF_BOTTOM_MARGIN = 30;
 export const PDF_FOOTER_HEIGHT = 112;
 export const PDF_POST_CONTENT_GAP = 16;
-export const PDF_MIN_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
+/** Smallest practical page: preserves the full footer plus a usable body area. */
+export const PDF_MIN_PAGE_HEIGHT = 500;
 export const PDF_MAX_PAGE_HEIGHT = PDF_PAGE_HEIGHT;
 const M = PDF_SIDE_MARGIN;
 const TOP = PDF_TOP_MARGIN;
@@ -88,8 +89,10 @@ export const FOOTER_LINE_1_Y_OFF = 34;
 export const FOOTER_LINE_2_Y_OFF = 47;
 export const FOOTER_LINE_3_Y_OFF = 60;
 export const FOOTER_LINE_GAP = 13;
+/** Shared downward adjustment for the divider, logo, and footer information. */
+export const FOOTER_INFORMATION_Y_OFFSET = 10;
 export const PAGE_BADGE_H = 24;
-export const PAGE_BADGE_Y_OFF = FOOTER_H - 24;
+export const PAGE_BADGE_BOTTOM_GAP = 12;
 
 // Flight-card padding (points), shared by measurement and rendering.
 const FLIGHT_CARD_PADDING_X = 16;
@@ -213,6 +216,24 @@ function pdfTransferLabel(value: string | null | undefined): string | null {
   if (value === 'SHARED') return 'Shared Transfer';
   if (value === 'NO_TRANSFER') return 'No Transfer';
   return null;
+}
+
+/**
+ * Usable pricing rows for an activity: a real label with a real, finite,
+ * non-negative price. Pre-feature snapshots have no `pricingOptions` and yield
+ * an empty list, which renders nothing at all. Exported for tests.
+ */
+export function pdfActivityPrices(
+  rows: Array<{ label?: string | null; price?: number | string | null }> | null | undefined,
+): Array<{ label: string; price: number }> {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    const label = String(row?.label ?? '').trim();
+    if (!label || row?.price == null || row.price === '') return [];
+    const price = Number(row.price);
+    if (!Number.isFinite(price) || price < 0) return [];
+    return [{ label, price }];
+  });
 }
 
 type Img = Buffer | null | undefined;
@@ -370,6 +391,8 @@ type SightActivity = {
   imageUrl?: string | null;
   /** Per-activity transfer; legacy rows fall back to the day-level value. */
   dailyTransfer?: string | null;
+  /** Informational per-activity prices; absent on pre-feature snapshots. */
+  pricingOptions?: Array<{ label?: string | null; price?: number | string | null }> | null;
 };
 type SightDay = {
   dayNumber?: number;
@@ -397,15 +420,15 @@ export interface PdfPageLayout {
 }
 
 /**
- * Fixed A4 page layout. Every physical page is the same size (PDF_PAGE_HEIGHT),
- * and the footer is anchored to the physical bottom:
- *   footerTop = PDF_PAGE_HEIGHT - bottomMargin - footerHeight
- * so the footer sits at the same position on every page regardless of content.
- * Body content is confined above CONTENT_BOTTOM_LIMIT by the page planner.
+ * Content-aware page layout. The planner continues to use the A4 body limit,
+ * but sparse pages shrink vertically after their measured body content. The
+ * footer remains bottom-anchored on each individual physical page.
  */
 export function computePageHeight(contentHeight: number): PdfPageLayout {
-  const pageHeight = PDF_PAGE_HEIGHT;
-  const contentBottom = TOP + Math.min(contentHeight, CONTENT_BOTTOM_LIMIT - TOP);
+  const measuredContentHeight = Math.max(0, Math.min(contentHeight, PDF_MAX_CONTENT_HEIGHT));
+  const contentBottom = TOP + measuredContentHeight;
+  const requiredHeight = contentBottom + POST_GAP + FOOTER_H + BOTTOM_M;
+  const pageHeight = Math.min(PDF_MAX_PAGE_HEIGHT, Math.max(PDF_MIN_PAGE_HEIGHT, requiredHeight));
   const footerTop = pageHeight - BOTTOM_M - FOOTER_H;
   return { pageHeight, contentBottom, footerTop };
 }
@@ -529,20 +552,22 @@ function drawPageFooter(
   pageNumber: number,
   totalPages: number,
   footerTop: number,
+  pageHeight: number,
 ) {
   doc.save();
+  const footerInfoTop = footerTop + FOOTER_INFORMATION_Y_OFFSET;
   // Thin light-gray divider spanning the full usable content width.
   doc
     .lineWidth(0.8)
     .strokeColor(BORDER)
-    .moveTo(M, footerTop)
-    .lineTo(PDF_PAGE_WIDTH - M, footerTop)
+    .moveTo(M, footerInfoTop)
+    .lineTo(PDF_PAGE_WIDTH - M, footerInfoTop)
     .stroke();
 
-  const headingY = footerTop + FOOTER_HEADING_Y_OFF;
-  const line1Y = footerTop + FOOTER_LINE_1_Y_OFF;
-  const line2Y = footerTop + FOOTER_LINE_2_Y_OFF;
-  const line3Y = footerTop + FOOTER_LINE_3_Y_OFF;
+  const headingY = footerInfoTop + FOOTER_HEADING_Y_OFF;
+  const line1Y = footerInfoTop + FOOTER_LINE_1_Y_OFF;
+  const line2Y = footerInfoTop + FOOTER_LINE_2_Y_OFF;
+  const line3Y = footerInfoTop + FOOTER_LINE_3_Y_OFF;
 
   // Company logo (contain/fit, aspect preserved; invalid/missing → omitted).
   if (company?.logo) {
@@ -651,7 +676,7 @@ function drawPageFooter(
   doc.font('Bold').fontSize(9.5);
   const w = doc.widthOfString(label) + 26;
   const bx = PDF_PAGE_WIDTH - M - w;
-  const by = footerTop + PAGE_BADGE_Y_OFF;
+  const by = pageHeight - PAGE_BADGE_H - PAGE_BADGE_BOTTOM_GAP;
   doc.save().roundedRect(bx, by, w, PAGE_BADGE_H, 5).fill(GREEN).restore();
   doc.fillColor('#ffffff').text(label, bx, by + 6.5, { width: w, align: 'center', lineBreak: false });
   doc.restore();
@@ -687,11 +712,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     doc.on('error', reject);
   });
 
-  // Every physical page is the same fixed A4 size. Records the fixed footerTop
-  // so the footer pass uses one consistent position on every page.
+  // Each planned page retains A4 when content fills it, but sparse pages use a
+  // shorter physical MediaBox. Store the per-page footer position for the
+  // buffered footer pass and correct Page X/Y total.
   const pageMetrics: Array<{ pageHeight: number; footerTop: number }> = [];
-  const addMeasuredPage = (): void => {
-    const layout = computePageHeight(0);
+  const addMeasuredPage = (contentHeight: number): void => {
+    const layout = computePageHeight(contentHeight);
     doc.addPage({
       size: [PDF_PAGE_WIDTH, layout.pageHeight],
       margins: { top: 0, right: 0, bottom: BOTTOM_M + FOOTER_H, left: 0 },
@@ -1418,9 +1444,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       doc.font('Bold').fontSize(15);
       const titleH = doc.heightOfString(hotel.hotelName, { width: tw });
       const stars = Number((hotel.category || '').match(/\d+/)?.[0] ?? 0);
-      let textY = cardPadTop + 18 + titleH;
-      if (stars > 0) textY += 16;
-      textY += 4;
+      let textY = cardPadTop + titleH;
+      if (stars > 0) textY += 16 + 4;
+      // Keep the nights badge in the content flow, below the title/stars,
+      // rather than pinning it against the hotel name.
+      textY += 8 + 20 + 6;
       const rows = [
         hotel.city && `City: ${hotel.city}`,
         hotel.roomType && `Room Type: ${hotel.roomType}`,
@@ -1445,8 +1473,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           const top = y0;
           doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
           drawImage(images.hotels?.[i], M + cardPadX, top + cardPadTop, imageW, cardH - cardPadTop - cardPadBottom, 'Hotel');
-          badge(`Nights: ${stayNights}`, tx, top + cardPadTop, GREEN, '#ffffff');
-          let yy = top + cardPadTop + 18;
+          let yy = top + cardPadTop;
           doc.fillColor(DARK).font('Bold').fontSize(15).text(hotel.hotelName, tx, yy, { width: tw });
           yy = doc.y;
           if (stars > 0) {
@@ -1454,6 +1481,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             doc.fillColor(AMBER).font('Bold').fontSize(12).text('★'.repeat(Math.min(5, stars)), tx, yy);
             yy = doc.y + 4;
           }
+          yy += 8;
+          badge(`Nights: ${stayNights}`, tx, yy, GREEN, '#ffffff');
+          yy += 26;
           doc.fillColor(MUTED).font('Body').fontSize(10);
           rows.forEach((r) => {
             doc.text(r, tx, yy, { width: tw });
@@ -1557,6 +1587,30 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         }
         if (aTransfer) textColH += 6 + 20 + 6;
 
+        // Informational prices use a compact two-column grid. The shared
+        // measurement below is also used for rendering, so a wrapped label can
+        // never collide with the next activity or footer.
+        const aPrices = pdfActivityPrices(a.pricingOptions);
+        const pricingGap = 8;
+        const pricingPadX = 8;
+        const pricingPadY = 6;
+        const pricingCols = 2;
+        const pricingBoxW = (contentW - pricingGap) / pricingCols;
+        const pricingInnerW = pricingBoxW - pricingPadX * 2;
+        const pricingRows = Array.from({ length: Math.ceil(aPrices.length / pricingCols) }, (_, rowIndex) =>
+          aPrices.slice(rowIndex * pricingCols, rowIndex * pricingCols + pricingCols),
+        );
+        const pricingRowHeights = pricingRows.map((row) => {
+          doc.font('Body').fontSize(8.5);
+          const labelsH = row.map((price) => doc.heightOfString(price.label, { width: pricingInnerW }));
+          doc.font('Bold').fontSize(10);
+          const pricesH = row.map((price) => doc.heightOfString(money(price.price), { width: pricingInnerW }));
+          return Math.max(...row.map((_, index) => labelsH[index]! + 2 + pricesH[index]!), 0) + pricingPadY * 2;
+        });
+        const pricingGridH = pricingRowHeights.reduce((sum, height) => sum + height, 0) +
+          Math.max(0, pricingRowHeights.length - 1) * pricingGap;
+        if (aPrices.length) textColH += 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH;
+
         const blockH = Math.max(imgColH, textColH);
 
         planner.add({
@@ -1584,6 +1638,30 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
               yy += 6;
               badge(aTransfer, contentX, yy, AMBER, DARK);
               yy += 26;
+            }
+            if (aPrices.length) {
+              yy += 10;
+              doc
+                .font('Bold')
+                .fontSize(9)
+                .fillColor(MUTED)
+                .text('PRICING', contentX, yy, { width: contentW });
+              yy = doc.y + 4;
+              pricingRows.forEach((row, rowIndex) => {
+                const rowH = pricingRowHeights[rowIndex]!;
+                row.forEach((price, colIndex) => {
+                  const x = contentX + colIndex * (pricingBoxW + pricingGap);
+                  doc.save().roundedRect(x, yy, pricingBoxW, rowH, 3).fill('#F7F8FA').stroke(BORDER).restore();
+                  doc.font('Body').fontSize(8.5).fillColor(MUTED).text(price.label, x + pricingPadX, yy + pricingPadY, {
+                    width: pricingInnerW,
+                  });
+                  const priceY = doc.y + 2;
+                  doc.font('Bold').fontSize(10).fillColor(DARK).text(money(price.price), x + pricingPadX, priceY, {
+                    width: pricingInnerW,
+                  });
+                });
+                yy += rowH + pricingGap;
+              });
             }
             return y0 + blockH + 10;
           },
@@ -1698,15 +1776,17 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         return y0 + hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
       },
     });
-    policyBlocks.forEach(([title, col, lines]) => {
+    policyBlocks.forEach(([title, col, lines], index) => {
+      const sectionGap = index === 0 ? 0 : 16;
       planner.add({
-        height: hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4,
+        height: sectionGap + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4,
         keepWithNext: true,
         render: (y0) => {
-          doc.font('Bold').fontSize(14).fillColor(col).text(title.toUpperCase(), M, y0, {
+          const headingY = y0 + sectionGap;
+          doc.font('Bold').fontSize(14).fillColor(col).text(title.toUpperCase(), M, headingY, {
             width: CONTENT_W,
           });
-          return y0 + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
+          return headingY + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
         },
       });
       flowBlocks(lines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
@@ -1744,7 +1824,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   const planPages = planner.getPages();
   for (const page of planPages) {
-    addMeasuredPage();
+    addMeasuredPage(page.height);
     let yy = TOP;
     for (const block of page.blocks) yy = block.render(yy);
   }
@@ -1758,8 +1838,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   for (let i = 0; i < total; i += 1) {
     doc.switchToPage(range.start + i);
     doc.page.margins.bottom = 0; // critical: prevents auto-pagination
-    const footerTop = pageMetrics[i]?.footerTop ?? doc.page.height - BOTTOM_M - FOOTER_H;
-    drawPageFooter(doc, company, i + 1, total, footerTop);
+    const pageHeight = pageMetrics[i]?.pageHeight ?? doc.page.height;
+    const footerTop = pageMetrics[i]?.footerTop ?? pageHeight - BOTTOM_M - FOOTER_H;
+    drawPageFooter(doc, company, i + 1, total, footerTop, pageHeight);
   }
 
   doc.end();

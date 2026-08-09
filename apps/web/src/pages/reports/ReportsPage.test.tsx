@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PERMISSIONS } from '@interscale/shared';
 import { renderWithProviders } from '@/test/utils';
 import { NAV_ITEMS } from '@/components/layout/navigation';
 import { ReportsPage } from './ReportsPage';
@@ -409,12 +408,9 @@ beforeEach(() => {
 });
 
 describe('Phase 19 reports navigation and route', () => {
-  it('exposes an enabled Reports nav item guarded by reports.view', () => {
+  it('keeps Reports hidden from navigation while preserving its route', () => {
     const item = NAV_ITEMS.find((entry) => entry.label === 'Reports');
-    expect(item).toBeDefined();
-    expect(item?.to).toBe('/reports');
-    expect(item?.available).toBe(true);
-    expect(item?.permission).toBe(PERMISSIONS.REPORTS_VIEW);
+    expect(item).toBeUndefined();
   });
 
   it('renders the Overview tab by default with the period control', async () => {

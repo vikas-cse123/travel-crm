@@ -73,9 +73,9 @@ describe('Phase 18 settings page', () => {
     expect(screen.getByLabelText('TAN')).toHaveValue('ABC12345E');
     await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
     expect(await screen.findByLabelText('Timezone')).toHaveValue('Asia/Kolkata');
-    await userEvent.click(screen.getByRole('button', { name: 'Default Terms' }));
-    expect(await screen.findByLabelText('Default quotation terms')).toHaveValue('Pay in 7 days');
-    // Primary Colour and Bank Account are UI-hidden.
+    // Default Terms, Primary Colour and Bank Account are UI-hidden.
+    expect(screen.queryByRole('button', { name: 'Default Terms' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Default quotation terms')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Bank Account' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Primary colour hex')).not.toBeInTheDocument();
   });

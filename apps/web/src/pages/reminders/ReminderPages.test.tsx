@@ -175,6 +175,8 @@ describe('Phase 12 reminder pages', () => {
     renderWithProviders(<NotificationSettingsPage />);
     expect(await screen.findByText('Lead · New lead')).toBeInTheDocument();
     expect(screen.getByText('My notification preferences')).toBeInTheDocument();
+    expect(screen.getByText('IN_APP · Escalates')).toBeInTheDocument();
+    expect(screen.queryByText('IN_APP + EMAIL · Escalates')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /save preferences/i }));
     await waitFor(() =>
       expect(

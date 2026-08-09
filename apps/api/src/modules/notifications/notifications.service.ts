@@ -70,16 +70,12 @@ export async function deliverNotification(notificationId: string) {
     },
   });
   if (!notification) return;
+  // Reminder notifications are permanently in-app only. Keep historical email
+  // delivery rows unchanged, but never send them if a retry reaches this path.
+  if (notification.reminderId) return;
   const emailDelivery = notification.deliveries.find((entry) => entry.channel === 'EMAIL');
   if (!emailDelivery || emailDelivery.status === 'SENT' || emailDelivery.status === 'SKIPPED')
     return;
-  if (!env.REMINDER_EMAIL_ENABLED) {
-    await prisma.notificationDelivery.update({
-      where: { id: emailDelivery.id },
-      data: { status: 'SKIPPED', lastError: 'Reminder email delivery is disabled.' },
-    });
-    return;
-  }
   try {
     await emailService.sendMessage({
       to: notification.recipient.email,
@@ -102,7 +98,7 @@ export async function deliverNotification(notificationId: string) {
         nextAttemptAt: attempts < 3 ? new Date(Date.now() + attempts * 15 * 60_000) : null,
       },
     });
-    logger.error({ err: error, notificationId }, 'Reminder notification email failed');
+    logger.error({ err: error, notificationId }, 'Notification email failed');
   }
 }
 
@@ -127,7 +123,11 @@ export const notificationsService = {
     });
     const categoryKey = categoryPreference(input.category);
     if (preference && categoryKey && !preference[categoryKey]) return null;
-    const channels = input.channels ?? ['IN_APP'];
+    // Every CRM reminder is delivered through the notification inbox/browser
+    // only, regardless of rule channels stored in existing database records.
+    const channels: NotificationDeliveryChannel[] = input.reminderId
+      ? ['IN_APP']
+      : (input.channels ?? ['IN_APP']);
     const allowedChannels = channels.filter((channel) => {
       if (channel === 'IN_APP') return preference?.inAppEnabled ?? true;
       return (
@@ -320,6 +320,7 @@ export const notificationsService = {
         status: { in: ['PENDING', 'FAILED'] },
         attempts: { lt: 3 },
         OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+        notification: { is: { reminderId: null } },
       },
       select: { notificationId: true },
       take: env.REMINDER_WORKER_BATCH_SIZE,

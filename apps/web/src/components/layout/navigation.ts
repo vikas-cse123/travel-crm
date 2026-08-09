@@ -41,6 +41,8 @@ export const SHOW_VISA_TYPES_MASTER_NAVIGATION = false;
 // permissions and data are untouched.
 export const SHOW_QUOTATION_TEMPLATES_NAVIGATION = false;
 export const SHOW_BOOKINGS_NAVIGATION = false;
+export const SHOW_ACTIVITY_LOGS_NAVIGATION = false;
+export const SHOW_REPORTS_NAVIGATION = false;
 
 /**
  * Sidebar navigation sections. Items are grouped into these headings so the
@@ -344,22 +346,30 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permission: PERMISSIONS.PERMISSION_TEMPLATES_VIEW,
     section: NAV_SECTION.ADMINISTRATION,
   },
-  {
-    label: 'Activity Logs',
-    to: '/activity-logs',
-    icon: History,
-    available: true,
-    permission: PERMISSIONS.ACTIVITY_LOGS_VIEW,
-    section: NAV_SECTION.ADMINISTRATION,
-  },
-  {
-    label: 'Reports',
-    to: '/reports',
-    icon: ChartNoAxesCombined,
-    available: true,
-    permission: PERMISSIONS.REPORTS_VIEW,
-    section: NAV_SECTION.ADMINISTRATION,
-  },
+  ...(SHOW_ACTIVITY_LOGS_NAVIGATION
+    ? [
+        {
+          label: 'Activity Logs',
+          to: '/activity-logs',
+          icon: History,
+          available: true,
+          permission: PERMISSIONS.ACTIVITY_LOGS_VIEW,
+          section: NAV_SECTION.ADMINISTRATION,
+        },
+      ]
+    : []),
+  ...(SHOW_REPORTS_NAVIGATION
+    ? [
+        {
+          label: 'Reports',
+          to: '/reports',
+          icon: ChartNoAxesCombined,
+          available: true,
+          permission: PERMISSIONS.REPORTS_VIEW,
+          section: NAV_SECTION.ADMINISTRATION,
+        },
+      ]
+    : []),
   {
     label: 'Settings',
     to: '/settings',

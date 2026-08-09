@@ -151,6 +151,8 @@ export interface SightseeingActivity {
   city?: string | null;
   description?: string | null;
   imageUrl?: string | null;
+  /** Informational per-activity prices; absent on pre-feature snapshots. */
+  pricingOptions?: Array<{ label: string; price: number }>;
   sequence?: number | null;
 }
 export type SightseeingMealMode = 'NO_TRANSFER' | 'INCLUDE_AT_HOTEL' | 'WITH_TRANSFER';

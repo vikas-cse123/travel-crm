@@ -76,6 +76,7 @@ describe('Phase 12 reminders, notifications and automation', () => {
       await db.reminderRule.count({ where: { companyId: ownerUser.companyId } }),
     ).toBeGreaterThan(10);
 
+    getMemoryEmailProvider()?.clear();
     const created = await client.post('/api/reminders', reminderPayload(ownerUser.id));
     expect(created.status).toBe(201);
     expect(created.body.data).toMatchObject({
@@ -97,7 +98,13 @@ describe('Phase 12 reminders, notifications and automation', () => {
       await db.notificationDelivery.count({
         where: { notification: { reminderId: created.body.data.id } },
       }),
-    ).toBe(2);
+    ).toBe(1);
+    expect(
+      await db.notificationDelivery.count({
+        where: { notification: { reminderId: created.body.data.id }, channel: 'EMAIL' },
+      }),
+    ).toBe(0);
+    expect(getMemoryEmailProvider()?.all()).toEqual([]);
 
     expect(
       (
@@ -226,8 +233,10 @@ describe('Phase 12 reminders, notifications and automation', () => {
     const rule = await db.reminderRule.findFirstOrThrow({
       where: { companyId: user.companyId, ruleType: 'LEAD_STAGE', leadStage: 'NEW_LEAD' },
     });
+    expect(rule.channels).toContain('EMAIL');
     const preview = await client.get(`/api/reminder-rules/${rule.id}/preview`);
     expect(preview.body.data.eligible).toBeGreaterThan(0);
+    getMemoryEmailProvider()?.clear();
     await reminderProcessor.processCompany(user.companyId, { ruleId: rule.id });
     await reminderProcessor.processCompany(user.companyId, { ruleId: rule.id });
     expect(
@@ -240,6 +249,15 @@ describe('Phase 12 reminders, notifications and automation', () => {
         where: { companyId: user.companyId, ruleId: rule.id, entityId: lead.body.data.id },
       }),
     ).toBe(1);
+    expect(
+      await db.notificationDelivery.count({
+        where: {
+          channel: 'EMAIL',
+          notification: { reminder: { is: { reminderRuleId: rule.id, queryId: lead.body.data.id } } },
+        },
+      }),
+    ).toBe(0);
+    expect(getMemoryEmailProvider()?.all()).toEqual([]);
     expect((await client.post(`/api/reminder-rules/${rule.id}/run-preview`)).status).toBe(200);
   });
 });

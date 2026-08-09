@@ -6,7 +6,7 @@ import {
   type UseFormReturn,
 } from 'react-hook-form';
 import { Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
-import type { QuotationVersionInput } from '@interscale/shared';
+import { SIGHTSEEING_DEFAULT_PRICE_LABELS, type QuotationVersionInput } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { SightseeingActivitySelect, type SightseeingSelectOption } from '@/components/ui/SightseeingActivitySelect';
@@ -33,6 +33,49 @@ type Form = UseFormReturn<QuotationVersionInput>;
 type SightDay = NonNullable<QuotationVersionInput['sightseeingDetails']>['days'][number];
 type SightActivity = SightDay['activities'][number];
 
+type SightPriceRow = SightActivity['pricingOptions'][number];
+
+/** The three default rows, blank. Blank rows are dropped on save by the schema. */
+const emptyPricingRows = (): SightPriceRow[] =>
+  SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label) => ({ label, price: null as never }));
+
+const priceLabelKey = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const isDefaultPriceLabel = (value: unknown) =>
+  SIGHTSEEING_DEFAULT_PRICE_LABELS.some((label) => label.toLowerCase() === priceLabelKey(value));
+
+/**
+ * Shape a saved activity's pricing for editing: Adult/Child/Senior always
+ * present (and in that order) at the head, every other saved row kept after
+ * them in its saved order. Activities saved before this feature have no
+ * `pricingOptions` at all and simply get the three blank defaults.
+ */
+export const withDefaultPricingRows = (rows?: SightPriceRow[] | null): SightPriceRow[] => {
+  const saved = Array.isArray(rows) ? rows : [];
+  const defaults = SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label) => {
+    const match = saved.find((row) => priceLabelKey(row?.label) === label.toLowerCase());
+    return { label, price: (match?.price ?? null) as never };
+  });
+  return [...defaults, ...saved.filter((row) => !isDefaultPriceLabel(row?.label))];
+};
+
+/**
+ * Apply {@link withDefaultPricingRows} to every activity of a saved snapshot so
+ * reopening a quotation shows the default price boxes with their saved values.
+ */
+export const withSightseeingPricingRows = <T,>(details: T): T => {
+  const source = details as { days?: Array<{ activities?: unknown[] }> };
+  return {
+    ...details,
+    days: (source.days ?? []).map((day) => ({
+      ...day,
+      activities: (day.activities ?? []).map((activity) => {
+        const row = (activity ?? {}) as { pricingOptions?: SightPriceRow[] | null };
+        return { ...row, pricingOptions: withDefaultPricingRows(row.pricingOptions) };
+      }),
+    })),
+  } as T;
+};
+
 export const emptySightseeingActivity = (): SightActivity => ({
   sightseeingId: null,
   name: null,
@@ -42,6 +85,7 @@ export const emptySightseeingActivity = (): SightActivity => ({
   description: null,
   imageUrl: null,
   dailyTransfer: null,
+  pricingOptions: emptyPricingRows(),
   sequence: null,
 });
 
@@ -79,6 +123,155 @@ function ActivityThumb({ imageUrl }: { imageUrl?: string | null }) {
   return (
     <div className="flex h-full w-full items-center justify-center rounded-md bg-slate-100 text-slate-400">
       <ImageIcon className="h-6 w-6" />
+    </div>
+  );
+}
+
+/**
+ * Per-activity informational pricing.
+ *
+ * Adult/Child/Senior occupy the first three slots of the same `pricingOptions`
+ * array every custom row lives in — they are not separate fields, they just
+ * always render. Leaving one blank persists nothing; the shared schema drops
+ * unfilled rows and reports duplicates/negatives at their array index, which is
+ * what the inline errors below read.
+ */
+function ActivityPricing({
+  form,
+  dayIndex,
+  activityIndex,
+  ariaPrefix,
+}: {
+  form: Form;
+  dayIndex: number;
+  activityIndex: number;
+  ariaPrefix: string;
+}) {
+  const name =
+    `sightseeingDetails.days.${dayIndex}.activities.${activityIndex}.pricingOptions` as const;
+  const rows = useFieldArray({ control: form.control, name });
+  const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
+  // null rather than 0 so an untouched price stays visibly blank. Also runs on
+  // mount against the stored value, so it must tolerate null/number, not just
+  // the string an <input> hands back.
+  const asPrice = (value: unknown) => {
+    if (value == null) return null;
+    const text = String(value).trim();
+    if (text === '') return null;
+    const parsed = Number(text);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+  const errorAt = (index: number, key: 'label' | 'price') => {
+    const list = form.formState.errors.sightseeingDetails?.days?.[dayIndex]?.activities?.[
+      activityIndex
+    ]?.pricingOptions as Array<Record<string, { message?: string }>> | undefined;
+    return list?.[index]?.[key]?.message;
+  };
+
+  const defaultCount = SIGHTSEEING_DEFAULT_PRICE_LABELS.length;
+  const customRows = rows.fields.slice(defaultCount);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+      <p className={labelCls}>Activity Pricing</p>
+      {/* One column on phones — three narrow price boxes are unreadable there. */}
+      <div className="mt-2 grid gap-3 sm:grid-cols-3">
+        {SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label, index) => (
+          <label key={label} className="block text-xs font-medium text-slate-600">
+            {label} Price
+            <div className="relative mt-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                ₹
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                aria-label={`${ariaPrefix} ${label.toLowerCase()} price`}
+                className={`${field} pl-7`}
+                {...form.register(fp(`${name}.${index}.price`), { setValueAs: asPrice })}
+              />
+            </div>
+            {errorAt(index, 'price') && (
+              <span className="mt-1 block text-xs font-normal text-red-600">
+                {errorAt(index, 'price')}
+              </span>
+            )}
+          </label>
+        ))}
+      </div>
+
+      {customRows.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {customRows.map((row, offset) => {
+            const index = defaultCount + offset;
+            return (
+              <div
+                key={row.id}
+                className="grid gap-2 sm:grid-cols-[1fr_170px_auto] sm:items-end"
+              >
+                <label className="block text-xs font-medium text-slate-600">
+                  Label
+                  <input
+                    aria-label={`${ariaPrefix} price option ${offset + 1} label`}
+                    placeholder="e.g. Infant"
+                    className={`${field} mt-1`}
+                    {...form.register(fp(`${name}.${index}.label`))}
+                  />
+                  {errorAt(index, 'label') && (
+                    <span className="mt-1 block text-xs font-normal text-red-600">
+                      {errorAt(index, 'label')}
+                    </span>
+                  )}
+                </label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Price
+                  <div className="relative mt-1">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                      ₹
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      aria-label={`${ariaPrefix} price option ${offset + 1} price`}
+                      className={`${field} pl-7`}
+                      {...form.register(fp(`${name}.${index}.price`), { setValueAs: asPrice })}
+                    />
+                  </div>
+                  {errorAt(index, 'price') && (
+                    <span className="mt-1 block text-xs font-normal text-red-600">
+                      {errorAt(index, 'price')}
+                    </span>
+                  )}
+                </label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="w-full text-red-600 sm:w-auto"
+                  aria-label={`Remove ${ariaPrefix} price option ${offset + 1}`}
+                  onClick={() => rows.remove(index)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="sm:hidden">Remove</span>
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-3">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => rows.append({ label: '', price: null } as never)}
+        >
+          <Plus className="h-4 w-4" /> Add Price Option
+        </Button>
+      </div>
     </div>
   );
 }
@@ -389,6 +582,12 @@ function DayCard({
                     })}
                   </div>
                 </div>
+                <ActivityPricing
+                  form={form}
+                  dayIndex={dayIndex}
+                  activityIndex={aIndex}
+                  ariaPrefix={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
+                />
                 {activities.fields.length > 1 && (
                   <div className="flex justify-end">
                     <Button

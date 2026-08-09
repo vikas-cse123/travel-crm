@@ -289,6 +289,86 @@ export const sightseeingMealPreferencesSchema = z
   })
   .default({});
 
+/**
+ * Default price rows the builder offers on every activity. They are only UI
+ * seeds — nothing distinguishes them from a user-added row once saved, and an
+ * untouched one is never persisted.
+ */
+export const SIGHTSEEING_DEFAULT_PRICE_LABELS = ['Adult', 'Child', 'Senior'] as const;
+
+/** Max pricing rows on a single activity. */
+const SIGHTSEEING_PRICE_OPTIONS_MAX = 20;
+
+/**
+ * How a pricing row may arrive: the builder's number inputs hand back strings
+ * (or null once cleared), while a saved snapshot round-trips real numbers.
+ */
+const rawSightseeingPriceOptionSchema = z.object({
+  label: z.string().max(60).nullish(),
+  price: z.union([z.string(), z.number()]).nullish(),
+});
+
+const isBlankPriceValue = (value: unknown) =>
+  value == null || (typeof value === 'string' && value.trim() === '');
+
+/** Parsed price, or null when the input was left empty. */
+const parsePriceValue = (value: unknown): number | null => {
+  if (isBlankPriceValue(value)) return null;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+/**
+ * Informational per-activity pricing — Adult/Child/Senior and any custom row
+ * all live in this one array.
+ *
+ * Rows are validated at their original index so the builder can attach inline
+ * errors, then normalised on the way out: labels trimmed, untouched rows
+ * dropped. An empty default therefore never persists as `{ label: 'Child',
+ * price: 0 }`. These prices are display-only and never feed quotation totals.
+ */
+export const sightseeingPricingOptionsSchema = z
+  .array(rawSightseeingPriceOptionSchema)
+  .max(SIGHTSEEING_PRICE_OPTIONS_MAX)
+  .optional()
+  .superRefine((rows, ctx) => {
+    if (!rows) return;
+    const seen = new Set<string>();
+    rows.forEach((row, index) => {
+      const label = (row.label ?? '').trim();
+      const price = parsePriceValue(row.price);
+      // A row the user never filled in is dropped below, not reported.
+      if (!label && price === null) return;
+      if (!label)
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Add a label for this price.',
+          path: [index, 'label'],
+        });
+      if (price !== null && (!Number.isFinite(price) || price < 0 || price > 999_999_999_999))
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Enter a price of 0 or more.',
+          path: [index, 'price'],
+        });
+      const key = label.toLowerCase();
+      if (!key) return;
+      if (seen.has(key))
+        ctx.addIssue({
+          code: 'custom',
+          message: `"${label}" is already priced on this activity.`,
+          path: [index, 'label'],
+        });
+      seen.add(key);
+    });
+  })
+  .transform((rows) =>
+    (rows ?? [])
+      .map((row) => ({ label: (row.label ?? '').trim(), price: parsePriceValue(row.price) }))
+      // Persist only meaningful rows — a real label with a real price.
+      .filter((row): row is { label: string; price: number } => Boolean(row.label) && row.price !== null),
+  );
+
 /** Reference "Sightseeing" tab — one attraction/activity within a day. */
 export const sightseeingActivitySchema = z.object({
   sightseeingId: z.string().uuid().nullable().optional(),
@@ -301,8 +381,12 @@ export const sightseeingActivitySchema = z.object({
   // Per-activity transfer (PRIVATE/SHARED/NO_TRANSFER). Absent on legacy rows,
   // which fall back to the day-level dailyTransfer when displayed.
   dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).nullish(),
+  // Absent on every activity saved before this feature; read as [].
+  pricingOptions: sightseeingPricingOptionsSchema,
   sequence: z.number().int().min(1).max(500).nullable().optional(),
 });
+
+export type SightseeingPriceOption = { label: string; price: number };
 
 export const sightseeingDaySchema = z.object({
   dayNumber: z.coerce.number().int().min(1).max(365),

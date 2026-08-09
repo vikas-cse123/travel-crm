@@ -254,7 +254,7 @@ export function QuotationDetailsPage() {
                   onClick={handleGeneratePdf}
                 >
                   <FileText className="h-4 w-4" />
-                  {generatePdf.isPending ? 'Generating PDF…' : 'Generate PDF'}
+                  {generatePdf.isPending ? 'Generating PDF…' : 'Download PDF'}
                 </Button>
               )}
             {current?.status !== 'DRAFT' && (

@@ -490,7 +490,7 @@ async function processDue(companyId: string) {
       entityType: 'ReminderEscalation',
       entityId: escalation.id,
       deduplicationKey: key,
-      channels: ['IN_APP', 'EMAIL'],
+      channels: ['IN_APP'],
     });
   }
   return due.length;

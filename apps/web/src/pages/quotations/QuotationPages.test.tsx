@@ -760,7 +760,7 @@ describe('Phase 8 quotation pages', () => {
     );
     expect(await screen.findByText('Version 1')).toBeInTheDocument();
     expect(screen.getByText('QT-2026-000001-v1.pdf')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-pdf'))).toBe(
         true,
@@ -9558,7 +9558,7 @@ describe('Generate PDF button — real request, open, loading and error states',
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     await waitFor(() => expect(anchorClickSpy).toHaveBeenCalled());
     const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
     expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
@@ -9583,13 +9583,13 @@ describe('Generate PDF button — real request, open, loading and error states',
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'PDF generation failed. Please try again.',
     );
     expect(anchorClickSpy).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Generate PDF' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
   });
 
   it('starts no new tab or popup for the Generate PDF download', async () => {
@@ -9606,14 +9606,14 @@ describe('Generate PDF button — real request, open, loading and error states',
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true),
     );
     // Generate PDF triggers a download — no window.open, no new tab/popup.
     expect(openSpy).not.toHaveBeenCalled();
     // The Generate PDF control itself is a plain button, not a link.
-    const genButton = screen.getByRole('button', { name: 'Generate PDF' });
+    const genButton = screen.getByRole('button', { name: 'Download PDF' });
     expect(genButton.tagName).toBe('BUTTON');
   });
 
@@ -9627,9 +9627,220 @@ describe('Generate PDF button — real request, open, loading and error states',
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     const busy = await screen.findByRole('button', { name: /Generating PDF/ });
     expect(busy).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(1);
+  });
+});
+
+/**
+ * Per-activity informational pricing on the customer-facing weblink.
+ *
+ * An activity with no usable prices must look exactly as it did before this
+ * feature existed — no heading, no placeholder, no ₹0 row.
+ */
+describe('Public weblink — activity pricing', () => {
+  const pricingBaseVersion = {
+    title: 'Singapore Escape',
+    versionNumber: 1,
+    currency: 'INR',
+    finalAmount: '100',
+    hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+    hotels: [],
+    services: [],
+    itinerary: [],
+    inclusions: [],
+    exclusions: [],
+    terms: [],
+  };
+
+  const renderWithActivities = async (activities: unknown[]) => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async () =>
+        response({
+          company: {
+            name: 'Alpha Travel',
+            email: 'a@b.test',
+            phone: null,
+            website: null,
+            address: null,
+            primaryColor: '#2563eb',
+          },
+          quotation: {
+            quotationNumber: 'QT-2026-000003',
+            customerName: 'Mira Shah',
+            destinationSummary: 'Singapore',
+            travelStartDate: null,
+            travelEndDate: null,
+            adults: 3,
+            childrenWithBed: 0,
+            childrenWithoutBed: 0,
+            infants: 0,
+            rooms: 1,
+            validUntil: null,
+            status: 'VIEWED',
+          },
+          version: {
+            ...pricingBaseVersion,
+            sightseeingDetails: {
+              include: true,
+              sectionTitle: 'Sightseeing & Experiences',
+              amount: 0,
+              description: null,
+              days: [
+                {
+                  dayNumber: 1,
+                  title: 'Day 1: Singapore highlights',
+                  city: 'Singapore',
+                  meals: { breakfast: false, lunch: false, dinner: false },
+                  mealMode: 'INCLUDE_AT_HOTEL',
+                  dailyTransfer: 'SHARED',
+                  activities,
+                },
+              ],
+            },
+          },
+          downloadUrl: null,
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Singapore Zoo');
+  };
+
+  it('renders populated prices with the quotation currency', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        startTime: '09:00',
+        dailyTransfer: 'SHARED',
+        pricingOptions: [
+          { label: 'Adult', price: 3500 },
+          { label: 'Child', price: 2500 },
+          { label: 'Infant', price: 500 },
+        ],
+      },
+    ]);
+    expect(screen.getByText('Pricing')).toBeInTheDocument();
+    for (const [label, amount] of [
+      ['Adult', '₹3,500'],
+      ['Child', '₹2,500'],
+      ['Infant', '₹500'],
+    ]) {
+      const term = screen.getByText(label as string);
+      expect(term.nextElementSibling).toHaveTextContent(amount as string);
+    }
+  });
+
+  it('renders custom labels exactly as entered', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        pricingOptions: [
+          { label: 'Foreign National', price: 4500 },
+          { label: 'Child 5–12 Years', price: 1500 },
+        ],
+      },
+    ]);
+    expect(screen.getByText('Foreign National')).toBeInTheDocument();
+    expect(screen.getByText('Child 5–12 Years')).toBeInTheDocument();
+  });
+
+  it('shows only the populated row when pricing is partial', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        pricingOptions: [{ label: 'Adult', price: 3500 }],
+      },
+    ]);
+    expect(screen.getByText('Pricing')).toBeInTheDocument();
+    expect(screen.getByText('Adult')).toBeInTheDocument();
+    expect(screen.queryByText('Child')).not.toBeInTheDocument();
+    expect(screen.queryByText('Senior')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing at all when the activity has no pricing', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        dailyTransfer: 'SHARED',
+        pricingOptions: [],
+      },
+    ]);
+    expect(screen.queryByText('Pricing')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹0')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹—')).not.toBeInTheDocument();
+    // The rest of the activity is untouched.
+    expect(screen.getByText('Shared Transfer')).toBeInTheDocument();
+  });
+
+  it('renders nothing for a pre-feature activity with no pricingOptions key', async () => {
+    await renderWithActivities([
+      { name: 'Singapore Zoo', description: '<p>Meet the animals.</p>', dailyTransfer: 'SHARED' },
+    ]);
+    expect(screen.getByText('Singapore Zoo')).toBeInTheDocument();
+    expect(screen.queryByText('Pricing')).not.toBeInTheDocument();
+  });
+
+  it('drops half-filled and invalid rows instead of showing blanks or ₹0', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        pricingOptions: [
+          { label: 'Adult', price: 3500 },
+          { label: 'Child', price: null },
+          { label: '  ', price: 900 },
+          { label: 'Bad', price: -10 },
+        ],
+      },
+    ]);
+    expect(screen.getByText('Adult')).toBeInTheDocument();
+    expect(screen.queryByText('Child')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bad')).not.toBeInTheDocument();
+  });
+
+  it('keeps pricing per activity when a day has several', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        pricingOptions: [{ label: 'Adult', price: 3500 }],
+      },
+      {
+        name: 'Gardens by the Bay',
+        description: '<p>Evening show.</p>',
+        pricingOptions: [{ label: 'Adult', price: 1200 }],
+      },
+    ]);
+    const prices = screen.getAllByText('Adult').map((el) => el.nextElementSibling?.textContent);
+    expect(prices).toEqual(['₹3,500', '₹1,200']);
+  });
+
+  it('does not add activity pricing to the quotation total', async () => {
+    await renderWithActivities([
+      {
+        name: 'Singapore Zoo',
+        description: '<p>Meet the animals.</p>',
+        pricingOptions: [
+          { label: 'Adult', price: 3500 },
+          { label: 'Child', price: 2500 },
+        ],
+      },
+    ]);
+    // 3 adults × ₹3,500 must not appear anywhere; the total stays ₹100.
+    expect(screen.queryByText('₹10,500')).not.toBeInTheDocument();
+    expect(screen.queryByText('₹16,000')).not.toBeInTheDocument();
+    expect(screen.getAllByText('₹100').length).toBeGreaterThan(0);
   });
 });

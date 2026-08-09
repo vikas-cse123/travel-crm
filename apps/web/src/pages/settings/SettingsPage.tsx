@@ -28,13 +28,14 @@ const card = 'rounded-xl border bg-card p-5 shadow-sm space-y-4';
  */
 const SHOW_PRIMARY_COLOUR_SETTING = false;
 const SHOW_BANK_ACCOUNT_SETTINGS = false;
+const SHOW_DEFAULT_TERMS_SETTINGS = false;
 
 const TABS = [
   ['profile', 'Company Profile'],
   ['branding', 'Branding'],
   ['tax', 'Tax'],
   ['preferences', 'Preferences'],
-  ['terms', 'Default Terms'],
+  ...(SHOW_DEFAULT_TERMS_SETTINGS ? ([['terms', 'Default Terms']] as const) : []),
   ['custom-domain', 'Custom Domain'],
   ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
 ] as const;
@@ -583,6 +584,7 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
   const [hostname, setHostname] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const info = domain.data;
+  const cnameName = info?.hostname?.split('.')[0] ?? '';
 
   const statusLabel =
     info?.status === 'ACTIVE'
@@ -623,13 +625,13 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
       {!info || info.status === 'NONE' ? (
         <>
           <p className="text-sm text-slate-500">
-            Use a subdomain such as crm.yourcompany.com.
+            Use a subdomain such as quotation.yourcompany.com.
           </p>
           <div className="flex flex-wrap gap-2">
             <input
               aria-label="Custom domain hostname"
               className={`${input} max-w-sm`}
-              placeholder="crm.example.com"
+              placeholder="quotation.yourcompany.com"
               value={hostname}
               onChange={(event) => setHostname(event.target.value)}
             />
@@ -659,7 +661,7 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
           <div className="rounded-lg border border-slate-200 p-3 text-sm">
             <p className="font-semibold">DNS Record 1 — CRM CNAME</p>
             <p>Type: CNAME</p>
-            <p>Name: {info.hostname}</p>
+            <p>Name: {cnameName}</p>
             <div className="flex items-center gap-2">
               <p>Value: {info.cnameTarget}</p>
               <button
@@ -690,11 +692,6 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
             </div>
           )}
 
-          {info.status === 'PENDING' && (
-            <p className="text-xs text-slate-500">
-              If using Cloudflare, keep the CRM CNAME DNS-only during setup.
-            </p>
-          )}
           {info.lastError && <p className="text-sm text-red-600">Error: {info.lastError}</p>}
           {lastCheckedLabel && (
             <p className="text-xs text-slate-500">Last checked: {lastCheckedLabel}</p>
@@ -767,7 +764,7 @@ export function SettingsPage() {
       {tab === 'branding' && <BrandingTab data={data} canUpdate={canUpdate} />}
       {tab === 'tax' && <TaxTab data={data} canUpdate={canUpdate} />}
       {tab === 'preferences' && <PreferencesTab data={data} canUpdate={canUpdate} />}
-      {tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
+      {SHOW_DEFAULT_TERMS_SETTINGS && tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
       {tab === 'custom-domain' && <CustomDomainTab canUpdate={canUpdate} />}
       {SHOW_BANK_ACCOUNT_SETTINGS && tab === 'bank' && (
         <BankTab data={data} canUpdate={canUpdate} />

@@ -138,7 +138,7 @@ function RulesPanel() {
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                       <span>
-                        {rule.channels.join(' + ')} ·{' '}
+                        IN_APP ·{' '}
                         {rule.escalationEnabled ? 'Escalates' : 'No escalation'}
                       </span>
                       <span>
@@ -208,8 +208,8 @@ export function NotificationSettingsPage() {
       <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
         <p>
-          Rules run per company timezone and use deduplication keys. In-app and email delivery are
-          recorded separately, and email failure never rolls back reminder creation.
+          Rules run per company timezone and use deduplication keys. Reminder alerts are delivered
+          in the CRM notification inbox and browser alerts.
         </p>
       </div>
       <section className="rounded-xl border bg-card shadow-sm">

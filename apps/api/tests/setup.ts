@@ -41,6 +41,9 @@ process.env.DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 // NODE_ENV=test, which is set above.
 process.env.EMAIL_PROVIDER = 'memory';
 
+// Same in-memory default for object storage, so upload tests never touch S3.
+process.env.STORAGE_PROVIDER = 'memory';
+
 // System Global Masters bootstrap credentials. The System Admin logs in through
 // the normal login endpoint with these test values.
 process.env.SYSTEM_ADMIN_EMAIL ??= 'system.admin@interscale.test';

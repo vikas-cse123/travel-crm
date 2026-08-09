@@ -5,7 +5,6 @@ import {
   CONTENT_BOTTOM_LIMIT,
   PDF_BOTTOM_MARGIN,
   PDF_FOOTER_HEIGHT,
-  PDF_MAX_PAGE_HEIGHT,
   PDF_MIN_PAGE_HEIGHT,
   PDF_PAGE_HEIGHT,
   PDF_PAGE_WIDTH,
@@ -884,49 +883,47 @@ describe('PDF rendering with long content', () => {
     const longBoxes = pageMediaBoxes(long);
     expect(shortBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
     expect(longBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
-    // Every page is a fixed A4 sheet.
-    for (const box of [...shortBoxes, ...longBoxes]) {
-      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
-    }
+    // Sparse pages shrink, while content-heavy pages retain the normal A4 size.
+    expect(shortBoxes.some((box) => box.height < PDF_PAGE_HEIGHT - 1)).toBe(true);
+    expect(shortBoxes.every((box) => box.height >= PDF_MIN_PAGE_HEIGHT - 1)).toBe(true);
+    expect(longBoxes.some((box) => box.height >= PDF_PAGE_HEIGHT - 1)).toBe(true);
     // The long document has more pages than the short one (content paginates
     // within the fixed sheet rather than growing the page).
     expect(longBoxes.length).toBeGreaterThan(shortBoxes.length);
   });
 
-  it('anchors the footer to the physical A4 page bottom with a consistent formula', () => {
-    // footerTop is always PDF_PAGE_HEIGHT - bottomMargin - footerHeight, so every
-    // page type shares the same bottom-anchored footer position.
+  it('anchors the footer to each measured physical page bottom', () => {
     for (const contentHeight of [120, 260, 400, 600]) {
       const layout = computePageHeight(contentHeight);
-      expect(layout.pageHeight).toBeCloseTo(PDF_PAGE_HEIGHT, 4);
+      expect(layout.pageHeight).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT);
+      expect(layout.pageHeight).toBeLessThanOrEqual(PDF_PAGE_HEIGHT);
       expect(layout.footerTop).toBeCloseTo(
-        PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
+        layout.pageHeight - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT,
         4,
       );
     }
-    // The footer never overlaps content: it always sits at least POST_GAP below
-    // the content bottom limit.
+    // The footer never overlaps content: it sits at least POST_GAP below the
+    // measured body unless the sensible minimum page height adds more space.
     const small = computePageHeight(80);
-    expect(small.pageHeight).toBeCloseTo(PDF_PAGE_HEIGHT, 4);
     expect(small.footerTop - small.contentBottom).toBeGreaterThanOrEqual(
       PDF_POST_CONTENT_GAP - 0.001,
     );
   });
 
   it('reserves a footer-safe zone below the content bottom limit', () => {
-    // Content must stop before the footer divider; the divider sits at the
-    // physical page bottom (fixed A4), never derived from content.
-    const footerDividerY = PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
+    // Content must stop before the footer divider on every measured page.
+    const fullContentHeight = CONTENT_BOTTOM_LIMIT - PDF_TOP_MARGIN;
+    const footerDividerY = computePageHeight(fullContentHeight).footerTop;
     expect(CONTENT_BOTTOM_LIMIT).toBeLessThan(footerDividerY);
     // A comfortable gap separates body content from the footer.
     expect(footerDividerY - CONTENT_BOTTOM_LIMIT).toBeGreaterThanOrEqual(
       PDF_POST_CONTENT_GAP - 0.001,
     );
-    // Footer position never depends on content height.
+    // Sparse pages have a shorter physical page and therefore a higher footer.
     const a = computePageHeight(100);
-    const b = computePageHeight(500);
-    expect(a.footerTop).toBeCloseTo(b.footerTop, 4);
-    expect(a.footerTop).toBeCloseTo(footerDividerY, 4);
+    const b = computePageHeight(fullContentHeight);
+    expect(a.footerTop).toBeLessThan(b.footerTop);
+    expect(b.footerTop).toBeCloseTo(footerDividerY, 4);
   });
 
   it('renders hotel cards that keep every field inside the rounded border', async () => {

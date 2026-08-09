@@ -33,6 +33,7 @@ import {
   SightseeingSection,
   emptySightseeingActivity,
   emptySightseeingDay,
+  withSightseeingPricingRows,
 } from './SightseeingSection';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -829,6 +830,7 @@ export function QuotationBuilderPage() {
       city: row.city?.name ?? null,
       description: row.description ?? null,
       imageUrl: null,
+      pricingOptions: emptySightseeingActivity().pricingOptions,
       sequence: 1,
     });
     const prefilledSightseeing = {
@@ -1056,7 +1058,7 @@ export function QuotationBuilderPage() {
         : { include: true, sectionTitle: 'Additional Services' },
       sightseeingDetails:
         version.sightseeingDetails && version.sightseeingDetails.days?.length
-          ? version.sightseeingDetails
+          ? withSightseeingPricingRows(version.sightseeingDetails)
           : prefilledSightseeing,
       notes: version.notes,
       internalNotes: version.internalNotes ?? null,
@@ -1151,7 +1153,7 @@ export function QuotationBuilderPage() {
     if (!version.addOnDetails) {
       const addOnIncluded = leadRequested.has('addon');
       form.setValue(
-        'addOnDetails' as 'addOnDetails',
+        'addOnDetails',
         { include: addOnIncluded, sectionTitle: 'Additional Services' },
         { shouldDirty: false },
       );

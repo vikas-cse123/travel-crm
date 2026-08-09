@@ -398,6 +398,57 @@ function normalizeSightseeingMealMode(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Keep only pricing rows that are safe to show a customer: a real label and a
+ * real, finite, non-negative number. Anything else — a legacy activity with no
+ * `pricingOptions`, a half-filled row, a stray `0`-priced blank — collapses to
+ * an empty list, which renders nothing at all.
+ */
+function normalizeActivityPricing(raw: unknown): Array<{ label: string; price: number }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    const row = (entry ?? {}) as AnyRecord;
+    const label = String(row.label ?? '').trim();
+    if (!label || row.price == null || row.price === '') return [];
+    const price = Number(row.price);
+    if (!Number.isFinite(price) || price < 0) return [];
+    return [{ label, price }];
+  });
+}
+
+/**
+ * Per-activity price list. Renders nothing — no heading, no spacing — when the
+ * activity carries no usable prices, so an unpriced activity looks exactly as
+ * it did before this feature existed.
+ */
+function ActivityPricing({
+  rows,
+  fmt,
+}: {
+  rows: Array<{ label: string; price: number }>;
+  fmt: (value: number) => string;
+}) {
+  if (!rows.length) return null;
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing</p>
+      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {rows.map((row, index) => (
+          <div
+            key={`${row.label}-${index}`}
+            className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+          >
+            <dt className="break-words text-xs font-medium leading-4 text-slate-500">{row.label}</dt>
+            <dd className="mt-0.5 break-words text-sm font-semibold leading-5 text-slate-900">
+              {fmt(row.price)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
   const day = (raw ?? {}) as AnyRecord;
   const activitiesRaw = Array.isArray(day.activities)
@@ -416,6 +467,8 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
     // Per-activity transfer; legacy rows fall back to the day-level value.
     dailyTransfer:
       TRANSFER_CANONICAL[String((entry as AnyRecord).dailyTransfer ?? '').toUpperCase()] ?? null,
+    // Absent on activities saved before per-activity pricing existed.
+    pricingOptions: normalizeActivityPricing(entry.pricingOptions),
     sequence: (entry.sequence ?? null) as number | null,
   }));
   const mealsRaw = day.meals;
@@ -591,12 +644,15 @@ function SightseeingItineraryView({
   images,
   description,
   destinationImage,
+  fmt,
 }: {
   days: SightseeingDay[];
   color: string;
   images: Record<string, { imageUrl: string | null }>;
   description?: string | null;
   destinationImage?: string | null;
+  /** The quotation's own currency formatter, reused for activity pricing. */
+  fmt: (value: number) => string;
 }) {
   const normalized = useMemo(
     () => days.map((day, index) => normalizeItineraryDay(day, index + 1)),
@@ -711,6 +767,7 @@ function SightseeingItineraryView({
                                       </div>
                                     );
                                   })()}
+                                  <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
                                 </div>
                               </div>
                               {mealsLabel && (
@@ -777,6 +834,10 @@ function SightseeingItineraryView({
                                                 </div>
                                               );
                                             })()}
+                                            <ActivityPricing
+                                              rows={activity.pricingOptions}
+                                              fmt={fmt}
+                                            />
                                           </div>
                                         </div>
                                         {!isLast && <hr className="my-3 border-slate-200" />}
@@ -1207,6 +1268,7 @@ export function PublicQuotationPage() {
             images={data.sightseeingPresentations ?? {}}
             description={v.sightseeingDetails?.description ?? null}
             destinationImage={data.heroImageUrl ?? null}
+            fmt={fmt}
           />
         )}
 
