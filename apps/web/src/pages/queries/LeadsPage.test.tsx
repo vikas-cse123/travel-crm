@@ -2547,7 +2547,12 @@ describe('Dense operational Leads table structure', () => {
 
   it('renders the Call column with a tel link for the lead phone and a disabled icon without one', async () => {
     const withPhone = { ...enrichedLead, phone: '+91 98765 43210' };
-    const withoutPhone = { ...enrichedLead, id: 'lead-nophone', queryNumber: 'Q-NOPHONE', phone: '' };
+    const withoutPhone = {
+      ...enrichedLead,
+      id: 'lead-nophone',
+      queryNumber: 'Q-NOPHONE',
+      phone: '',
+    };
     stubLeadList([withPhone, withoutPhone]);
     renderWithProviders(<LeadsPage />);
     await screen.findAllByText('Aarav Mehta');
@@ -2687,10 +2692,16 @@ describe('Lead date-range filter', () => {
     fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-08-01' } });
     await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
     await waitFor(() =>
-      expect(mock.mock.calls.some(([url]) => {
-        const v = String(url);
-        return v.includes('dateType=CREATED_DATE') && v.includes('dateFrom=2026-08-01') && !v.includes('dateTo=');
-      })).toBe(true),
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const v = String(url);
+          return (
+            v.includes('dateType=CREATED_DATE') &&
+            v.includes('dateFrom=2026-08-01') &&
+            !v.includes('dateTo=')
+          );
+        }),
+      ).toBe(true),
     );
   });
 
@@ -2701,10 +2712,16 @@ describe('Lead date-range filter', () => {
     fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-07' } });
     await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
     await waitFor(() =>
-      expect(mock.mock.calls.some(([url]) => {
-        const v = String(url);
-        return v.includes('dateType=CREATED_DATE') && v.includes('dateTo=2026-08-07') && !v.includes('dateFrom=');
-      })).toBe(true),
+      expect(
+        mock.mock.calls.some(([url]) => {
+          const v = String(url);
+          return (
+            v.includes('dateType=CREATED_DATE') &&
+            v.includes('dateTo=2026-08-07') &&
+            !v.includes('dateFrom=')
+          );
+        }),
+      ).toBe(true),
     );
   });
 
@@ -2725,7 +2742,8 @@ describe('Lead date-range filter', () => {
   it('Clear removes only the date parameters and preserves search and other filters', async () => {
     const mock = stubDates([enrichedLead]);
     renderWithProviders(<LeadsPage />, {
-      route: '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&leadType=HOT&page=1',
+      route:
+        '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&leadType=HOT&page=1',
     });
     await screen.findAllByText('Aarav Mehta');
     await userEvent.click(screen.getByRole('button', { name: 'Clear date filter' }));
@@ -2765,7 +2783,9 @@ describe('Lead date-range filter', () => {
     fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-08-07' } });
     await userEvent.click(screen.getByRole('button', { name: 'Apply date filter' }));
     await waitFor(() =>
-      expect(mock.mock.calls.some(([url]) => String(url).includes('dateFrom=2026-08-01'))).toBe(true),
+      expect(mock.mock.calls.some(([url]) => String(url).includes('dateFrom=2026-08-01'))).toBe(
+        true,
+      ),
     );
   });
 
@@ -2807,7 +2827,11 @@ describe('Lead date-range filter', () => {
       expect(
         mock.mock.calls.some(([url]) => {
           const v = String(url);
-          return v.includes('/queries/export') && v.includes('dateFrom=2026-08-01') && v.includes('dateTo=2026-08-07');
+          return (
+            v.includes('/queries/export') &&
+            v.includes('dateFrom=2026-08-01') &&
+            v.includes('dateTo=2026-08-07')
+          );
         }),
       ).toBe(true),
     );
@@ -2816,7 +2840,8 @@ describe('Lead date-range filter', () => {
   it('keeps other filters working alongside the date range', async () => {
     const mock = stubDates([enrichedLead]);
     renderWithProviders(<LeadsPage />, {
-      route: '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&assignedToId=me',
+      route:
+        '/?search=Singapore&dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&assignedToId=me',
     });
     await screen.findAllByText('Aarav Mehta');
     expect(screen.getByLabelText('Search leads')).toHaveValue('Singapore');
@@ -2865,9 +2890,7 @@ describe('Lead CSV import', () => {
     await screen.findByText('No leads found');
     const button = screen.getByRole('button', { name: /Import CSV/i });
     await userEvent.click(button);
-    expect(
-      screen.getByRole('dialog', { name: 'Import Leads' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Import Leads' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download Sample CSV/i })).toBeInTheDocument();
   });
 
@@ -2955,6 +2978,59 @@ describe('Lead CSV import', () => {
     await waitFor(() => expect(importButton).toBeDisabled());
   });
 
+  it('can save opted-in ignored column values as one import note', async () => {
+    let importBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/queries/import')) {
+          importBody = JSON.parse(String(init?.body));
+          return response({
+            data: { total: 1, imported: 1, skipped: 0, failed: 0, results: [], errorCsv: {} },
+          });
+        }
+        return response(
+          String(input).includes('analytics')
+            ? analytics
+            : String(input).includes('lookups')
+              ? lookups
+              : { data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } },
+        );
+      }),
+    );
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+    const file = new File(
+      [
+        'Name,Phone,Lead Source,Origin City,Excluded\nAarav Mehta,+91 98765 43210,Referral,Hyderabad,Do not save\n',
+      ],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    const noteOptions = within(dialog).getAllByLabelText('Add values to lead note');
+    expect(noteOptions).toHaveLength(2);
+    await userEvent.click(noteOptions[0]!);
+    await userEvent.click(within(dialog).getByRole('button', { name: /^Import$/ }));
+
+    await waitFor(() =>
+      expect(importBody).toEqual({
+        skipDuplicates: true,
+        rows: [
+          {
+            customerName: 'Aarav Mehta',
+            phone: '+91 98765 43210',
+            leadSource: 'Referral',
+            ignoredColumnNotes: [{ label: 'Origin City', value: 'Hyderabad' }],
+          },
+        ],
+      }),
+    );
+  });
+
   it('re-enables the modal Import button when a required mapping is restored', async () => {
     renderWithProviders(<LeadsPage />);
     await screen.findByText('No leads found');
@@ -2986,11 +3062,9 @@ describe('Lead CSV import', () => {
     await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
 
     // All three mapped, but the only row has a blank phone.
-    const file = new File(
-      ['Name,Phone,Lead Source\nAarav Mehta,,Referral\n'],
-      'leads.csv',
-      { type: 'text/csv' },
-    );
+    const file = new File(['Name,Phone,Lead Source\nAarav Mehta,,Referral\n'], 'leads.csv', {
+      type: 'text/csv',
+    });
     fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
 
     const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });

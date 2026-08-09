@@ -301,6 +301,12 @@ export const LEAD_IMPORT_FIELDS = {
 } as const;
 export type LeadImportFieldKey = (typeof LEAD_IMPORT_FIELDS)[keyof typeof LEAD_IMPORT_FIELDS];
 
+/** A CSV column deliberately kept out of lead fields but included in the import note. */
+export const leadImportNoteFieldSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(3800),
+});
+
 /** Permissive transport row; every scalar arrives as a CSV string cell. */
 export const leadImportRowSchema = z.object({
   customerName: z.string().trim().max(120).nullable().optional(),
@@ -328,6 +334,7 @@ export const leadImportRowSchema = z.object({
   internalRemarks: z.string().trim().max(2000).nullable().optional(),
   services: z.array(z.string().trim()).max(20).nullable().optional(),
   assignedTo: z.string().trim().max(120).nullable().optional(),
+  ignoredColumnNotes: z.array(leadImportNoteFieldSchema).max(50).optional(),
 });
 
 export const leadImportSchema = z.object({

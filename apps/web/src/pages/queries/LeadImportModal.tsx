@@ -194,6 +194,7 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
   const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [noteColumns, setNoteColumns] = useState<Record<string, boolean>>({});
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [step, setStep] = useState<'upload' | 'map' | 'result'>('upload');
   const [dragOver, setDragOver] = useState(false);
@@ -243,6 +244,7 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
         const initial: Record<string, string> = {};
         for (const header of headerKeys) initial[header] = autoMap(header);
         setMapping(initial);
+        setNoteColumns({});
         setStep('map');
       },
       error: () => setError('The CSV file could not be read.'),
@@ -265,8 +267,17 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
       const out: Record<string, unknown> = {};
       for (const header of headers) {
         const target = mapping[header];
-        if (!target) continue;
         const value = row[header]?.trim() ?? '';
+        if (!target) {
+          if (noteColumns[header] && value) {
+            const notes = (out.ignoredColumnNotes ??= []) as Array<{
+              label: string;
+              value: string;
+            }>;
+            notes.push({ label: header, value });
+          }
+          continue;
+        }
         if (target === 'services') {
           out[target] = value ? value.split(',').map((s) => s.trim()).filter(Boolean) : [];
         } else {
@@ -275,7 +286,7 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
       }
       return out;
     });
-  }, [rawRows, headers, mapping]);
+  }, [rawRows, headers, mapping, noteColumns]);
 
   const runImport = () => {
     importMutation.mutate(
@@ -422,7 +433,7 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                 </h3>
                 <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
                   {headers.map((header) => (
-                    <label key={header} className="block text-sm">
+                    <div key={header} className="block text-sm">
                       <span className="mb-1 block truncate font-medium text-slate-600" title={header}>
                         {header}
                       </span>
@@ -440,7 +451,22 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                           </option>
                         ))}
                       </select>
-                    </label>
+                      {!mapping[header] && (
+                        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={noteColumns[header] ?? false}
+                            onChange={(event) =>
+                              setNoteColumns((prev) => ({
+                                ...prev,
+                                [header]: event.target.checked,
+                              }))
+                            }
+                          />
+                          Add values to lead note
+                        </label>
+                      )}
+                    </div>
                   ))}
                 </div>
               </section>

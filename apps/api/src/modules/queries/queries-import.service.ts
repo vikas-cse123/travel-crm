@@ -108,6 +108,19 @@ function buildErrorCsv(failed: Array<{ row: number; customerName: string; reason
   return [headers.map(quote).join(','), ...lines].join('\n');
 }
 
+/** Build the single note that preserves opted-in ignored CSV columns. */
+function buildImportedCsvNote(row: LeadImportRow): string | undefined {
+  const fields =
+    row.ignoredColumnNotes?.filter(({ label, value }) => label.trim() && value.trim()) ?? [];
+  if (!fields.length) return undefined;
+  const content = `Imported CSV details\n\n${fields
+    .map(({ label, value }) => `${label.trim()}: ${value.trim()}`)
+    .join('\n')}`;
+  if (content.length > 4000)
+    throw new Error('Imported CSV details exceed the 4,000 character note limit.');
+  return content;
+}
+
 /** Build the same QueryInput the create form submits, from a mapped CSV row. */
 function toQueryInput(row: LeadImportRow): QueryInput {
   const leadSource = matchEnumValue(row.leadSource, LEAD_SOURCES);
@@ -297,10 +310,12 @@ export const queriesImportService = {
         }
 
         const queryInput = toQueryInput(row);
+        const initialNote = buildImportedCsvNote(row);
         await queriesService.create(
           auth,
           {
             ...queryInput,
+            ...(initialNote ? { initialNote } : {}),
             email: email ?? null,
             ...(assignedToId ? { assignedToId } : {}),
             itinerary,

@@ -96,22 +96,25 @@ describe('CSV lead import', () => {
     const client = await owner(email, 'Import One');
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
 
-    const res = await client.post('/api/queries/import', importPayload([
-      {
-        customerName: 'Ravi Kumar',
-        phone: '+91 98765 11111',
-        email: 'ravi@example.com',
-        leadSource: 'Referral',
-        travelStartDate: '2026-12-10',
-        adults: '2',
-      },
-      {
-        customerName: 'Meera Shah',
-        phone: '98222 22222',
-        leadSource: 'WEBSITE',
-        currency: 'USD',
-      },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Ravi Kumar',
+          phone: '+91 98765 11111',
+          email: 'ravi@example.com',
+          leadSource: 'Referral',
+          travelStartDate: '2026-12-10',
+          adults: '2',
+        },
+        {
+          customerName: 'Meera Shah',
+          phone: '98222 22222',
+          leadSource: 'WEBSITE',
+          currency: 'USD',
+        },
+      ]),
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(2);
@@ -144,26 +147,81 @@ describe('CSV lead import', () => {
     const client = await owner(email, 'Import Two');
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
 
-    const res = await client.post('/api/queries/import', importPayload([
-      { customerName: 'No Phone', phone: '', leadSource: 'REFERRAL' },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'No Phone',
+          phone: '',
+          leadSource: 'REFERRAL',
+          ignoredColumnNotes: [{ label: 'Origin City', value: 'Hyderabad' }],
+        },
+      ]),
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data.imported).toBe(0);
     expect(res.body.data.failed).toBe(1);
     expect(res.body.data.results[0].reason).toMatch(/phone/i);
     expect(await db.query.count({ where: { companyId: ownerUser.companyId } })).toBe(0);
+    expect(await db.queryNote.count({ where: { companyId: ownerUser.companyId } })).toBe(0);
+  });
+
+  it('creates one consolidated note from opted-in ignored CSV columns', async () => {
+    const email = 'owner@import-notes.test';
+    const client = await owner(email, 'Import Notes');
+    const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
+
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Ravi Kumar',
+          phone: '98765 11111',
+          leadSource: 'REFERRAL',
+          ignoredColumnNotes: [
+            { label: 'Origin City', value: 'Hyderabad' },
+            { label: 'Total Nights', value: '6' },
+          ],
+        },
+      ]),
+    );
+
+    expect(res.body.data.imported).toBe(1);
+    const note = await db.queryNote.findFirstOrThrow({
+      where: { companyId: ownerUser.companyId },
+    });
+    expect(note.content).toBe('Imported CSV details\n\nOrigin City: Hyderabad\nTotal Nights: 6');
+    expect(await db.queryNote.count({ where: { companyId: ownerUser.companyId } })).toBe(1);
   });
 
   it('rejects invalid email and invalid date per row', async () => {
     const email = 'owner@import3.test';
     const client = await owner(email, 'Import Three');
 
-    const res = await client.post('/api/queries/import', importPayload([
-      { customerName: 'Bad Email', phone: '98111 11111', email: 'not-an-email', leadSource: 'OTHER' },
-      { customerName: 'Bad Date', phone: '98222 22222', leadSource: 'OTHER', travelStartDate: '2026/13/99' },
-      { customerName: 'Good Row', phone: '98333 33333', leadSource: 'OTHER', travelStartDate: '2026-12-10' },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Bad Email',
+          phone: '98111 11111',
+          email: 'not-an-email',
+          leadSource: 'OTHER',
+        },
+        {
+          customerName: 'Bad Date',
+          phone: '98222 22222',
+          leadSource: 'OTHER',
+          travelStartDate: '2026/13/99',
+        },
+        {
+          customerName: 'Good Row',
+          phone: '98333 33333',
+          leadSource: 'OTHER',
+          travelStartDate: '2026-12-10',
+        },
+      ]),
+    );
 
     expect(res.body.data.imported).toBe(1);
     expect(res.body.data.failed).toBe(2);
@@ -187,13 +245,16 @@ describe('CSV lead import', () => {
       services: ['HOTEL'],
     });
 
-    const res = await client.post('/api/queries/import', importPayload(
-      [
-        { customerName: 'Duplicate Phone', phone: '+91 98444 44444', leadSource: 'REFERRAL' },
-        { customerName: 'Fresh Lead', phone: '98555 55555', leadSource: 'REFERRAL' },
-      ],
-      true,
-    ));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload(
+        [
+          { customerName: 'Duplicate Phone', phone: '+91 98444 44444', leadSource: 'REFERRAL' },
+          { customerName: 'Fresh Lead', phone: '98555 55555', leadSource: 'REFERRAL' },
+        ],
+        true,
+      ),
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data.imported).toBe(1);
@@ -214,10 +275,13 @@ describe('CSV lead import', () => {
       services: ['HOTEL'],
     });
 
-    const res = await client.post('/api/queries/import', importPayload(
-      [{ customerName: 'Imported Anyway', phone: '+91 98444 44444', leadSource: 'REFERRAL' }],
-      false,
-    ));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload(
+        [{ customerName: 'Imported Anyway', phone: '+91 98444 44444', leadSource: 'REFERRAL' }],
+        false,
+      ),
+    );
 
     expect(res.body.data.imported).toBe(1);
     expect(res.body.data.skipped).toBe(0);
@@ -232,9 +296,17 @@ describe('CSV lead import', () => {
     // Another company's user must never resolve as an assignee.
     await owner('owner@other-tenant.test', 'Other Tenant');
 
-    const res = await client.post('/api/queries/import', importPayload([
-      { customerName: 'Bad Assignee', phone: '98666 66666', leadSource: 'REFERRAL', assignedTo: 'owner@other-tenant.test' },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Bad Assignee',
+          phone: '98666 66666',
+          leadSource: 'REFERRAL',
+          assignedTo: 'owner@other-tenant.test',
+        },
+      ]),
+    );
 
     expect(res.body.data.failed).toBe(1);
     expect(res.body.data.results[0].reason).toMatch(/assignee/i);
@@ -247,15 +319,25 @@ describe('CSV lead import', () => {
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: adminEmail } });
     await employee(admin, 'Sales Executive', 'sales@import7.test', 'sales-exec');
 
-    const res = await admin.post('/api/queries/import', importPayload([
-      { customerName: 'Assigned Lead', phone: '98777 77777', leadSource: 'REFERRAL', assignedTo: 'sales-exec' },
-    ]));
+    const res = await admin.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Assigned Lead',
+          phone: '98777 77777',
+          leadSource: 'REFERRAL',
+          assignedTo: 'sales-exec',
+        },
+      ]),
+    );
 
     expect(res.body.data.imported).toBe(1);
     const row = await db.query.findFirstOrThrow({
       where: { companyId: ownerUser.companyId, customerName: 'Assigned Lead' },
     });
-    const salesUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: 'sales@import7.test' } });
+    const salesUser = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'sales@import7.test' },
+    });
     expect(row.assignedToId).toBe(salesUser.id);
   });
 
@@ -289,9 +371,10 @@ describe('CSV lead import', () => {
     });
     const restricted = await signIn('no-create@import8.test');
 
-    const res = await restricted.post('/api/queries/import', importPayload([
-      { customerName: 'Denied', phone: '98888 88888', leadSource: 'REFERRAL' },
-    ]));
+    const res = await restricted.post(
+      '/api/queries/import',
+      importPayload([{ customerName: 'Denied', phone: '98888 88888', leadSource: 'REFERRAL' }]),
+    );
 
     expect(res.status).toBe(403);
     expect(await db.query.count({ where: { companyId: ownerUser.companyId } })).toBe(0);
@@ -315,10 +398,13 @@ describe('CSV lead import', () => {
     const client = await owner(email, 'Import Ten');
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
 
-    const res = await client.post('/api/queries/import', importPayload([
-      { customerName: 'Good Lead', phone: '98911 11111', leadSource: 'REFERRAL' },
-      { customerName: 'X', phone: '', leadSource: 'REFERRAL' },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        { customerName: 'Good Lead', phone: '98911 11111', leadSource: 'REFERRAL' },
+        { customerName: 'X', phone: '', leadSource: 'REFERRAL' },
+      ]),
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(2);
@@ -336,10 +422,23 @@ describe('CSV lead import', () => {
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
     await seedDestination(email, 'Goa');
 
-    const res = await client.post('/api/queries/import', importPayload([
-      { customerName: 'Known Dest', phone: '98922 22222', leadSource: 'REFERRAL', destination: 'Goa' },
-      { customerName: 'Unknown Dest', phone: '98933 33333', leadSource: 'REFERRAL', destination: 'Atlantis' },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Known Dest',
+          phone: '98922 22222',
+          leadSource: 'REFERRAL',
+          destination: 'Goa',
+        },
+        {
+          customerName: 'Unknown Dest',
+          phone: '98933 33333',
+          leadSource: 'REFERRAL',
+          destination: 'Atlantis',
+        },
+      ]),
+    );
 
     expect(res.body.data.imported).toBe(1);
     expect(res.body.data.failed).toBe(1);
@@ -351,9 +450,7 @@ describe('CSV lead import', () => {
     });
     expect(known.itinerary[0]!.destination).toBe('Goa');
     // No new destination master was created from arbitrary CSV text.
-    expect(
-      await db.destination.count({ where: { companyId: ownerUser.companyId } }),
-    ).toBe(1);
+    expect(await db.destination.count({ where: { companyId: ownerUser.companyId } })).toBe(1);
   });
 
   it('blocks a row that assigns to another user when the caller lacks assign permission', async () => {
@@ -393,9 +490,17 @@ describe('CSV lead import', () => {
     });
     const restricted = await signIn('create-only@import12.test');
 
-    const res = await restricted.post('/api/queries/import', importPayload([
-      { customerName: 'Other Assign', phone: '98944 44444', leadSource: 'REFERRAL', assignedTo: 'Sales Executive' },
-    ]));
+    const res = await restricted.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Other Assign',
+          phone: '98944 44444',
+          leadSource: 'REFERRAL',
+          assignedTo: 'Sales Executive',
+        },
+      ]),
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data.failed).toBe(1);
@@ -410,14 +515,17 @@ describe('CSV lead import', () => {
     const client = await owner(email, 'Import Thirteen');
     const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
 
-    const res = await client.post('/api/queries/import', importPayload([
-      {
-        customerName: 'Kumar, Ravi',
-        phone: '98955 55555',
-        leadSource: 'SOCIAL_MEDIA',
-        internalRemarks: 'Line one\nLine two',
-      },
-    ]));
+    const res = await client.post(
+      '/api/queries/import',
+      importPayload([
+        {
+          customerName: 'Kumar, Ravi',
+          phone: '98955 55555',
+          leadSource: 'SOCIAL_MEDIA',
+          internalRemarks: 'Line one\nLine two',
+        },
+      ]),
+    );
 
     expect(res.body.data.imported).toBe(1);
     const row = await db.query.findFirstOrThrow({
@@ -473,8 +581,16 @@ describe('CSV lead import', () => {
     }
     // Two intentional duplicate phones (identical to rows 2 and 3) so the batch
     // duplicate set is exercised.
-    rows.push({ customerName: 'Dup A', phone: `98111 00${String(2).padStart(3, '0')}`, leadSource: 'REFERRAL' });
-    rows.push({ customerName: 'Dup B', phone: `98111 00${String(3).padStart(3, '0')}`, leadSource: 'REFERRAL' });
+    rows.push({
+      customerName: 'Dup A',
+      phone: `98111 00${String(2).padStart(3, '0')}`,
+      leadSource: 'REFERRAL',
+    });
+    rows.push({
+      customerName: 'Dup B',
+      phone: `98111 00${String(3).padStart(3, '0')}`,
+      leadSource: 'REFERRAL',
+    });
 
     const res = await client.post('/api/queries/import', importPayload(rows, true));
 
@@ -486,9 +602,7 @@ describe('CSV lead import', () => {
     expect(res.body.data.failed).toBe(4);
     expect(res.body.data.results).toHaveLength(290);
 
-    const failed = res.body.data.results.filter(
-      (r: { status: string }) => r.status === 'FAILED',
-    );
+    const failed = res.body.data.results.filter((r: { status: string }) => r.status === 'FAILED');
     const reasons = failed.map((r: { reason: string }) => r.reason).join(' ');
     expect(reasons).toMatch(/phone/i);
     expect(reasons).toMatch(/email/i);
