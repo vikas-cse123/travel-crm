@@ -5,8 +5,10 @@ import { settingsService } from './settings.service.js';
 import {
   checkCustomDomain,
   createCustomDomain,
+  deleteCustomDomain,
   disableCustomDomain,
   getCustomDomain,
+  updateCustomDomain,
 } from '../custom-domains/custom-domain-provisioning.service.js';
 
 const auth = (req: Request) => {
@@ -79,4 +81,12 @@ export const settingsController = {
     sendSuccess(res, await checkCustomDomain(auth(req))),
   disableCustomDomain: async (req: Request, res: Response) =>
     sendSuccess(res, await disableCustomDomain(auth(req)), 'Custom domain disabled.'),
+  updateCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await updateCustomDomain(auth(req), String(req.body.hostname ?? '')),
+      'Custom domain updated. Waiting for DNS / SSL validation.',
+    ),
+  deleteCustomDomain: async (req: Request, res: Response) =>
+    sendSuccess(res, await deleteCustomDomain(auth(req)), 'Custom domain removed.'),
 };

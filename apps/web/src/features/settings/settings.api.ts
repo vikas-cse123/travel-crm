@@ -176,3 +176,20 @@ export function useDisableCustomDomain() {
     onSuccess: (data) => qc.setQueryData(customDomainKey, data),
   });
 }
+
+export function useUpdateCustomDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (hostname: string) =>
+      apiClient.put<CustomDomainInfo>('/settings/custom-domain', { hostname }),
+    onSuccess: (data) => qc.setQueryData(customDomainKey, data),
+  });
+}
+
+export function useDeleteCustomDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.delete<CustomDomainInfo>('/settings/custom-domain'),
+    onSuccess: (data) => qc.setQueryData(customDomainKey, data),
+  });
+}

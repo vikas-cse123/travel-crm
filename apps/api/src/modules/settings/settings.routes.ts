@@ -78,6 +78,13 @@ router.post(
   validateRequest({ body: customDomainCreateSchema }),
   asyncHandler(c.createCustomDomain),
 );
+router.put(
+  '/custom-domain',
+  update,
+  validateRequest({ body: customDomainCreateSchema }),
+  asyncHandler(c.updateCustomDomain),
+);
+router.delete('/custom-domain', update, asyncHandler(c.deleteCustomDomain));
 router.post('/custom-domain/check', update, asyncHandler(c.checkCustomDomain));
 router.post('/custom-domain/disable', update, asyncHandler(c.disableCustomDomain));
 

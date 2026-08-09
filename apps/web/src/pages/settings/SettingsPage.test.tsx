@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { SettingsPage } from './SettingsPage';
@@ -222,5 +222,124 @@ describe('Phase 18 settings page', () => {
     stub(settings(), false);
     renderWithProviders(<SettingsPage />);
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not be loaded/i);
+  });
+
+  const domainFixture = (overrides: Record<string, unknown> = {}) => ({
+    hostname: 'quote.travelenfield.in',
+    status: 'PENDING',
+    cnameTarget: 'app.travelagencycrm.in',
+    validationName: '_abc.quote.travelenfield.in',
+    validationValue: '_xyz.acm-validations.aws',
+    dnsVerifiedAt: null,
+    activatedAt: null,
+    lastCheckedAt: '2026-08-09T00:00:00.000Z',
+    lastError: null,
+    ...overrides,
+  });
+
+  it('shows Edit Domain and Delete Domain actions beside a configured domain', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/settings/custom-domain')) return response(domainFixture());
+        return response(settings());
+      }),
+    );
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
+    expect(await screen.findByText('quote.travelenfield.in')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Domain' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Domain' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check Again' })).toBeInTheDocument();
+  });
+
+  it('edits a custom domain through the modal and shows the new records', async () => {
+    const updated = domainFixture({
+      hostname: 'quote2.travelenfield.in',
+      validationName: '_new.quote2.travelenfield.in',
+      validationValue: '_new.acm.validations.aws',
+    });
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/settings/custom-domain') && options?.method === 'PUT')
+        return response(updated);
+      if (url.endsWith('/settings/custom-domain')) return response(domainFixture());
+      return response(settings());
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
+    await screen.findByText('quote.travelenfield.in');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Domain' }));
+    const input = await screen.findByLabelText('Edit custom domain hostname');
+    expect(input).toHaveValue('quote.travelenfield.in');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'quote2.travelenfield.in');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Domain' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(
+          ([url, o]) =>
+            String(url).endsWith('/settings/custom-domain') && o?.method === 'PUT',
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText('quote2.travelenfield.in')).toBeInTheDocument();
+    expect(
+      screen.getByText('Custom domain updated. Waiting for DNS / SSL validation.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Name: _new\.quote2\.travelenfield\.in/)).toBeInTheDocument();
+  });
+
+  it('deletes a custom domain after confirmation and returns to the empty state', async () => {
+    const none = domainFixture({ hostname: null, status: 'NONE', validationName: null, validationValue: null });
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/settings/custom-domain') && options?.method === 'DELETE')
+        return response(none);
+      if (url.endsWith('/settings/custom-domain')) return response(domainFixture());
+      return response(settings());
+    });
+    vi.stubGlobal('fetch', mock);
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
+    await screen.findByText('quote.travelenfield.in');
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Domain' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete Custom Domain' });
+    expect(dialog).toHaveTextContent(/Remove this custom domain\? Your CRM will no longer be accessible/);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Domain' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(([, o]) => String(o?.method) === 'DELETE'),
+      ).toBe(true),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Add Custom Domain' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Custom domain removed.')).toBeInTheDocument();
+  });
+
+  it('shows the Add Custom Domain button in the empty state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/settings/custom-domain'))
+          return response(
+            domainFixture({ hostname: null, status: 'NONE', validationName: null, validationValue: null }),
+          );
+        return response(settings());
+      }),
+    );
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
+    expect(
+      await screen.findByRole('button', { name: 'Add Custom Domain' }),
+    ).toBeInTheDocument();
   });
 });

@@ -207,7 +207,7 @@ describe('Phase 12 reminders, notifications and automation', () => {
     expect(await db.notificationPreference.count({ where: { userId: user.id } })).toBe(1);
   });
 
-  it('processes lead-stage automation idempotently and exposes safe rule preview/run APIs', async () => {
+  it('does not automatically create reminders from rules (reminders are manual only)', async () => {
     const client = await owner();
     const user = await db.user.findUniqueOrThrow({
       where: { normalizedEmail: 'owner@reminders.test' },
@@ -233,9 +233,14 @@ describe('Phase 12 reminders, notifications and automation', () => {
     const rule = await db.reminderRule.findFirstOrThrow({
       where: { companyId: user.companyId, ruleType: 'LEAD_STAGE', leadStage: 'NEW_LEAD' },
     });
-    expect(rule.channels).toContain('EMAIL');
+    // The preview API still reports eligible candidates without creating anything.
     const preview = await client.get(`/api/reminder-rules/${rule.id}/preview`);
     expect(preview.body.data.eligible).toBeGreaterThan(0);
+    expect(
+      await db.queryFollowUp.count({ where: { companyId: user.companyId, reminderRuleId: rule.id } }),
+    ).toBe(0);
+
+    // Processing a company must not generate reminders from rules.
     getMemoryEmailProvider()?.clear();
     await reminderProcessor.processCompany(user.companyId, { ruleId: rule.id });
     await reminderProcessor.processCompany(user.companyId, { ruleId: rule.id });
@@ -243,21 +248,13 @@ describe('Phase 12 reminders, notifications and automation', () => {
       await db.queryFollowUp.count({
         where: { companyId: user.companyId, reminderRuleId: rule.id, queryId: lead.body.data.id },
       }),
-    ).toBe(1);
+    ).toBe(0);
     expect(
       await db.reminderExecution.count({
         where: { companyId: user.companyId, ruleId: rule.id, entityId: lead.body.data.id },
       }),
-    ).toBe(1);
-    expect(
-      await db.notificationDelivery.count({
-        where: {
-          channel: 'EMAIL',
-          notification: { reminder: { is: { reminderRuleId: rule.id, queryId: lead.body.data.id } } },
-        },
-      }),
     ).toBe(0);
+    // No reminder email is ever sent.
     expect(getMemoryEmailProvider()?.all()).toEqual([]);
-    expect((await client.post(`/api/reminder-rules/${rule.id}/run-preview`)).status).toBe(200);
   });
 });

@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import {
   useCheckCustomDomain,
   useCustomDomain,
+  useDeleteCustomDomain,
   useDisableCustomDomain,
   useRemoveLogo,
   useSaveBankAccount,
   useSetUpCustomDomain,
   useSettings,
   useUpdateBranding,
+  useUpdateCustomDomain,
   useUpdateDefaultTerms,
   useUpdatePreferences,
   useUpdateProfile,
@@ -581,7 +584,13 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
   const setUp = useSetUpCustomDomain();
   const check = useCheckCustomDomain();
   const disable = useDisableCustomDomain();
+  const update = useUpdateCustomDomain();
+  const remove = useDeleteCustomDomain();
   const [hostname, setHostname] = useState('');
+  const [editHostname, setEditHostname] = useState('');
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const info = domain.data;
   const cnameName = info?.hostname?.split('.')[0] ?? '';
@@ -640,17 +649,45 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
               onClick={() => setUp.mutate(hostname)}
               disabled={!canUpdate || setUp.isPending || !hostname.trim()}
             >
-              Set Up Domain
+              Add Custom Domain
             </Button>
           </div>
           <Feedback error={setUp.error?.message} />
+          {setUp.isSuccess && !domain.isLoading && (
+            <p className="text-sm text-emerald-600">
+              Custom domain setup started. Add the DNS records below.
+            </p>
+          )}
         </>
       ) : (
         <>
           <dl className="grid gap-2 text-sm">
-            <div className="flex justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <dt className="text-slate-500">Custom Domain</dt>
-              <dd className="font-medium">{info.hostname}</dd>
+              <dd className="flex flex-wrap items-center gap-3">
+                <span className="font-medium">{info.hostname}</span>
+                {canUpdate && (
+                  <>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-brand-700 hover:underline"
+                      onClick={() => {
+                        setEditHostname(info.hostname ?? '');
+                        setShowEdit(true);
+                      }}
+                    >
+                      Edit Domain
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-red-600 hover:underline"
+                      onClick={() => setShowDelete(true)}
+                    >
+                      Delete Domain
+                    </button>
+                  </>
+                )}
+              </dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-slate-500">Status</dt>
@@ -719,6 +756,135 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
           </div>
           <Feedback error={check.error?.message || disable.error?.message} />
         </>
+      )}
+
+      {feedback && <p className="text-sm text-emerald-600">{feedback}</p>}
+
+      {showEdit && canUpdate && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit Custom Domain"
+          onClick={() => setShowEdit(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-card shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between rounded-t-xl bg-blue-600 px-5 py-3 text-white">
+              <h2 className="text-lg font-semibold">Edit Custom Domain</h2>
+              <button
+                aria-label="Close edit domain"
+                onClick={() => setShowEdit(false)}
+                className="rounded p-1 hover:bg-white/20"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-slate-600">
+                Replace the current custom domain. After saving, the new DNS and
+                SSL records below must be configured.
+              </p>
+              <label className="block text-sm font-medium text-slate-700">
+                Domain
+                <input
+                  aria-label="Edit custom domain hostname"
+                  className={`${input} mt-1`}
+                  placeholder="quotation.yourcompany.com"
+                  value={editHostname}
+                  onChange={(event) => setEditHostname(event.target.value)}
+                />
+              </label>
+              {update.error?.message && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                >
+                  {update.error.message}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="secondary" onClick={() => setShowEdit(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() =>
+                    update.mutate(editHostname, {
+                      onSuccess: () => {
+                        setShowEdit(false);
+                        setFeedback('Custom domain updated. Waiting for DNS / SSL validation.');
+                      },
+                    })
+                  }
+                  disabled={update.isPending || !editHostname.trim()}
+                >
+                  Save Domain
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDelete && canUpdate && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete Custom Domain"
+          onClick={() => setShowDelete(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-card shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between rounded-t-xl bg-red-600 px-5 py-3 text-white">
+              <h2 className="text-lg font-semibold">Delete Custom Domain</h2>
+              <button
+                aria-label="Close delete domain"
+                onClick={() => setShowDelete(false)}
+                className="rounded p-1 hover:bg-white/20"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-slate-700">
+                Remove this custom domain? Your CRM will no longer be accessible
+                through this domain.
+              </p>
+              {remove.error?.message && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                >
+                  {remove.error.message}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="secondary" onClick={() => setShowDelete(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() =>
+                    remove.mutate(undefined, {
+                      onSuccess: () => {
+                        setShowDelete(false);
+                        setFeedback('Custom domain removed.');
+                      },
+                    })
+                  }
+                  disabled={remove.isPending}
+                >
+                  Delete Domain
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

@@ -1,5 +1,6 @@
 import {
   ACMClient,
+  DeleteCertificateCommand,
   DescribeCertificateCommand,
   RequestCertificateCommand,
 } from '@aws-sdk/client-acm';
@@ -107,4 +108,9 @@ export async function isCertificateAttached(certificateArn: string): Promise<boo
   return (result.Certificates ?? []).some(
     (entry) => entry.CertificateArn === certificateArn,
   );
+}
+
+/** Delete an ACM certificate. Throws on AWS failure; callers clean up best-effort. */
+export async function deleteCertificate(certificateArn: string): Promise<void> {
+  await acmClient().send(new DeleteCertificateCommand({ CertificateArn: certificateArn }));
 }

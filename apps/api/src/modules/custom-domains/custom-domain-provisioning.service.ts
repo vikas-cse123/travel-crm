@@ -6,6 +6,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 import type { AuthContext } from '../../middleware/authenticate.js';
 import {
   attachCertificate,
+  deleteCertificate,
   describeCertificate,
   detachCertificate,
   isCertificateAttached,
@@ -283,4 +284,101 @@ export async function disableCustomDomain(auth: AuthContext): Promise<CustomDoma
     data: { status: 'DISABLED', lastCheckedAt: new Date(), lastError: null },
   });
   return toInfo(await findOwned(auth));
+}
+
+/** PUT — edit/replace the configured domain: reset to PENDING, request a new
+ * certificate for the new hostname and surface the new DNS/SSL records. */
+export async function updateCustomDomain(
+  auth: AuthContext,
+  rawHostname: string,
+): Promise<CustomDomainInfo> {
+  const normalized = normalizeHostname(rawHostname);
+  if (!normalized) throw new ValidationError('Enter a valid hostname.');
+  if (isReservedHostname(normalized)) {
+    throw new ConflictError('This hostname is reserved by the platform.');
+  }
+  if (!isValidSubdomainHostname(normalized)) {
+    throw new ValidationError('Use a subdomain such as crm.yourcompany.com.');
+  }
+
+  const existing = await findOwned(auth);
+  if (!existing) throw new NotFoundError('No custom domain is configured.');
+
+  // Global hostname uniqueness: no other company may claim the same hostname.
+  if (existing.hostname !== normalized) {
+    const clash = await prisma.customDomain.findUnique({ where: { hostname: normalized } });
+    if (clash && clash.companyId !== auth.companyId) {
+      throw new ConflictError('That hostname is already in use.');
+    }
+  }
+
+  const changed = existing.hostname !== normalized;
+  const now = new Date();
+  let certificateArn = existing.certificateArn;
+  let validation: AcmValidationRecord | null = null;
+  let lastError: string | null = null;
+
+  if (changed && certificateArn) {
+    try {
+      await detachCertificate(certificateArn);
+    } catch {
+      // Detach failure must not block replacing the configuration.
+    }
+    try {
+      await deleteCertificate(certificateArn);
+    } catch {
+      // ACM delete is best-effort (an in-use certificate is simply skipped).
+    }
+    certificateArn = null;
+  }
+
+  try {
+    if (!certificateArn) certificateArn = await requestCertificate(normalized);
+    const described = await describeCertificate(certificateArn);
+    if (described.validationRecord?.name && described.validationRecord?.value) {
+      validation = described.validationRecord;
+    }
+  } catch {
+    // ACM is unavailable (e.g. not configured): the PENDING record still exists
+    // so the customer can retry via Check Again. Keep a safe lastError.
+    lastError = 'SSL certificate could not be requested. Try again shortly.';
+  }
+
+  await prisma.customDomain.update({
+    where: { id: existing.id },
+    data: {
+      hostname: normalized,
+      status: 'PENDING',
+      certificateArn,
+      certificateValidationName: validation?.name ?? null,
+      certificateValidationValue: validation?.value ?? null,
+      dnsVerifiedAt: null,
+      activatedAt: null,
+      lastCheckedAt: now,
+      lastError,
+    },
+  });
+  return toInfo(await findOwned(auth));
+}
+
+/** DELETE — remove the custom-domain configuration and its SSL data entirely. */
+export async function deleteCustomDomain(auth: AuthContext): Promise<CustomDomainInfo> {
+  const domain = await findOwned(auth);
+  if (!domain) throw new NotFoundError('No custom domain is configured.');
+
+  if (domain.certificateArn) {
+    try {
+      await detachCertificate(domain.certificateArn);
+    } catch {
+      // Detach failure must not block deletion.
+    }
+    try {
+      await deleteCertificate(domain.certificateArn);
+    } catch {
+      // ACM delete is best-effort (an in-use certificate is simply skipped).
+    }
+  }
+
+  await prisma.customDomain.delete({ where: { id: domain.id } });
+  return toInfo(null);
 }

@@ -126,7 +126,7 @@ describe('Phase 12 reminder pages', () => {
     );
   });
 
-  it('shows personal preferences and company rule controls separately', async () => {
+  it('shows only manual reminder notification preferences and hides automation', async () => {
     const fetchMock = vi.fn(async (request: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(request);
       if (url.includes('/notification-preferences'))
@@ -145,38 +145,26 @@ describe('Phase 12 reminder pages', () => {
           quietHoursStart: null,
           quietHoursEnd: null,
         });
-      if (url.includes('/reminder-rules'))
-        return response({
-          leadStages: ['NEW_LEAD'],
-          rules: [
-            {
-              id: 'rule-1',
-              name: 'Lead · New lead',
-              description: 'Create a prompt lead follow-up.',
-              ruleType: 'LEAD_STAGE',
-              isEnabled: true,
-              leadStage: 'NEW_LEAD',
-              reminderType: 'LEAD_FOLLOW_UP',
-              reminderPriority: 'MEDIUM',
-              delayValue: 2,
-              delayUnit: 'HOURS',
-              dueTime: '10:00',
-              assignToMode: 'LEAD_ASSIGNEE',
-              titleTemplate: 'Follow up',
-              channels: ['IN_APP', 'EMAIL'],
-              escalationEnabled: true,
-              _count: { reminders: 2, executions: 2 },
-            },
-          ],
-        });
       return response({});
     });
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(<NotificationSettingsPage />);
-    expect(await screen.findByText('Lead · New lead')).toBeInTheDocument();
-    expect(screen.getByText('My notification preferences')).toBeInTheDocument();
-    expect(screen.getByText('IN_APP · Escalates')).toBeInTheDocument();
-    expect(screen.queryByText('IN_APP + EMAIL · Escalates')).not.toBeInTheDocument();
+    expect(await screen.findByText('My reminder notifications')).toBeInTheDocument();
+    // Only the three reminder preferences remain visible.
+    expect(screen.getAllByText('In-app notifications').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Reminder alerts').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Overdue reminder alerts').length).toBeGreaterThan(0);
+    // Everything else is hidden (no email, digest, escalation, events, automation).
+    expect(screen.queryByText('Email notifications')).not.toBeInTheDocument();
+    expect(screen.queryByText('Digest mode')).not.toBeInTheDocument();
+    expect(screen.queryByText('Escalations')).not.toBeInTheDocument();
+    expect(screen.queryByText('Booking events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Payment events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Quotation events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Document events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Vendor events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Automation rules')).not.toBeInTheDocument();
+    expect(screen.queryByText('Lead · New lead')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /save preferences/i }));
     await waitFor(() =>
       expect(

@@ -1,8 +1,6 @@
-import type { ReminderDelayUnit, ReminderRule } from '@prisma/client';
+import type { ReminderRule } from '@prisma/client';
 import { env } from '../../config/env.js';
-import { logger } from '../../config/logger.js';
 import { prisma } from '../../config/prisma.js';
-import { atLocalTime } from '../../utils/timezone.js';
 import { notificationsService } from '../notifications/notifications.service.js';
 
 interface Candidate {
@@ -24,32 +22,12 @@ interface Candidate {
   values: Record<string, string>;
 }
 
-function duration(value: number, unit: ReminderDelayUnit) {
-  if (unit === 'MINUTES') return value * 60_000;
-  if (unit === 'HOURS') return value * 3_600_000;
-  if (unit === 'DAYS') return value * 86_400_000;
-  if (unit === 'WEEKS') return value * 7 * 86_400_000;
-  return value * 30 * 86_400_000;
-}
-
-function render(template: string | null, values: Record<string, string>) {
-  return (template ?? '').replace(/\{\{(\w+)\}\}/g, (_match, key: string) => values[key] ?? '');
-}
-
-function source(rule: ReminderRule) {
-  if (rule.ruleType === 'LEAD_STAGE') return 'LEAD_STAGE_RULE' as const;
-  if (rule.ruleType === 'QUOTATION_EXPIRY') return 'QUOTATION_RULE' as const;
-  if (rule.ruleType === 'CUSTOMER_PAYMENT') return 'PAYMENT_RULE' as const;
-  if (['BOOKING_DOCUMENT', 'VISA'].includes(rule.ruleType)) return 'DOCUMENT_RULE' as const;
-  if (['VENDOR_PAYABLE', 'VENDOR_CONTRACT'].includes(rule.ruleType)) return 'VENDOR_RULE' as const;
-  return 'BOOKING_RULE' as const;
-}
-
-function assignee(rule: ReminderRule, candidate: Candidate) {
-  if (rule.assignToMode === 'FIXED_USER') return rule.fixedUserId;
-  return candidate.assignedToId ?? candidate.createdById;
-}
-
+/**
+ * Reminders are manual only. Automatic rule-based reminders are disabled, so no
+ * reminder is ever generated from a lead stage, quotation, booking, payment,
+ * vendor or other record change. `candidates` remains available to the rules
+ * preview API (which never creates reminders).
+ */
 async function candidates(
   companyId: string,
   rule: ReminderRule,
@@ -310,118 +288,7 @@ async function candidates(
   return [];
 }
 
-async function processRule(
-  companyId: string,
-  timezone: string,
-  rule: ReminderRule,
-  dryRun: boolean,
-) {
-  const rows = await candidates(companyId, rule, env.REMINDER_WORKER_BATCH_SIZE);
-  let created = 0;
-  let skipped = 0;
-  for (const candidate of rows) {
-    const triggerKey = `${rule.id}:${candidate.entityType}:${candidate.entityId}:${candidate.baseDate.toISOString()}`;
-    if (
-      await prisma.reminderExecution.findUnique({
-        where: { companyId_triggerKey: { companyId, triggerKey } },
-        select: { id: true },
-      })
-    ) {
-      skipped += 1;
-      continue;
-    }
-    if (dryRun) {
-      created += 1;
-      continue;
-    }
-    const assignedToId = assignee(rule, candidate);
-    if (!assignedToId) {
-      skipped += 1;
-      continue;
-    }
-    const offset = duration(rule.delayValue, rule.delayUnit);
-    const rawDue = new Date(
-      candidate.baseDate.getTime() + (candidate.dateBased ? -offset : offset),
-    );
-    const dueAt = candidate.dateBased ? atLocalTime(timezone, rawDue, rule.dueTime) : rawDue;
-    try {
-      const reminder = await prisma.$transaction(async (tx) => {
-        const execution = await tx.reminderExecution.create({
-          data: {
-            companyId,
-            ruleId: rule.id,
-            entityType: candidate.entityType,
-            entityId: candidate.entityId,
-            triggerKey,
-            attempts: 1,
-          },
-        });
-        const row = await tx.queryFollowUp.create({
-          data: {
-            companyId,
-            assignedToId,
-            createdById: rule.createdById,
-            reminderRuleId: rule.id,
-            title: render(rule.titleTemplate, candidate.values),
-            notes: render(rule.descriptionTemplate, candidate.values) || null,
-            scheduledAt: dueAt,
-            originalDueAt: dueAt,
-            reminderType: rule.reminderType,
-            reminderPriority: rule.reminderPriority,
-            source: source(rule),
-            deduplicationKey: triggerKey,
-            queryId: candidate.queryId ?? null,
-            customerId: candidate.customerId ?? null,
-            quotationId: candidate.quotationId ?? null,
-            bookingId: candidate.bookingId ?? null,
-            bookingPaymentScheduleId: candidate.bookingPaymentScheduleId ?? null,
-            bookingTravellerId: candidate.bookingTravellerId ?? null,
-            bookingServiceId: candidate.bookingServiceId ?? null,
-            vendorId: candidate.vendorId ?? null,
-            vendorPayableId: candidate.vendorPayableId ?? null,
-          },
-        });
-        await tx.reminderExecution.update({
-          where: { id: execution.id },
-          data: { status: 'COMPLETED', reminderId: row.id, completedAt: new Date() },
-        });
-        return row;
-      });
-      await notificationsService.create({
-        companyId,
-        recipientUserId: assignedToId,
-        reminderId: reminder.id,
-        category: 'REMINDER',
-        severity:
-          rule.reminderPriority === 'URGENT'
-            ? 'CRITICAL'
-            : rule.reminderPriority === 'HIGH'
-              ? 'WARNING'
-              : 'INFO',
-        title: reminder.title,
-        message: `An automated reminder was assigned to you: ${reminder.title}`,
-        actionUrl: `/reminders/${reminder.id}`,
-        entityType: candidate.entityType,
-        entityId: candidate.entityId,
-        deduplicationKey: `${triggerKey}:created`,
-        channels: rule.channels,
-      });
-      created += 1;
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'P2002') {
-        skipped += 1;
-        continue;
-      }
-      logger.error(
-        { err: error, companyId, ruleId: rule.id, entityId: candidate.entityId },
-        'Reminder rule execution failed',
-      );
-      skipped += 1;
-    }
-  }
-  return { matched: rows.length, created, skipped };
-}
-
+/** Manual reminders that have become due or overdue. In-app only — never email. */
 async function processDue(companyId: string) {
   const now = new Date();
   await prisma.queryFollowUp.updateMany({
@@ -430,7 +297,6 @@ async function processDue(companyId: string) {
   });
   const due = await prisma.queryFollowUp.findMany({
     where: { companyId, deletedAt: null, status: 'PENDING', scheduledAt: { lte: now } },
-    include: { reminderRule: true },
     take: env.REMINDER_WORKER_BATCH_SIZE,
   });
   for (const reminder of due) {
@@ -446,50 +312,6 @@ async function processDue(companyId: string) {
       entityType: 'QueryFollowUp',
       entityId: reminder.id,
       deduplicationKey: `reminder:${reminder.id}:overdue:${reminder.scheduledAt.toISOString()}`,
-      channels: reminder.reminderRule?.channels ?? ['IN_APP'],
-    });
-    const rule = reminder.reminderRule;
-    if (!rule?.escalationEnabled || !rule.escalationAfterValue || !rule.escalationAfterUnit)
-      continue;
-    if (
-      now.getTime() <
-      reminder.scheduledAt.getTime() + duration(rule.escalationAfterValue, rule.escalationAfterUnit)
-    )
-      continue;
-    const manager = await prisma.user.findFirst({
-      where: {
-        companyId,
-        deletedAt: null,
-        status: 'ACTIVE',
-        role: { name: rule.escalationRoleName ?? env.REMINDER_ESCALATION_MANAGER_ROLE },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!manager || manager.id === reminder.assignedToId) continue;
-    const key = `reminder:${reminder.id}:escalation:1`;
-    const escalation = await prisma.reminderEscalation.upsert({
-      where: { companyId_deduplicationKey: { companyId, deduplicationKey: key } },
-      create: {
-        companyId,
-        reminderId: reminder.id,
-        escalatedToUserId: manager.id,
-        reason: `Reminder remains overdue: ${reminder.title}`,
-        deduplicationKey: key,
-      },
-      update: {},
-    });
-    await notificationsService.create({
-      companyId,
-      recipientUserId: manager.id,
-      reminderId: reminder.id,
-      category: 'ESCALATION',
-      severity: 'CRITICAL',
-      title: `Escalation · ${reminder.title}`,
-      message: 'A team reminder remains overdue and needs attention.',
-      actionUrl: `/reminders/${reminder.id}`,
-      entityType: 'ReminderEscalation',
-      entityId: escalation.id,
-      deduplicationKey: key,
       channels: ['IN_APP'],
     });
   }
@@ -498,14 +320,9 @@ async function processDue(companyId: string) {
 
 export const reminderProcessor = {
   scheduleEvent(companyId: string, ruleTypes: ReminderRule['ruleType'][]) {
-    // Tests invoke processCompany directly; background work would otherwise
-    // outlive a request and race the next test's database reset.
-    if (env.NODE_ENV === 'test') return;
-    setImmediate(() => {
-      void this.processEvent(companyId, ruleTypes).catch((error) =>
-        logger.error({ err: error, companyId, ruleTypes }, 'Event reminder reconciliation failed'),
-      );
-    });
+    // Automatic reminders are disabled — nothing is scheduled for creation.
+    void companyId;
+    void ruleTypes;
   },
   async previewRule(companyId: string, ruleId: string) {
     const rule = await prisma.reminderRule.findFirstOrThrow({
@@ -529,30 +346,9 @@ export const reminderProcessor = {
     };
   },
   async processCompany(companyId: string, options: { ruleId?: string; dryRun?: boolean } = {}) {
-    const company = await prisma.company.findUniqueOrThrow({
-      where: { id: companyId },
-      select: { timezone: true },
-    });
-    const rules = await prisma.reminderRule.findMany({
-      where: {
-        companyId,
-        deletedAt: null,
-        isEnabled: true,
-        ...(options.ruleId ? { id: options.ruleId } : {}),
-      },
-      orderBy: { sortOrder: 'asc' },
-    });
-    const results = [];
-    for (const rule of rules)
-      results.push({
-        ruleId: rule.id,
-        ...(await processRule(
-          companyId,
-          company.timezone || env.REMINDER_WORKER_TIMEZONE_FALLBACK,
-          rule,
-          options.dryRun ?? false,
-        )),
-      });
+    // Automatic rule-based reminders are disabled — reminders are manual only.
+    // Manual reminders still become due/overdue through processDue below.
+    const results: Array<{ ruleId: string; matched: number; created: number; skipped: number }> = [];
     const due = options.dryRun ? 0 : await processDue(companyId);
     const deliveries = options.dryRun ? 0 : await notificationsService.retryPending(companyId);
     if (!options.dryRun)
@@ -577,19 +373,8 @@ export const reminderProcessor = {
     return results;
   },
   async processEvent(companyId: string, ruleTypes: ReminderRule['ruleType'][]) {
-    const company = await prisma.company.findUniqueOrThrow({
-      where: { id: companyId },
-      select: { timezone: true },
-    });
-    const rules = await prisma.reminderRule.findMany({
-      where: { companyId, deletedAt: null, isEnabled: true, ruleType: { in: ruleTypes } },
-    });
-    for (const rule of rules)
-      await processRule(
-        companyId,
-        company.timezone || env.REMINDER_WORKER_TIMEZONE_FALLBACK,
-        rule,
-        false,
-      );
+    // Automatic rule-based reminders are disabled — reminders are manual only.
+    void companyId;
+    void ruleTypes;
   },
 };

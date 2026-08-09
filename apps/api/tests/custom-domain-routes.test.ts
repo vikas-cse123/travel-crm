@@ -10,6 +10,7 @@ const awsMock = vi.hoisted(() => ({
   describeCertificate: vi.fn(),
   attachCertificate: vi.fn(),
   detachCertificate: vi.fn(),
+  deleteCertificate: vi.fn(),
   isCertificateAttached: vi.fn(),
 }));
 
@@ -131,6 +132,78 @@ describe('custom domain routes', () => {
     const disabled = await client.post('/api/settings/custom-domain/disable');
     expect(disabled.status).toBe(200);
     expect(disabled.body.data.status).toBe('DISABLED');
+  });
+
+  it('edits a configured domain, resets to PENDING and requests a new certificate', async () => {
+    const { client } = await ownerClient('easy-tour');
+    awsMock.requestCertificate.mockResolvedValueOnce('arn:cert-1');
+    awsMock.describeCertificate.mockResolvedValueOnce({
+      status: 'PENDING_VALIDATION',
+      validationRecord: { name: '_old.example.com', type: 'CNAME', value: '_old.acm' },
+    });
+    await client.post('/api/settings/custom-domain', { hostname: 'crm.easytour.com' });
+
+    // Replace with a new subdomain: the old certificate is detached/deleted and
+    // a new one is requested; the domain returns to PENDING.
+    awsMock.detachCertificate.mockResolvedValue(undefined);
+    awsMock.deleteCertificate.mockResolvedValue(undefined);
+    awsMock.requestCertificate.mockResolvedValueOnce('arn:cert-2');
+    awsMock.describeCertificate.mockResolvedValueOnce({
+      status: 'PENDING_VALIDATION',
+      validationRecord: { name: '_new.quote.easytour.com', type: 'CNAME', value: '_new.acm' },
+    });
+
+    const edited = await client.put('/api/settings/custom-domain', {
+      hostname: 'quote.easytour.com',
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data.status).toBe('PENDING');
+    expect(edited.body.data.hostname).toBe('quote.easytour.com');
+    expect(edited.body.data.validationName).toBe('_new.quote.easytour.com');
+    expect(awsMock.detachCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.deleteCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.requestCertificate).toHaveBeenCalledWith('quote.easytour.com');
+    expect(JSON.stringify(edited.body)).not.toContain('arn:cert');
+  });
+
+  it('deletes a custom domain and returns to the empty NONE state', async () => {
+    const { client } = await ownerClient('easy-tour');
+    awsMock.requestCertificate.mockResolvedValue('arn:cert-1');
+    awsMock.describeCertificate.mockResolvedValue({
+      status: 'PENDING_VALIDATION',
+      validationRecord: null,
+    });
+    await client.post('/api/settings/custom-domain', { hostname: 'crm.easytour.com' });
+
+    awsMock.detachCertificate.mockResolvedValue(undefined);
+    awsMock.deleteCertificate.mockResolvedValue(undefined);
+    const removed = await client.delete('/api/settings/custom-domain');
+    expect(removed.status).toBe(200);
+    expect(removed.body.data.status).toBe('NONE');
+    expect(removed.body.data.hostname).toBeNull();
+    expect(awsMock.detachCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.deleteCertificate).toHaveBeenCalledWith('arn:cert-1');
+
+    const fetched = await client.get('/api/settings/custom-domain');
+    expect(fetched.body.data.status).toBe('NONE');
+  });
+
+  it('rejects edit/delete without SETTINGS_UPDATE', async () => {
+    const company = await createCompanyFixture(db, 'easy-tour');
+    await grant(company.ownerRoleId, 'settings.view');
+    await createUserFixture(db, company, {
+      username: 'manager',
+      email: 'manager2@easy-tour.local',
+    });
+    const client = createAuthClient(app);
+    await client.post('/api/auth/login', {
+      email: 'manager2@easy-tour.local',
+      password: 'Fixture@2026',
+    });
+    expect(
+      (await client.put('/api/settings/custom-domain', { hostname: 'x.easytour.com' })).status,
+    ).toBe(403);
+    expect((await client.delete('/api/settings/custom-domain')).status).toBe(403);
   });
 
   it('another tenant cannot see or manage the first tenant domain', async () => {

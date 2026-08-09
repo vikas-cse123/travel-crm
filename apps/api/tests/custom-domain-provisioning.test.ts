@@ -8,6 +8,7 @@ const awsMock = vi.hoisted(() => ({
   describeCertificate: vi.fn(),
   attachCertificate: vi.fn(),
   detachCertificate: vi.fn(),
+  deleteCertificate: vi.fn(),
   isCertificateAttached: vi.fn(),
 }));
 
@@ -22,9 +23,11 @@ vi.mock('../src/modules/custom-domains/dns.service.js', () => dnsMock);
 import {
   checkCustomDomain,
   createCustomDomain,
+  deleteCustomDomain,
   disableCustomDomain,
   getCustomDomain,
   isValidSubdomainHostname,
+  updateCustomDomain,
 } from '../src/modules/custom-domains/custom-domain-provisioning.service.js';
 import { resolveCustomDomain } from '../src/modules/custom-domains/custom-domain.service.js';
 
@@ -242,5 +245,70 @@ describe('disable domain', () => {
       status: 'DISABLED',
       hostname: 'crm.easytour.com',
     });
+  });
+});
+
+describe('edit and delete domain', () => {
+  it('replaces the hostname, cleans up the old certificate and resets to PENDING', async () => {
+    const company = await createCompany('easy-tour');
+    awsMock.requestCertificate.mockResolvedValueOnce('arn:cert-1');
+    awsMock.describeCertificate.mockResolvedValueOnce({
+      status: 'PENDING_VALIDATION',
+      validationRecord: null,
+    });
+    await createCustomDomain(auth(company.id), 'crm.easytour.com');
+
+    awsMock.detachCertificate.mockResolvedValue(undefined);
+    awsMock.deleteCertificate.mockResolvedValue(undefined);
+    awsMock.requestCertificate.mockResolvedValueOnce('arn:cert-2');
+    awsMock.describeCertificate.mockResolvedValueOnce({
+      status: 'PENDING_VALIDATION',
+      validationRecord: { name: '_new.quote.easytour.com', type: 'CNAME', value: '_new.acm' },
+    });
+
+    const info = await updateCustomDomain(auth(company.id), 'quote.easytour.com');
+    expect(info.status).toBe('PENDING');
+    expect(info.hostname).toBe('quote.easytour.com');
+    expect(info.validationName).toBe('_new.quote.easytour.com');
+    expect(awsMock.detachCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.deleteCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.requestCertificate).toHaveBeenCalledWith('quote.easytour.com');
+  });
+
+  it('rejects editing a hostname already claimed by another company', async () => {
+    const a = await createCompany('alpha-tours');
+    const b = await createCompany('beta-tours');
+    awsMock.requestCertificate.mockResolvedValue('arn:cert-1');
+    awsMock.describeCertificate.mockResolvedValue({
+      status: 'PENDING_VALIDATION',
+      validationRecord: null,
+    });
+    await createCustomDomain(auth(a.id), 'crm.easytour.com');
+    await createCustomDomain(auth(b.id), 'b.easytour.com');
+
+    await expect(updateCustomDomain(auth(b.id), 'crm.easytour.com')).rejects.toThrow(
+      'already in use',
+    );
+  });
+
+  it('deletes the domain record and its SSL data, returning to NONE', async () => {
+    const company = await createCompany('easy-tour');
+    awsMock.requestCertificate.mockResolvedValue('arn:cert-1');
+    awsMock.describeCertificate.mockResolvedValue({
+      status: 'PENDING_VALIDATION',
+      validationRecord: null,
+    });
+    await createCustomDomain(auth(company.id), 'crm.easytour.com');
+
+    awsMock.detachCertificate.mockResolvedValue(undefined);
+    awsMock.deleteCertificate.mockResolvedValue(undefined);
+    const info = await deleteCustomDomain(auth(company.id));
+    expect(info.status).toBe('NONE');
+    expect(info.hostname).toBeNull();
+    expect(awsMock.detachCertificate).toHaveBeenCalledWith('arn:cert-1');
+    expect(awsMock.deleteCertificate).toHaveBeenCalledWith('arn:cert-1');
+
+    expect(await resolveCustomDomain('crm.easytour.com')).toBeNull();
+    expect(await getCustomDomain(auth(company.id))).toMatchObject({ status: 'NONE' });
   });
 });
