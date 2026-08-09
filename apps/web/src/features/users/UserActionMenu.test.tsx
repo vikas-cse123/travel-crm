@@ -72,9 +72,11 @@ describe('UserActionMenu Set New Password', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Set New Password' });
     expect(screen.getByText('Asha Agent')).toBeInTheDocument();
 
-    const [newPassword, confirmPassword] = dialog.querySelectorAll<HTMLInputElement>(
-      'input[type="password"]',
+    const passwordInputs = Array.from(
+      dialog.querySelectorAll<HTMLInputElement>('input[type="password"]'),
     );
+    const newPassword = passwordInputs[0]!;
+    const confirmPassword = passwordInputs[1]!;
     await userEvent.type(newPassword, 'NewPass@2026');
     await userEvent.type(confirmPassword, 'NewPass@2026');
 
@@ -96,9 +98,11 @@ describe('UserActionMenu Set New Password', () => {
     await userEvent.click(screen.getByRole('button', { name: /Set New Password/i }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Set New Password' });
-    const [newPassword, confirmPassword] = dialog.querySelectorAll<HTMLInputElement>(
-      'input[type="password"]',
+    const passwordInputs = Array.from(
+      dialog.querySelectorAll<HTMLInputElement>('input[type="password"]'),
     );
+    const newPassword = passwordInputs[0]!;
+    const confirmPassword = passwordInputs[1]!;
     await userEvent.type(newPassword, 'NewPass@2026');
     await userEvent.type(confirmPassword, 'Different@2026');
 

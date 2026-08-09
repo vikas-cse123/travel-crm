@@ -183,7 +183,7 @@ function buildSampleCsv(): string {
     'Assigned To',
   ];
   const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
-  const lines = SAMPLE_ROWS.map((row) =>
+  const lines = SAMPLE_ROWS.map((row: Record<string, string>) =>
     headers.map((header) => quote(row[header] ?? '')).join(','),
   );
   return [headers.map(quote).join(','), ...lines].join('\n');
@@ -251,7 +251,8 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
 
   const onFiles = useCallback(
     (files: FileList | null) => {
-      if (files && files.length > 0) parseFile(files[0]);
+      const file = files?.[0];
+      if (file) parseFile(file);
     },
     [parseFile],
   );

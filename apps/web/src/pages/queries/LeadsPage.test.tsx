@@ -2950,7 +2950,7 @@ describe('Lead CSV import', () => {
     expect(await waitFor(() => expect(importButton).toBeEnabled()));
 
     // Change the "Name" mapping back to "Ignore this column".
-    const nameSelect = within(dialog).getAllByRole('combobox')[0];
+    const nameSelect = within(dialog).getAllByRole('combobox')[0]!;
     await userEvent.selectOptions(nameSelect, '');
     await waitFor(() => expect(importButton).toBeDisabled());
   });
@@ -2973,7 +2973,7 @@ describe('Lead CSV import', () => {
     expect(await waitFor(() => expect(importButton).toBeEnabled()));
 
     // Break then restore the customer-name mapping.
-    const nameSelect = within(dialog).getAllByRole('combobox')[0];
+    const nameSelect = within(dialog).getAllByRole('combobox')[0]!;
     await userEvent.selectOptions(nameSelect, '');
     await waitFor(() => expect(importButton).toBeDisabled());
     await userEvent.selectOptions(nameSelect, 'customerName');
