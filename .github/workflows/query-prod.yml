@@ -32,7 +32,7 @@ jobs:
           SQL: ${{ github.event.inputs.sql }}
         run: |
           set -Eeuo pipefail
-          SQL="$(printf '%s' "$SQL" | xargs)"
+          SQL="$(printf '%s' "$SQL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           case "$SQL" in
             SELECT*|WITH*) ;;
             *) echo "Only read-only SELECT/WITH queries are allowed." >&2; exit 1 ;;
