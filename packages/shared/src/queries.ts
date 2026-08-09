@@ -340,6 +340,7 @@ export const leadImportRowSchema = z.object({
 export const leadImportSchema = z.object({
   rows: z.array(leadImportRowSchema).min(1).max(LEAD_IMPORT_MAX_ROWS),
   skipDuplicates: z.boolean().default(false),
+  ignoreInvalidOptionalFields: z.boolean().default(false),
 });
 
 export type LeadImportRow = z.infer<typeof leadImportRowSchema>;

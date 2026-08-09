@@ -98,6 +98,15 @@ function toOptionalString(value: unknown): string | undefined {
   return text ? text : undefined;
 }
 
+function parseOptionalField<T>(ignoreInvalid: boolean, parse: () => T): T | undefined {
+  try {
+    return parse();
+  } catch (error) {
+    if (ignoreInvalid) return undefined;
+    throw error;
+  }
+}
+
 const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
 function buildErrorCsv(failed: Array<{ row: number; customerName: string; reason: string }>): string {
@@ -122,7 +131,7 @@ function buildImportedCsvNote(row: LeadImportRow): string | undefined {
 }
 
 /** Build the same QueryInput the create form submits, from a mapped CSV row. */
-function toQueryInput(row: LeadImportRow): QueryInput {
+function toQueryInput(row: LeadImportRow, ignoreInvalidOptionalFields = false): QueryInput {
   const leadSource = matchEnumValue(row.leadSource, LEAD_SOURCES);
   if (!leadSource) throw new Error('Missing or invalid lead source.');
   const leadType = (matchEnumValue(row.leadType, LEAD_TYPES) ?? 'FRESH') as QueryInput['leadType'];
@@ -136,18 +145,25 @@ function toQueryInput(row: LeadImportRow): QueryInput {
         ...new Set(row.services.map((s) => matchEnumValue(s, SERVICE_TYPES)).filter(Boolean)),
       ] as QueryInput['services'])
     : ([...LEAD_IMPORT_DEFAULT_SERVICES] as QueryInput['services']);
-  if (!services.length) throw new Error('No valid services provided.');
+  if (!services.length) {
+    if (ignoreInvalidOptionalFields) services.push(...LEAD_IMPORT_DEFAULT_SERVICES);
+    else throw new Error('No valid services provided.');
+  }
 
-  const travelStartDate = toCalendarDate(row.travelStartDate);
-  const travelEndDate = toCalendarDate(row.travelEndDate);
+  const travelStartDate = parseOptionalField(ignoreInvalidOptionalFields, () =>
+    toCalendarDate(row.travelStartDate),
+  );
+  const travelEndDate = parseOptionalField(ignoreInvalidOptionalFields, () =>
+    toCalendarDate(row.travelEndDate),
+  );
   if (travelStartDate && travelEndDate && travelStartDate > travelEndDate) {
-    throw new Error('Travel end must be after travel start.');
+    if (!ignoreInvalidOptionalFields) throw new Error('Travel end must be after travel start.');
   }
 
   // Reuse the shared create schema so imported leads pass the exact same
   // validation and defaults as the create form. The schema fills defaults
   // (createNewCustomer, flexibleDates, rooms, etc.), then we return the result.
-  const parsed = queryInputSchema.safeParse({
+  const candidate: Record<string, unknown> = {
     customerName: (row.customerName ?? '').trim(),
     phone: (row.phone ?? '').trim(),
     email: row.email && row.email.trim() ? normalizeEmail(row.email.trim()) : null,
@@ -159,20 +175,49 @@ function toQueryInput(row: LeadImportRow): QueryInput {
     departureCountry: toOptionalString(row.departureCountry),
     departureCity: toOptionalString(row.departureCity),
     travelStartDate: travelStartDate ?? undefined,
-    travelEndDate: travelEndDate ?? undefined,
-    adults: toNonNegativeInteger(row.adults, 'adults') ?? 1,
-    childrenWithBed: toNonNegativeInteger(row.childrenWithBed, 'children with bed') ?? 0,
-    childrenWithoutBed: toNonNegativeInteger(row.childrenWithoutBed, 'children without bed') ?? 0,
-    infants: toNonNegativeInteger(row.infants, 'infants') ?? 0,
-    expectedAmount: toNonNegativeMoney(row.expectedAmount, 'expected amount'),
-    budgetMin: toNonNegativeMoney(row.budgetMin, 'budget min'),
-    budgetMax: toNonNegativeMoney(row.budgetMax, 'budget max'),
+    travelEndDate:
+      travelStartDate && travelEndDate && travelStartDate > travelEndDate
+        ? undefined
+        : (travelEndDate ?? undefined),
+    adults:
+      parseOptionalField(ignoreInvalidOptionalFields, () =>
+        toNonNegativeInteger(row.adults, 'adults'),
+      ) ?? 1,
+    childrenWithBed:
+      parseOptionalField(ignoreInvalidOptionalFields, () =>
+        toNonNegativeInteger(row.childrenWithBed, 'children with bed'),
+      ) ?? 0,
+    childrenWithoutBed:
+      parseOptionalField(ignoreInvalidOptionalFields, () =>
+        toNonNegativeInteger(row.childrenWithoutBed, 'children without bed'),
+      ) ?? 0,
+    infants:
+      parseOptionalField(ignoreInvalidOptionalFields, () =>
+        toNonNegativeInteger(row.infants, 'infants'),
+      ) ?? 0,
+    expectedAmount: parseOptionalField(ignoreInvalidOptionalFields, () =>
+      toNonNegativeMoney(row.expectedAmount, 'expected amount'),
+    ),
+    budgetMin: parseOptionalField(ignoreInvalidOptionalFields, () =>
+      toNonNegativeMoney(row.budgetMin, 'budget min'),
+    ),
+    budgetMax: parseOptionalField(ignoreInvalidOptionalFields, () =>
+      toNonNegativeMoney(row.budgetMax, 'budget max'),
+    ),
     currency: row.currency && row.currency.trim() ? row.currency.trim() : 'INR',
     tripType: toOptionalString(row.tripType),
     internalRemarks: toOptionalString(row.internalRemarks),
     services,
     itinerary: [],
-  });
+  };
+  let parsed = queryInputSchema.safeParse(candidate);
+  while (!parsed.success && ignoreInvalidOptionalFields) {
+    const first = parsed.error.issues[0];
+    const field = first?.path[0];
+    if (typeof field !== 'string' || ['customerName', 'phone', 'leadSource'].includes(field)) break;
+    delete candidate[field];
+    parsed = queryInputSchema.safeParse(candidate);
+  }
   if (!parsed.success) {
     const first = parsed.error.issues[0];
     throw new Error(
@@ -265,8 +310,9 @@ export const queriesImportService = {
         let email: string | null | undefined;
         if (row.email && row.email.trim()) {
           const candidate = row.email.trim();
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) throw new Error('Invalid email.');
-          email = normalizeEmail(candidate);
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) {
+            if (!input.ignoreInvalidOptionalFields) throw new Error('Invalid email.');
+          } else email = normalizeEmail(candidate);
         }
 
         // Resolve assignee strictly within the caller's company. Blank falls
@@ -275,7 +321,8 @@ export const queriesImportService = {
         if (row.assignedTo && row.assignedTo.trim()) {
           const assigneeKey = row.assignedTo.trim().toLowerCase();
           assignedToId = userByKey.get(assigneeKey);
-          if (!assignedToId) throw new Error(`Unknown assignee: ${row.assignedTo}`);
+          if (!assignedToId && !input.ignoreInvalidOptionalFields)
+            throw new Error(`Unknown assignee: ${row.assignedTo}`);
         }
 
         // Resolve destination against the company's Destination masters; never
@@ -288,13 +335,17 @@ export const queriesImportService = {
         }> = [];
         if (row.destination && row.destination.trim()) {
           const dest = destinationByKey.get(row.destination.trim().toLowerCase());
-          if (!dest) throw new Error(`Unknown destination: ${row.destination}`);
-          itinerary.push({
-            country: dest.countryName,
-            destination: dest.name,
-            nights: 0,
-            sequence: 1,
-          });
+          if (!dest) {
+            if (!input.ignoreInvalidOptionalFields)
+              throw new Error(`Unknown destination: ${row.destination}`);
+          } else {
+            itinerary.push({
+              country: dest.countryName,
+              destination: dest.name,
+              nights: 0,
+              sequence: 1,
+            });
+          }
         }
 
         const normalizedPhone = normalizePhone(phone);
@@ -309,7 +360,7 @@ export const queriesImportService = {
           continue;
         }
 
-        const queryInput = toQueryInput(row);
+        const queryInput = toQueryInput(row, input.ignoreInvalidOptionalFields);
         const initialNote = buildImportedCsvNote(row);
         await queriesService.create(
           auth,

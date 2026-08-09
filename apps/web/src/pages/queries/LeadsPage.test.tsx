@@ -2985,9 +2985,7 @@ describe('Lead CSV import', () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).includes('/queries/import')) {
           importBody = JSON.parse(String(init?.body));
-          return response({
-            data: { total: 1, imported: 1, skipped: 0, failed: 0, results: [], errorCsv: {} },
-          });
+          return response({ total: 1, imported: 1, skipped: 0, failed: 0, results: [], errorCsv: {} });
         }
         return response(
           String(input).includes('analytics')
@@ -3011,6 +3009,7 @@ describe('Lead CSV import', () => {
     fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
 
     const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await within(dialog).findByText('1 data rows detected');
     const noteOptions = within(dialog).getAllByLabelText('Add values to lead note');
     expect(noteOptions).toHaveLength(2);
     await userEvent.click(noteOptions[0]!);
@@ -3019,6 +3018,7 @@ describe('Lead CSV import', () => {
     await waitFor(() =>
       expect(importBody).toEqual({
         skipDuplicates: true,
+        ignoreInvalidOptionalFields: false,
         rows: [
           {
             customerName: 'Aarav Mehta',
@@ -3029,6 +3029,69 @@ describe('Lead CSV import', () => {
         ],
       }),
     );
+  });
+
+  it('retries only failed rows and requests invalid optional fields be ignored', async () => {
+    const importBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/queries/import')) {
+          importBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          const retry = importBodies.length === 2;
+          return response(
+            retry
+              ? { total: 1, imported: 1, skipped: 0, failed: 0, results: [], errorCsv: {} }
+              : {
+                  total: 1,
+                  imported: 0,
+                  skipped: 0,
+                  failed: 1,
+                  results: [
+                    { row: 2, customerName: 'Aarav Mehta', status: 'FAILED', reason: 'Invalid email.' },
+                  ],
+                  errorCsv: {},
+                },
+          );
+        }
+        return response(
+          String(input).includes('analytics')
+            ? analytics
+            : String(input).includes('lookups')
+              ? lookups
+              : { data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } },
+        );
+      }),
+    );
+    renderWithProviders(<LeadsPage />);
+    await screen.findByText('No leads found');
+    await userEvent.click(screen.getByRole('button', { name: /Import CSV/i }));
+    const file = new File(
+      ['Name,Phone,Lead Source,Email\nAarav Mehta,+91 98765 43210,Referral,invalid-email\n'],
+      'leads.csv',
+      { type: 'text/csv' },
+    );
+    fireEvent.change(screen.getByLabelText(/Choose a CSV file/i), { target: { files: [file] } });
+    const dialog = await screen.findByRole('dialog', { name: 'Import Leads' });
+    await userEvent.click(within(dialog).getByRole('button', { name: /^Import$/ }));
+
+    const retry = await within(dialog).findByRole('button', {
+      name: 'Import failed rows without invalid fields',
+    });
+    await userEvent.click(retry);
+
+    await waitFor(() => expect(importBodies).toHaveLength(2));
+    expect(importBodies[1]).toMatchObject({
+      ignoreInvalidOptionalFields: true,
+      rows: [
+        {
+          customerName: 'Aarav Mehta',
+          phone: '+91 98765 43210',
+          leadSource: 'Referral',
+          email: 'invalid-email',
+        },
+      ],
+    });
   });
 
   it('re-enables the modal Import button when a required mapping is restored', async () => {

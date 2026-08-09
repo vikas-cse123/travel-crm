@@ -232,6 +232,45 @@ describe('CSV lead import', () => {
     expect(reasons.join(' ')).toMatch(/date/i);
   });
 
+  it('retries failed rows while leaving invalid optional fields blank', async () => {
+    const email = 'owner@import-retry.test';
+    const client = await owner(email, 'Import Retry');
+    const ownerUser = await db.user.findUniqueOrThrow({ where: { normalizedEmail: email } });
+
+    const res = await client.post('/api/queries/import', {
+      ...importPayload([
+        {
+          customerName: 'Retry Lead',
+          phone: '98333 44444',
+          leadSource: 'REFERRAL',
+          email: 'invalid-email',
+          travelStartDate: 'not-a-date',
+          adults: 'invalid',
+          destination: 'Unknown Place',
+          assignedTo: 'unknown-user',
+        },
+        {
+          customerName: 'Still Missing Phone',
+          phone: '',
+          leadSource: 'REFERRAL',
+        },
+      ]),
+      ignoreInvalidOptionalFields: true,
+    });
+
+    expect(res.body.data.imported).toBe(1);
+    expect(res.body.data.failed).toBe(1);
+    const lead = await db.query.findFirstOrThrow({
+      where: { companyId: ownerUser.companyId, customerName: 'Retry Lead' },
+      include: { itinerary: true },
+    });
+    expect(lead.email).toBeNull();
+    expect(lead.travelStartDate).toBeNull();
+    expect(lead.adults).toBe(1);
+    expect(lead.itinerary).toHaveLength(0);
+    expect(lead.assignedToId).toBe(ownerUser.id);
+  });
+
   it('detects duplicates by phone/email and skips them when requested', async () => {
     const email = 'owner@import4.test';
     const client = await owner(email, 'Import Four');

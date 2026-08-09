@@ -195,6 +195,7 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [noteColumns, setNoteColumns] = useState<Record<string, boolean>>({});
+  const [submittedRows, setSubmittedRows] = useState<Record<string, unknown>[]>([]);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [step, setStep] = useState<'upload' | 'map' | 'result'>('upload');
   const [dragOver, setDragOver] = useState(false);
@@ -289,8 +290,10 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
   }, [rawRows, headers, mapping, noteColumns]);
 
   const runImport = () => {
+    const rows = buildRows();
+    setSubmittedRows(rows);
     importMutation.mutate(
-      { rows: buildRows() as never, skipDuplicates },
+      { rows: rows as never, skipDuplicates, ignoreInvalidOptionalFields: false },
       {
         onSuccess: () => setStep('result'),
         onError: (importError) => {
@@ -302,6 +305,32 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
               : 'The import could not be completed.',
           );
         },
+      },
+    );
+  };
+
+  const retryFailedRows = () => {
+    if (!result) return;
+    const failedRows = result.results
+      .filter((row) => row.status === 'FAILED')
+      .map((row) => submittedRows[row.row - 2])
+      .filter((row): row is Record<string, unknown> => Boolean(row));
+    if (!failedRows.length) return;
+    setError('');
+    setSubmittedRows(failedRows);
+    importMutation.mutate(
+      {
+        rows: failedRows as never,
+        skipDuplicates,
+        ignoreInvalidOptionalFields: true,
+      },
+      {
+        onError: (importError) =>
+          setError(
+            importError instanceof ApiError && importError.message
+              ? importError.message
+              : 'The failed rows could not be retried.',
+          ),
       },
     );
   };
@@ -601,6 +630,19 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                           ))}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="border-t bg-amber-50 px-4 py-3">
+                    <p className="mb-2 text-xs text-amber-800">
+                      Retry failed rows with invalid optional fields left blank. Customer name,
+                      phone and lead source are still required.
+                    </p>
+                    <Button
+                      size="sm"
+                      onClick={retryFailedRows}
+                      disabled={importMutation.isPending}
+                    >
+                      {importMutation.isPending ? 'Retrying…' : 'Import failed rows without invalid fields'}
+                    </Button>
                   </div>
                 </section>
               )}
