@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote, resolveItineraryActivityImage, resolveItineraryDayImage } from '@interscale/shared';
+import { colorEmojiPng } from '../../services/pdf/color-emojis.js';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
 
 /**
@@ -148,10 +149,13 @@ const validPaymentUrl = (value: string | null | undefined): string | null => {
   }
 };
 
-/** Flatten sanitised rich text into lines (block tags → breaks, <li> → bullets). */
-const htmlToLines = (html: string | null | undefined): string[] => {
+/** Flatten sanitised rich text into PDF-safe lines (block tags → breaks, <li> → bullets). */
+export const htmlToLines = (html: string | null | undefined): string[] => {
   if (!html) return [];
   return html
+    // Rich-text editors commonly produce <li><p>…</p></li>. Handle that
+    // combination first so the list marker and its content remain one line.
+    .replace(/<li[^>]*>\s*<(?:p|div)[^>]*>/gi, '\n• ')
     .replace(/<li[^>]*>/gi, '\n• ')
     .replace(/<\/(p|div|h[1-6]|tr|ul|ol|li)>/gi, '\n')
     .replace(/<(p|div|h[1-6]|ul|ol)[^>]*>/gi, '\n')
@@ -760,6 +764,141 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           yy = doc.y + gap;
         }
         doc.fillColor(DARK);
+        return yy;
+      },
+    };
+  };
+
+  /**
+   * PDFKit cannot retain colour layers from emoji fonts. For sightseeing rich
+   * text, preserve normal PDF text layout while drawing the supported emoji as
+   * small embedded colour PNGs at the same inline positions.
+   */
+  const colorEmojiFlowBlock = (
+    lines: string[],
+    x: number,
+    width: number,
+    size: number,
+    gap: number,
+    color = '#333',
+  ): PdfBlock => {
+    type InlinePart = { value: string; width: number; emoji?: Buffer };
+    type LineLayout =
+      | { kind: 'text'; value: string; height: number }
+      | { kind: 'emoji'; rows: InlinePart[][]; lineHeight: number; emojiSize: number; height: number };
+
+    doc.font('Body').fontSize(size);
+    const lineHeight = doc.heightOfString('Ag', { width });
+    const emojiSize = Math.min(lineHeight * 0.94, size * 1.2);
+
+    const layouts: LineLayout[] = lines.map((line) => {
+      const parts: Array<{ value: string; emoji?: Buffer }> = [];
+      let cursor = 0;
+      const matches = line.matchAll(
+        /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
+      );
+
+      for (const match of matches) {
+        const png = colorEmojiPng(match[0]);
+        if (!png || match.index === undefined) continue;
+        if (match.index > cursor) {
+          line.slice(cursor, match.index).split(/(\s+)/).filter(Boolean).forEach((value) => parts.push({ value }));
+        }
+        parts.push({ value: match[0], emoji: png });
+        cursor = match.index + match[0].length;
+      }
+      if (cursor === 0) return { kind: 'text', value: line, height: doc.heightOfString(line, { width }) + gap };
+      if (cursor < line.length) {
+        line.slice(cursor).split(/(\s+)/).filter(Boolean).forEach((value) => parts.push({ value }));
+      }
+
+      const measured = parts.map<InlinePart>((part) => ({
+        ...part,
+        width: part.emoji ? emojiSize : doc.widthOfString(part.value),
+      }));
+      const rows: InlinePart[][] = [];
+      let row: InlinePart[] = [];
+      let rowWidth = 0;
+      const finishRow = () => {
+        while (row.length && /^\s+$/.test(row[row.length - 1]!.value)) row.pop();
+        if (row.length) rows.push(row);
+        row = [];
+        rowWidth = 0;
+      };
+      const addPart = (part: InlinePart) => {
+        const whitespace = /^\s+$/.test(part.value);
+        if (whitespace && row.length === 0) return;
+        if (row.length && rowWidth + part.width > width) finishRow();
+        if (whitespace && row.length === 0) return;
+        row.push(part);
+        rowWidth += part.width;
+      };
+
+      for (const part of measured) {
+        if (part.emoji || part.width <= width) {
+          addPart(part);
+          continue;
+        }
+        // Keep unusually long unbroken text inside the column.
+        let chunk = '';
+        let chunkWidth = 0;
+        for (const character of Array.from(part.value)) {
+          const characterWidth = doc.widthOfString(character);
+          if (chunk && chunkWidth + characterWidth > width) {
+            addPart({ value: chunk, width: chunkWidth });
+            chunk = '';
+            chunkWidth = 0;
+          }
+          chunk += character;
+          chunkWidth += characterWidth;
+        }
+        if (chunk) addPart({ value: chunk, width: chunkWidth });
+      }
+      finishRow();
+
+      return {
+        kind: 'emoji',
+        rows,
+        lineHeight,
+        emojiSize,
+        height: rows.length * lineHeight + gap,
+      };
+    });
+
+    return {
+      height: layouts.reduce((sum, layout) => sum + layout.height, 0),
+      render: (y0) => {
+        let yy = y0;
+        for (const layout of layouts) {
+          if (layout.kind === 'text') {
+            doc.font('Body').fontSize(size).fillColor(color).text(layout.value, x, yy, { width });
+            yy = doc.y + gap;
+            continue;
+          }
+
+          for (const row of layout.rows) {
+            let xx = x;
+            for (const part of row) {
+              if (part.emoji) {
+                // Preserve the Unicode character for selection/accessibility,
+                // then cover the invisible glyph with its colour image.
+                doc.save().font('Body').fontSize(size).fillOpacity(0).text(part.value, xx, yy, { lineBreak: false }).restore();
+                doc.image(part.emoji, xx, yy + (layout.lineHeight - layout.emojiSize) / 2, {
+                  width: layout.emojiSize,
+                  height: layout.emojiSize,
+                });
+              } else {
+                doc.font('Body').fontSize(size).fillColor(color).text(part.value, xx, yy, { lineBreak: false });
+              }
+              xx += part.width;
+            }
+            yy += layout.lineHeight;
+          }
+          yy += gap;
+        }
+        doc.x = x;
+        doc.y = yy;
+        doc.fillColor(DARK).fillOpacity(1);
         return yy;
       },
     };
@@ -1595,12 +1734,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         let textColH = 0;
         if (a.name) textColH += hOf(a.name, 12, contentW, 'Bold') + 3;
         const descLines = htmlToLines(a.description);
-        if (descLines.length) {
-          doc.font('Body').fontSize(10.5);
-          descLines.forEach((line) => {
-            textColH += doc.heightOfString(line, { width: contentW }) + 2;
-          });
-        }
+        const descBlock = colorEmojiFlowBlock(descLines, contentX, contentW, 10.5, 2);
+        textColH += descBlock.height;
         if (aTransfer) textColH += 6 + 20 + 6;
 
         // Informational prices use a compact two-column grid. The shared
@@ -1648,8 +1783,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
               doc.font('Bold').fontSize(12).fillColor(DARK).text(a.name, contentX, yy, { width: contentW });
               yy = doc.y + 3;
             }
-            const block = flowBlock(descLines, contentX, contentW, 10.5, 2);
-            yy = block.render(yy);
+            yy = descBlock.render(yy);
             if (aTransfer) {
               yy += 6;
               badge(aTransfer, contentX, yy, AMBER, DARK);

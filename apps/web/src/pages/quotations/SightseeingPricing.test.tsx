@@ -56,6 +56,21 @@ const priceInput = (activity: number, label: string) =>
   screen.getByLabelText(`Day 1 activity ${activity} ${label} price`);
 
 describe('builder — activity pricing defaults', () => {
+  it('validates the visible activity text instead of rich-text markup length', () => {
+    const activity = {
+      ...emptySightseeingActivity(),
+      description: `<p data-format="${'x'.repeat(8_100)}">Short visible description</p>`,
+    };
+    const details = {
+      include: true,
+      days: [emptySightseeingDay(1, { activities: [activity] })],
+    };
+
+    expect(
+      quotationVersionInputSchema.innerType().shape.sightseeingDetails.safeParse(details).success,
+    ).toBe(true);
+  });
+
   it('shows Adult/Child/Senior price inputs on a new activity, all empty', async () => {
     render(<Harness />);
     expect(screen.getByText('Activity Pricing')).toBeInTheDocument();

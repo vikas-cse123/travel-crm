@@ -107,6 +107,27 @@ export function resolveItineraryDayImage<T>(
 }
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
+/**
+ * Rich-text fields store HTML, so formatting markup must not consume the
+ * customer-facing character allowance. Keep a generous raw-payload guard,
+ * while enforcing the business limit against the visible text only.
+ */
+const optionalRichText = (visibleMax: number) =>
+  z
+    .string()
+    .trim()
+    .max(100_000)
+    .refine(
+      (html) =>
+        html
+          .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+          .replace(/<[^>]*>/g, '')
+          .replace(/&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/gi, 'x')
+          .trim().length <= visibleMax,
+      { message: `Visible text must contain at most ${visibleMax} character(s)` },
+    )
+    .nullable()
+    .optional();
 const optionalDate = z.coerce.date().nullable().optional();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);
 const optionalMoney = money.nullable().optional();
@@ -425,7 +446,7 @@ export const sightseeingActivitySchema = z.object({
   startTime: optionalText(20),
   duration: optionalText(40),
   city: optionalText(120),
-  description: optionalText(8000),
+  description: optionalRichText(8000),
   imageUrl: optionalText(1000),
   // Per-activity transfer (PRIVATE/SHARED/NO_TRANSFER). Absent on legacy rows,
   // which fall back to the day-level dailyTransfer when displayed.
