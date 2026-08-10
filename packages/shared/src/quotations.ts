@@ -57,6 +57,55 @@ export function isPublicTaxNote(taxNote: string | null | undefined): taxNote is 
   );
 }
 
+export interface ItineraryImageActivityRef {
+  imageUrl?: string | null;
+  sightseeingId?: string | null;
+}
+
+export interface ItineraryImageResolver<T> {
+  snapshot: (imageUrl: string) => T | null | undefined;
+  sightseeing: (sightseeingId: string) => T | null | undefined;
+  destination?: T | null;
+}
+
+/** Canonical activity image precedence: saved snapshot, then sightseeing master. */
+export function resolveItineraryActivityImage<T>(
+  activity: ItineraryImageActivityRef,
+  resolver: ItineraryImageResolver<T>,
+): T | null {
+  const imageUrl = activity.imageUrl?.trim();
+  if (imageUrl) {
+    const snapshot = resolver.snapshot(imageUrl);
+    if (snapshot != null) return snapshot;
+  }
+  const sightseeingId = activity.sightseeingId?.trim();
+  if (sightseeingId) {
+    const sightseeing = resolver.sightseeing(sightseeingId);
+    if (sightseeing != null) return sightseeing;
+  }
+  return null;
+}
+
+/** Canonical day image: snapshot, master, destination hero, then no image. */
+export function resolveItineraryDayImage<T>(
+  activities: readonly ItineraryImageActivityRef[],
+  resolver: ItineraryImageResolver<T>,
+): T | null {
+  for (const activity of activities) {
+    const imageUrl = activity.imageUrl?.trim();
+    if (!imageUrl) continue;
+    const snapshot = resolver.snapshot(imageUrl);
+    if (snapshot != null) return snapshot;
+  }
+  for (const activity of activities) {
+    const sightseeingId = activity.sightseeingId?.trim();
+    if (!sightseeingId) continue;
+    const sightseeing = resolver.sightseeing(sightseeingId);
+    if (sightseeing != null) return sightseeing;
+  }
+  return resolver.destination ?? null;
+}
+
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 const optionalDate = z.coerce.date().nullable().optional();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);

@@ -1,6 +1,7 @@
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
+import { resolveItineraryActivityImage, resolveItineraryDayImage } from '@interscale/shared';
 import {
   CONTENT_BOTTOM_LIMIT,
   PDF_BOTTOM_MARGIN,
@@ -53,6 +54,24 @@ function wordBoxes(
   }).toString('utf8');
   return [...bbox.matchAll(/<word[^>]*xMin="([\d.]+)"[^>]*yMin="([\d.]+)"[^>]*xMax="([\d.]+)"[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g)].map(
     (m) => ({ text: m[5] ?? '', yBottomFromTop: Number(m[4]) }),
+  );
+}
+
+function pageWordBoxes(buffer: Buffer): Array<{
+  height: number;
+  words: Array<{ text: string; yMax: number }>;
+}> {
+  const bbox = execFileSync('pdftotext', ['-bbox', '-', '-'], {
+    input: buffer,
+    maxBuffer: 32 * 1024 * 1024,
+  }).toString('utf8');
+  return [...bbox.matchAll(/<page\s+width="[\d.]+"\s+height="([\d.]+)">([\s\S]*?)<\/page>/g)].map(
+    (page) => ({
+      height: Number(page[1]),
+      words: [...(page[2] ?? '').matchAll(/<word[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g)].map(
+        (word) => ({ text: word[2] ?? '', yMax: Number(word[1]) }),
+      ),
+    }),
   );
 }
 
@@ -408,16 +427,12 @@ describe('PDF rendering with long content', () => {
     // No junk values anywhere in the visible document.
     expect(visible).not.toMatch(/\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/);
 
-    // Fixed A4 geometry: every page shares the width and the same physical
-    // height (content paginates within the sheet rather than growing the page).
+    // Pages retain A4 width and the existing bounded dynamic-height behavior.
     const boxes = pageMediaBoxes(pdf);
     expect(boxes).toHaveLength(total);
     for (const box of boxes) {
       expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
-      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
-    }
-    // No page may exceed the fixed sheet size.
-    for (const box of boxes) {
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
       expect(box.height).toBeLessThanOrEqual(PDF_PAGE_HEIGHT + 1);
     }
   });
@@ -710,18 +725,19 @@ describe('PDF rendering with long content', () => {
       expect(pageText).toContain('CONTACT US');
       expect(pageText).toContain(`Page ${page}/${total}`);
     }
-    // Both pages share the fixed A4 width and height.
+    // Both pages share A4 width and retain measured dynamic heights.
     const boxes = pageMediaBoxes(pdf);
     expect(boxes).toHaveLength(total);
     for (const box of boxes) {
       expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
-      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
+      expect(box.height).toBeLessThanOrEqual(PDF_PAGE_HEIGHT + 1);
     }
     // Thank You remains the final page.
     expect(pdfTextPage(pdf, total)).toContain('THANK');
   });
 
-  it('paginates short and long content into more fixed-A4 pages', async () => {
+  it('paginates short and long content into bounded dynamic-height pages', async () => {
     // Short document: cover + thank-you only.
     const short = await renderQuotationPdf({
       company,
@@ -883,10 +899,11 @@ describe('PDF rendering with long content', () => {
     const longBoxes = pageMediaBoxes(long);
     expect(shortBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
     expect(longBoxes.every((b) => Math.abs(b.width - PDF_PAGE_WIDTH) < 1)).toBe(true);
-    // Sparse pages shrink, while content-heavy pages retain the normal A4 size.
+    // Every page stays within the supported dynamic physical-height range.
     expect(shortBoxes.some((box) => box.height < PDF_PAGE_HEIGHT - 1)).toBe(true);
     expect(shortBoxes.every((box) => box.height >= PDF_MIN_PAGE_HEIGHT - 1)).toBe(true);
-    expect(longBoxes.some((box) => box.height >= PDF_PAGE_HEIGHT - 1)).toBe(true);
+    expect(longBoxes.every((box) => box.height >= PDF_MIN_PAGE_HEIGHT - 1)).toBe(true);
+    expect(longBoxes.every((box) => box.height <= PDF_PAGE_HEIGHT + 1)).toBe(true);
     // The long document has more pages than the short one (content paginates
     // within the fixed sheet rather than growing the page).
     expect(longBoxes.length).toBeGreaterThan(shortBoxes.length);
@@ -998,9 +1015,11 @@ describe('PDF rendering with long content', () => {
       },
     });
     expect(isPdf(pdf)).toBe(true);
-    // Fixed A4 sheet, not a content-grown page.
+    // Hotel pages also keep the existing bounded dynamic height.
     for (const box of pageMediaBoxes(pdf)) {
-      expect(box.height).toBeCloseTo(PDF_PAGE_HEIGHT, 0);
+      expect(box.width).toBeCloseTo(PDF_PAGE_WIDTH, 0);
+      expect(box.height).toBeGreaterThanOrEqual(PDF_MIN_PAGE_HEIGHT - 1);
+      expect(box.height).toBeLessThanOrEqual(PDF_PAGE_HEIGHT + 1);
     }
     const text = pdfText(pdf);
     expect(text).toContain('Berjaya Times Square Hotel');
@@ -1227,6 +1246,92 @@ describe('PDF rendering with long content', () => {
         !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
     );
     expect(offender).toBeUndefined();
+  });
+
+  it('keeps long policy paragraphs, headings, and the footer in separate bounded areas', async () => {
+    const repeated = (marker: string) =>
+      `<p>${`${marker} passenger refund and unused service conditions. `.repeat(35)}</p>` +
+      `<ul><li>${`${marker} wrapped bullet condition. `.repeat(40)}</li></ul>`;
+    const pdf = await renderQuotationPdf({
+      company: {
+        ...company,
+        logo: PNG_1PX,
+        email: 'reservations-for-very-long-contact-address@a-very-long-example-domain.test',
+        website: 'https://www.a-very-long-example-domain.test/quotation-support',
+      },
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        inclusionsHtml: repeated('INCLUSIONDETAIL'),
+        exclusionsHtml: repeated('EXCLUSIONDETAIL'),
+        paymentPolicies: repeated('PAYMENTDETAIL'),
+        cancellationPolicies: repeated('CANCELLATIONDETAIL'),
+        bookingTerms: repeated('BOOKINGDETAIL'),
+      },
+    });
+    const total = pageCount(pdf);
+    const pages = pageWordBoxes(pdf);
+    expect(pages).toHaveLength(total);
+    const policyWord = /^(INCLUSIONDETAIL|EXCLUSIONDETAIL|PAYMENTDETAIL|CANCELLATIONDETAIL|BOOKINGDETAIL)$/;
+    pages.forEach((page, index) => {
+      const contentBottom = page.height - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT - PDF_POST_CONTENT_GAP;
+      expect(
+        page.words.filter((word) => policyWord.test(word.text) && word.yMax > contentBottom),
+        `policy body crossed the footer boundary on page ${index + 1}`,
+      ).toEqual([]);
+      expect(pdfTextPage(pdf, index + 1)).toContain(`Page ${index + 1}/${total}`);
+    });
+    for (const [heading, marker] of [
+      ['INCLUSIONS', 'INCLUSIONDETAIL'],
+      ['EXCLUSIONS', 'EXCLUSIONDETAIL'],
+      ['PAYMENT POLICIES', 'PAYMENTDETAIL'],
+      ['CANCELLATION POLICIES', 'CANCELLATIONDETAIL'],
+      ['BOOKING TERMS', 'BOOKINGDETAIL'],
+    ] as const) {
+      const headingPage = Array.from({ length: total }, (_, i) => pdfTextPage(pdf, i + 1)).find(
+        (text) => text.includes(heading),
+      );
+      expect(headingPage).toContain(marker);
+    }
+    expect(pdfTextPage(pdf, total)).toContain('THANK');
+    expect(pdfTextPage(pdf, total)).toContain('YOU');
+  });
+
+  it('uses one canonical itinerary image precedence for Weblink and PDF values', () => {
+    const source = {
+      snapshot: (key: string) => (key === 'snapshot-a' ? 'snapshot-value' : null),
+      sightseeing: (key: string) => `${key}-value`,
+      destination: 'destination-value',
+    };
+    expect(resolveItineraryDayImage([{ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }], source)).toBe('snapshot-value');
+    expect(resolveItineraryActivityImage({ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }, source)).toBe('snapshot-value');
+    expect(resolveItineraryDayImage([{ sightseeingId: 'master-b' }], source)).toBe('master-b-value');
+    expect(resolveItineraryDayImage([{ imageUrl: 'missing' }], source)).toBe('destination-value');
+    expect(resolveItineraryActivityImage({ imageUrl: 'missing' }, source)).toBeNull();
+  });
+
+  it('uses the destination image for a single Day at Leisure without an activity image', async () => {
+    const pdf = await renderQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      consultant: { name: 'Only Name', phone: null, email: null },
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [{
+            dayNumber: 5,
+            title: 'Day 5: Day at Leisure',
+            city: 'Singapore',
+            activities: [{ name: 'Day at Leisure', description: 'Explore Singapore.', imageUrl: null, sightseeingId: null }],
+          }],
+        },
+      },
+      images: { cover: PNG_1PX },
+    });
+    expect(pdfText(pdf)).toContain('Day 5: Day at Leisure');
+    expect((pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   it('renders only selected add-on rows in the PDF (linked to an add-on master)', async () => {

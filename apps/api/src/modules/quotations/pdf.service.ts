@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote } from '@interscale/shared';
+import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote, resolveItineraryActivityImage, resolveItineraryDayImage } from '@interscale/shared';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
 
 /**
@@ -456,14 +456,21 @@ class PagePlanner {
         if (!last?.keepWithNext) break;
         kept.unshift(last);
         this.current.pop();
+        this.currentHeight -= last.height;
       }
       const keptHeight = kept.reduce((sum, b) => sum + b.height, 0);
-      if (keptHeight + block.height > PDF_MAX_CONTENT_HEIGHT) {
-        this.current.push(...kept);
-      } else {
+      if (this.current.length > 0) {
         this.flush();
+      }
+      if (keptHeight + block.height <= PDF_MAX_CONTENT_HEIGHT) {
         this.current = kept;
         this.currentHeight = keptHeight;
+      } else if (kept.length > 0) {
+        // Defensive fallback for unsplittable blocks: never let a retained
+        // heading group make the measured page taller than the body budget.
+        this.current = kept;
+        this.currentHeight = keptHeight;
+        this.flush();
       }
     }
     this.current.push(block);
@@ -533,9 +540,9 @@ function drawFooterTextLine(
   // Label (bold) then value (normal), both confined to the column rectangle,
   // rendered on a single line so it can never enter the next column.
   doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK);
-  doc.text(labelText, x, y, { continued: true, lineBreak: false });
+  doc.text(labelText, x, y, { width: labelW, height: 11, lineBreak: false });
   doc.font('Body').fontSize(valueFont).fillColor(MUTED);
-  doc.text(display, { width: available, ellipsis: true, lineBreak: false });
+  doc.text(display, x + labelW, y, { width: available, height: 11, ellipsis: true, lineBreak: false });
 }
 
 /**
@@ -765,13 +772,14 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     width: number,
     size: number,
     gap: number,
+    maxBlockHeight = PDF_MAX_CONTENT_HEIGHT,
   ): PdfBlock[] => {
     if (!lines.length) return [];
     doc.font('Body').fontSize(size);
     const chunks: string[][] = [];
     let current: string[] = [];
     let currentHeight = 0;
-    const budget = PDF_MAX_CONTENT_HEIGHT;
+    const budget = Math.min(PDF_MAX_CONTENT_HEIGHT, maxBlockHeight);
     const pushToChunks = (part: string) => {
       const partHeight = doc.heightOfString(part, { width }) + gap;
       if (current.length && currentHeight + partHeight > budget) {
@@ -1518,6 +1526,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         })
         .filter(Boolean) as string[];
 
+      const dayImage = resolveItineraryDayImage(day.activities ?? [], {
+        snapshot: (imageUrl) => images.itinerary?.[imageUrl],
+        sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
+        destination: images.cover,
+      });
+
       planner.pageBreak();
       if (i === 0) planner.add(sectionHeaderBlock('Tour Itinerary'));
 
@@ -1566,10 +1580,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
         // Canonical activity image: snapshot imageUrl first, then the
         // sightseeing master image — exactly the weblink's per-activity source.
-        const aImg =
-          (a.imageUrl ? images.itinerary?.[a.imageUrl] : undefined) ??
-          (a.sightseeingId ? images.sightseeing?.[a.sightseeingId] : undefined) ??
-          undefined;
+        const aImg = validActivities.length === 1
+          ? dayImage
+          : resolveItineraryActivityImage(a, {
+              snapshot: (imageUrl) => images.itinerary?.[imageUrl],
+              sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
+            });
         const aTransfer = pdfTransferLabel(a.dailyTransfer ?? day.dailyTransfer);
         const aMeta = a.startTime ? `STARTS: ${a.startTime}` : '';
 
@@ -1765,8 +1781,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   ].filter((block) => (block[2] ?? []).length) as Array<[string, string, string[]]>;
   if (policyBlocks.length) {
     planner.pageBreak();
+    const policiesTitleHeight = hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
     planner.add({
-      height: hOf('Policies', 22, CONTENT_W, 'Bold') + 14,
+      height: policiesTitleHeight,
       keepWithNext: true,
       render: (y0) => {
         doc.font('Bold').fontSize(22).fillColor(DARK).text('Policies', M, y0, {
@@ -1778,8 +1795,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     });
     policyBlocks.forEach(([title, col, lines], index) => {
       const sectionGap = index === 0 ? 0 : 16;
+      const headingHeight = sectionGap + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
       planner.add({
-        height: sectionGap + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4,
+        height: headingHeight,
         keepWithNext: true,
         render: (y0) => {
           const headingY = y0 + sectionGap;
@@ -1789,7 +1807,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           return headingY + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
         },
       });
-      flowBlocks(lines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+      // Measure every paragraph/bullet before drawing. The first item also
+      // reserves the Policies title so neither heading can be orphaned.
+      const itemBudget = PDF_MAX_CONTENT_HEIGHT - headingHeight - (index === 0 ? policiesTitleHeight : 0);
+      lines.forEach((line) => {
+        flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) => planner.add(block));
+      });
     });
   }
 
@@ -1830,8 +1853,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
 
   // ==========================================================================
-  // FOOTER PASS — the single shared footer on every physical page, using the
-  // fixed A4 footer position (identical on all pages).
+  // FOOTER PASS — the single shared footer on every physical page, using each
+  // page's actual measured physical height.
   // ==========================================================================
   const range = doc.bufferedPageRange();
   const total = range.count;
@@ -1841,6 +1864,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     const pageHeight = pageMetrics[i]?.pageHeight ?? doc.page.height;
     const footerTop = pageMetrics[i]?.footerTop ?? pageHeight - BOTTOM_M - FOOTER_H;
     drawPageFooter(doc, company, i + 1, total, footerTop, pageHeight);
+  }
+  const pageCountAfterFooter = doc.bufferedPageRange().count;
+  if (pageCountAfterFooter !== total) {
+    throw new Error(`Quotation PDF footer changed page count (${total} -> ${pageCountAfterFooter})`);
   }
 
   doc.end();

@@ -1928,20 +1928,17 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Bali Package for Riya Kapoor');
 
-    // The destination image stays a cover, no-repeat background.
+    // The destination image itself covers the complete width of the hero.
     const hero = screen.getByRole('banner');
-    expect(hero.className).toContain('bg-cover');
-    expect(hero.className).toContain('bg-no-repeat');
+    expect(hero.className).toContain('overflow-hidden');
     // Responsive heights: mobile 300, tablet 330, desktop 380.
     expect(hero.className).toContain('min-h-[300px]');
     expect(hero.className).toContain('sm:min-h-[330px]');
     expect(hero.className).toContain('md:min-h-[380px]');
     expect(hero.className).toContain('items-center');
-    // Balanced positioning shows more of the image without stretching it.
-    expect(hero.style.backgroundPosition).toBe('center 45%');
-    expect(hero.style.backgroundImage).toContain('https://storage.example.test/bali-hero.jpg');
-    // A left-weighted dark overlay improves readability without hiding the image.
-    expect(hero.style.backgroundImage).toContain('rgba(8,22,45,0.72)');
+    const heroImage = within(hero).getByTestId('public-hero-image');
+    expect(heroImage).toHaveAttribute('src', 'https://storage.example.test/bali-hero.jpg');
+    expect(heroImage).toHaveClass('object-cover');
 
     // Hero values are preserved: destination heading, duration, package title.
     expect(screen.getByRole('heading', { name: 'Bali' })).toBeInTheDocument();

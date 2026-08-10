@@ -22,7 +22,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
-import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote } from '@interscale/shared';
+import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote, resolveItineraryDayImage } from '@interscale/shared';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import type {
@@ -692,15 +692,11 @@ function SightseeingItineraryView({
             const validActivities = day.activities.filter(
               (activity) => activity.name?.trim() || activity.description?.trim(),
             );
-            const image =
-              day.activities.find((activity) => activity.imageUrl)?.imageUrl ??
-              day.activities
-                .map((activity) =>
-                  activity.sightseeingId ? images[activity.sightseeingId]?.imageUrl : null,
-                )
-                .find((url) => Boolean(url)) ??
-              destinationImage ??
-              null;
+            const image = resolveItineraryDayImage(day.activities, {
+              snapshot: (imageUrl) => imageUrl,
+              sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
+              destination: destinationImage ?? null,
+            });
             return (
               <div key={`${day.dayNumber}`} className="relative pl-10 md:pl-12">
                 <span
@@ -1110,17 +1106,24 @@ export function PublicQuotationPage() {
       <div className="flex-1 pb-16">
         {/* Hero */}
         <header
-          className="relative flex min-h-[300px] items-center overflow-hidden bg-slate-900 bg-cover bg-no-repeat py-12 text-white sm:min-h-[330px] md:min-h-[380px]"
-          style={
-            data.heroImageUrl
-              ? {
-                  backgroundImage: `linear-gradient(90deg, rgba(8,22,45,0.72) 0%, rgba(8,22,45,0.48) 45%, rgba(8,22,45,0.22) 100%), url(${data.heroImageUrl})`,
-                  backgroundPosition: 'center 45%',
-                }
-              : { background: `linear-gradient(135deg, ${color} 0%, ${color}cc 60%, #0f172a 140%)` }
-          }
+          className="relative flex min-h-[300px] items-center overflow-hidden bg-slate-900 py-12 text-white sm:min-h-[330px] md:min-h-[380px]"
+          style={data.heroImageUrl ? undefined : { background: `linear-gradient(135deg, ${color} 0%, ${color}cc 60%, #0f172a 140%)` }}
         >
-        <div className="mx-auto w-full max-w-5xl px-5 text-left md:px-4">
+          {data.heroImageUrl && (
+            <>
+              <img
+                data-testid="public-hero-image"
+                src={data.heroImageUrl}
+                alt=""
+                className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#08162db8] via-[#08162d7a] to-[#08162d38]"
+              />
+            </>
+          )}
+          <div className="relative z-10 mx-auto w-full max-w-5xl px-5 text-left md:px-4">
           <h1 className="text-[32px] font-extrabold leading-[1.1] text-white sm:text-[40px] lg:text-[48px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
             {v.weblinkHeading?.trim() ||
               q.destinationSummary.split(/[•→>,/]/)[0]?.trim() ||
