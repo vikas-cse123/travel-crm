@@ -13,6 +13,7 @@ import {
   PDF_TOP_MARGIN,
   computePageHeight,
   htmlToLines,
+  htmlToRichTextLines,
   renderQuotationPdf,
 } from '../src/modules/quotations/pdf.service.js';
 import { renderBookingConfirmationPdf } from '../src/modules/bookings/booking-pdf.service.js';
@@ -266,6 +267,19 @@ describe('PDF rendering with long content', () => {
     ).toEqual(['• First inclusion', '• 🦖 Jurassic Park Rapids']);
   });
 
+  it('retains bold runs while flattening sightseeing editor HTML', () => {
+    expect(
+      htmlToRichTextLines('<p>Highlights &amp; Rides:</p><ul><li><p>🦖 <strong>Jurassic Park Rapids Adventure</strong> – Exciting ride</p></li></ul>'),
+    ).toEqual([
+      [{ text: 'Highlights & Rides:', bold: false }],
+      [
+        { text: '• 🦖 ', bold: false },
+        { text: 'Jurassic Park Rapids Adventure', bold: true },
+        { text: ' – Exciting ride', bold: false },
+      ],
+    ]);
+  });
+
   it('embeds colour sightseeing emoji images in the quotation PDF', async () => {
     const pdf = await renderQuotationPdf({
       company: footerEmptyCompanyForOverlap(),
@@ -281,7 +295,7 @@ describe('PDF rendering with long content', () => {
             city: 'Singapore',
             activities: [{
               name: 'Universal Studios',
-              description: '<p>🎬 Universal Studios Singapore</p><ul><li><p>🦖 Jurassic Park Rapids</p></li><li><p>🎢 Battlestar Galactica</p></li></ul>',
+              description: '<p>🎬 Universal Studios Singapore</p><ul><li><p>🦖 <strong>Jurassic Park Rapids</strong></p></li><li><p>🎢 Battlestar Galactica</p></li><li><p>🤖 Transformers</p></li></ul>',
               imageUrl: null,
               sightseeingId: null,
             }],
@@ -290,15 +304,16 @@ describe('PDF rendering with long content', () => {
       },
       images: { cover: PNG_1PX },
     });
-
     const text = pdfText(pdf);
     expect(text).toContain('Universal Studios Singapore');
     expect(text).toContain('Jurassic Park Rapids');
     expect(text).toContain('Battlestar Galactica');
+    expect(text).toContain('Transformers');
 
-    // One cover image plus the three distinct colour emoji PNGs.
+    // One cover image plus all four distinct colour emoji PNGs, including the
+    // robot that previously appeared as a missing-glyph square.
     const imageObjects = pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? [];
-    expect(imageObjects.length).toBeGreaterThanOrEqual(4);
+    expect(imageObjects.length).toBeGreaterThanOrEqual(5);
   });
 
   it('renders a multi-page quotation PDF with a long itinerary and terms', async () => {

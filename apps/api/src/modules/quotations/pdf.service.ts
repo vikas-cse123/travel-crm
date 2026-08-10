@@ -149,28 +149,64 @@ const validPaymentUrl = (value: string | null | undefined): string | null => {
   }
 };
 
-/** Flatten sanitised rich text into PDF-safe lines (block tags → breaks, <li> → bullets). */
-export const htmlToLines = (html: string | null | undefined): string[] => {
+export type PdfRichTextRun = { text: string; bold: boolean };
+export type PdfRichTextLine = PdfRichTextRun[];
+
+const decodeHtmlText = (value: string): string => value
+  .replace(/&nbsp;|&#160;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&#39;|&apos;/gi, "'")
+  .replace(/&quot;/gi, '"')
+  .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+  .replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+
+/** Convert sanitised editor HTML to PDF lines while retaining inline bold runs. */
+export const htmlToRichTextLines = (html: string | null | undefined): PdfRichTextLine[] => {
   if (!html) return [];
-  return html
-    // Rich-text editors commonly produce <li><p>…</p></li>. Handle that
-    // combination first so the list marker and its content remain one line.
-    .replace(/<li[^>]*>\s*<(?:p|div)[^>]*>/gi, '\n• ')
-    .replace(/<li[^>]*>/gi, '\n• ')
-    .replace(/<\/(p|div|h[1-6]|tr|ul|ol|li)>/gi, '\n')
-    .replace(/<(p|div|h[1-6]|ul|ol)[^>]*>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines: PdfRichTextLine[] = [[]];
+  let boldDepth = 0;
+  const current = () => lines[lines.length - 1]!;
+  const hasText = (line: PdfRichTextLine) => line.some((run) => run.text.trim().length > 0);
+  const newLine = () => { if (hasText(current())) lines.push([]); };
+  const append = (text: string, bold = boldDepth > 0) => {
+    if (!text) return;
+    const previous = current().at(-1);
+    if (previous?.bold === bold) previous.text += text;
+    else current().push({ text, bold });
+  };
+
+  for (const token of html.match(/<[^>]*>|[^<]+/g) ?? []) {
+    if (!token.startsWith('<')) {
+      append(decodeHtmlText(token).replace(/\s+/g, ' '));
+      continue;
+    }
+    const closing = /^<\s*\//.test(token);
+    const tag = token.match(/^<\s*\/?\s*([\w-]+)/)?.[1]?.toLowerCase();
+    if (!tag) continue;
+    if (tag === 'strong' || tag === 'b') boldDepth = Math.max(0, boldDepth + (closing ? -1 : 1));
+    else if (tag === 'br') newLine();
+    else if (tag === 'li' && !closing) {
+      newLine();
+      append('• ', false);
+    } else if (['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'li'].includes(tag)) {
+      const bulletOnly = current().map((run) => run.text).join('').trim() === '•';
+      if (closing || (hasText(current()) && !bulletOnly)) newLine();
+    }
+  }
+
+  return lines.filter(hasText).map((line) => {
+    const copy = line.map((run) => ({ ...run }));
+    if (copy[0]) copy[0].text = copy[0].text.trimStart();
+    if (copy.at(-1)) copy.at(-1)!.text = copy.at(-1)!.text.trimEnd();
+    return copy.filter((run) => run.text.length > 0);
+  });
 };
+
+/** Flatten rich text for PDF sections that intentionally use plain text. */
+export const htmlToLines = (html: string | null | undefined): string[] =>
+  htmlToRichTextLines(html).map((line) => line.map((run) => run.text).join(''));
 
 const ADDON_SERVICE_TYPES = new Set([
   'TRAVEL_INSURANCE',
@@ -775,46 +811,48 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
    * small embedded colour PNGs at the same inline positions.
    */
   const colorEmojiFlowBlock = (
-    lines: string[],
+    lines: PdfRichTextLine[],
     x: number,
     width: number,
     size: number,
     gap: number,
     color = '#333',
   ): PdfBlock => {
-    type InlinePart = { value: string; width: number; emoji?: Buffer };
-    type LineLayout =
-      | { kind: 'text'; value: string; height: number }
-      | { kind: 'emoji'; rows: InlinePart[][]; lineHeight: number; emojiSize: number; height: number };
+    type InlinePart = { value: string; width: number; bold: boolean; emoji?: Buffer };
+    type LineLayout = { rows: InlinePart[][]; lineHeight: number; emojiSize: number; height: number };
 
     doc.font('Body').fontSize(size);
     const lineHeight = doc.heightOfString('Ag', { width });
     const emojiSize = Math.min(lineHeight * 0.94, size * 1.2);
 
     const layouts: LineLayout[] = lines.map((line) => {
-      const parts: Array<{ value: string; emoji?: Buffer }> = [];
-      let cursor = 0;
-      const matches = line.matchAll(
-        /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
-      );
-
-      for (const match of matches) {
-        const png = colorEmojiPng(match[0]);
-        if (!png || match.index === undefined) continue;
-        if (match.index > cursor) {
-          line.slice(cursor, match.index).split(/(\s+)/).filter(Boolean).forEach((value) => parts.push({ value }));
+      const parts: Array<{ value: string; bold: boolean; emoji?: Buffer }> = [];
+      for (const run of line) {
+        let cursor = 0;
+        const matches = run.text.matchAll(
+          /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
+        );
+        for (const match of matches) {
+          if (match.index === undefined) continue;
+          if (match.index > cursor) {
+            run.text.slice(cursor, match.index).split(/(\s+)/).filter(Boolean)
+              .forEach((value) => parts.push({ value, bold: run.bold }));
+          }
+          const png = colorEmojiPng(match[0]);
+          parts.push({ value: match[0], bold: run.bold, ...(png ? { emoji: png } : {}) });
+          cursor = match.index + match[0].length;
         }
-        parts.push({ value: match[0], emoji: png });
-        cursor = match.index + match[0].length;
-      }
-      if (cursor === 0) return { kind: 'text', value: line, height: doc.heightOfString(line, { width }) + gap };
-      if (cursor < line.length) {
-        line.slice(cursor).split(/(\s+)/).filter(Boolean).forEach((value) => parts.push({ value }));
+        if (cursor < run.text.length) {
+          run.text.slice(cursor).split(/(\s+)/).filter(Boolean)
+            .forEach((value) => parts.push({ value, bold: run.bold }));
+        }
       }
 
       const measured = parts.map<InlinePart>((part) => ({
         ...part,
-        width: part.emoji ? emojiSize : doc.widthOfString(part.value),
+        width: part.emoji
+          ? emojiSize
+          : doc.font(part.bold ? 'Bold' : 'Body').fontSize(size).widthOfString(part.value),
       }));
       const rows: InlinePart[][] = [];
       let row: InlinePart[] = [];
@@ -842,22 +880,22 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         // Keep unusually long unbroken text inside the column.
         let chunk = '';
         let chunkWidth = 0;
+        doc.font(part.bold ? 'Bold' : 'Body').fontSize(size);
         for (const character of Array.from(part.value)) {
           const characterWidth = doc.widthOfString(character);
           if (chunk && chunkWidth + characterWidth > width) {
-            addPart({ value: chunk, width: chunkWidth });
+            addPart({ value: chunk, width: chunkWidth, bold: part.bold });
             chunk = '';
             chunkWidth = 0;
           }
           chunk += character;
           chunkWidth += characterWidth;
         }
-        if (chunk) addPart({ value: chunk, width: chunkWidth });
+        if (chunk) addPart({ value: chunk, width: chunkWidth, bold: part.bold });
       }
       finishRow();
 
       return {
-        kind: 'emoji',
         rows,
         lineHeight,
         emojiSize,
@@ -870,25 +908,21 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       render: (y0) => {
         let yy = y0;
         for (const layout of layouts) {
-          if (layout.kind === 'text') {
-            doc.font('Body').fontSize(size).fillColor(color).text(layout.value, x, yy, { width });
-            yy = doc.y + gap;
-            continue;
-          }
-
           for (const row of layout.rows) {
             let xx = x;
             for (const part of row) {
               if (part.emoji) {
                 // Preserve the Unicode character for selection/accessibility,
                 // then cover the invisible glyph with its colour image.
-                doc.save().font('Body').fontSize(size).fillOpacity(0).text(part.value, xx, yy, { lineBreak: false }).restore();
+                doc.save().font(part.bold ? 'Bold' : 'Body').fontSize(size).fillOpacity(0)
+                  .text(part.value, xx, yy, { lineBreak: false }).restore();
                 doc.image(part.emoji, xx, yy + (layout.lineHeight - layout.emojiSize) / 2, {
                   width: layout.emojiSize,
                   height: layout.emojiSize,
                 });
               } else {
-                doc.font('Body').fontSize(size).fillColor(color).text(part.value, xx, yy, { lineBreak: false });
+                doc.font(part.bold ? 'Bold' : 'Body').fontSize(size).fillColor(color)
+                  .text(part.value, xx, yy, { lineBreak: false });
               }
               xx += part.width;
             }
@@ -1733,7 +1767,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
         let textColH = 0;
         if (a.name) textColH += hOf(a.name, 12, contentW, 'Bold') + 3;
-        const descLines = htmlToLines(a.description);
+        const descLines = htmlToRichTextLines(a.description);
         const descBlock = colorEmojiFlowBlock(descLines, contentX, contentW, 10.5, 2);
         textColH += descBlock.height;
         if (aTransfer) textColH += 6 + 20 + 6;
