@@ -751,6 +751,12 @@ describe('Phase 8 quotation pages', () => {
       configurable: true,
       value: { writeText: clipboardWrite },
     });
+    vi.spyOn(window, 'open').mockReturnValue({
+      opener: window,
+      document: { title: '', body: { innerHTML: '' } },
+      location: { replace: vi.fn() },
+      close: vi.fn(),
+    } as unknown as Window);
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(
       <Routes>
@@ -760,7 +766,8 @@ describe('Phase 8 quotation pages', () => {
     );
     expect(await screen.findByText('Version 1')).toBeInTheDocument();
     expect(screen.getByText('QT-2026-000001-v1.pdf')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-pdf'))).toBe(
         true,
@@ -9540,38 +9547,73 @@ describe('Generate PDF button — real request, open, loading and error states',
       { route: '/quotations/quotation-1' },
     );
 
-  it('generates the PDF, fetches the download URL, and triggers a download (no window.open)', async () => {
-    const openSpy = vi.fn(() => ({} as Window));
-    vi.stubGlobal('open', openSpy);
-    const anchorClickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const pdfTab = () => ({
+    opener: window,
+    document: { title: '', body: { innerHTML: '' } },
+    location: { replace: vi.fn() },
+    close: vi.fn(),
+  }) as unknown as Window;
+
+  it('offers both styles and opens the generated Classic PDF inline in a new tab', async () => {
+    const tab = pdfTab();
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(tab);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/generate-pdf'))
         return response({ id: 'doc-new', fileName: 'qt-2026-000001-aarav-mehta-v1-quotation.pdf' });
-      if (url.endsWith('/download-url'))
+      if (url.includes('/download-url'))
         return response({ url: 'https://files.example.test/quotation.pdf' });
       return response(detail);
     });
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
-    await waitFor(() => expect(anchorClickSpy).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    expect(screen.getByRole('dialog', { name: 'Choose PDF style' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Stylish PDF/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/quotation.pdf'));
     const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
     expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
-    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true);
-    // The download anchor points at the PDF URL with the generated filename.
-    const clickedAnchor = anchorClickSpy.mock.instances[0] as unknown as HTMLAnchorElement;
-    expect(clickedAnchor.href).toBe('https://files.example.test/quotation.pdf');
-    expect(clickedAnchor.download).toBe('qt-2026-000001-aarav-mehta-v1-quotation.pdf');
-    // window.open is NEVER used for the Generate PDF flow.
-    expect(openSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(String(genCall![1]?.body))).toMatchObject({ force: true, style: 'CLASSIC' });
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/download-url?disposition=inline'))).toBe(true);
+    expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank');
   });
 
-  it('does not trigger a download and shows an error when generation fails', async () => {
-    const openSpy = vi.fn(() => ({} as Window));
-    vi.stubGlobal('open', openSpy);
-    const anchorClickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+  it('asks for the stylish cover and can use the quotation destination image', async () => {
+    const tab = pdfTab();
+    vi.spyOn(window, 'open').mockReturnValue(tab);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf'))
+        return response({ id: 'doc-new', fileName: 'qt-v1-stylish-quotation.pdf' });
+      if (url.includes('/download-url'))
+        return response({ url: 'https://files.example.test/stylish.pdf' });
+      return response(detail);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    await screen.findByText('Version 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: /Stylish PDF/ }));
+    expect(screen.getByRole('dialog', { name: 'Choose first-page image' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Use destination image/ })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Generate Stylish PDF' }));
+    const genCall = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
+      expect(call).toBeDefined();
+      return call!;
+    });
+    expect(JSON.parse(String(genCall[1]?.body))).toMatchObject({
+      style: 'STYLISH',
+      coverSource: 'DESTINATION',
+    });
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/stylish.pdf'));
+  });
+
+  it('closes the temporary tab and shows an error when generation fails', async () => {
+    const tab = pdfTab();
+    vi.spyOn(window, 'open').mockReturnValue(tab);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/generate-pdf')) return errorResponse();
@@ -9580,51 +9622,40 @@ describe('Generate PDF button — real request, open, loading and error states',
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'PDF generation failed. Please try again.',
     );
-    expect(anchorClickSpy).not.toHaveBeenCalled();
-    expect(openSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(tab.close).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Generate PDF' })).toBeEnabled();
   });
 
-  it('starts no new tab or popup for the Generate PDF download', async () => {
-    const openSpy = vi.fn(() => ({} as Window));
-    vi.stubGlobal('open', openSpy);
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/generate-pdf'))
-        return response({ id: 'doc-new', fileName: 'qt-2026-000001-aarav-mehta-v1-quotation.pdf' });
-      if (url.endsWith('/download-url'))
-        return response({ url: 'https://files.example.test/quotation.pdf' });
-      return response(detail);
-    });
+  it('shows a clear message when the browser blocks the new tab', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const fetchMock = vi.fn(async () => response(detail));
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/download-url'))).toBe(true),
-    );
-    // Generate PDF triggers a download — no window.open, no new tab/popup.
-    expect(openSpy).not.toHaveBeenCalled();
-    // The Generate PDF control itself is a plain button, not a link.
-    const genButton = screen.getByRole('button', { name: 'Download PDF' });
-    expect(genButton.tagName).toBe('BUTTON');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Allow pop-ups');
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/generate-pdf'))).toBe(false);
   });
 
   it('shows a loading label and disables the button while generating', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(pdfTab());
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/generate-pdf')) return new Promise<Response>(() => {});
-      if (url.endsWith('/download-url')) return response({ url: 'https://files.example.test/q.pdf' });
+      if (url.includes('/download-url')) return response({ url: 'https://files.example.test/q.pdf' });
       return response(detail);
     });
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
     const busy = await screen.findByRole('button', { name: /Generating PDF/ });
     expect(busy).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(1);

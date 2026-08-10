@@ -25,6 +25,7 @@ import { templateInclude } from '../quotation-templates/quotation-templates.serv
 import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
+import { renderStylishQuotationPdf } from './stylish-pdf.service.js';
 import { preferredPublicAppBaseUrl } from '../custom-domains/custom-domain.service.js';
 import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import { webpToPng } from '../../services/pdf/webp-to-png.js';
@@ -39,6 +40,21 @@ import { recalculateCustomerMetrics } from '../customers/customers.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
 const userSelect = { id: true, fullName: true, username: true } as const;
+
+type QuotationPdfOptions = {
+  style: 'CLASSIC' | 'STYLISH';
+  coverSource: 'DESTINATION' | 'UPLOAD';
+  coverImageDataUrl?: string;
+};
+
+async function decodePdfCoverImage(dataUrl: string | undefined): Promise<Buffer> {
+  const match = dataUrl?.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z\d+/=]+)$/i);
+  if (!match) throw new ValidationError('The stylish cover must be a JPEG, PNG, or WebP image.');
+  const buffer = Buffer.from(match[2]!, 'base64');
+  if (buffer.length < 12 || buffer.length > 5 * 1024 * 1024)
+    throw new ValidationError('The stylish cover image must be between 12 bytes and 5 MB.');
+  return (await webpToPng(buffer)) ?? buffer;
+}
 
 /**
  * Normalize a client IP for weblink analytics. IPv4-mapped IPv6 is unwrapped
@@ -1581,11 +1597,15 @@ export const quotationsService = {
     versionId: string,
     context: RequestContext,
     force = false,
+    options: QuotationPdfOptions = { style: 'CLASSIC', coverSource: 'DESTINATION' },
   ) {
     const quotation = await getQuotation(auth, id);
     const version = await getVersion(auth, id, versionId);
     if (version.status === 'DRAFT')
       throw new ConflictError('Finalize the version before generating a PDF.');
+    const styleFileNameFilter = options.style === 'STYLISH'
+      ? { endsWith: '-stylish-quotation.pdf' }
+      : { endsWith: '-quotation.pdf', not: { contains: '-stylish-' } };
     const existing = !force
       ? await prisma.quotationDocument.findFirst({
           where: {
@@ -1593,6 +1613,7 @@ export const quotationsService = {
             quotationId: id,
             quotationVersionId: versionId,
             documentType: 'QUOTATION_PDF',
+            fileName: styleFileNameFilter,
             status: 'AVAILABLE',
             deletedAt: null,
           },
@@ -1809,43 +1830,38 @@ export const quotationsService = {
       images = undefined;
     }
 
-    const pdf = await renderQuotationPdf(
-      images
-        ? {
-            company,
-            consultant,
-            quotation: {
-              ...quotation,
-              destinations: resolveDestinationNames(
-                quotation.query?.itinerary,
-                quotation.destinationSummary,
-              ).join(' → '),
-            },
-            version,
-            images,
-          }
-        : {
-            company,
-            consultant,
-            quotation: {
-              ...quotation,
-              destinations: resolveDestinationNames(
-                quotation.query?.itinerary,
-                quotation.destinationSummary,
-              ).join(' → '),
-            },
-            version,
-          },
-    );
+    if (options.style === 'STYLISH' && options.coverSource === 'UPLOAD') {
+      const uploadedCover = await decodePdfCoverImage(options.coverImageDataUrl);
+      images = { ...(images ?? {}), cover: uploadedCover };
+    }
+
+    const renderer = options.style === 'STYLISH' ? renderStylishQuotationPdf : renderQuotationPdf;
+    const pdfInput: QuotationPdfInput = {
+      company,
+      consultant,
+      quotation: {
+        ...quotation,
+        destinations: resolveDestinationNames(
+          quotation.query?.itinerary,
+          quotation.destinationSummary,
+        ).join(' → '),
+      },
+      // Prisma represents JSON columns as a generic JsonValue. The PDF input
+      // narrows the two structured JSON snapshots after they have already been
+      // validated by the quotation write path.
+      version: version as unknown as QuotationPdfInput['version'],
+      ...(images ? { images } : {}),
+    };
+    const pdf = await renderer(pdfInput);
     const checksum = createHash('sha256').update(pdf).digest('hex');
     const documentId = randomUUID();
-    // Meaningful filename: <quotation-number>-<customer-slug>-v<version>-quotation.pdf.
+    // Meaningful filename: <number>-<customer>-v<version>[-stylish]-quotation.pdf.
     const customerSlug = quotation.customerName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
     const fileName = sanitizeFileName(
-      `${quotation.quotationNumber}-${customerSlug ? `${customerSlug}-` : ''}v${version.versionNumber}-quotation.pdf`,
+      `${quotation.quotationNumber}-${customerSlug ? `${customerSlug}-` : ''}v${version.versionNumber}${options.style === 'STYLISH' ? '-stylish' : ''}-quotation.pdf`,
     );
     const objectKey = quotationObjectKey({
       companyId: auth.companyId,
@@ -1883,6 +1899,7 @@ export const quotationsService = {
         data: quotationAudit(auth, 'QUOTATION_PDF_GENERATED', 'Quotation', id, context, {
           versionId,
           documentId,
+          style: options.style,
         }),
       });
       return created;
@@ -1909,7 +1926,12 @@ export const quotationsService = {
     });
   },
 
-  async downloadUrl(auth: AuthContext, id: string, documentId: string) {
+  async downloadUrl(
+    auth: AuthContext,
+    id: string,
+    documentId: string,
+    disposition: 'attachment' | 'inline' = 'attachment',
+  ) {
     await getQuotation(auth, id);
     const document = await prisma.quotationDocument.findFirst({
       where: {
@@ -1922,7 +1944,12 @@ export const quotationsService = {
     });
     if (!document) throw new NotFoundError('Document not found.');
     return {
-      url: await storageService.createDownloadUrl(document.objectKey, document.fileName),
+      url: await storageService.createDownloadUrl(
+        document.objectKey,
+        document.fileName,
+        undefined,
+        disposition,
+      ),
       expiresInSeconds: env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
     };
   },

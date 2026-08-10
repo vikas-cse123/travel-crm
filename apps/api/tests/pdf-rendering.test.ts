@@ -16,6 +16,7 @@ import {
   htmlToRichTextLines,
   renderQuotationPdf,
 } from '../src/modules/quotations/pdf.service.js';
+import { renderStylishQuotationPdf } from '../src/modules/quotations/stylish-pdf.service.js';
 import { renderBookingConfirmationPdf } from '../src/modules/bookings/booking-pdf.service.js';
 import {
   renderBookingInvoicePdf,
@@ -90,6 +91,68 @@ const footerEmptyCompanyForOverlap = () => ({
   tan: null,
   taxRegistrationNumber: null,
   logo: null,
+});
+
+describe('Stylish quotation PDF', () => {
+  it('renders a fixed-A4 photo-led proposal while preserving rich text', async () => {
+    const pdf = await renderStylishQuotationPdf({
+      company: {
+        ...footerEmptyCompanyForOverlap(),
+        email: 'hello@example.test',
+        phone: '+91 90000 00000',
+        website: 'https://example.test',
+        operatingSinceYear: 2012,
+        tripsSold: 600,
+        logo: PNG_1PX,
+      },
+      consultant: { name: 'Rahul Tiwari', phone: '+91 90000 00000', email: 'rahul@example.test' },
+      quotation: {
+        ...quotationOverlap(),
+        destinations: 'Singapore',
+        travelStartDate: new Date('2027-01-06T00:00:00.000Z'),
+        travelEndDate: new Date('2027-01-12T00:00:00.000Z'),
+      },
+      version: {
+        ...baseVersionOverlap(),
+        title: 'Singapore Package for Mira Shah',
+        finalAmount: '384000',
+        initialPaymentAmount: '50000',
+        inclusionsHtml: '<ul><li>Hotel accommodation</li><li>Shared transfers</li></ul>',
+        exclusionsHtml: '<ul><li>Personal expenses</li></ul>',
+        paymentPolicies: '<p><strong>Initial payment</strong> confirms the booking.</p>',
+        cancellationPolicies: '<p>Cancellation charges apply.</p>',
+        bookingTerms: '<p>Rates remain subject to availability.</p>',
+        sightseeingDetails: {
+          include: true,
+          days: [{
+            dayNumber: 4,
+            title: 'Day 4: Universal Studios',
+            city: 'Singapore',
+            date: '2027-01-09',
+            dailyTransfer: 'SHARED',
+            activities: [{
+              name: 'Universal Studios Singapore',
+              description: '<p>Highlights &amp; Rides:</p><ul><li>🦖 <strong>Jurassic Park Rapids Adventure</strong> – exciting river-rafting adventure</li><li>🚀 <strong>Battlestar Galactica</strong> – high-speed roller coasters</li></ul>',
+              startTime: '09:00',
+            }],
+          }],
+        },
+      },
+      images: { cover: PNG_1PX },
+    });
+
+    expect(isPdf(pdf)).toBe(true);
+    expect(pageCount(pdf)).toBeGreaterThanOrEqual(5);
+    for (const box of pageMediaBoxes(pdf)) {
+      expect(box.width).toBeCloseTo(595.28, 1);
+      expect(box.height).toBeCloseTo(841.89, 1);
+    }
+    const visible = pdfText(pdf);
+    expect(visible).toContain('Singapore Package for Mira Shah');
+    expect(visible).toContain('DAY WISE ITINERARY');
+    expect(visible).toContain('Jurassic Park Rapids Adventure');
+    expect(visible).toContain('THANK YOU');
+  });
 });
 
 const quotationOverlap = () => ({

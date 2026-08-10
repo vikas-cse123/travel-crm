@@ -65,13 +65,14 @@ export class S3StorageService implements StorageService {
     key: string,
     fileName: string,
     expiresInSeconds = env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
+    disposition: 'attachment' | 'inline' = 'attachment',
   ): Promise<string> {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        ResponseContentDisposition: `attachment; filename="${fileName.replace(/["\\]/g, '_')}"`,
+        ResponseContentDisposition: `${disposition}; filename="${fileName.replace(/["\\]/g, '_')}"`,
       }),
       { expiresIn: expiresInSeconds },
     );

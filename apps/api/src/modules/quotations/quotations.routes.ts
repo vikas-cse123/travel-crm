@@ -106,7 +106,16 @@ router.post(
   requirePermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF),
   validateRequest({
     params: versionId,
-    body: z.object({ force: z.boolean().optional() }).default({}),
+    body: z.object({
+      force: z.boolean().optional(),
+      style: z.enum(['CLASSIC', 'STYLISH']).optional(),
+      coverSource: z.enum(['DESTINATION', 'UPLOAD']).optional(),
+      coverImageDataUrl: z.string().max(7_000_000).optional(),
+    }).superRefine((value, ctx) => {
+      if (value.style === 'STYLISH' && value.coverSource === 'UPLOAD' && !value.coverImageDataUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverImageDataUrl'], message: 'Choose a cover image.' });
+      }
+    }).default({}),
   }),
   asyncHandler(controller.pdf),
 );
@@ -119,7 +128,10 @@ router.get(
 router.get(
   '/:quotationId/documents/:documentId/download-url',
   requirePermission(PERMISSIONS.QUOTATIONS_VIEW),
-  validateRequest({ params: documentId }),
+  validateRequest({
+    params: documentId,
+    query: z.object({ disposition: z.enum(['attachment', 'inline']).optional() }),
+  }),
   asyncHandler(controller.download),
 );
 router.delete(

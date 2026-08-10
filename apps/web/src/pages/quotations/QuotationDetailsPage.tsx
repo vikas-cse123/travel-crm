@@ -6,9 +6,11 @@ import {
   Edit3,
   ExternalLink,
   FileText,
+  Image as ImageIcon,
   Mail,
   Plus,
   Send,
+  Sparkles,
   TicketCheck,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
@@ -50,6 +52,10 @@ export function QuotationDetailsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [pdfError, setPdfError] = useState('');
+  const [pdfChoiceOpen, setPdfChoiceOpen] = useState(false);
+  const [stylishCoverOpen, setStylishCoverOpen] = useState(false);
+  const [coverSource, setCoverSource] = useState<'DESTINATION' | 'UPLOAD'>('DESTINATION');
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   // Public weblink URL once provisioned, tagged with the version it belongs to.
   // Reset whenever the current version changes so Copy/Open always target the
   // currently displayed version (never a stale link from an earlier version).
@@ -131,16 +137,47 @@ export function QuotationDetailsPage() {
       // Copy failed — do not show "Copied!".
     }
   };
-  // Generate the PDF for the currently displayed version and download it
-  // directly — no new tab, no popup, no window.open.
-  const handleGeneratePdf = () => {
+  const generateIntoNewTab = async (
+    style: 'CLASSIC' | 'STYLISH',
+    selectedCoverSource: 'DESTINATION' | 'UPLOAD' = 'DESTINATION',
+  ) => {
     if (!current || generatePdf.isPending) return;
     setPdfError('');
-    generatePdf.mutate(current.id, {
-      onSuccess: ({ url, fileName }) => {
-        if (url) downloadPdf(url, fileName);
+    const pdfTab = window.open('about:blank', '_blank');
+    if (!pdfTab) {
+      setPdfError('Allow pop-ups for this site so the generated PDF can open in a new tab.');
+      return;
+    }
+    pdfTab.opener = null;
+    pdfTab.document.title = 'Generating PDF…';
+    pdfTab.document.body.innerHTML = '<p style="font:16px system-ui;padding:32px">Generating PDF…</p>';
+    let coverImageDataUrl: string | undefined;
+    if (style === 'STYLISH' && selectedCoverSource === 'UPLOAD') {
+      if (!coverFile) {
+        pdfTab.close();
+        setPdfError('Choose a first-page image for the stylish PDF.');
+        return;
+      }
+      coverImageDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Unable to read the selected image.'));
+        reader.readAsDataURL(coverFile);
+      }).catch(() => undefined);
+      if (!coverImageDataUrl) {
+        pdfTab.close();
+        setPdfError('Unable to read the selected cover image.');
+        return;
+      }
+    }
+    generatePdf.mutate({ versionId: current.id, style, coverSource: selectedCoverSource, coverImageDataUrl }, {
+      onSuccess: ({ url }) => {
+        if (url) pdfTab.location.replace(url);
       },
-      onError: () => setPdfError('PDF generation failed. Please try again.'),
+      onError: () => {
+        pdfTab.close();
+        setPdfError('PDF generation failed. Please try again.');
+      },
     });
   };
   return (
@@ -251,10 +288,10 @@ export function QuotationDetailsPage() {
                   className="w-full sm:w-auto"
                   variant="secondary"
                   isLoading={generatePdf.isPending}
-                  onClick={handleGeneratePdf}
+                  onClick={() => setPdfChoiceOpen(true)}
                 >
                   <FileText className="h-4 w-4" />
-                  {generatePdf.isPending ? 'Generating PDF…' : 'Download PDF'}
+                  {generatePdf.isPending ? 'Generating PDF…' : 'Generate PDF'}
                 </Button>
               )}
             {current?.status !== 'DRAFT' && (
@@ -552,6 +589,100 @@ export function QuotationDetailsPage() {
           )}
         </div>
       </section>
+      {pdfChoiceOpen && current && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="pdf-style-title" className="w-full max-w-2xl rounded-2xl bg-card p-6 shadow-xl">
+            <h2 id="pdf-style-title" className="text-xl font-semibold">Choose PDF style</h2>
+            <p className="mt-1 text-sm text-slate-500">Select how this quotation should be presented.</p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <button
+                type="button"
+                className="rounded-xl border p-5 text-left transition hover:border-brand-400 hover:bg-brand-50"
+                onClick={() => {
+                  setPdfChoiceOpen(false);
+                  void generateIntoNewTab('CLASSIC');
+                }}
+              >
+                <FileText className="h-7 w-7 text-brand-700" />
+                <strong className="mt-4 block text-lg">Classic PDF</strong>
+                <span className="mt-1 block text-sm text-slate-500">The existing clean quotation PDF currently used by the CRM.</span>
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border p-5 text-left transition hover:border-amber-400 hover:bg-amber-50"
+                onClick={() => {
+                  setPdfChoiceOpen(false);
+                  setCoverSource('DESTINATION');
+                  setCoverFile(null);
+                  setStylishCoverOpen(true);
+                }}
+              >
+                <Sparkles className="h-7 w-7 text-amber-500" />
+                <strong className="mt-4 block text-lg">Stylish PDF</strong>
+                <span className="mt-1 block text-sm text-slate-500">A photo-led navy and gold proposal inspired by the supplied design.</span>
+              </button>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <Button variant="secondary" onClick={() => setPdfChoiceOpen(false)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {stylishCoverOpen && current && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="cover-image-title" className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl">
+            <h2 id="cover-image-title" className="text-xl font-semibold">Choose first-page image</h2>
+            <p className="mt-1 text-sm text-slate-500">This image fills the cover of the stylish PDF.</p>
+            <div className="mt-5 space-y-3">
+              <label className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${coverSource === 'DESTINATION' ? 'border-brand-500 bg-brand-50' : ''}`}>
+                <input type="radio" name="cover-source" checked={coverSource === 'DESTINATION'} onChange={() => setCoverSource('DESTINATION')} />
+                <ImageIcon className="h-5 w-5 text-brand-700" />
+                <span><strong className="block">Use destination image</strong><span className="text-sm text-slate-500">Use the destination master image already linked to this quotation.</span></span>
+              </label>
+              <label className={`block cursor-pointer rounded-xl border p-4 ${coverSource === 'UPLOAD' ? 'border-brand-500 bg-brand-50' : ''}`}>
+                <span className="flex gap-3">
+                  <input type="radio" name="cover-source" checked={coverSource === 'UPLOAD'} onChange={() => setCoverSource('UPLOAD')} />
+                  <ImageIcon className="h-5 w-5 text-brand-700" />
+                  <span><strong className="block">Upload another image</strong><span className="text-sm text-slate-500">JPEG, PNG or WebP, up to 5 MB.</span></span>
+                </span>
+                {coverSource === 'UPLOAD' && (
+                  <input
+                    aria-label="First-page image"
+                    className="mt-3 block w-full text-sm"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (file && file.size > 5 * 1024 * 1024) {
+                        setCoverFile(null);
+                        setPdfError('The first-page image may not exceed 5 MB.');
+                      } else {
+                        setPdfError('');
+                        setCoverFile(file);
+                      }
+                    }}
+                  />
+                )}
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => {
+                setStylishCoverOpen(false);
+                setPdfChoiceOpen(true);
+              }}>Back</Button>
+              <Button
+                disabled={coverSource === 'UPLOAD' && !coverFile}
+                onClick={() => {
+                  setStylishCoverOpen(false);
+                  void generateIntoNewTab('STYLISH', coverSource);
+                }}
+              >
+                Generate Stylish PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {sendOpen && current && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div

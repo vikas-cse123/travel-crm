@@ -20,9 +20,14 @@ export class MemoryStorageService implements StorageService {
     return `memory://upload/${encodeURIComponent(key)}`;
   }
 
-  async createDownloadUrl(key: string, fileName: string): Promise<string> {
+  async createDownloadUrl(
+    key: string,
+    fileName: string,
+    _expiresInSeconds?: number,
+    disposition: 'attachment' | 'inline' = 'attachment',
+  ): Promise<string> {
     if (!this.objects.has(key)) throw new Error('Stored object not found.');
-    return `memory://download/${encodeURIComponent(key)}?filename=${encodeURIComponent(fileName)}`;
+    return `memory://download/${encodeURIComponent(key)}?filename=${encodeURIComponent(fileName)}&disposition=${disposition}`;
   }
 
   async headObject(key: string): Promise<StoredObjectMetadata | null> {

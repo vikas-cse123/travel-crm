@@ -377,6 +377,14 @@ describe('Phase 8 customer quotations', () => {
       `companies/${document.companyId}/quotations/${quotation.id}/versions/${version.id}/documents/`,
     );
     expect(document.checksum).toMatch(/^[a-f0-9]{64}$/);
+    const attachmentUrl = await client.get(
+      `/api/quotations/${quotation.id}/documents/${document.id}/download-url`,
+    );
+    const inlineUrl = await client.get(
+      `/api/quotations/${quotation.id}/documents/${document.id}/download-url?disposition=inline`,
+    );
+    expect(attachmentUrl.body.data.url).toContain('disposition=attachment');
+    expect(inlineUrl.body.data.url).toContain('disposition=inline');
     await storageService.deleteObject(document.objectKey);
     const regenerated = await client.post(
       `/api/quotations/${quotation.id}/versions/${version.id}/generate-pdf`,

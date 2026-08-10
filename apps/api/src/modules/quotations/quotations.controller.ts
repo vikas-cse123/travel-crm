@@ -112,6 +112,11 @@ export const quotationsController = {
         req.params.versionId!,
         context(req),
         req.body.force === true,
+        {
+          style: req.body.style ?? 'CLASSIC',
+          coverSource: req.body.coverSource ?? 'DESTINATION',
+          coverImageDataUrl: req.body.coverImageDataUrl,
+        },
       ),
       'Quotation PDF ready.',
     );
@@ -126,6 +131,7 @@ export const quotationsController = {
         auth(req),
         req.params.quotationId!,
         req.params.documentId!,
+        req.query.disposition === 'inline' ? 'inline' : 'attachment',
       ),
     );
   },
