@@ -415,3 +415,9 @@
 .flight-notes * {
   background: transparent !important;
 }
+label[data-image-drop-active='true'],
+input[data-image-drop-active='true'] {
+  outline: 3px solid rgb(37 99 235 / 55%);
+  outline-offset: 3px;
+  background-color: rgb(239 246 255);
+}

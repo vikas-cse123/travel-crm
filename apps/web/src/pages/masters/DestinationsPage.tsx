@@ -272,15 +272,17 @@ export function DestinationsPage() {
                               <EyeOff className="h-4 w-4" />
                             </button>
                           )}
-                          {canArchive && destination.status !== 'ARCHIVED' && !destination.isGlobal && (
-                            <button
-                              aria-label={`Archive ${destination.name}`}
-                              onClick={() => archiveRow(destination.id)}
-                              className="rounded bg-red-600 p-2 text-white"
-                            >
-                              <Archive className="h-4 w-4" />
-                            </button>
-                          )}
+                          {canArchive &&
+                            destination.status !== 'ARCHIVED' &&
+                            !destination.isGlobal && (
+                              <button
+                                aria-label={`Archive ${destination.name}`}
+                                onClick={() => archiveRow(destination.id)}
+                                className="rounded bg-red-600 p-2 text-white"
+                              >
+                                <Archive className="h-4 w-4" />
+                              </button>
+                            )}
                         </div>
                       </td>
                     </tr>

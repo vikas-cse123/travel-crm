@@ -465,9 +465,13 @@ export const quotationTemplatesService = {
           updatedAt: _updatedAt,
           internalCost,
           sellingPrice,
+          showCheckInTime,
+          showCheckOutTime,
           ...row
         }) => ({
           ...row,
+          ...(showCheckInTime == null ? {} : { showCheckInTime }),
+          ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
           internalCost: internalCost?.toNumber(),
           sellingPrice: sellingPrice?.toNumber(),
         }),

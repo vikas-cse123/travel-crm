@@ -112,7 +112,12 @@ async function canManage(auth: AuthContext) {
  * Load one vehicle inside the caller's visibility. A cross-tenant id matches
  * nothing and surfaces as a 404, so record existence never leaks.
  */
-async function getVehicle(auth: AuthContext, vehicleId: string, scope: MasterScope, forManage = false) {
+async function getVehicle(
+  auth: AuthContext,
+  vehicleId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageVehicles = forManage ? true : await canManage(auth);
   const vehicle = await prisma.vehicle.findFirst({
     where: {

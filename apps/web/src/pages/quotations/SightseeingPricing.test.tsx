@@ -112,10 +112,7 @@ describe('builder — custom price options', () => {
     render(<Harness />);
     await userEvent.type(priceInput(1, 'adult'), '3500');
     await userEvent.click(screen.getByRole('button', { name: 'Add Price Option' }));
-    await userEvent.type(
-      screen.getByLabelText('Day 1 activity 1 price option 1 label'),
-      'Infant',
-    );
+    await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 label'), 'Infant');
     await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 price'), '500');
     const saved = savedActivities();
     expect(saved.ok && saved.days[0]?.activities[0]?.pricingOptions).toEqual([
@@ -128,10 +125,7 @@ describe('builder — custom price options', () => {
     render(<Harness />);
     await userEvent.click(screen.getByRole('button', { name: 'Add Price Option' }));
     await userEvent.click(screen.getByRole('button', { name: 'Add Price Option' }));
-    await userEvent.type(
-      screen.getByLabelText('Day 1 activity 1 price option 1 label'),
-      'Infant',
-    );
+    await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 label'), 'Infant');
     await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 price'), '500');
     await userEvent.type(
       screen.getByLabelText('Day 1 activity 1 price option 2 label'),
@@ -149,10 +143,7 @@ describe('builder — custom price options', () => {
     render(<Harness />);
     await userEvent.type(priceInput(1, 'adult'), '3500');
     await userEvent.click(screen.getByRole('button', { name: 'Add Price Option' }));
-    await userEvent.type(
-      screen.getByLabelText('Day 1 activity 1 price option 1 label'),
-      'Infant',
-    );
+    await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 label'), 'Infant');
     await userEvent.type(screen.getByLabelText('Day 1 activity 1 price option 1 price'), '500');
 
     await userEvent.click(

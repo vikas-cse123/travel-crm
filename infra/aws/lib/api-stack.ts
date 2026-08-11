@@ -1,5 +1,5 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
-import { Construct } from 'constructs';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { type Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
@@ -9,7 +9,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-import { DeployConfig } from '../config.js';
+import { type DeployConfig } from '../config.js';
 
 export interface ApiStackProps extends StackProps {
   config: DeployConfig;
@@ -280,7 +280,10 @@ export class ApiStack extends Stack {
         DB_NAME: ecs.Secret.fromSecretsManager(db.secret!, 'dbname'),
         SESSION_SECRET: ecs.Secret.fromSecretsManager(appSecrets['session-secret'], 'value'),
         TOKEN_PEPPER: ecs.Secret.fromSecretsManager(appSecrets['token-pepper'], 'value'),
-        DATA_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(appSecrets['data-encryption-key'], 'value'),
+        DATA_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(
+          appSecrets['data-encryption-key'],
+          'value',
+        ),
         SMTP_HOST: ecs.Secret.fromSecretsManager(appSecrets['smtp-host'], 'value'),
         SMTP_PORT: ecs.Secret.fromSecretsManager(appSecrets['smtp-port'], 'value'),
         SMTP_USER: ecs.Secret.fromSecretsManager(appSecrets['smtp-user'], 'value'),
@@ -338,5 +341,9 @@ function secretByName(config: DeployConfig, stack: Stack, name: string): secrets
   if (!fullArn) {
     throw new Error(`Missing app secret ARN for ${name}`);
   }
-  return secretsmanager.Secret.fromSecretCompleteArn(stack, `Secret${name.replace(/-/g, '')}`, fullArn);
+  return secretsmanager.Secret.fromSecretCompleteArn(
+    stack,
+    `Secret${name.replace(/-/g, '')}`,
+    fullArn,
+  );
 }

@@ -348,7 +348,8 @@ export const reminderProcessor = {
   async processCompany(companyId: string, options: { ruleId?: string; dryRun?: boolean } = {}) {
     // Automatic rule-based reminders are disabled — reminders are manual only.
     // Manual reminders still become due/overdue through processDue below.
-    const results: Array<{ ruleId: string; matched: number; created: number; skipped: number }> = [];
+    const results: Array<{ ruleId: string; matched: number; created: number; skipped: number }> =
+      [];
     const due = options.dryRun ? 0 : await processDue(companyId);
     const deliveries = options.dryRun ? 0 : await notificationsService.retryPending(companyId);
     if (!options.dryRun)

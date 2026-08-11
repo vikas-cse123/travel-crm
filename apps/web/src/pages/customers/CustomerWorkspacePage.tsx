@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CUSTOMER_DOCUMENT_TYPES, PERMISSIONS, labelForLookup } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useCreateCustomerCommunication,
@@ -263,19 +264,21 @@ export function CustomerWorkspacePage() {
 
           <div className="space-y-4">
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {([
-                ['Total Bookings', value.bookingCount, Plane, 'bg-cyan-600'],
-                ['Total Spent', money(value.totalBookedValue), IndianRupee, 'bg-green-600'],
+              {(
                 [
-                  'Avg. Booking',
-                  moneyDetailed(
-                    String(Number(value.totalBookedValue ?? 0) / Math.max(value.bookingCount, 1)),
-                  ),
-                  BarChart3,
-                  'bg-amber-400',
-                ],
-                ['Total Paid', money(value.totalPaid), Banknote, 'bg-rose-500'],
-              ] as const).map(([label, metric, Icon, iconStyle]) => {
+                  ['Total Bookings', value.bookingCount, Plane, 'bg-cyan-600'],
+                  ['Total Spent', money(value.totalBookedValue), IndianRupee, 'bg-green-600'],
+                  [
+                    'Avg. Booking',
+                    moneyDetailed(
+                      String(Number(value.totalBookedValue ?? 0) / Math.max(value.bookingCount, 1)),
+                    ),
+                    BarChart3,
+                    'bg-amber-400',
+                  ],
+                  ['Total Paid', money(value.totalPaid), Banknote, 'bg-rose-500'],
+                ] as const
+              ).map(([label, metric, Icon, iconStyle]) => {
                 const MetricIcon = Icon as typeof Plane;
                 return (
                   <article
@@ -428,9 +431,7 @@ export function CustomerWorkspacePage() {
                 <span className="mt-1 h-2 w-2 rounded-full bg-brand-500" />
                 <div>
                   <p className="text-sm font-medium">{labelForLookup(item.type)}</p>
-                  <p className="text-xs text-slate-500">
-                    {new Date(item.occurredAt).toLocaleString()}
-                  </p>
+                  <p className="text-xs text-slate-500">{formatDateTime12Hour(item.occurredAt)}</p>
                 </div>
               </div>
             ))}
@@ -475,7 +476,7 @@ export function CustomerWorkspacePage() {
                 <p>{String(item.content)}</p>
                 <p className="mt-1 text-xs text-slate-500">
                   {labelForLookup(String(item.type))} ·{' '}
-                  {new Date(String(item.createdAt)).toLocaleString()}
+                  {formatDateTime12Hour(String(item.createdAt))}
                 </p>
               </article>
             ))}
@@ -515,7 +516,7 @@ export function CustomerWorkspacePage() {
                 <p>{String(item.summary)}</p>
                 <p className="mt-1 text-xs text-slate-500">
                   {labelForLookup(String(item.type))} · {labelForLookup(String(item.direction))} ·{' '}
-                  {new Date(String(item.occurredAt)).toLocaleString()}
+                  {formatDateTime12Hour(String(item.occurredAt))}
                 </p>
               </article>
             ))}

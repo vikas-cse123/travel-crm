@@ -6,6 +6,7 @@ import { createTestPrismaClient, truncateAll } from './helpers/test-database.js'
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
+import { resolveItineraryNights } from '../src/modules/quotations/quotations.service.js';
 
 let app: Express;
 let db: PrismaClient;
@@ -46,6 +47,11 @@ const leadPayload = (phone = '+91 98765 43210') => ({
   services: ['HOTEL', 'SIGHTSEEING'],
   itinerary: [{ country: 'India', destination: 'Goa', nights: 4, sequence: 1 }],
 });
+
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 const templatePayload = (name = 'Goa family escape') => ({
   name,
@@ -100,6 +106,13 @@ const templatePayload = (name = 'Goa family escape') => ({
   inclusions: [{ content: 'Daily breakfast', sequence: 1 }],
   exclusions: [{ content: 'Personal expenses', sequence: 1 }],
   terms: [{ content: 'Subject to availability', sequence: 1 }],
+});
+
+describe('quotation duration', () => {
+  it('sums every destination night and ignores empty values', () => {
+    expect(resolveItineraryNights([{ nights: 6 }, { nights: 5 }])).toBe(11);
+    expect(resolveItineraryNights([{ nights: 0 }, { nights: null }])).toBeNull();
+  });
 });
 
 async function setup() {
@@ -404,6 +417,63 @@ describe('Phase 8 customer quotations', () => {
     ]);
   });
 
+  it('embeds a copied flight image when generating a PDF for a revision', async () => {
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const first = quotation.versions[0];
+
+    const approved = await client.post(`/api/quotations/${quotation.id}/uploads`, {
+      quotationVersionId: first.id,
+      fileName: 'flight.png',
+      mimeType: 'image/png',
+      fileSize: PNG_1PX.length,
+      documentType: 'SUPPORTING_ATTACHMENT',
+    });
+    expect(approved.status).toBe(201);
+    const flightDocument = await db.quotationDocument.findUniqueOrThrow({
+      where: { id: approved.body.data.documentId },
+    });
+    await storageService.putObject({
+      key: flightDocument.objectKey,
+      body: PNG_1PX,
+      contentType: 'image/png',
+    });
+    expect(
+      (await client.post(`/api/quotations/${quotation.id}/uploads/${flightDocument.id}/confirm`))
+        .status,
+    ).toBe(200);
+    const saved = await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
+      flightDetails: {
+        include: true,
+        sectionTitle: 'Flight Details',
+        entryMode: 'IMAGE',
+        images: [
+          { documentId: flightDocument.id, fileName: 'flight.png', description: 'Outbound ticket' },
+        ],
+        journeyType: 'ROUND_TRIP',
+        outbound: { segments: [] },
+        returnJourney: { segments: [] },
+      },
+    });
+    expect(saved.status).toBe(200);
+    await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`);
+    const revision = (
+      await client.post(`/api/quotations/${quotation.id}/versions`, { sourceVersionId: first.id })
+    ).body.data;
+    await client.post(`/api/quotations/${quotation.id}/versions/${revision.id}/finalize`);
+
+    const generated = await client.post(
+      `/api/quotations/${quotation.id}/versions/${revision.id}/generate-pdf`,
+      { force: true, style: 'CLASSIC' },
+    );
+    expect(generated.status).toBe(200);
+    const pdfDocument = await db.quotationDocument.findUniqueOrThrow({
+      where: { id: generated.body.data.id },
+    });
+    const pdf = await storageService.getObject(pdfDocument.objectKey);
+    expect(pdf?.toString('latin1')).toMatch(/\/Subtype\s*\/Image/);
+  });
+
   it('sends finalized quotations, logs delivery and includes a hashed public link', async () => {
     const { client, lead, template } = await setup();
     const quotation = (
@@ -487,8 +557,8 @@ describe('Phase 8 customer quotations', () => {
     });
     const token = link.body.data.url.split('/q/')[1];
     const anonymous = createAuthClient(app);
-    const view = await anonymous.get(`/public/quotations/${token}`);
-    expect(view.status).toBe(200);
+    const view = await anonymous.get(`/api/public/quotations/${token}`);
+    expect(view.status, JSON.stringify(view.body)).toBe(200);
     expect(JSON.stringify(view.body.data)).not.toMatch(
       /subtotalCost|internalCost|marginAmount|internalNotes/,
     );
@@ -498,14 +568,14 @@ describe('Phase 8 customer quotations', () => {
     expect(
       (
         await client.post(
-          `/public/quotations/${token}/accept`,
+          `/api/public/quotations/${token}/accept`,
           { customerName: 'Aarav Mehta', confirmed: true },
           { csrf: null },
         )
       ).status,
     ).toBe(200);
     expect(
-      (await anonymous.post(`/public/quotations/${token}/reject`, { reason: 'Changed mind' }))
+      (await anonymous.post(`/api/public/quotations/${token}/reject`, { reason: 'Changed mind' }))
         .status,
     ).toBe(409);
     expect((await db.query.findUniqueOrThrow({ where: { id: lead.id } })).leadStage).toBe(
@@ -536,7 +606,7 @@ describe('Phase 8 customer quotations', () => {
     }
 
     const publicGet = (token: string, ip: string) =>
-      request(app).get(`/public/quotations/${token}`).set('X-Forwarded-For', ip);
+      request(app).get(`/api/public/quotations/${token}`).set('X-Forwarded-For', ip);
 
     it('records one EXTERNAL view per successful public load', async () => {
       const { token } = await readyQuotation();
@@ -544,9 +614,10 @@ describe('Phase 8 customer quotations', () => {
       expect(view.status).toBe(200);
       const rows = await db.quotationWeblinkView.findMany();
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ ipAddress: '203.0.113.10', type: 'EXTERNAL', viewCount: 1 });
-      expect(rows[0].firstViewedAt).toBeInstanceOf(Date);
-      expect(rows[0].lastViewedAt).toBeInstanceOf(Date);
+      const row = rows[0]!;
+      expect(row).toMatchObject({ ipAddress: '203.0.113.10', type: 'EXTERNAL', viewCount: 1 });
+      expect(row.firstViewedAt).toBeInstanceOf(Date);
+      expect(row.lastViewedAt).toBeInstanceOf(Date);
     });
 
     it('increments the same IP row on repeat views', async () => {
@@ -555,15 +626,14 @@ describe('Phase 8 customer quotations', () => {
       await publicGet(token, '203.0.113.10');
       const rows = await db.quotationWeblinkView.findMany();
       expect(rows).toHaveLength(1);
-      expect(rows[0].viewCount).toBe(2);
-      expect(rows[0].type).toBe('EXTERNAL');
-      const analytics = (
-        await db.quotationWeblinkView.aggregate({
-          where: { ipAddress: rows[0].ipAddress },
-          _sum: { viewCount: true },
-          _count: { _all: true },
-        })
-      );
+      const row = rows[0]!;
+      expect(row.viewCount).toBe(2);
+      expect(row.type).toBe('EXTERNAL');
+      const analytics = await db.quotationWeblinkView.aggregate({
+        where: { ipAddress: row.ipAddress },
+        _sum: { viewCount: true },
+        _count: { _all: true },
+      });
       expect(analytics._sum.viewCount).toBe(2);
       expect(analytics._count._all).toBe(1);
     });
@@ -577,32 +647,32 @@ describe('Phase 8 customer quotations', () => {
         where: { quotationId: quotation.id },
         _sum: { viewCount: true },
       });
-      expect(analytics[0]._sum.viewCount).toBe(2);
+      expect(analytics[0]!._sum.viewCount).toBe(2);
       expect(await db.quotationWeblinkView.count()).toBe(2);
     });
 
     it('classifies a same-tenant authenticated view as HOME', async () => {
       const { client, token } = await readyQuotation();
-      const view = await client.get(`/public/quotations/${token}`);
+      const view = await client.get(`/api/public/quotations/${token}`);
       expect(view.status).toBe(200);
       const rows = await db.quotationWeblinkView.findMany();
-      expect(rows[0].type).toBe('HOME');
-      expect(rows[0].viewCount).toBe(1);
+      expect(rows[0]!.type).toBe('HOME');
+      expect(rows[0]!.viewCount).toBe(1);
     });
 
     it('classifies a different-tenant authenticated view as EXTERNAL', async () => {
       const { token } = await readyQuotation();
       const other = await owner('other@tenant.test', 'Other Travel');
-      const view = await other.get(`/public/quotations/${token}`);
+      const view = await other.get(`/api/public/quotations/${token}`);
       expect(view.status).toBe(200);
       const rows = await db.quotationWeblinkView.findMany();
-      expect(rows[0].type).toBe('EXTERNAL');
+      expect(rows[0]!.type).toBe('EXTERNAL');
     });
 
     it('records nothing for an invalid or expired token', async () => {
       const before = await db.quotationWeblinkView.count();
       const missing = await request(app)
-        .get('/public/quotations/0000000000000000000000000000000000000000')
+        .get('/api/public/quotations/0000000000000000000000000000000000000000')
         .set('X-Forwarded-For', '203.0.113.10');
       expect(missing.status).toBe(404);
       expect(await db.quotationWeblinkView.count()).toBe(before);
@@ -611,7 +681,7 @@ describe('Phase 8 customer quotations', () => {
     it('returns aggregated analytics with sorted entries and zero defaults', async () => {
       const { client, lead, template, quotation, token } = await readyQuotation();
       await publicGet(token, '203.0.113.10');
-      await client.get(`/public/quotations/${token}`); // HOME
+      await client.get(`/api/public/quotations/${token}`); // HOME
       const res = await client.get(`/api/quotations/${quotation.id}/weblink-analytics`);
       expect(res.status).toBe(200);
       const data = res.body.data;
@@ -621,7 +691,9 @@ describe('Phase 8 customer quotations', () => {
       expect(data.uniqueIps).toBe(2);
       expect(data.totalViews).toBe(data.externalViews + data.homeIpViews);
       expect(data.entries).toHaveLength(2);
-      const times = data.entries.map((e: { lastViewedAt: string }) => new Date(e.lastViewedAt).getTime());
+      const times = data.entries.map((e: { lastViewedAt: string }) =>
+        new Date(e.lastViewedAt).getTime(),
+      );
       expect([...times].sort((a, b) => b - a)).toEqual(times);
       // Zero state on a fresh quotation (same tenant, no public link/views).
       const fresh = (
@@ -674,7 +746,7 @@ describe('Phase 8 customer quotations', () => {
       expect(row.publicVersionId).toBe(version.id);
       // The URL is usable and secured by the token (no manual Create needed).
       const publicGet = request(app)
-        .get(`/public/quotations/${row.publicToken}`)
+        .get(`/api/public/quotations/${row.publicToken}`)
         .set('X-Forwarded-For', '203.0.113.55');
       expect((await publicGet).status).toBe(200);
     });
@@ -691,7 +763,8 @@ describe('Phase 8 customer quotations', () => {
         where: { id: quotation.id },
         data: { publicToken: null, publicTokenHash: null, publicVersionId: null },
       });
-      const { backfillQuotationWeblinks } = await import('../src/scripts/backfill-quotation-weblinks.js');
+      const { backfillQuotationWeblinks } =
+        await import('../src/scripts/backfill-quotation-weblinks.js');
       const first = await backfillQuotationWeblinks(db);
       expect(first.created).toBe(1);
       const after = await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
@@ -701,12 +774,12 @@ describe('Phase 8 customer quotations', () => {
       const tokenBefore = after.publicToken;
       const second = await backfillQuotationWeblinks(db);
       expect(second.created).toBe(0);
-      expect((await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } })).publicToken).toBe(
-        tokenBefore,
-      );
+      expect(
+        (await db.quotation.findUniqueOrThrow({ where: { id: quotation.id } })).publicToken,
+      ).toBe(tokenBefore);
       // The Leads-style URL is usable.
       const anon = createAuthClient(app);
-      const view = await anon.get(`/public/quotations/${tokenBefore}`);
+      const view = await anon.get(`/api/public/quotations/${tokenBefore}`);
       expect(view.status).toBe(200);
     });
   });
@@ -720,7 +793,7 @@ describe('Phase 8 customer quotations', () => {
       quotationVersionId: version.id,
     });
     const token = link.body.data.url.split('/q/')[1];
-    const rejected = await createAuthClient(app).post(`/public/quotations/${token}/reject`, {
+    const rejected = await createAuthClient(app).post(`/api/public/quotations/${token}/reject`, {
       reason: 'Dates no longer work',
       note: 'Please contact me next season.',
     });
@@ -754,7 +827,7 @@ describe('Phase 8 customer quotations', () => {
       tan: 'ABCD12345E',
     });
 
-    const view = await createAuthClient(app).get(`/public/quotations/${token}`);
+    const view = await createAuthClient(app).get(`/api/public/quotations/${token}`);
     expect(view.status).toBe(200);
     const body = view.body.data;
     expect(body.company).toMatchObject({
@@ -770,7 +843,9 @@ describe('Phase 8 customer quotations', () => {
     expect(body.quotation.quotationNumber).toBe(quotation.quotationNumber);
     // Never leak storage keys or sensitive fields to the public view.
     expect(
-      JSON.stringify(body).match(/logoObjectKey|pendingLogoObjectKey|logoBucket|ObjectKey|accountNumber/),
+      JSON.stringify(body).match(
+        /logoObjectKey|pendingLogoObjectKey|logoBucket|ObjectKey|accountNumber/,
+      ),
     ).toBeNull();
   });
 
@@ -961,8 +1036,24 @@ describe('Phase 14 quotation master references', () => {
     const client = await owner();
     const m = await masters(client);
     const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const linked = linkedVersion(m);
     const quotation = (
-      await client.post('/api/quotations', { queryId: lead.id, version: linkedVersion(m) })
+      await client.post('/api/quotations', {
+        queryId: lead.id,
+        version: {
+          ...linked,
+          hotels: [
+            {
+              ...linked.hotels[0],
+              rooms: null,
+              checkInTime: '15:30',
+              checkOutTime: '11:15',
+              showCheckInTime: false,
+              showCheckOutTime: true,
+            },
+          ],
+        },
+      })
     ).body.data;
 
     const stored = await db.quotationVersionHotelOption.findFirstOrThrow({
@@ -972,6 +1063,11 @@ describe('Phase 14 quotation master references', () => {
       hotelId: m.hotel.id,
       hotelRoomTypeId: m.roomType.id,
       hotelMealPlanId: m.mealPlan.id,
+      rooms: null,
+      checkInTime: '15:30',
+      checkOutTime: '11:15',
+      showCheckInTime: false,
+      showCheckOutTime: true,
     });
     const services = await db.quotationVersionService.findMany({
       where: { quotationVersionId: quotation.versions[0].id },
@@ -1005,7 +1101,7 @@ describe('Phase 14 quotation master references', () => {
       quotationVersionId: version.id,
     });
     const token = link.body.data.url.split('/q/')[1];
-    const publicView = await createAuthClient(app).get(`/public/quotations/${token}`);
+    const publicView = await createAuthClient(app).get(`/api/public/quotations/${token}`);
     expect(publicView.status).toBe(200);
     const hotelPresentation = Object.values(
       publicView.body.data.hotelPresentations as Record<string, unknown>,
@@ -1018,8 +1114,16 @@ describe('Phase 14 quotation master references', () => {
       country: 'Azerbaijan',
     });
     const body = JSON.stringify(publicView.body.data);
-    for (const field of [...SERVICE_FK, 'hotelId', 'hotelRoomTypeId', 'hotelMealPlanId'])
+    // The add-on reference is retained so customer outputs can include only
+    // explicitly selected add-on rows; all other internal master IDs stay hidden.
+    for (const field of [
+      ...SERVICE_FK.filter((field) => field !== 'addOnServiceId'),
+      'hotelId',
+      'hotelRoomTypeId',
+      'hotelMealPlanId',
+    ])
       expect(body).not.toContain(field);
+    expect(body).toContain('addOnServiceId');
     // The snapshot text still renders without the master links.
     expect(body).toContain('Shah Palace');
   });
@@ -1385,7 +1489,9 @@ describe('Phase 8 quotation activity pricing', () => {
       },
     ],
   });
-  const activitiesOf = (version: { sightseeingDetails?: { days?: Array<{ activities?: unknown[] }> } }) =>
+  const activitiesOf = (version: {
+    sightseeingDetails?: { days?: Array<{ activities?: unknown[] }> };
+  }) =>
     (version.sightseeingDetails?.days?.[0]?.activities ?? []) as Array<{
       name?: string;
       dailyTransfer?: string | null;
@@ -1535,7 +1641,9 @@ describe('Phase 8 quotation activity pricing', () => {
       select: { sightseeingDetails: true },
     });
     const storedActivities = (
-      stored.sightseeingDetails as { days: Array<{ activities: Array<{ pricingOptions: unknown }> }> }
+      stored.sightseeingDetails as {
+        days: Array<{ activities: Array<{ pricingOptions: unknown }> }>;
+      }
     ).days[0]?.activities;
     expect(storedActivities?.[0]?.pricingOptions).toEqual([
       { label: 'Adult', price: 3500 },

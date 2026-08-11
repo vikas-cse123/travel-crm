@@ -41,22 +41,16 @@ describe('rate limiters', () => {
   });
 
   it('exempts only the exact login and register POSTs from the global limiter', () => {
-    expect(
-      shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/login' }),
-    ).toBe(true);
-    expect(
-      shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/register' }),
-    ).toBe(true);
+    expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/login' })).toBe(true);
+    expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/register' })).toBe(true);
     // The exemption is scoped to the sign-in/sign-up requests, not /api/auth/*.
-    expect(
-      shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/forgot-password' }),
-    ).toBe(false);
-    expect(
-      shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/verify-email' }),
-    ).toBe(false);
-    expect(
-      shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/reset-password' }),
-    ).toBe(false);
+    expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/forgot-password' })).toBe(
+      false,
+    );
+    expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/verify-email' })).toBe(false);
+    expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/reset-password' })).toBe(
+      false,
+    );
     expect(
       shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/resend-verification-otp' }),
     ).toBe(false);

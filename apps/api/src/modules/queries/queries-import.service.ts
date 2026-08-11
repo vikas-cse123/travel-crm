@@ -109,7 +109,9 @@ function parseOptionalField<T>(ignoreInvalid: boolean, parse: () => T): T | unde
 
 const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
-function buildErrorCsv(failed: Array<{ row: number; customerName: string; reason: string }>): string {
+function buildErrorCsv(
+  failed: Array<{ row: number; customerName: string; reason: string }>,
+): string {
   const headers = ['Row', 'Customer', 'Reason'];
   const lines = failed.map((entry) =>
     [entry.row, entry.customerName, entry.reason].map(quote).join(','),

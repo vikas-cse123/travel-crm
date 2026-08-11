@@ -340,7 +340,8 @@ export function useLeadAnalytics(params: URLSearchParams) {
   const q = leadDateQuery(params);
   return useQuery({
     queryKey: queryKeys.analytics(q),
-    queryFn: ({ signal }) => apiClient.get<Analytics>(`/queries/analytics${q ? `?${q}` : ''}`, signal),
+    queryFn: ({ signal }) =>
+      apiClient.get<Analytics>(`/queries/analytics${q ? `?${q}` : ''}`, signal),
   });
 }
 export function useLeadLookups() {

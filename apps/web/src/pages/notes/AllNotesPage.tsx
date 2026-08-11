@@ -11,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { PERMISSIONS } from '@interscale/shared';
 import {
   useLeadLookups,
   useNotesOverview,
@@ -18,6 +19,9 @@ import {
   type NotesOverviewLead,
 } from '@/features/queries/queries.api';
 import { formatDateTime, NoteStatCards, StagePill } from './NotesUi';
+import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { cn } from '@/utils/cn';
 import './notes.css';
 
@@ -140,6 +144,7 @@ export function AllNotesPage() {
   const [params, setParams] = useSearchParams();
   const overview = useNotesOverview(params);
   const lookups = useLeadLookups();
+  const { hasPermission } = useAuth();
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -151,15 +156,28 @@ export function AllNotesPage() {
 
   const page = overview.data?.page ?? 1;
   const totalPages = overview.data?.stats.totalPages ?? 1;
+  const pageSize = overview.data?.pageSize ?? 12;
+  const totalEntries = overview.data?.stats.totalLeadsWithNotes ?? 0;
 
   return (
     <div className="notes-page">
-      <div>
-        <p className="notes-page-breadcrumb">Notes</p>
-        <h1 className="notes-page-title">Lead Notes</h1>
-        <p className="notes-page-desc">
-          Every note logged across your leads, grouped by lead with follow-up reminders.
-        </p>
+      <div className="notes-page-header">
+        <div>
+          <p className="notes-page-breadcrumb">Notes</p>
+          <h1 className="notes-page-title">Lead Notes</h1>
+          <p className="notes-page-desc">
+            Every note logged across your leads, grouped by lead with follow-up reminders.
+          </p>
+        </div>
+        {/* Gated on the permission the POST route itself requires, so the button
+            is never offered to someone the server would reject. */}
+        {hasPermission(PERMISSIONS.QUERIES_UPDATE) && (
+          <Link to="/notes/new">
+            <Button>
+              <Plus className="h-4 w-4" aria-hidden="true" /> Add Note
+            </Button>
+          </Link>
+        )}
       </div>
 
       <NoteStatCards
@@ -231,29 +249,15 @@ export function AllNotesPage() {
         </div>
       )}
 
-      {totalPages > 1 && (
+      {!overview.isPending && !overview.isError && (
         <div className="notes-pagination">
-          <span className="notes-pagination-info">
-            Page {page} of {totalPages}
-          </span>
-          <div className="notes-pagination-buttons">
-            <button
-              type="button"
-              className="notes-pagination-btn"
-              disabled={page <= 1}
-              onClick={() => update('page', String(page - 1))}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              className="notes-pagination-btn"
-              disabled={page >= totalPages}
-              onClick={() => update('page', String(page + 1))}
-            >
-              Next
-            </button>
-          </div>
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            totalPages={totalPages}
+            total={totalEntries}
+            onPage={(next) => update('page', String(next))}
+          />
         </div>
       )}
     </div>

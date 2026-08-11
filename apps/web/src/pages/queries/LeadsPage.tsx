@@ -113,9 +113,11 @@ function localDateInput(date: Date): string {
 function formatDateSummary(value: string): string {
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(
-    date,
-  );
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
 }
 
 const LEAD_DATE_TYPE_LABELS: Record<LeadDateFilterType, string> = {
@@ -281,9 +283,7 @@ function BookingCell({ lead, canCreateBooking }: { lead: Lead; canCreateBooking:
       );
     }
     return (
-      <span className="leads-cell-muted">
-        {lead.quotationRequired ? 'Quote Required' : 'None'}
-      </span>
+      <span className="leads-cell-muted">{lead.quotationRequired ? 'Quote Required' : 'None'}</span>
     );
   }
   return (
@@ -787,7 +787,8 @@ export function LeadsPage() {
   const [dateError, setDateError] = useState<string | null>(null);
 
   const dateParamKey = useMemo(
-    () => `${params.get('dateType') ?? ''}|${params.get('dateFrom') ?? ''}|${params.get('dateTo') ?? ''}`,
+    () =>
+      `${params.get('dateType') ?? ''}|${params.get('dateFrom') ?? ''}|${params.get('dateTo') ?? ''}`,
     [params],
   );
   useEffect(() => {
@@ -799,8 +800,7 @@ export function LeadsPage() {
     setDateError(null);
   }, [dateParamKey, params]);
 
-  const activeDateFilter =
-    (params.get('dateType') as LeadDateFilterType | null) ?? 'CREATED_DATE';
+  const activeDateFilter = (params.get('dateType') as LeadDateFilterType | null) ?? 'CREATED_DATE';
   const dateFrom = params.get('dateFrom') ?? '';
   const dateTo = params.get('dateTo') ?? '';
   const dateFilterActive = Boolean(dateFrom || dateTo);
@@ -1012,7 +1012,10 @@ export function LeadsPage() {
                 className="leads-date-type"
                 value={dateDraft.dateType}
                 onChange={(e) =>
-                  setDateDraft((prev) => ({ ...prev, dateType: e.target.value as LeadDateFilterType }))
+                  setDateDraft((prev) => ({
+                    ...prev,
+                    dateType: e.target.value as LeadDateFilterType,
+                  }))
                 }
               >
                 {(Object.keys(LEAD_DATE_TYPE_LABELS) as LeadDateFilterType[]).map((type) => (
@@ -1179,7 +1182,11 @@ export function LeadsPage() {
           </button>
         </div>
 
-        <div className="leads-filter-panel" role="group" aria-label="Filter leads by type and stage">
+        <div
+          className="leads-filter-panel"
+          role="group"
+          aria-label="Filter leads by type and stage"
+        >
           {chips.map(([label, value, count]) => {
             const activeKey =
               value && ['FRESH', 'HOT', 'WARM', 'COLD'].includes(String(value))
@@ -1191,7 +1198,11 @@ export function LeadsPage() {
             return (
               <button
                 key={`${label}-${value}`}
-                className={cn('leads-chip', leadChipVariant(String(value)), active && 'leads-chip--active')}
+                className={cn(
+                  'leads-chip',
+                  leadChipVariant(String(value)),
+                  active && 'leads-chip--active',
+                )}
                 aria-pressed={active}
                 onClick={() => {
                   const next = new URLSearchParams(params);
@@ -1215,11 +1226,7 @@ export function LeadsPage() {
         </div>
 
         {selected.size > 0 && (
-          <div
-            className="leads-bulkbar"
-            role="region"
-            aria-label="Bulk actions"
-          >
+          <div className="leads-bulkbar" role="region" aria-label="Bulk actions">
             <span className="font-medium">{selected.size} selected</span>
             {canAssign && (
               <Button size="sm" variant="secondary" onClick={() => setDialog('assign')}>
@@ -1359,18 +1366,24 @@ export function LeadsPage() {
                       <td
                         className={cn(
                           'leads-amount',
-                          !quotationAmountFor(lead) && !lead.expectedAmount && 'leads-amount--empty',
+                          !quotationAmountFor(lead) &&
+                            !lead.expectedAmount &&
+                            'leads-amount--empty',
                         )}
                       >
-                        {quotationAmountFor(lead) || (lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—')}
+                        {quotationAmountFor(lead) ||
+                          (lead.expectedAmount ? `${lead.currency} ${lead.expectedAmount}` : '—')}
                       </td>
                       <td
                         className={cn(
                           'leads-amount',
-                          !quotationMarginFor(lead) && !lead.expectedMargin && 'leads-amount--empty',
+                          !quotationMarginFor(lead) &&
+                            !lead.expectedMargin &&
+                            'leads-amount--empty',
                         )}
                       >
-                        {quotationMarginFor(lead) || (lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—')}
+                        {quotationMarginFor(lead) ||
+                          (lead.expectedMargin ? `${lead.currency} ${lead.expectedMargin}` : '—')}
                       </td>
                       <td>
                         <InlineLeadField

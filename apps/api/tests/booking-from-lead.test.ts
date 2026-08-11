@@ -93,7 +93,10 @@ describe('Create Booking from Lead', () => {
   it('creates a booking and a new customer transactionally for a Hot + Booking Confirmed lead', async () => {
     const { client, lead, quotation, version } = await readyLead();
     const customerBefore = await db.customer.count();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(201);
     expect(response.body.data).toMatchObject({
       queryId: lead.id,
@@ -126,14 +129,20 @@ describe('Create Booking from Lead', () => {
 
   it('rejects a non-Hot lead', async () => {
     const { client, lead, quotation } = await readyLead({ leadType: 'FRESH' });
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(400);
     expect(response.body.error.message).toContain('Lead type must be Hot');
   });
 
   it('rejects a non-Booking-Confirmed lead', async () => {
     const { client, lead, quotation } = await readyLead({ leadStage: 'NEW_LEAD' });
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(400);
     expect(response.body.error.message).toContain('Lead stage must be Booking Confirmed');
   });
@@ -141,7 +150,10 @@ describe('Create Booking from Lead', () => {
   it('rejects a missing finalized quotation', async () => {
     const client = await owner();
     const lead = (await client.post('/api/queries', leadPayload())).body.data;
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload('00000000-0000-4000-8000-000000000000', { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload('00000000-0000-4000-8000-000000000000', { leadId: lead.id }),
+    );
     expect([404, 422]).toContain(response.status);
   });
 
@@ -150,7 +162,10 @@ describe('Create Booking from Lead', () => {
     const lead = (await client.post('/api/queries', leadPayload())).body.data;
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     // Version is still DRAFT — no finalized version exists.
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(409);
     expect(response.body.error.message).toContain('finalized quotation');
   });
@@ -158,10 +173,16 @@ describe('Create Booking from Lead', () => {
   it('rejects a quotation belonging to another lead', async () => {
     const client = await owner();
     const leadA = (await client.post('/api/queries', leadPayload())).body.data;
-    const leadB = (await client.post('/api/queries', leadPayload({ phone: '+91 90000 99999' }))).body.data;
+    const leadB = (await client.post('/api/queries', leadPayload({ phone: '+91 90000 99999' })))
+      .body.data;
     const quotation = (await client.post('/api/quotations', { queryId: leadA.id })).body.data;
-    await client.post(`/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}/finalize`);
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: leadB.id }));
+    await client.post(
+      `/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}/finalize`,
+    );
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: leadB.id }),
+    );
     expect(response.status).toBe(404);
   });
 
@@ -184,7 +205,10 @@ describe('Create Booking from Lead', () => {
         createdById: company.users[0]!.id,
       },
     });
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(201);
     expect(await db.customer.count()).toBe(1);
     const booking = await db.booking.findUniqueOrThrow({
@@ -196,9 +220,15 @@ describe('Create Booking from Lead', () => {
 
   it('rejects duplicate booking creation for the same lead', async () => {
     const { client, lead, quotation } = await readyLead();
-    const first = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const first = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(first.status).toBe(201);
-    const second = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const second = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(second.status).toBe(409);
     expect(second.body.error.message).toContain('A booking already exists');
   });
@@ -209,7 +239,10 @@ describe('Create Booking from Lead', () => {
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     // No finalized version → create fails inside the transaction.
     const before = await db.customer.count();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, { leadId: lead.id }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, { leadId: lead.id }),
+    );
     expect(response.status).toBe(409);
     expect(await db.customer.count()).toBe(before);
   });
@@ -276,14 +309,17 @@ describe('Create Booking from Lead', () => {
 
   it('uses reviewed customer overrides from the create request', async () => {
     const { client, lead, quotation } = await readyLead();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'Aarav Mehta Edited',
-        phone: '+91 90000 00001',
-        email: 'edited@example.test',
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'Aarav Mehta Edited',
+          phone: '+91 90000 00001',
+          email: 'edited@example.test',
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     const customer = await db.customer.findFirstOrThrow({
       where: { id: response.body.data.customerId },
@@ -301,15 +337,18 @@ describe('Create Booking from Lead', () => {
 
   it('persists the selected state on the newly created customer address', async () => {
     const { client, lead, quotation } = await readyLead();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'Stateful Customer',
-        phone: '+91 90000 00004',
-        email: null,
-        state: 'Karnataka',
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'Stateful Customer',
+          phone: '+91 90000 00004',
+          email: null,
+          state: 'Karnataka',
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     const customer = await db.customer.findFirstOrThrow({
       where: { id: response.body.data.customerId },
@@ -324,13 +363,16 @@ describe('Create Booking from Lead', () => {
 
   it('does not persist a state when none is supplied', async () => {
     const { client, lead, quotation } = await readyLead();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'No State Customer',
-        phone: '+91 90000 00005',
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'No State Customer',
+          phone: '+91 90000 00005',
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     const customer = await db.customer.findFirstOrThrow({
       where: { id: response.body.data.customerId },
@@ -367,14 +409,17 @@ describe('Create Booking from Lead', () => {
         isPrimary: true,
       },
     });
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'Existing Stateful',
-        phone: '+91 90000 00006',
-        state: null,
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'Existing Stateful',
+          phone: '+91 90000 00006',
+          state: null,
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     expect(await db.customer.count()).toBe(1);
     const after = await db.customerAddress.findFirstOrThrow({
@@ -434,13 +479,16 @@ describe('Create Booking from Lead', () => {
         createdById: company.users[0]!.id,
       },
     });
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'Should Not Duplicate',
-        phone: '+91 90000 00002',
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'Should Not Duplicate',
+          phone: '+91 90000 00002',
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     expect(await db.customer.count()).toBe(1);
     const booking = await db.booking.findUniqueOrThrow({
@@ -489,14 +537,17 @@ describe('Create Booking from Lead', () => {
 
   it('treats a null customer email as missing instead of inventing one', async () => {
     const { client, lead, quotation } = await readyLead();
-    const response = await client.post('/api/bookings/from-lead', fromLeadPayload(quotation.id, {
-      leadId: lead.id,
-      customer: {
-        displayName: 'No Email Customer',
-        phone: '+91 90000 00003',
-        email: null,
-      },
-    }));
+    const response = await client.post(
+      '/api/bookings/from-lead',
+      fromLeadPayload(quotation.id, {
+        leadId: lead.id,
+        customer: {
+          displayName: 'No Email Customer',
+          phone: '+91 90000 00003',
+          email: null,
+        },
+      }),
+    );
     expect(response.status).toBe(201);
     const customer = await db.customer.findFirstOrThrow({
       where: { id: response.body.data.customerId },
@@ -543,7 +594,9 @@ describe('Create Booking from Lead', () => {
     const client = await owner();
     const lead = (await client.post('/api/queries', leadPayload())).body.data;
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
-    await client.post(`/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}/finalize`);
+    await client.post(
+      `/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}/finalize`,
+    );
     const company = await db.company.findFirstOrThrow({
       select: { id: true, users: { take: 1, select: { id: true } } },
     });
@@ -558,7 +611,9 @@ describe('Create Booking from Lead', () => {
         createdById: company.users[0]!.id,
       })),
     });
-    const preview = await client.get(`/api/bookings/from-lead/preview?leadId=${lead.id}&quotationId=${quotation.id}`);
+    const preview = await client.get(
+      `/api/bookings/from-lead/preview?leadId=${lead.id}&quotationId=${quotation.id}`,
+    );
     expect(preview.status).toBe(200);
     expect(preview.body.data.customer).toEqual({ conflict: true });
   });

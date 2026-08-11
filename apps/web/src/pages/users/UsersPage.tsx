@@ -1,11 +1,12 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
+import { Plus, Search, Users } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useUsers, useUserLookups } from '@/features/users/users.api';
 import { UserStatusBadge } from '@/features/users/UserStatusBadge';
 import { UserActionMenu } from '@/features/users/UserActionMenu';
 import { initialsOf } from '@/components/layout/navigation';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 
 export function UsersPage() {
   const { hasPermission } = useAuth();
@@ -180,32 +181,13 @@ export function UsersPage() {
           </div>
         )}
         {data && (
-          <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
-            <span>{data.pagination.total} users</span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                aria-label="Previous page"
-                disabled={page <= 1}
-                onClick={() => set('page', String(page - 1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span>
-                Page {page} of {Math.max(1, data.pagination.totalPages)}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                aria-label="Next page"
-                disabled={page >= data.pagination.totalPages}
-                onClick={() => set('page', String(page + 1))}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <Pagination
+            page={page}
+            pageSize={data.pagination.pageSize}
+            totalPages={data.pagination.totalPages}
+            total={data.pagination.total}
+            onPage={(next) => set('page', String(next))}
+          />
         )}
       </section>
     </div>

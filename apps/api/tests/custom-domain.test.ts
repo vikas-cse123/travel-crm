@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import type { CompanyStatus, PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
 import { isReservedHostname, normalizeHostname } from '../src/utils/hostname.js';
 import { resolveCustomDomain } from '../src/modules/custom-domains/custom-domain.service.js';
@@ -27,7 +27,7 @@ beforeEach(async () => {
 
 const UNIQUE_VIOLATION = 'P2002';
 
-async function createCompany(db: PrismaClient, slug: string, status = 'ACTIVE') {
+async function createCompany(db: PrismaClient, slug: string, status: CompanyStatus = 'ACTIVE') {
   return db.company.create({
     data: { name: `Company ${slug}`, slug, email: `contact@${slug}.local`, status },
   });

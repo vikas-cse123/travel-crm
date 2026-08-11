@@ -24,6 +24,7 @@ import {
   VENDOR_TYPES,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useVendorAnalytics, useVendors } from '@/features/vendors/vendors.api';
 
@@ -422,27 +423,13 @@ export function VendorsPage() {
                 </tbody>
               </table>
             </div>
-            {vendors.data.pagination.totalPages > 1 && (
-              <footer className="flex items-center justify-between border-t p-4 text-sm">
-                <span>{vendors.data.pagination.total} vendors</span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    disabled={vendors.data.pagination.page <= 1}
-                    onClick={() => setPage(vendors.data!.pagination.page - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={vendors.data.pagination.page >= vendors.data.pagination.totalPages}
-                    onClick={() => setPage(vendors.data!.pagination.page + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </footer>
-            )}
+            <Pagination
+              page={vendors.data.pagination.page}
+              pageSize={vendors.data.pagination.pageSize}
+              totalPages={vendors.data.pagination.totalPages}
+              total={vendors.data.pagination.total}
+              onPage={setPage}
+            />
           </>
         )}
       </section>

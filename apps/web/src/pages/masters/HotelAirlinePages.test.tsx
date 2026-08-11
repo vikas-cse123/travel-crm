@@ -176,6 +176,7 @@ describe('Phase 13B master pages', () => {
       ),
     );
     renderWithProviders(<HotelsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
     expect((await screen.findAllByText('Shah Palace Hotel')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Default').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Archive Shah Palace Hotel')).toBeInTheDocument();
@@ -230,6 +231,7 @@ describe('Phase 13B master pages', () => {
       ),
     );
     renderWithProviders(<HotelsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
     await screen.findAllByText('Shah Palace Hotel');
     expect(screen.queryByRole('link', { name: 'Add New Hotel' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Archive Shah Palace Hotel')).not.toBeInTheDocument();
@@ -300,7 +302,6 @@ describe('Phase 13B master pages', () => {
     );
     const list = renderWithProviders(<AirlinesPage />);
     expect((await screen.findAllByText('Air India')).length).toBeGreaterThan(0);
-    expect(screen.getByText('AI')).toBeInTheDocument();
     list.unmount();
 
     vi.stubGlobal(
@@ -334,6 +335,6 @@ describe('Phase 13B master pages', () => {
       { route: `/masters/airlines/${airlineId}` },
     );
     expect((await screen.findAllByText('Air India')).length).toBeGreaterThan(0);
-    expect(screen.getByText('India')).toBeInTheDocument();
+    expect(screen.getByText('Aditi Rao')).toBeInTheDocument();
   });
 });

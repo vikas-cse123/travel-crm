@@ -2985,7 +2985,14 @@ describe('Lead CSV import', () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).includes('/queries/import')) {
           importBody = JSON.parse(String(init?.body));
-          return response({ total: 1, imported: 1, skipped: 0, failed: 0, results: [], errorCsv: {} });
+          return response({
+            total: 1,
+            imported: 1,
+            skipped: 0,
+            failed: 0,
+            results: [],
+            errorCsv: {},
+          });
         }
         return response(
           String(input).includes('analytics')
@@ -3048,7 +3055,12 @@ describe('Lead CSV import', () => {
                   skipped: 0,
                   failed: 1,
                   results: [
-                    { row: 2, customerName: 'Aarav Mehta', status: 'FAILED', reason: 'Invalid email.' },
+                    {
+                      row: 2,
+                      customerName: 'Aarav Mehta',
+                      status: 'FAILED',
+                      reason: 'Invalid email.',
+                    },
                   ],
                   errorCsv: {},
                 },

@@ -4,10 +4,21 @@ import { fileURLToPath } from 'node:url';
 import { vi } from 'vitest';
 import { assertIsTestDatabase, resolveTestDatabaseUrl } from './helpers/test-database.js';
 
+const passwordMock = vi.hoisted(() => ({
+  sequence: 0,
+  passwords: new Map<string, string>(),
+}));
+
 vi.mock('argon2', () => ({
   default: {
-    hash: vi.fn(async (p: string) => `hashed:${p}`),
-    verify: vi.fn(async (h: string, p: string) => h === `hashed:${p}`),
+    hash: vi.fn(async (password: string) => {
+      const hash = `$argon2id$mock$${++passwordMock.sequence}`;
+      passwordMock.passwords.set(hash, password);
+      return hash;
+    }),
+    verify: vi.fn(async (hash: string, password: string) => {
+      return passwordMock.passwords.get(hash) === password;
+    }),
     argon2id: 2,
   },
 }));

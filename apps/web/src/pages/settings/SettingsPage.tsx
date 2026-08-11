@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 import {
   useCheckCustomDomain,
   useCustomDomain,
@@ -32,12 +33,16 @@ const card = 'rounded-xl border bg-card p-5 shadow-sm space-y-4';
 const SHOW_PRIMARY_COLOUR_SETTING = false;
 const SHOW_BANK_ACCOUNT_SETTINGS = false;
 const SHOW_DEFAULT_TERMS_SETTINGS = false;
+/* Timezone is fixed at Asia/Kolkata for every tenant, so the Preferences tab
+   (timezone + default currency) is hidden. The API and `PreferencesTab` are
+   untouched — flip this back to true to restore the tab. */
+const SHOW_PREFERENCES_SETTINGS = false;
 
 const TABS = [
   ['profile', 'Company Profile'],
   ['branding', 'Branding'],
   ['tax', 'Tax'],
-  ['preferences', 'Preferences'],
+  ...(SHOW_PREFERENCES_SETTINGS ? ([['preferences', 'Preferences']] as const) : []),
   ...(SHOW_DEFAULT_TERMS_SETTINGS ? ([['terms', 'Default Terms']] as const) : []),
   ['custom-domain', 'Custom Domain'],
   ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
@@ -75,7 +80,9 @@ function ProfileTab({ data, canUpdate }: { data: CompanySettings; canUpdate: boo
   const [form, setForm] = useState(data.profile);
   useEffect(() => setForm(data.profile), [data.profile]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const [operatingSince, setOperatingSince] = useState(data.profile.operatingSince?.toString() ?? '');
+  const [operatingSince, setOperatingSince] = useState(
+    data.profile.operatingSince?.toString() ?? '',
+  );
   const [totalReviews, setTotalReviews] = useState(data.profile.totalReviews?.toString() ?? '');
   const [tripsSold, setTripsSold] = useState(data.profile.tripsSold?.toString() ?? '');
   useEffect(() => {
@@ -608,15 +615,7 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
               : 'Waiting for DNS / SSL Pending'
           : 'Not configured';
 
-  const lastCheckedLabel = info?.lastCheckedAt
-    ? new Date(info.lastCheckedAt).toLocaleString(undefined, {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })
-    : null;
+  const lastCheckedLabel = info?.lastCheckedAt ? formatDateTime12Hour(info.lastCheckedAt) : null;
 
   const copy = async (key: string, value: string) => {
     try {
@@ -784,8 +783,8 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
             </div>
             <div className="space-y-4 p-5">
               <p className="text-sm text-slate-600">
-                Replace the current custom domain. After saving, the new DNS and
-                SSL records below must be configured.
+                Replace the current custom domain. After saving, the new DNS and SSL records below
+                must be configured.
               </p>
               <label className="block text-sm font-medium text-slate-700">
                 Domain
@@ -852,8 +851,8 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
             </div>
             <div className="space-y-4 p-5">
               <p className="text-sm text-slate-700">
-                Remove this custom domain? Your CRM will no longer be accessible
-                through this domain.
+                Remove this custom domain? Your CRM will no longer be accessible through this
+                domain.
               </p>
               {remove.error?.message && (
                 <div
@@ -929,8 +928,12 @@ export function SettingsPage() {
       {tab === 'profile' && <ProfileTab data={data} canUpdate={canUpdate} />}
       {tab === 'branding' && <BrandingTab data={data} canUpdate={canUpdate} />}
       {tab === 'tax' && <TaxTab data={data} canUpdate={canUpdate} />}
-      {tab === 'preferences' && <PreferencesTab data={data} canUpdate={canUpdate} />}
-      {SHOW_DEFAULT_TERMS_SETTINGS && tab === 'terms' && <TermsTab data={data} canUpdate={canUpdate} />}
+      {SHOW_PREFERENCES_SETTINGS && tab === 'preferences' && (
+        <PreferencesTab data={data} canUpdate={canUpdate} />
+      )}
+      {SHOW_DEFAULT_TERMS_SETTINGS && tab === 'terms' && (
+        <TermsTab data={data} canUpdate={canUpdate} />
+      )}
       {tab === 'custom-domain' && <CustomDomainTab canUpdate={canUpdate} />}
       {SHOW_BANK_ACCOUNT_SETTINGS && tab === 'bank' && (
         <BankTab data={data} canUpdate={canUpdate} />

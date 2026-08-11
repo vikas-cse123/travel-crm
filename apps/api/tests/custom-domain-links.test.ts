@@ -13,6 +13,7 @@ import { env } from '../src/config/env.js';
  */
 
 let db: PrismaClient;
+const REQUEST_CONTEXT = { ipAddress: null, userAgent: null } as const;
 
 beforeAll(() => {
   db = createTestPrismaClient();
@@ -93,10 +94,15 @@ async function seedQuotation(
   if (domain) {
     await db.customDomain.create({ data: { companyId: company.id, ...domain } });
   }
-  return { companyId: company.id, userId: user.id, quotationId: quotation.id, versionId: version.id };
+  return {
+    companyId: company.id,
+    userId: user.id,
+    quotationId: quotation.id,
+    versionId: version.id,
+  };
 }
 
-const auth = (companyId: string, userId: string) => ({ companyId, userId } as never);
+const auth = (companyId: string, userId: string) => ({ companyId, userId }) as never;
 
 describe('preferredPublicAppBaseUrl', () => {
   it('uses the ACTIVE custom domain hostname', async () => {
@@ -140,7 +146,7 @@ describe('createPublicLink', () => {
       quotationId,
       versionId,
       null,
-      {},
+      REQUEST_CONTEXT,
     );
     expect(result.url).toMatch(/^https:\/\/crm\.easytour\.com\/q\/[A-Za-z0-9_-]{32,}$/);
   });
@@ -152,16 +158,24 @@ describe('createPublicLink', () => {
       quotationId,
       versionId,
       null,
-      {},
+      REQUEST_CONTEXT,
     );
-    expect(result.url).toMatch(new RegExp(`^${env.WEB_URL.replace(/\/$/, '')}\/q\/[A-Za-z0-9_-]{32,}$`));
+    expect(result.url).toMatch(
+      new RegExp(`^${env.WEB_URL.replace(/\/$/, '')}/q/[A-Za-z0-9_-]{32,}$`),
+    );
   });
 });
 
 describe('publicView cross-tenant protection', () => {
   it('resolves the token on the platform host (no custom-domain context)', async () => {
     const { companyId, userId, quotationId, versionId } = await seedQuotation('easy-tour');
-    await quotationsService.createPublicLink(auth(companyId, userId), quotationId, versionId, null, {});
+    await quotationsService.createPublicLink(
+      auth(companyId, userId),
+      quotationId,
+      versionId,
+      null,
+      REQUEST_CONTEXT,
+    );
     const quotation = await db.quotation.findUniqueOrThrow({ where: { id: quotationId } });
     const result = await quotationsService.publicView(quotation.publicToken!, {});
     expect(result.quotation.quotationNumber).toBe('QT-1');
@@ -172,7 +186,13 @@ describe('publicView cross-tenant protection', () => {
       hostname: 'crm.easytour.com',
       status: 'ACTIVE',
     });
-    await quotationsService.createPublicLink(auth(companyId, userId), quotationId, versionId, null, {});
+    await quotationsService.createPublicLink(
+      auth(companyId, userId),
+      quotationId,
+      versionId,
+      null,
+      REQUEST_CONTEXT,
+    );
     const quotation = await db.quotation.findUniqueOrThrow({ where: { id: quotationId } });
     const result = await quotationsService.publicView(quotation.publicToken!, {
       customDomainCompanyId: companyId,
@@ -185,7 +205,13 @@ describe('publicView cross-tenant protection', () => {
       hostname: 'crm.easytour.com',
       status: 'ACTIVE',
     });
-    await quotationsService.createPublicLink(auth(companyId, userId), quotationId, versionId, null, {});
+    await quotationsService.createPublicLink(
+      auth(companyId, userId),
+      quotationId,
+      versionId,
+      null,
+      REQUEST_CONTEXT,
+    );
     const quotation = await db.quotation.findUniqueOrThrow({ where: { id: quotationId } });
 
     const other = await db.company.create({

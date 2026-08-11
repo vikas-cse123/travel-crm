@@ -90,23 +90,10 @@ const hexColor = z
 export const LOGO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 
 /** Optional non-negative whole-number metric (e.g. reviews, trips sold). */
-const optionalCount = (max: number) =>
-  z
-    .number()
-    .int()
-    .min(0)
-    .max(max)
-    .nullable()
-    .optional();
+const optionalCount = (max: number) => z.number().int().min(0).max(max).nullable().optional();
 
 /** Year the company started operating (company profile). */
-const optionalOperatingSince = z
-  .number()
-  .int()
-  .min(1900)
-  .max(2100)
-  .nullable()
-  .optional();
+const optionalOperatingSince = z.number().int().min(1900).max(2100).nullable().optional();
 
 export const settingsProfileSchema = z.object({
   name: trimmed(120).min(2, 'Company name is required.'),

@@ -175,9 +175,7 @@ export function ReminderAlerts() {
   // Auto-dismiss toasts after 10s.
   useEffect(() => {
     if (toasts.length === 0) return;
-    const timers = toasts.map((toast) =>
-      window.setTimeout(() => dismiss(toast.id), 10_000),
-    );
+    const timers = toasts.map((toast) => window.setTimeout(() => dismiss(toast.id), 10_000));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [toasts, dismiss]);
 

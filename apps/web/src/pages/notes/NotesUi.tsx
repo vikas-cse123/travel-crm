@@ -1,6 +1,7 @@
 import { ClipboardList, Layers3, CalendarDays, Files } from 'lucide-react';
 import { labelForLookup } from '@interscale/shared';
 import { cn } from '@/utils/cn';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 import './notes.css';
 
 /** Stage → badge colour, mirroring the reference lead-stage chips. */
@@ -36,14 +37,7 @@ export function StagePill({ stage }: { stage: string | null }) {
 }
 
 export function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—';
-  return new Date(value).toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime12Hour(value);
 }
 
 export function formatDate(value: string | null | undefined) {
@@ -74,7 +68,12 @@ export function NoteStatCards({
     year: 'numeric',
   });
   const tiles = [
-    { label: 'Total Notes', value: String(totalNotes), tone: 'notes-stat--teal', Icon: ClipboardList },
+    {
+      label: 'Total Notes',
+      value: String(totalNotes),
+      tone: 'notes-stat--teal',
+      Icon: ClipboardList,
+    },
     { label: 'Total Leads', value: String(totalLeads), tone: 'notes-stat--green', Icon: Layers3 },
     { label: 'Today', value: today, tone: 'notes-stat--amber', Icon: CalendarDays },
     { label: 'Total Pages', value: String(totalPages), tone: 'notes-stat--rose', Icon: Files },

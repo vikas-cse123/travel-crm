@@ -11,17 +11,7 @@ import {
   useSightseeing,
 } from '@/features/masters/masters.api';
 import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
-
-/** "14:30" → "2:30 PM". */
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  const [hourText, minuteText] = value.split(':');
-  const hour = Number(hourText);
-  if (Number.isNaN(hour)) return value;
-  const suffix = hour >= 12 ? 'PM' : 'AM';
-  const display = hour % 12 === 0 ? 12 : hour % 12;
-  return `${display}:${minuteText ?? '00'} ${suffix}`;
-}
+import { formatTime12Hour } from '@/utils/dateTime';
 
 export function SightseeingDetailsPage() {
   const { sightseeingId = '' } = useParams<{ sightseeingId: string }>();
@@ -69,7 +59,7 @@ export function SightseeingDetailsPage() {
       label: 'Estimated Hours',
       value: value.estimatedHours != null ? `${value.estimatedHours.toFixed(1)}h` : '—',
     },
-    { label: 'Suggested Start Time', value: formatTime(value.suggestedStartTime) },
+    { label: 'Suggested Start Time', value: formatTime12Hour(value.suggestedStartTime) },
     { label: 'Created', value: formatMasterDate(value.createdAt) },
     { label: 'Created By', value: value.createdBy?.fullName ?? '—' },
     { label: 'Last Updated', value: formatMasterDate(value.updatedAt) },

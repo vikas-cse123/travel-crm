@@ -44,7 +44,16 @@ export interface CustomDomainInfo {
 }
 
 function toInfo(
-  domain: { hostname: string; status: string; certificateValidationName: string | null; certificateValidationValue: string | null; dnsVerifiedAt: Date | null; activatedAt: Date | null; lastCheckedAt: Date | null; lastError: string | null } | null,
+  domain: {
+    hostname: string;
+    status: string;
+    certificateValidationName: string | null;
+    certificateValidationValue: string | null;
+    dnsVerifiedAt: Date | null;
+    activatedAt: Date | null;
+    lastCheckedAt: Date | null;
+    lastError: string | null;
+  } | null,
 ): CustomDomainInfo {
   if (!domain) {
     return {

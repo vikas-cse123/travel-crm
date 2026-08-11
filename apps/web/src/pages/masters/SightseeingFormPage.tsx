@@ -248,10 +248,7 @@ export function SightseeingFormPage() {
         )}
 
         {archivedDuplicate && !sightseeingId && (
-          <div
-            role="alert"
-            className="rounded-lg border border-amber-300 bg-amber-50 p-4"
-          >
+          <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4">
             <h3 className="font-semibold text-amber-900">An archived sightseeing already exists</h3>
             <p className="mt-1 text-sm text-amber-800">
               A sightseeing named &ldquo;{archivedDuplicate.title}&rdquo; already exists in{' '}
@@ -417,6 +414,7 @@ export function SightseeingFormPage() {
                   Suggested Start Time
                   <input
                     type="time"
+                    lang="en-US"
                     className={fieldClass}
                     {...form.register('suggestedStartTime')}
                   />

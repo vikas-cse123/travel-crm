@@ -453,7 +453,10 @@ export type GstCalculationMode = (typeof GST_CALCULATION_MODES)[number];
 /** Booking reminders to schedule before travel start. */
 export const bookingReminderInputSchema = z.object({
   daysBefore: z.coerce.number().int().min(1).max(60),
-  dueTime: z.string().trim().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24-hour format'),
+  dueTime: z
+    .string()
+    .trim()
+    .regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24-hour format'),
 });
 
 /** Reviewable customer details for the "Create New Customer" section. */

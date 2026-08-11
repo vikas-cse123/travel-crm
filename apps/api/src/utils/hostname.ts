@@ -52,6 +52,7 @@ export function normalizeHostname(input: string | null | undefined): string | nu
   // allowed so `https://crm.easytour.com/` normalizes to `crm.easytour.com`.
   const [hostPart, ...rest] = value.split('/');
   if (rest.length && rest.some((segment) => segment.trim() !== '')) return null;
+  if (!hostPart) return null;
 
   value = hostPart.toLowerCase();
 

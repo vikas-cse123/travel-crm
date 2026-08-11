@@ -795,10 +795,7 @@ export async function sightseeingPresentations(ids: Array<string | null | undefi
 
 /** Resolve current display URLs for a set of sightseeing master ids in one request. */
 export function useSightseeingPresentations(ids: Array<string | null | undefined>) {
-  const unique = useMemo(
-    () => [...new Set(ids.filter((id): id is string => Boolean(id)))],
-    [ids],
-  );
+  const unique = useMemo(() => [...new Set(ids.filter((id): id is string => Boolean(id)))], [ids]);
   const key = useMemo(() => [...unique].sort().join(','), [unique]);
   return useQuery({
     queryKey: sightseeingKeys.presentations(key),
@@ -1230,13 +1227,8 @@ function invalidateAllMasterQueries(client: ReturnType<typeof useQueryClient>) {
 export function useHideGlobalMaster() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      masterType,
-      masterId,
-    }: {
-      masterType: GlobalMasterType;
-      masterId: string;
-    }) => apiClient.post(`/masters/${masterType}/${masterId}/hide`),
+    mutationFn: ({ masterType, masterId }: { masterType: GlobalMasterType; masterId: string }) =>
+      apiClient.post(`/masters/${masterType}/${masterId}/hide`),
     onSuccess: () => invalidateAllMasterQueries(client),
   });
 }
@@ -1244,13 +1236,8 @@ export function useHideGlobalMaster() {
 export function useRestoreGlobalMaster() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      masterType,
-      masterId,
-    }: {
-      masterType: GlobalMasterType;
-      masterId: string;
-    }) => apiClient.delete(`/masters/${masterType}/${masterId}/hide`),
+    mutationFn: ({ masterType, masterId }: { masterType: GlobalMasterType; masterId: string }) =>
+      apiClient.delete(`/masters/${masterType}/${masterId}/hide`),
     onSuccess: () => invalidateAllMasterQueries(client),
   });
 }

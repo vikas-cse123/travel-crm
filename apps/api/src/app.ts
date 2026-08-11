@@ -10,10 +10,7 @@ import { requestId } from './middleware/request-id.js';
 import { globalLimiter } from './middleware/rate-limiters.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { verifyCsrfToken, verifyOrigin } from './middleware/csrf.js';
-import {
-  resolveCustomDomainMiddleware,
-  validateRequestHost,
-} from './middleware/custom-domain.js';
+import { resolveCustomDomainMiddleware, validateRequestHost } from './middleware/custom-domain.js';
 import { isTrustedOriginHostname } from './modules/custom-domains/custom-domain.service.js';
 import { apiRoutes } from './routes.js';
 import { publicQuotationsRoutes } from './modules/quotations/public-quotations.routes.js';

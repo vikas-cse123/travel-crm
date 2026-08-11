@@ -38,9 +38,7 @@ export function PublicQuotationFooter({
   generatedAt,
 }: PublicQuotationFooterProps) {
   const metadata = [
-    operatingSince != null && !Number.isNaN(operatingSince)
-      ? `Since: ${operatingSince}`
-      : null,
+    operatingSince != null && !Number.isNaN(operatingSince) ? `Since: ${operatingSince}` : null,
     tripsSold != null && !Number.isNaN(tripsSold) ? `Trips: ${tripsSold}` : null,
     tan?.trim() ? `TAN: ${tan.trim()}` : null,
     gstin?.trim() ? `GSTIN: ${gstin.trim()}` : null,
@@ -60,9 +58,7 @@ export function PublicQuotationFooter({
           <p className="text-sm font-medium">
             © {new Date().getFullYear()} {companyName}. All rights reserved.
           </p>
-          {metadata.length > 0 && (
-            <p className="text-xs text-slate-400">{metadata.join(' | ')}</p>
-          )}
+          {metadata.length > 0 && <p className="text-xs text-slate-400">{metadata.join(' | ')}</p>}
         </div>
         {rightSide && <p className="text-xs text-slate-400">{rightSide}</p>}
       </div>

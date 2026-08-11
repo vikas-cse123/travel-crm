@@ -39,7 +39,9 @@ export function assertCustomDomainTenant(req: Request, authenticatedCompanyId: s
  */
 export const resolveCustomDomainMiddleware = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
-    req.customDomain = (await resolveCustomDomain(req.hostname)) ?? undefined;
+    const context = await resolveCustomDomain(req.hostname);
+    if (context) req.customDomain = context;
+    else delete req.customDomain;
     next();
   },
 );

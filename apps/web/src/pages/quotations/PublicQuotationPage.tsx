@@ -7,6 +7,8 @@ import {
   CarFront,
   CheckCircle2,
   ChevronDown,
+  Clock,
+  Compass,
   CreditCard,
   ExternalLink,
   FileText,
@@ -22,9 +24,17 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
-import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote, resolveItineraryDayImage } from '@interscale/shared';
+import {
+  cabinLuggageLabel,
+  formatItineraryDayTitle,
+  hotelStayNights,
+  isPublicTaxNote,
+  resolveItineraryDayImage,
+  stripItineraryDayPrefixes,
+} from '@interscale/shared';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { formatTime12Hour } from '@/utils/dateTime';
 import type {
   FlightJourney,
   FlightSegment,
@@ -56,6 +66,8 @@ interface PublicQuotation {
     destinationSummary: string;
     /** Destination/Master-country names (e.g. "Malaysia"), joined with " → ". */
     destinations?: string;
+    /** Sum of nights from every destination row on the source lead. */
+    durationNights?: number | null;
     travelStartDate: string | null;
     travelEndDate: string | null;
     adults: number;
@@ -91,7 +103,10 @@ interface PublicQuotation {
     }
   >;
   airlinePresentations?: Record<string, { name: string; logoUrl: string | null }> | undefined;
+  flightImageUrl?: string | null;
+  flightImages?: Array<{ description?: string | null; url: string }>;
   sightseeingPresentations?: Record<string, { imageUrl: string | null }> | undefined;
+  sightseeingDocumentPresentations?: Record<string, { imageUrl: string | null }> | undefined;
   cruisePresentations?: Record<
     string,
     { imageUrl: string | null; name: string | null; roomTypeName: string | null }
@@ -222,7 +237,8 @@ const buildPolicySections = (version: QuotationVersion): PolicySection[] => {
       visible: false,
     },
   ];
-  for (const section of sections) section.visible = hasPolicyHtml(section.html) || section.rows.length > 0;
+  for (const section of sections)
+    section.visible = hasPolicyHtml(section.html) || section.rows.length > 0;
   return sections;
 };
 const publicHotelSectionTitle = (value: string | null | undefined) => {
@@ -242,14 +258,146 @@ function Info({ label, value, full }: { label: string; value: string; full?: boo
   );
 }
 
+/** Stable anchor id derived from a section's title. */
+const sectionAnchorId = (title: string) =>
+  `section-${title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')}`;
+
 function SectionTitle({ children }: { children: string }) {
   return (
     <h2
-      className="mb-4 border-l-4 pl-3 text-2xl font-bold text-slate-800"
+      id={sectionAnchorId(children)}
+      data-section-title={children}
+      className="mb-4 scroll-mt-24 border-l-4 pl-3 text-2xl font-bold text-slate-800"
       style={{ borderColor: '#16a34a' }}
     >
       {children}
     </h2>
+  );
+}
+
+/**
+ * "Quick Navigation" index shown near the top of the public quotation. It reads
+ * the rendered section headings from the DOM (every SectionTitle carries a
+ * data-section-title), so it always reflects exactly the sections that are
+ * present for this quotation, and smooth-scrolls to one on click.
+ */
+function SectionNav({ sticky }: { sticky: boolean }) {
+  const [sections, setSections] = useState<Array<{ id: string; label: string }>>([]);
+  const [activeId, setActiveId] = useState<string>('');
+
+  useEffect(() => {
+    const collect = () => {
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-section-title]'));
+      setSections(
+        nodes
+          .filter((node) => node.id)
+          .map((node) => ({
+            id: node.id,
+            label: node.dataset.sectionTitle ?? node.textContent ?? '',
+          })),
+      );
+    };
+    collect();
+    // Re-read once more after paint in case a section renders asynchronously
+    // (e.g. once its images resolve).
+    const timer = window.setTimeout(collect, 400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Scroll-spy: mark the chip for whichever section heading is currently near
+  // the top of the viewport (just below the sticky bar). The active id only
+  // changes when a heading enters the trigger band, so it persists smoothly
+  // between headings instead of flickering to empty.
+  useEffect(() => {
+    const nodes = sections
+      .map((section) => document.getElementById(section.id))
+      .filter((node): node is HTMLElement => Boolean(node));
+    if (!nodes.length) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setActiveId((current) => current || (nodes[0]?.id ?? ''));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entered = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (entered[0]) setActiveId(entered[0].target.id);
+      },
+      // A thin band ~90px below the top (clearing the sticky nav).
+      { rootMargin: '-90px 0px -75% 0px', threshold: 0 },
+    );
+    nodes.forEach((node) => observer.observe(node));
+    // Default to the first section before any scroll happens.
+    setActiveId((current) => current || (nodes[0]?.id ?? ''));
+    return () => observer.disconnect();
+  }, [sections]);
+
+  // Keep the active chip centred within the horizontally scrollable bar (only
+  // the bar scrolls, never the page), so it stays visible when chips overflow.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const chipRefs = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    const bar = barRef.current;
+    const chip = activeId ? chipRefs.current.get(activeId) : null;
+    if (!bar || !chip) return;
+    const target = chip.offsetLeft - bar.clientWidth / 2 + chip.clientWidth / 2;
+    if (typeof bar.scrollTo === 'function') {
+      bar.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+    }
+  }, [activeId]);
+
+  if (sections.length < 2) return null;
+
+  const goTo = (id: string) => {
+    setActiveId(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  return (
+    <nav
+      aria-label="Quotation sections"
+      className={`${
+        sticky ? 'sticky top-3 z-30' : ''
+      } rounded-full border border-slate-200 bg-card/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70`}
+    >
+      <div className="flex items-center gap-1">
+        <span className="ml-2 mr-1 flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <Compass className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+          <span className="hidden sm:inline">Jump to</span>
+        </span>
+        <div
+          ref={barRef}
+          className="flex flex-1 gap-1 overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {sections.map((section) => {
+            const active = section.id === activeId;
+            return (
+              <button
+                key={section.id}
+                ref={(el) => {
+                  if (el) chipRefs.current.set(section.id, el);
+                  else chipRefs.current.delete(section.id);
+                }}
+                type="button"
+                onClick={() => goTo(section.id)}
+                aria-current={active ? 'true' : undefined}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-all ${
+                  active
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </nav>
   );
 }
 
@@ -315,7 +463,7 @@ function FlightJourneyView({
               <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                 <div className="text-left">
                   <div className="text-2xl font-bold" style={{ color }}>
-                    {s.departureTime || '--:--'}
+                    {formatTime12Hour(s.departureTime, '--:--')}
                   </div>
                   <div className="font-medium text-slate-700">{s.from || '—'}</div>
                   <div className="text-xs text-slate-400">{dateShort(s.departureDate) ?? ''}</div>
@@ -332,7 +480,7 @@ function FlightJourneyView({
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-bold" style={{ color }}>
-                    {s.arrivalTime || '--:--'}
+                    {formatTime12Hour(s.arrivalTime, '--:--')}
                   </div>
                   <div className="font-medium text-slate-700">{s.to || '—'}</div>
                   <div className="text-xs text-slate-400">{dateShort(s.arrivalDate) ?? ''}</div>
@@ -367,6 +515,61 @@ function FlightJourneyView({
   );
 }
 
+function FlightImageViewer({
+  images,
+}: {
+  images: Array<{ description?: string | null; url: string }>;
+}) {
+  if (!images.length) return null;
+
+  return (
+    <div className="mx-auto grid max-w-4xl items-start gap-5">
+      {images.map((image, index) => {
+        const description = image.description?.trim() || '';
+        const accessibleTitle = description || 'flight document';
+        return (
+          <figure
+            key={`${image.url}-${index}`}
+            className="group w-full self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg ring-1 ring-slate-900/5"
+          >
+            <a
+              href={image.url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`View ${accessibleTitle}`}
+              className="block w-full bg-slate-50"
+            >
+              <img
+                src={image.url}
+                alt={description}
+                loading="lazy"
+                className="block h-auto w-full"
+              />
+            </a>
+            <figcaption
+              className={`flex min-h-16 items-center gap-3 border-t border-slate-200 bg-white px-3.5 py-3 ${description ? 'justify-between' : 'justify-end'}`}
+            >
+              {description && (
+                <p className="min-w-0 text-sm leading-relaxed text-slate-700">{description}</p>
+              )}
+              <a
+                href={image.url}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Preview ${accessibleTitle}`}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Preview
+              </a>
+            </figcaption>
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
 const SIGHTSEEING_TRANSFER_LABELS: Record<string, string> = {
   PRIVATE: 'Private Transfer',
   SHARED: 'Shared Transfer',
@@ -392,8 +595,7 @@ function normalizeSightseeingMealMode(value: unknown): string | null {
     .toUpperCase()
     .replace(/[\s_./-]+/g, '');
   if (raw === 'NOTRANSFER' || raw === 'NONE') return 'NO_TRANSFER';
-  if (raw === 'INCLUDEATHOTEL' || raw === 'HOTEL' || raw === 'INHOTEL')
-    return 'INCLUDE_AT_HOTEL';
+  if (raw === 'INCLUDEATHOTEL' || raw === 'HOTEL' || raw === 'INHOTEL') return 'INCLUDE_AT_HOTEL';
   if (raw === 'WITHTRANSFER') return 'WITH_TRANSFER';
   return null;
 }
@@ -438,7 +640,9 @@ function ActivityPricing({
             key={`${row.label}-${index}`}
             className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
           >
-            <dt className="break-words text-xs font-medium leading-4 text-slate-500">{row.label}</dt>
+            <dt className="break-words text-xs font-medium leading-4 text-slate-500">
+              {row.label}
+            </dt>
             <dd className="mt-0.5 break-words text-sm font-semibold leading-5 text-slate-900">
               {fmt(row.price)}
             </dd>
@@ -458,8 +662,11 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
       : [];
   const activities = activitiesRaw.map((entry) => ({
     sightseeingId: (entry.sightseeingId ?? null) as string | null,
+    imageDocumentId: (entry.imageDocumentId ?? null) as string | null,
     name: (entry.name ?? entry.title ?? null) as string | null,
     startTime: (entry.startTime ?? null) as string | null,
+    // Legacy snapshots had no visibility flag; their configured time remains visible.
+    showTime: entry.showTime !== false,
     duration: (entry.duration ?? null) as string | null,
     city: (entry.city ?? null) as string | null,
     description: (entry.description ?? null) as string | null,
@@ -490,7 +697,7 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
       };
   const itineraryTransferKey = String(day.dailyTransfer ?? '').toUpperCase();
   const prefsRaw = (day.mealPreferences as AnyRecord | undefined) ?? {};
-  const mealPreferences = (Object.fromEntries(
+  const mealPreferences = Object.fromEntries(
     (['breakfast', 'lunch', 'dinner'] as const).map((key) => {
       const entry = prefsRaw[key];
       if (!entry || typeof entry !== 'object') return [key, null] as const;
@@ -505,7 +712,7 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
   ) as Record<
     'breakfast' | 'lunch' | 'dinner',
     { mode: string | null; transferDetails: string | null } | null
-  >);
+  >;
   return {
     dayNumber: Number(day.dayNumber) || fallbackNumber,
     title: (day.dayTitle ?? day.title ?? null) as string | null,
@@ -522,17 +729,12 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
 }
 
 function itineraryDayLabel(day: ReturnType<typeof normalizeItineraryDay>): string {
-  const prefix = `Day ${day.dayNumber}:`;
-  const stored = (day.title ?? '').replace(/\s+/g, ' ').trim();
-  let base = stored;
-  const dayNumberPrefix = new RegExp(`^day\\s+${day.dayNumber}`, 'i');
-  if (dayNumberPrefix.test(base))
-    base = base.replace(dayNumberPrefix, '').replace(/^:\s*/, '').trim();
-  if (base) return `${prefix} ${base}`;
+  const base = stripItineraryDayPrefixes(day.title);
+  if (base) return formatItineraryDayTitle(day.dayNumber, base);
   const primaryTitle = day.activities.find((activity) => activity.name?.trim())?.name?.trim();
-  if (primaryTitle) return `${prefix} ${primaryTitle}`;
-  if (day.city?.trim()) return `${prefix} ${day.city.trim()}`;
-  return `Day ${day.dayNumber}`;
+  if (primaryTitle) return formatItineraryDayTitle(day.dayNumber, primaryTitle);
+  if (day.city?.trim()) return formatItineraryDayTitle(day.dayNumber, day.city);
+  return formatItineraryDayTitle(day.dayNumber, null);
 }
 
 function itineraryDateLabel(date: string | null | undefined): string | null {
@@ -581,12 +783,12 @@ function itineraryMealsLabel(day: ReturnType<typeof normalizeItineraryDay>): str
 function itineraryDayHasMeaning(day: ReturnType<typeof normalizeItineraryDay>): boolean {
   return Boolean(
     day.title?.trim() ||
-      day.city?.trim() ||
-      day.activities.some((activity) => activity.name?.trim() || activity.description?.trim()) ||
-      day.meals.breakfast ||
-      day.meals.lunch ||
-      day.meals.dinner ||
-      day.dailyTransfer !== 'NO_TRANSFER',
+    day.city?.trim() ||
+    day.activities.some((activity) => activity.name?.trim() || activity.description?.trim()) ||
+    day.meals.breakfast ||
+    day.meals.lunch ||
+    day.meals.dinner ||
+    day.dailyTransfer !== 'NO_TRANSFER',
   );
 }
 
@@ -642,6 +844,7 @@ function SightseeingItineraryView({
   days,
   color,
   images,
+  documentImages,
   description,
   destinationImage,
   fmt,
@@ -649,6 +852,7 @@ function SightseeingItineraryView({
   days: SightseeingDay[];
   color: string;
   images: Record<string, { imageUrl: string | null }>;
+  documentImages: Record<string, { imageUrl: string | null }>;
   description?: string | null;
   destinationImage?: string | null;
   /** The quotation's own currency formatter, reused for activity pricing. */
@@ -693,6 +897,7 @@ function SightseeingItineraryView({
               (activity) => activity.name?.trim() || activity.description?.trim(),
             );
             const image = resolveItineraryDayImage(day.activities, {
+              document: (documentId) => documentImages[documentId]?.imageUrl ?? null,
               snapshot: (imageUrl) => imageUrl,
               sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
               destination: destinationImage ?? null,
@@ -725,156 +930,166 @@ function SightseeingItineraryView({
                         </span>
                       )}
                     </div>
-                    {validActivities.length === 1
-                      ? (() => {
-                          const activity = validActivities[0];
-                          if (!activity) return null;
-                          return (
-                            <>
-                              <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                                <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
-                                  Activities &amp; Details
+                    {validActivities.length === 1 ? (
+                      (() => {
+                        const activity = validActivities[0];
+                        if (!activity) return null;
+                        return (
+                          <>
+                            <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                              <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
+                                Activities &amp; Details
+                              </p>
+                              <div className="bg-white p-3">
+                                <p className="flex items-center gap-2 font-semibold text-slate-800">
+                                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                  {activity.name}
                                 </p>
-                                <div className="bg-white p-3">
-                                  <p className="flex items-center gap-2 font-semibold text-slate-800">
-                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                    {activity.name}
+                                {activity.showTime !== false && activity.startTime && (
+                                  <p className="mt-1 flex items-center gap-1 pl-6 text-xs font-medium text-slate-500">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    {formatTime12Hour(activity.startTime)}
+                                    {activity.duration ? ` · ${activity.duration}` : ''}
                                   </p>
-                                  {activity.description && (
-                                    <div className="mt-1 pl-6">
-                                      <ItineraryRichText html={activity.description} />
-                                    </div>
-                                  )}
-                                  {(() => {
-                                    const label =
-                                      SIGHTSEEING_TRANSFER_LABELS[
-                                        activity.dailyTransfer ?? day.dailyTransfer
-                                      ];
-                                    if (!label) return null;
-                                    return (
-                                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        <span
-                                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                          style={{ backgroundColor: color }}
-                                        >
-                                          <Car className="h-3.5 w-3.5" />
-                                          {label}
-                                        </span>
-                                      </div>
-                                    );
-                                  })()}
-                                  <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
-                                </div>
-                              </div>
-                              {mealsLabel && (
-                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
-                                  <Utensils className="h-4 w-4 text-slate-400" />
-                                  <span className="font-semibold">Meals:</span> {mealsLabel}
-                                </p>
-                              )}
-                            </>
-                          );
-                        })()
-                      : validActivities.length >= 2
-                        ? (
-                            <>
-                              <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                                <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
-                                  Activities &amp; Details
-                                </p>
-                                <div className="bg-white p-3">
-                                  {validActivities.map((activity, activityIndex) => {
-                                    const thumb =
-                                      activity.imageUrl ??
-                                      (activity.sightseeingId
-                                        ? images[activity.sightseeingId]?.imageUrl
-                                        : null) ??
-                                      null;
-                                    const isLast = activityIndex === validActivities.length - 1;
-                                    return (
-                                      <Fragment
-                                        key={`${activity.sightseeingId ?? activityIndex}`}
-                                      >
-                                        <div className="flex gap-3">
-                                          <div className="h-14 w-20 shrink-0 overflow-hidden rounded-md">
-                                            <ItineraryThumb
-                                              src={thumb}
-                                              alt={activity.name ?? 'Activity'}
-                                            />
-                                          </div>
-                                          <div className="min-w-0 flex-1">
-                                            <p className="flex items-center gap-2 font-semibold text-slate-800">
-                                              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                              {activity.name}
-                                            </p>
-                                            {activity.description && (
-                                              <div className="mt-1 pl-6">
-                                                <ItineraryRichText html={activity.description} />
-                                              </div>
-                                            )}
-                                            {(() => {
-                                              const label =
-                                                SIGHTSEEING_TRANSFER_LABELS[
-                                                  activity.dailyTransfer ?? day.dailyTransfer
-                                                ];
-                                              if (!label) return null;
-                                              return (
-                                                <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                  <span
-                                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                                    style={{ backgroundColor: color }}
-                                                  >
-                                                    <Car className="h-3.5 w-3.5" />
-                                                    {label}
-                                                  </span>
-                                                </div>
-                                              );
-                                            })()}
-                                            <ActivityPricing
-                                              rows={activity.pricingOptions}
-                                              fmt={fmt}
-                                            />
-                                          </div>
-                                        </div>
-                                        {!isLast && <hr className="my-3 border-slate-200" />}
-                                      </Fragment>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              {mealsLabel && (
-                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
-                                  <Utensils className="h-4 w-4 text-slate-400" />
-                                  <span className="font-semibold">Meals:</span> {mealsLabel}
-                                </p>
-                              )}
-                            </>
-                          )
-                        : (
-                            <>
-                              {(() => {
-                                const label = SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer];
-                                if (!label) return null;
-                                return (
-                                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                                    <span
-                                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                      style={{ backgroundColor: color }}
-                                    >
-                                      <Car className="h-3.5 w-3.5" />
-                                      {label}
-                                    </span>
+                                )}
+                                {activity.description && (
+                                  <div className="mt-1 pl-6">
+                                    <ItineraryRichText html={activity.description} />
                                   </div>
-                                );
-                              })()}
-                              {mealsLabel && (
-                                <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
-                                  <Utensils className="h-4 w-4 text-slate-400" />
-                                  <span className="font-semibold">Meals:</span> {mealsLabel}
-                                </p>
-                              )}
-                            </>
-                          )}
+                                )}
+                                {(() => {
+                                  const label =
+                                    SIGHTSEEING_TRANSFER_LABELS[
+                                      activity.dailyTransfer ?? day.dailyTransfer
+                                    ];
+                                  if (!label) return null;
+                                  return (
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                      <span
+                                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                        style={{ backgroundColor: color }}
+                                      >
+                                        <Car className="h-3.5 w-3.5" />
+                                        {label}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
+                                <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                              </div>
+                            </div>
+                            {mealsLabel && (
+                              <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                                <Utensils className="h-4 w-4 text-slate-400" />
+                                <span className="font-semibold">Meals:</span> {mealsLabel}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()
+                    ) : validActivities.length >= 2 ? (
+                      <>
+                        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                          <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
+                            Activities &amp; Details
+                          </p>
+                          <div className="bg-white p-3">
+                            {validActivities.map((activity, activityIndex) => {
+                              const thumb =
+                                (activity.imageDocumentId
+                                  ? documentImages[activity.imageDocumentId]?.imageUrl
+                                  : null) ??
+                                activity.imageUrl ??
+                                (activity.sightseeingId
+                                  ? images[activity.sightseeingId]?.imageUrl
+                                  : null) ??
+                                null;
+                              const isLast = activityIndex === validActivities.length - 1;
+                              return (
+                                <Fragment key={`${activity.sightseeingId ?? activityIndex}`}>
+                                  <div className="flex gap-3">
+                                    <div className="h-14 w-20 shrink-0 overflow-hidden rounded-md">
+                                      <ItineraryThumb
+                                        src={thumb}
+                                        alt={activity.name ?? 'Activity'}
+                                      />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="flex items-center gap-2 font-semibold text-slate-800">
+                                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                        {activity.name}
+                                      </p>
+                                      {activity.showTime !== false && activity.startTime && (
+                                        <p className="mt-1 flex items-center gap-1 pl-6 text-xs font-medium text-slate-500">
+                                          <Clock className="h-3.5 w-3.5" />
+                                          {formatTime12Hour(activity.startTime)}
+                                          {activity.duration ? ` · ${activity.duration}` : ''}
+                                        </p>
+                                      )}
+                                      {activity.description && (
+                                        <div className="mt-1 pl-6">
+                                          <ItineraryRichText html={activity.description} />
+                                        </div>
+                                      )}
+                                      {(() => {
+                                        const label =
+                                          SIGHTSEEING_TRANSFER_LABELS[
+                                            activity.dailyTransfer ?? day.dailyTransfer
+                                          ];
+                                        if (!label) return null;
+                                        return (
+                                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <span
+                                              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                              style={{ backgroundColor: color }}
+                                            >
+                                              <Car className="h-3.5 w-3.5" />
+                                              {label}
+                                            </span>
+                                          </div>
+                                        );
+                                      })()}
+                                      <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                    </div>
+                                  </div>
+                                  {!isLast && <hr className="my-3 border-slate-200" />}
+                                </Fragment>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        {mealsLabel && (
+                          <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                            <Utensils className="h-4 w-4 text-slate-400" />
+                            <span className="font-semibold">Meals:</span> {mealsLabel}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {(() => {
+                          const label = SIGHTSEEING_TRANSFER_LABELS[day.dailyTransfer];
+                          if (!label) return null;
+                          return (
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <span
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                style={{ backgroundColor: color }}
+                              >
+                                <Car className="h-3.5 w-3.5" />
+                                {label}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        {mealsLabel && (
+                          <p className="mt-2 flex items-center gap-1 text-sm text-slate-600">
+                            <Utensils className="h-4 w-4 text-slate-400" />
+                            <span className="font-semibold">Meals:</span> {mealsLabel}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
                 </article>
               </div>
@@ -916,6 +1131,140 @@ export function PublicQuotationPage() {
         setError(value instanceof Error ? value.message : 'Quotation unavailable.'),
       );
   }, [token]);
+
+  // Best-effort visitor telemetry: an initial snapshot on load plus a final
+  // scroll/time beacon on leave. Fully client-derived (device, screen, locale,
+  // referrer, UTM); the server adds IP, User-Agent parsing and geolocation.
+  useEffect(() => {
+    if (!token) return;
+    const trackUrl = `/api/public/quotations/${encodeURIComponent(token)}/track`;
+    let maxScroll = 0;
+    let wasScrollable = false;
+    let ctaClicks = 0;
+    // Active (engaged) time: accrues only while the tab is visible, so a
+    // backgrounded tab never inflates "time on page".
+    let activeMs = 0;
+    let lastResume = Date.now();
+    const activeSeconds = () => {
+      const live = document.visibilityState === 'visible' ? Date.now() - lastResume : 0;
+      return Math.round((activeMs + live) / 1000);
+    };
+
+    // Stable first-party visitor id so returning visits are recognised.
+    let visitorId: string | undefined;
+    try {
+      const key = 'iq_visitor_id';
+      visitorId = window.localStorage.getItem(key) ?? undefined;
+      if (!visitorId) {
+        visitorId = `v_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+        window.localStorage.setItem(key, visitorId);
+      }
+    } catch {
+      visitorId = undefined;
+    }
+
+    // Scroll depth only counts when the page actually overflows the viewport;
+    // a page that fits reports no scroll rather than a misleading 100%.
+    const onScroll = () => {
+      const doc = document.documentElement;
+      const scrollable = doc.scrollHeight - doc.clientHeight;
+      if (scrollable <= 0) return;
+      wasScrollable = true;
+      const pct = Math.round((doc.scrollTop / scrollable) * 100);
+      if (pct > maxScroll) maxScroll = Math.min(100, Math.max(0, pct));
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // Count meaningful interactions (clicks on links/buttons).
+    const onClick = (event: MouseEvent) => {
+      const el = event.target as HTMLElement | null;
+      if (el?.closest('a,button,[role="button"]')) ctaClicks += 1;
+    };
+    document.addEventListener('click', onClick, true);
+
+    const collect = () => {
+      const nav = navigator as Navigator & {
+        deviceMemory?: number;
+        connection?: { effectiveType?: string; downlink?: number; rtt?: number };
+        userAgentData?: { platform?: string };
+      };
+      const params = new URLSearchParams(window.location.search);
+      const utm = (key: string) => params.get(key) ?? undefined;
+      return {
+        platform: nav.userAgentData?.platform || navigator.platform || undefined,
+        language: navigator.language,
+        languages: navigator.languages?.join(', '),
+        clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screenWidth: window.screen?.width,
+        screenHeight: window.screen?.height,
+        screenAvailWidth: window.screen?.availWidth,
+        screenAvailHeight: window.screen?.availHeight,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        pixelRatio: window.devicePixelRatio,
+        colorDepth: window.screen?.colorDepth,
+        orientation: window.screen?.orientation?.type,
+        cpuCores: navigator.hardwareConcurrency,
+        deviceMemory: nav.deviceMemory,
+        connectionType: nav.connection?.effectiveType,
+        connectionDownlink: nav.connection?.downlink,
+        connectionRtt: nav.connection?.rtt,
+        online: navigator.onLine,
+        referrer: document.referrer || undefined,
+        landingUrl: window.location.href,
+        utmSource: utm('utm_source'),
+        utmMedium: utm('utm_medium'),
+        utmCampaign: utm('utm_campaign'),
+        visitorId,
+        // Omit scroll entirely when the page never needed scrolling.
+        maxScrollDepth: wasScrollable ? maxScroll : undefined,
+        timeOnPageSeconds: activeSeconds(),
+        ctaClicks,
+      };
+    };
+
+    const send = (final: boolean) => {
+      const body = JSON.stringify(collect());
+      if (final && typeof navigator.sendBeacon === 'function') {
+        navigator.sendBeacon(trackUrl, new Blob([body], { type: 'application/json' }));
+      } else {
+        void fetch(trackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          keepalive: final,
+        }).catch(() => {});
+      }
+    };
+
+    const initial = window.setTimeout(() => send(false), 900);
+    // On hide: bank the active time so far and flush; on show: restart the clock.
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        activeMs += Date.now() - lastResume;
+        send(true);
+      } else {
+        lastResume = Date.now();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const onPageHide = () => {
+      if (document.visibilityState === 'visible') activeMs += Date.now() - lastResume;
+      send(true);
+    };
+    window.addEventListener('pagehide', onPageHide);
+
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      if (document.visibilityState === 'visible') activeMs += Date.now() - lastResume;
+      send(true);
+    };
+  }, [token]);
   if (error)
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
@@ -947,17 +1296,18 @@ export function PublicQuotationPage() {
   const visibleHotels = selectedHotels.length > 0 ? selectedHotels : v.hotels;
   // Hotels only appear when included in the quotation (hotelDetails.include).
   const hotelIncluded = v.hotelDetails?.include !== false && visibleHotels.length > 0;
-  const hotelNights = visibleHotels.reduce((sum, hotel) => sum + Number(hotel.nights ?? 0), 0);
   const nights =
-    q.travelStartDate && q.travelEndDate
-      ? Math.max(
-          0,
-          Math.round(
-            (new Date(q.travelEndDate).getTime() - new Date(q.travelStartDate).getTime()) /
-              86_400_000,
-          ),
-        )
-      : hotelNights;
+    q.durationNights && q.durationNights > 0
+      ? q.durationNights
+      : q.travelStartDate && q.travelEndDate
+        ? Math.max(
+            0,
+            Math.round(
+              (new Date(q.travelEndDate).getTime() - new Date(q.travelStartDate).getTime()) /
+                86_400_000,
+            ),
+          )
+        : 0;
   const duration = nights > 0 ? `${nights} Nights / ${nights + 1} Days` : null;
 
   const travelers = [
@@ -1014,14 +1364,13 @@ export function PublicQuotationPage() {
   const addOnIncluded = v.addOnDetails?.include !== false;
   const addonServices = addOnIncluded
     ? v.services.filter(
-        (service) =>
-          ADDON_SERVICE_TYPES.has(service.serviceType) && service.addOnServiceId != null,
+        (service) => ADDON_SERVICE_TYPES.has(service.serviceType) && service.addOnServiceId != null,
       )
     : [];
   // Reference "Flight Details" — structured journeys from flightDetails.
   const fd = v.flightDetails;
   const flightJourneys =
-    fd && fd.include
+    fd && fd.include && fd.entryMode !== 'IMAGE'
       ? ([
           (fd.journeyType === 'ROUND_TRIP' || fd.journeyType === 'ONEWAY_OUTBOUND') && {
             key: 'outbound',
@@ -1050,19 +1399,21 @@ export function PublicQuotationPage() {
       segment.departureTime ||
       segment.flightNumber,
     );
-  const hasFlights = flightJourneys.some((leg) =>
-    (leg.journey?.segments ?? []).some(segmentHasData),
-  );
+  const hasFlights =
+    (fd?.include &&
+      fd.entryMode === 'IMAGE' &&
+      Boolean(data.flightImages?.length || data.flightImageUrl)) ||
+    flightJourneys.some((leg) => (leg.journey?.segments ?? []).some(segmentHasData));
   const sightseeingDays =
     v.sightseeingDetails?.include !== false ? (v.sightseeingDetails?.days ?? []) : [];
   // Sightseeing is included when at least one valid day exists (a title or a
   // named/described activity), matching the itinerary-section validity rule.
   // A legacy SIGHTSEEING service row is kept as a backward-compatible fallback.
   const validSightseeingDays = sightseeingDays.filter(
-    (day) => day.title || (day.activities ?? []).some((activity) => activity.name || activity.description),
+    (day) =>
+      day.title || (day.activities ?? []).some((activity) => activity.name || activity.description),
   );
-  const hasSightseeing =
-    validSightseeingDays.length > 0 || svcOf('SIGHTSEEING').length > 0;
+  const hasSightseeing = validSightseeingDays.length > 0 || svcOf('SIGHTSEEING').length > 0;
   // Services actually included in this quotation, as separate cards. Each key
   // maps to a labelled card with a dedicated icon (fallback icon for unknowns).
   const includedServices: ServiceCard[] = [];
@@ -1107,7 +1458,11 @@ export function PublicQuotationPage() {
         {/* Hero */}
         <header
           className="relative flex min-h-[300px] items-center overflow-hidden bg-slate-900 py-12 text-white sm:min-h-[330px] md:min-h-[380px]"
-          style={data.heroImageUrl ? undefined : { background: `linear-gradient(135deg, ${color} 0%, ${color}cc 60%, #0f172a 140%)` }}
+          style={
+            data.heroImageUrl
+              ? undefined
+              : { background: `linear-gradient(135deg, ${color} 0%, ${color}cc 60%, #0f172a 140%)` }
+          }
         >
           {data.heroImageUrl && (
             <>
@@ -1124,543 +1479,556 @@ export function PublicQuotationPage() {
             </>
           )}
           <div className="relative z-10 mx-auto w-full max-w-5xl px-5 text-left md:px-4">
-          <h1 className="text-[32px] font-extrabold leading-[1.1] text-white sm:text-[40px] lg:text-[48px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
-            {v.weblinkHeading?.trim() ||
-              q.destinationSummary.split(/[•→>,/]/)[0]?.trim() ||
-              q.destinationSummary}
-          </h1>
-          {duration && (
-            <p className="mt-2 text-[15px] font-medium text-white/85 sm:text-[17px] lg:text-[19px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
-              {duration}
+            <h1 className="text-[32px] font-extrabold leading-[1.1] text-white sm:text-[40px] lg:text-[48px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
+              {v.weblinkHeading?.trim() ||
+                q.destinationSummary.split(/[•→>,/]/)[0]?.trim() ||
+                q.destinationSummary}
+            </h1>
+            {duration && (
+              <p className="mt-2 text-[15px] font-medium text-white/85 sm:text-[17px] lg:text-[19px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
+                {duration}
+              </p>
+            )}
+            <p className="mt-5 max-w-2xl text-[20px] font-bold leading-snug text-white sm:text-[24px] lg:text-[28px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
+              {v.title}
             </p>
-          )}
-          <p className="mt-5 max-w-2xl text-[20px] font-bold leading-snug text-white sm:text-[24px] lg:text-[28px] [text-shadow:0_2px_8px_rgba(0,0,0,0.35)]">
-            {v.title}
-          </p>
-          {heroIntroduction && (
-            <p className="mt-3 max-w-2xl text-[14px] text-white/80 sm:text-[15px] [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
-              {heroIntroduction}
-            </p>
-          )}
-        </div>
-      </header>
+            {heroIntroduction && (
+              <p className="mt-3 max-w-2xl text-[14px] text-white/80 sm:text-[15px] [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
+                {heroIntroduction}
+              </p>
+            )}
+          </div>
+        </header>
 
-      {/* Summary + price cards sit in normal flow below the complete hero. */}
-      <div className="mx-auto mt-8 max-w-5xl space-y-6 px-4">
-        {/* Summary + price */}
-        <section className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl bg-card p-6 shadow-lg lg:col-span-2">
-            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 md:grid-cols-4">
-              <Info label="Traveler Name" value={q.customerName} />
-              <Info label="Travel Date" value={dateShort(q.travelStartDate) ?? 'Flexible'} />
-              <Info label="Duration" value={duration ?? 'As advised'} />
-              <Info label="Travelers" value={travelers} />
-              <Info
-                label="Rooms"
-                value={q.rooms ? `${q.rooms} Room${q.rooms > 1 ? 's' : ''}` : '—'}
-              />
-              <Info label="Quotation ID" value={formatPublicQuotationNumber(q.quotationNumber)} />
-              <Info
-                label="Destinations"
-                value={q.destinations || q.destinationSummary.replace(/•/g, '→')}
-                full
-              />
-              {preparedBy && (
-                <div className="sm:col-span-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Prepared By
-                  </p>
-                  <p className="mt-0.5 font-semibold text-slate-800">{preparedBy}</p>
-                  {preparedContacts.length > 0 && (
-                    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-slate-500">
-                      {preparedContacts.map((contact, index) => (
-                        <span key={index} className="inline-flex items-center gap-x-1.5">
-                          {index > 0 && <span aria-hidden="true">|</span>}
-                          {contact}
-                        </span>
-                      ))}
+        {/* Summary + price cards sit in normal flow below the complete hero. */}
+        <div className="mx-auto mt-8 max-w-5xl space-y-6 px-4">
+          {/* Summary + price */}
+          <section className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-2xl bg-card p-6 shadow-lg lg:col-span-2">
+              <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 md:grid-cols-4">
+                <Info label="Traveler Name" value={q.customerName} />
+                <Info label="Travel Date" value={dateShort(q.travelStartDate) ?? 'Flexible'} />
+                <Info label="Duration" value={duration ?? 'As advised'} />
+                <Info label="Travelers" value={travelers} />
+                <Info label="Quotation ID" value={formatPublicQuotationNumber(q.quotationNumber)} />
+                <Info
+                  label="Destinations"
+                  value={q.destinations || q.destinationSummary.replace(/•/g, '→')}
+                  full
+                />
+                {preparedBy && (
+                  <div className="sm:col-span-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                      Prepared By
                     </p>
-                  )}
+                    <p className="mt-0.5 font-semibold text-slate-800">{preparedBy}</p>
+                    {preparedContacts.length > 0 && (
+                      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-slate-500">
+                        {preparedContacts.map((contact, index) => (
+                          <span key={index} className="inline-flex items-center gap-x-1.5">
+                            {index > 0 && <span aria-hidden="true">|</span>}
+                            {contact}
+                          </span>
+                        ))}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col justify-center rounded-2xl bg-emerald-600 p-6 text-white shadow-lg">
+              <p className="text-center text-sm font-medium uppercase tracking-wide text-white/85">
+                Total Package Price
+              </p>
+              <p className="mt-1 text-center text-4xl font-bold">{fmt(finalTotal)}</p>
+              {taxNoteText && (
+                <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
+              )}
+              {perPaxLines.length > 0 && (
+                <div className="mt-3 space-y-1 text-center text-sm text-white/90">
+                  {perPaxLines.map(([count, singular, plural, price]) => (
+                    <p key={plural}>
+                      {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
+                    </p>
+                  ))}
                 </div>
               )}
+              {company.phone && (
+                <a
+                  href={`tel:${company.phone}`}
+                  className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-50"
+                >
+                  <Phone className="h-4 w-4" /> Contact Now
+                </a>
+              )}
             </div>
-          </div>
-          <div className="flex flex-col justify-center rounded-2xl bg-emerald-600 p-6 text-white shadow-lg">
-            <p className="text-center text-sm font-medium uppercase tracking-wide text-white/85">
-              Total Package Price
-            </p>
-            <p className="mt-1 text-center text-4xl font-bold">{fmt(finalTotal)}</p>
-            {taxNoteText && (
-              <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
-            )}
-            {perPaxLines.length > 0 && (
-              <div className="mt-3 space-y-1 text-center text-sm text-white/90">
-                {perPaxLines.map(([count, singular, plural, price]) => (
-                  <p key={plural}>
-                    {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
-                  </p>
-                ))}
+          </section>
+
+          {/* Secure Your Booking Now — only with a real initial amount and link. */}
+          {showSecureBooking && validPaymentLink && (
+            <section className="flex flex-col items-start gap-5 rounded-md border border-slate-200 bg-white p-7 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-8">
+              <div className="min-w-0">
+                <h2 className="text-2xl font-bold text-slate-800">Secure Your Booking Now</h2>
+                <p className="mt-2 text-base text-slate-700">
+                  Make an initial payment of{' '}
+                  <span className="font-semibold text-slate-800">{fmtExact(initialAmount)}</span> to
+                  confirm your booking.
+                </p>
+                <p className="mt-1 text-[15px] text-slate-500">
+                  The remaining balance can be paid as per the payment policy.
+                </p>
               </div>
-            )}
-            {company.phone && (
               <a
-                href={`tel:${company.phone}`}
-                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-50"
+                href={validPaymentLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Pay Now — opens the secure payment page in a new tab"
+                className="inline-flex shrink-0 items-center gap-2 rounded-md bg-emerald-600 px-6 py-[14px] font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 sm:self-center"
               >
-                <Phone className="h-4 w-4" /> Contact Now
+                <Lock className="h-5 w-5" aria-hidden="true" /> Pay Now
               </a>
-            )}
-          </div>
-        </section>
+            </section>
+          )}
 
-        {/* Secure Your Booking Now — only with a real initial amount and link. */}
-        {showSecureBooking && validPaymentLink && (
-          <section className="flex flex-col items-start gap-5 rounded-md border border-slate-200 bg-white p-7 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-8">
-            <div className="min-w-0">
-              <h2 className="text-2xl font-bold text-slate-800">Secure Your Booking Now</h2>
-              <p className="mt-2 text-base text-slate-700">
-                Make an initial payment of{' '}
-                <span className="font-semibold text-slate-800">
-                  {fmtExact(initialAmount)}
-                </span>{' '}
-                to confirm your booking.
-              </p>
-              <p className="mt-1 text-[15px] text-slate-500">
-                The remaining balance can be paid as per the payment policy.
-              </p>
-            </div>
-            <a
-              href={validPaymentLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Pay Now — opens the secure payment page in a new tab"
-              className="inline-flex shrink-0 items-center gap-2 rounded-md bg-emerald-600 px-6 py-[14px] font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 sm:self-center"
-            >
-              <Lock className="h-5 w-5" aria-hidden="true" /> Pay Now
-            </a>
-          </section>
-        )}
+          {/* Quick navigation to the sections present in this quotation. */}
+          {v.showQuickNav !== false && <SectionNav sticky={v.quickNavSticky ?? false} />}
 
-        {/* Services Include */}
-        {includedServices.length > 0 && (
-          <section>
-            <SectionTitle>Services Include</SectionTitle>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {includedServices.map((service) => {
-                const Icon = serviceCardIcon(service.key);
-                return (
-                  <article
-                    key={service.key}
-                    className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
-                  >
-                    <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-                    <span className="font-medium text-slate-800">{service.label}</span>
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Your Itinerary — day-wise sightseeing activities. */}
-        {sightseeingDays.length > 0 && (
-          <SightseeingItineraryView
-            days={sightseeingDays}
-            color="#16a34a"
-            images={data.sightseeingPresentations ?? {}}
-            description={v.sightseeingDetails?.description ?? null}
-            destinationImage={data.heroImageUrl ?? null}
-            fmt={fmt}
-          />
-        )}
-
-        {/* Hotels */}
-        {hotelIncluded && (
-          <section>
-            <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
-            <div className="grid gap-5">
-              {visibleHotels.map((hotel, hotelIndex) => {
-                const presentation = data.hotelPresentations?.[hotel.id];
-                // Star rating comes from Hotel Master only (0–5). Never fall back
-                // to the free-text category snapshot, which can say "5 Star" even
-                // when the true rating is 0 or missing.
-                const category = presentation?.starCategory ?? 0;
-                // Review score is a separate Hotel Master decimal (e.g. 3.7).
-                const reviewScore = Number(presentation?.starRating);
-                const showScore = Number.isFinite(reviewScore) && reviewScore > 0;
-                // Only a valid http(s) review URL renders a link.
-                const rawReviewLink = presentation?.reviewLink?.trim() ?? '';
-                const reviewUrl = /^https?:\/\//i.test(rawReviewLink) ? rawReviewLink : null;
-                return (
-                  <article
-                    key={hotel.id}
-                    className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
-                  >
-                    <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
-                      {presentation?.imageUrl ? (
-                        <img
-                          src={presentation.imageUrl}
-                          alt={hotel.hotelName}
-                          className="h-full w-full object-cover object-center"
-                        />
-                      ) : (
-                        <div className="text-center text-slate-400">
-                          <Building2 className="mx-auto h-12 w-12" />
-                          <p className="mt-2 text-xs">Hotel image unavailable</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-lg font-bold leading-tight text-slate-800">
-                          {hotel.hotelName}
-                        </h3>
-                        {(reviewUrl || showScore) && (
-                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                            {reviewUrl && (
-                              <a
-                                href={reviewUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-medium text-blue-600 hover:underline"
-                              >
-                                Hotel Review <ExternalLink className="inline h-3 w-3" />
-                              </a>
-                            )}
-                            {showScore && (
-                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
-                                {presentation?.starRating}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {category > 0 && (
-                        <div
-                          className="mt-2 flex gap-0.5"
-                          aria-label={`${category} star hotel`}
-                        >
-                          {Array.from({ length: Math.min(5, category) }, (_, index) => (
-                            <Star key={index} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
-                        <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-                        {hotel.city}
-                        {presentation?.country ? `, ${presentation.country}` : ''}
-                      </p>
-                      {presentation?.address?.trim() && (
-                        <p className="mt-1.5 text-sm text-slate-500">
-                          {presentation.address.trim()}
-                        </p>
-                      )}
-                      <div className="mt-5 space-y-1.5 text-sm text-slate-700">
-                        <p>
-                          <strong>Room Type:</strong> {hotel.roomType || 'As selected'}
-                        </p>
-                        <p>
-                          <strong>Meal Plan:</strong> {hotel.mealPlan || 'As selected'}
-                        </p>
-                        <p>
-                          <strong>Nights:</strong>{' '}
-                          <span className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">
-                            {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="mt-4 space-y-1 text-xs text-slate-500">
-                        <p>
-                          Check-in: {dateShort(hotel.checkInDate) ?? '—'} |{' '}
-                          {presentation?.checkInTime ?? '14:00'}
-                        </p>
-                        <p>
-                          Check-out: {dateShort(hotel.checkOutDate) ?? '—'} |{' '}
-                          {presentation?.checkOutTime ?? '12:00'}
-                        </p>
-                      </div>
-                      {hotel.notes && (
-                        <p className="mt-3 text-xs italic text-slate-500">{hotel.notes}</p>
-                      )}
-                      {hotelIndex === 0 && v.hotelDetails?.description && (
-                        <div
-                          className="mt-4 flex items-start gap-2 border-t pt-3"
-                          aria-label="Hotel description"
-                        >
-                          <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                          <div className="min-w-0 flex-1 [&_p]:mr-4 [&_p]:inline-block">
-                            <RichHtml html={v.hotelDetails.description} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Flight Details — structured journeys/segments. */}
-        {hasFlights && (
-          <section>
-            <SectionTitle>Flight Details</SectionTitle>
-            <div className="space-y-4">
-              {flightJourneys.map((leg) => (
-                <FlightJourneyView
-                  key={leg.key}
-                  title={leg.title}
-                  journey={leg.journey}
-                  color={leg.color}
-                  airlinePresentations={data.airlinePresentations}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Transportation — one reference-style card per configured vehicle. */}
-        {vehicles.length > 0 && (
-          <section>
-            <SectionTitle>{vehicles[0]?.taxCategory?.trim() || 'Transportation'}</SectionTitle>
-            <div className="grid gap-4 md:grid-cols-2">
-              {vehicles.map((vehicle) => {
-                const presentation = data.vehiclePresentations?.[vehicle.id];
-                return (
-                  <article
-                    key={vehicle.id}
-                    className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
-                  >
-                    <div className="flex min-h-56 items-center justify-center bg-slate-100">
-                      {presentation?.imageUrl ? (
-                        <img
-                          src={presentation.imageUrl}
-                          alt={vehicle.name}
-                          className="h-64 w-full object-cover"
-                        />
-                      ) : (
-                        <div className="text-center text-slate-400">
-                          <CarFront className="mx-auto h-14 w-14" />
-                          <p className="mt-2 text-xs">Vehicle image unavailable</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-3 p-5">
-                      <h3 className="text-xl font-bold text-slate-800">
-                        {vehicle.name || presentation?.name || 'Vehicle'}
-                      </h3>
-                      <div className="space-y-1 text-sm text-slate-600">
-                        <p>
-                          <strong className="text-slate-700">Type:</strong>{' '}
-                          {vehicle.city || presentation?.vehicleType || 'As selected'}
-                        </p>
-                        {vehicle.notes && (
-                          <p>
-                            <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
-                          </p>
-                        )}
-                      </div>
-                      {vehicle.description && <RichHtml html={vehicle.description} />}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {cruises.length > 0 && (
-          <section>
-            <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
-            <div className="grid gap-5 md:grid-cols-2">
-              {cruises.map((cruise) => {
-                const presentation = data.cruisePresentations?.[cruise.id];
-                const duration = cruise.notes?.trim();
-                const roomType = presentation?.roomTypeName?.trim();
-                // The old generic form could store a bare public/localhost URL
-                // in the description; never surface that as cruise content.
-                const rawDescription = cruise.description?.trim() ?? '';
-                const descriptionHasText = Boolean(
-                  rawDescription.replace(/<[^>]*>/g, '').trim(),
-                );
-                const showDescription =
-                  Boolean(rawDescription) &&
-                  descriptionHasText &&
-                  !/^https?:\/\/\S+$/i.test(rawDescription);
-                return (
-                  <article
-                    key={cruise.id}
-                    className="overflow-hidden rounded-xl border bg-card shadow-sm"
-                  >
-                    <div className="aspect-[16/9] bg-slate-100">
-                      {presentation?.imageUrl ? (
-                        <img
-                          src={presentation.imageUrl}
-                          alt={cruise.name}
-                          className="h-full w-full object-cover object-center"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
-                          <Ship className="h-10 w-10" />
-                          <p className="text-xs">Cruise image unavailable</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 p-5">
-                      <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
-                      {duration && (
-                        <p className="text-sm text-slate-600">
-                          <strong>Duration:</strong> {duration}
-                        </p>
-                      )}
-                      {roomType && (
-                        <p className="text-sm text-slate-600">
-                          <strong>Room Type:</strong> {roomType}
-                        </p>
-                      )}
-                      {showDescription && (
-                        <div className="border-t pt-3">
-                          <RichHtml html={rawDescription} />
-                        </div>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-        {/* Additional Services — included add-on services rendered as cards. */}
-        {addonServices.length > 0 && (
-          <section>
-            <SectionTitle>Additional Services</SectionTitle>
-            <div className="grid gap-4 md:grid-cols-2">
-              {addonServices.map((service) => {
-                const plainText = (service.description ?? '')
-                  .replace(/<[^>]*>/g, ' ')
-                  .replace(/\s+/g, ' ')
-                  .trim();
-                return (
-                  <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
-                    {plainText && (
-                      <div className="mt-2">
-                        <RichHtml html={service.description ?? ''} />
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Visa */}
-        {showVisa && (
-          <section className="rounded-2xl bg-card p-6 shadow-sm">
-            <h2 className="font-semibold text-slate-800">{v.visaSectionTitle || 'Visa'}</h2>
-            <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-              {v.visaDestination && (
-                <p>
-                  <span className="text-slate-400">Destination:</span> {v.visaDestination}
-                </p>
-              )}
-              {v.visaType && (
-                <p>
-                  <span className="text-slate-400">Visa type:</span> {v.visaType}
-                </p>
-              )}
-              {Number(v.visaAmount ?? 0) > 0 && (
-                <p>
-                  <span className="text-slate-400">Amount:</span> {fmt(Number(v.visaAmount))}
-                </p>
-              )}
-              {(Number(v.visaServiceCharge ?? 0) > 0 || Number(v.visaVfsCharge ?? 0) > 0) && (
-                <p>
-                  <span className="text-slate-400">Consolidated total:</span>{' '}
-                  {fmt(visaConsolidated)}
-                </p>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Policies — compact accordion, one section open at a time. */}
-        {(() => {
-          const visibleSections = policySections.filter((section) => section.visible);
-          if (!visibleSections.length) return null;
-          return (
+          {/* Services Include */}
+          {includedServices.length > 0 && (
             <section>
-              <SectionTitle>Policies</SectionTitle>
-              <div className="space-y-2">
-                {visibleSections.map((section) => {
-                  const open = openPolicy === section.key;
+              <SectionTitle>Services Include</SectionTitle>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {includedServices.map((service) => {
+                  const Icon = serviceCardIcon(service.key);
                   return (
-                    <div
-                      key={section.key}
-                      className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                    <article
+                      key={service.key}
+                      className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
                     >
-                      <button
-                        type="button"
-                        aria-expanded={open}
-                        aria-controls={`policy-panel-${section.key}`}
-                        onClick={() => setOpenPolicy(open ? null : section.key)}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                      >
-                        <span className="flex items-center gap-2 text-sm font-semibold text-blue-600">
-                          <section.Icon
-                            className={`h-4 w-4 shrink-0 ${section.iconClass}`}
-                            aria-hidden="true"
-                          />
-                          {section.label}
-                        </span>
-                        <ChevronDown
-                          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-                            open ? 'rotate-180' : ''
-                          }`}
-                          aria-hidden="true"
-                        />
-                      </button>
-                      {open && (
-                        <div
-                          id={`policy-panel-${section.key}`}
-                          className="border-t px-4 py-4 text-sm text-slate-700"
-                        >
-                          {hasPolicyHtml(section.html) ? (
-                            <RichHtml html={section.html!} />
-                          ) : (
-                            <ul className="space-y-1.5">
-                              {section.rows.map((row) => (
-                                <li key={row.id} className="list-inside list-disc">
-                                  {row.content}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
+                      <span className="font-medium text-slate-800">{service.label}</span>
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+                    </article>
                   );
                 })}
               </div>
             </section>
-          );
-        })()}
+          )}
 
-        {/* Contact Us */}
-        <PublicQuotationContact
-          companyName={company.name}
-          contactPerson={preparedBy}
-          phone={company.phone}
-          email={company.email}
-          address={company.address}
-          logoUrl={company.logoUrl}
-          quotationId={q.quotationNumber}
-          quotationTitle={v.title}
-          leadName={q.customerName}
-        />
-      </div>
+          {/* Your Itinerary — day-wise sightseeing activities. */}
+          {sightseeingDays.length > 0 && (
+            <SightseeingItineraryView
+              days={sightseeingDays}
+              color="#16a34a"
+              images={data.sightseeingPresentations ?? {}}
+              documentImages={data.sightseeingDocumentPresentations ?? {}}
+              description={v.sightseeingDetails?.description ?? null}
+              destinationImage={data.heroImageUrl ?? null}
+              fmt={fmt}
+            />
+          )}
+
+          {/* Hotels */}
+          {hotelIncluded && (
+            <section>
+              <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
+              <div className="grid gap-5">
+                {visibleHotels.map((hotel, hotelIndex) => {
+                  const presentation = data.hotelPresentations?.[hotel.id];
+                  // Star rating comes from Hotel Master only (0–5). Never fall back
+                  // to the free-text category snapshot, which can say "5 Star" even
+                  // when the true rating is 0 or missing.
+                  const category = presentation?.starCategory ?? 0;
+                  // Review score is a separate Hotel Master decimal (e.g. 3.7).
+                  const reviewScore = Number(presentation?.starRating);
+                  const showScore = Number.isFinite(reviewScore) && reviewScore > 0;
+                  // Only a valid http(s) review URL renders a link.
+                  const rawReviewLink = presentation?.reviewLink?.trim() ?? '';
+                  const reviewUrl = /^https?:\/\//i.test(rawReviewLink) ? rawReviewLink : null;
+                  return (
+                    <article
+                      key={hotel.id}
+                      className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
+                    >
+                      <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
+                        {presentation?.imageUrl ? (
+                          <img
+                            src={presentation.imageUrl}
+                            alt={hotel.hotelName}
+                            className="h-full w-full object-cover object-center"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400">
+                            <Building2 className="mx-auto h-12 w-12" />
+                            <p className="mt-2 text-xs">Hotel image unavailable</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-lg font-bold leading-tight text-slate-800">
+                            {hotel.hotelName}
+                          </h3>
+                          {(reviewUrl || showScore) && (
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                              {reviewUrl && (
+                                <a
+                                  href={reviewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-medium text-blue-600 hover:underline"
+                                >
+                                  Hotel Review <ExternalLink className="inline h-3 w-3" />
+                                </a>
+                              )}
+                              {showScore && (
+                                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
+                                  {presentation?.starRating}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {category > 0 && (
+                          <div className="mt-2 flex gap-0.5" aria-label={`${category} star hotel`}>
+                            {Array.from({ length: Math.min(5, category) }, (_, index) => (
+                              <Star key={index} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                            ))}
+                          </div>
+                        )}
+                        <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                          {hotel.city}
+                          {presentation?.country ? `, ${presentation.country}` : ''}
+                        </p>
+                        {presentation?.address?.trim() && (
+                          <p className="mt-1.5 text-sm text-slate-500">
+                            {presentation.address.trim()}
+                          </p>
+                        )}
+                        <div className="mt-5 space-y-1.5 text-sm text-slate-700">
+                          <p>
+                            <strong>Room Type:</strong> {hotel.roomType || 'As selected'}
+                          </p>
+                          <p>
+                            <strong>Meal Plan:</strong> {hotel.mealPlan || 'As selected'}
+                          </p>
+                          {hotel.rooms != null && (
+                            <p>
+                              <strong>Rooms:</strong> {hotel.rooms}
+                            </p>
+                          )}
+                          <p>
+                            <strong>Nights:</strong>{' '}
+                            <span className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">
+                              {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ??
+                                hotel.nights}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="mt-4 space-y-1 text-xs text-slate-500">
+                          <p>
+                            Check-in: {dateShort(hotel.checkInDate) ?? '—'}
+                            {hotel.checkInTime && hotel.showCheckInTime !== false
+                              ? ` | ${formatTime12Hour(hotel.checkInTime)}`
+                              : ''}
+                          </p>
+                          <p>
+                            Check-out: {dateShort(hotel.checkOutDate) ?? '—'}
+                            {hotel.checkOutTime && hotel.showCheckOutTime !== false
+                              ? ` | ${formatTime12Hour(hotel.checkOutTime)}`
+                              : ''}
+                          </p>
+                        </div>
+                        {hotel.notes && (
+                          <p className="mt-3 text-xs italic text-slate-500">{hotel.notes}</p>
+                        )}
+                        {hotelIndex === 0 && v.hotelDetails?.description && (
+                          <div
+                            className="mt-4 flex items-start gap-2 border-t pt-3"
+                            aria-label="Hotel description"
+                          >
+                            <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                            <div className="min-w-0 flex-1 [&_p]:mr-4 [&_p]:inline-block">
+                              <RichHtml html={v.hotelDetails.description} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Flight Details — structured journeys/segments. */}
+          {hasFlights && (
+            <section>
+              <SectionTitle>{fd?.sectionTitle || 'Flight Details'}</SectionTitle>
+              {fd?.entryMode === 'IMAGE' && (data.flightImages?.length || data.flightImageUrl) ? (
+                <FlightImageViewer
+                  images={
+                    data.flightImages?.length
+                      ? data.flightImages
+                      : [{ description: null, url: data.flightImageUrl! }]
+                  }
+                />
+              ) : (
+                <div className="space-y-4">
+                  {flightJourneys.map((leg) => (
+                    <FlightJourneyView
+                      key={leg.key}
+                      title={leg.title}
+                      journey={leg.journey}
+                      color={leg.color}
+                      airlinePresentations={data.airlinePresentations}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Transportation — one reference-style card per configured vehicle. */}
+          {vehicles.length > 0 && (
+            <section>
+              <SectionTitle>{vehicles[0]?.taxCategory?.trim() || 'Transportation'}</SectionTitle>
+              <div className="grid gap-4 md:grid-cols-2">
+                {vehicles.map((vehicle) => {
+                  const presentation = data.vehiclePresentations?.[vehicle.id];
+                  return (
+                    <article
+                      key={vehicle.id}
+                      className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
+                    >
+                      <div className="flex min-h-56 items-center justify-center bg-slate-100">
+                        {presentation?.imageUrl ? (
+                          <img
+                            src={presentation.imageUrl}
+                            alt={vehicle.name}
+                            className="h-64 w-full object-cover"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400">
+                            <CarFront className="mx-auto h-14 w-14" />
+                            <p className="mt-2 text-xs">Vehicle image unavailable</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-3 p-5">
+                        <h3 className="text-xl font-bold text-slate-800">
+                          {vehicle.name || presentation?.name || 'Vehicle'}
+                        </h3>
+                        <div className="space-y-1 text-sm text-slate-600">
+                          <p>
+                            <strong className="text-slate-700">Type:</strong>{' '}
+                            {vehicle.city || presentation?.vehicleType || 'As selected'}
+                          </p>
+                          {vehicle.notes && (
+                            <p>
+                              <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
+                            </p>
+                          )}
+                        </div>
+                        {vehicle.description && <RichHtml html={vehicle.description} />}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {cruises.length > 0 && (
+            <section>
+              <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
+              <div className="grid gap-5 md:grid-cols-2">
+                {cruises.map((cruise) => {
+                  const presentation = data.cruisePresentations?.[cruise.id];
+                  const duration = cruise.notes?.trim();
+                  const roomType = presentation?.roomTypeName?.trim();
+                  // The old generic form could store a bare public/localhost URL
+                  // in the description; never surface that as cruise content.
+                  const rawDescription = cruise.description?.trim() ?? '';
+                  const descriptionHasText = Boolean(rawDescription.replace(/<[^>]*>/g, '').trim());
+                  const showDescription =
+                    Boolean(rawDescription) &&
+                    descriptionHasText &&
+                    !/^https?:\/\/\S+$/i.test(rawDescription);
+                  return (
+                    <article
+                      key={cruise.id}
+                      className="overflow-hidden rounded-xl border bg-card shadow-sm"
+                    >
+                      <div className="aspect-[16/9] bg-slate-100">
+                        {presentation?.imageUrl ? (
+                          <img
+                            src={presentation.imageUrl}
+                            alt={cruise.name}
+                            className="h-full w-full object-cover object-center"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
+                            <Ship className="h-10 w-10" />
+                            <p className="text-xs">Cruise image unavailable</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2 p-5">
+                        <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
+                        {duration && (
+                          <p className="text-sm text-slate-600">
+                            <strong>Duration:</strong> {duration}
+                          </p>
+                        )}
+                        {roomType && (
+                          <p className="text-sm text-slate-600">
+                            <strong>Room Type:</strong> {roomType}
+                          </p>
+                        )}
+                        {showDescription && (
+                          <div className="border-t pt-3">
+                            <RichHtml html={rawDescription} />
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          {/* Additional Services — included add-on services rendered as cards. */}
+          {addonServices.length > 0 && (
+            <section>
+              <SectionTitle>Additional Services</SectionTitle>
+              <div className="grid gap-4 md:grid-cols-2">
+                {addonServices.map((service) => {
+                  const plainText = (service.description ?? '')
+                    .replace(/<[^>]*>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  return (
+                    <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
+                      <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
+                      {plainText && (
+                        <div className="mt-2">
+                          <RichHtml html={service.description ?? ''} />
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Visa */}
+          {showVisa && (
+            <section className="rounded-2xl bg-card p-6 shadow-sm">
+              <h2 className="font-semibold text-slate-800">{v.visaSectionTitle || 'Visa'}</h2>
+              <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                {v.visaDestination && (
+                  <p>
+                    <span className="text-slate-400">Destination:</span> {v.visaDestination}
+                  </p>
+                )}
+                {v.visaType && (
+                  <p>
+                    <span className="text-slate-400">Visa type:</span> {v.visaType}
+                  </p>
+                )}
+                {Number(v.visaAmount ?? 0) > 0 && (
+                  <p>
+                    <span className="text-slate-400">Amount:</span> {fmt(Number(v.visaAmount))}
+                  </p>
+                )}
+                {(Number(v.visaServiceCharge ?? 0) > 0 || Number(v.visaVfsCharge ?? 0) > 0) && (
+                  <p>
+                    <span className="text-slate-400">Consolidated total:</span>{' '}
+                    {fmt(visaConsolidated)}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Policies — compact accordion, one section open at a time. */}
+          {(() => {
+            const visibleSections = policySections.filter((section) => section.visible);
+            if (!visibleSections.length) return null;
+            return (
+              <section>
+                <SectionTitle>Policies</SectionTitle>
+                <div className="space-y-2">
+                  {visibleSections.map((section) => {
+                    const open = openPolicy === section.key;
+                    return (
+                      <div
+                        key={section.key}
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                      >
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          aria-controls={`policy-panel-${section.key}`}
+                          onClick={() => setOpenPolicy(open ? null : section.key)}
+                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-blue-600">
+                            <section.Icon
+                              className={`h-4 w-4 shrink-0 ${section.iconClass}`}
+                              aria-hidden="true"
+                            />
+                            {section.label}
+                          </span>
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                              open ? 'rotate-180' : ''
+                            }`}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {open && (
+                          <div
+                            id={`policy-panel-${section.key}`}
+                            className="border-t py-4 pl-8 pr-4 text-sm text-slate-700"
+                          >
+                            {hasPolicyHtml(section.html) ? (
+                              <RichHtml html={section.html!} />
+                            ) : (
+                              <ul className="space-y-1.5">
+                                {section.rows.map((row) => (
+                                  <li key={row.id} className="list-inside list-disc">
+                                    {row.content}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Contact Us */}
+          <PublicQuotationContact
+            companyName={company.name}
+            contactPerson={preparedBy}
+            phone={company.phone}
+            email={company.email}
+            address={company.address}
+            logoUrl={company.logoUrl}
+            quotationId={q.quotationNumber}
+            quotationTitle={v.title}
+            leadName={q.customerName}
+          />
+        </div>
       </div>
 
       <PublicQuotationFooter

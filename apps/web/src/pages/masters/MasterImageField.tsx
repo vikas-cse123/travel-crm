@@ -41,8 +41,8 @@ export function MasterImageField({
       </label>
       <p className="text-xs text-slate-500">
         {editing ? 'Leave empty to keep the current image. ' : ''}
-        Recommended 800×600 pixels. Max file size: {maxSizeMb} MB. Allowed formats: JPG, JPEG, PNG,
-        WebP, GIF.
+        Choose, drop, or paste an image. Recommended 800×600 pixels. Max file size: {maxSizeMb} MB.
+        Allowed formats: JPG, JPEG, PNG, WebP, GIF.
       </p>
       {/* <p className="text-xs text-amber-700">
         Upload only royalty-free or owned images. Interscale is not liable for copyright issues.

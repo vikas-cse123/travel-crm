@@ -1,5 +1,3 @@
-const APP_URL = 'https://app.travelagencycrm.in';
-
 function initMobileNav(): void {
   const nav = document.querySelector<HTMLElement>('.nav');
   const toggle = document.querySelector<HTMLButtonElement>('.nav-toggle');

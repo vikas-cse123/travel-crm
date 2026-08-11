@@ -20,6 +20,7 @@ import {
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { formatTime12Hour } from '@/utils/dateTime';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveSightseeing,
@@ -43,17 +44,6 @@ import {
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
-/** "14:30" → "2:30 PM", matching the reference's start-time column. */
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  const [hourText, minuteText] = value.split(':');
-  const hour = Number(hourText);
-  if (Number.isNaN(hour)) return value;
-  const suffix = hour >= 12 ? 'PM' : 'AM';
-  const display = hour % 12 === 0 ? 12 : hour % 12;
-  return `${display}:${minuteText ?? '00'} ${suffix}`;
-}
-
 function SightseeingThumbnail({ row }: { row: Sightseeing }) {
   const image = useQuery({
     queryKey: ['masters', 'sightseeing', row.id, 'image'],
@@ -63,7 +53,11 @@ function SightseeingThumbnail({ row }: { row: Sightseeing }) {
   });
   if (row.hasImage && image.data?.url)
     return <img src={image.data.url} alt="" className="h-12 w-16 rounded object-cover" />;
-  return <div className="flex h-12 w-16 items-center justify-center rounded bg-slate-100"><ImageIcon className="h-5 w-5 text-slate-300" /></div>;
+  return (
+    <div className="flex h-12 w-16 items-center justify-center rounded bg-slate-100">
+      <ImageIcon className="h-5 w-5 text-slate-300" />
+    </div>
+  );
 }
 
 /**
@@ -164,7 +158,16 @@ export function SightseeingPage() {
       />
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b px-5 py-4"><h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>{canCreate && <Link to="/masters/sightseeing/new"><Button size="sm"><Plus className="h-4 w-4" /> Add New Sightseeing</Button></Link>}</div>
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>
+          {canCreate && (
+            <Link to="/masters/sightseeing/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> Add New Sightseeing
+              </Button>
+            </Link>
+          )}
+        </div>
         <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_220px_220px_160px]">
           <label className="relative">
             <span className="sr-only">Search sightseeing</span>
@@ -230,9 +233,7 @@ export function SightseeingPage() {
           <div className="p-12 text-center">
             <MapPinned className="mx-auto h-10 w-10 text-slate-300" />
             <h2 className="mt-3 font-semibold">No sightseeing found</h2>
-            <p className="text-sm text-slate-500">
-              {emptyMessage}
-            </p>
+            <p className="text-sm text-slate-500">{emptyMessage}</p>
           </div>
         ) : (
           <>
@@ -240,174 +241,226 @@ export function SightseeingPage() {
             <div className="hidden md:block">
               {groups.map(([destinationId, destination]) => {
                 const isOpen = openDestinations.has(destinationId);
-                const toggle = () => setOpenDestinations((current) => { const next = new Set(current); if (next.has(destinationId)) next.delete(destinationId); else next.add(destinationId); return next; });
-                return <section key={destinationId} className="mb-4 overflow-hidden rounded-lg border last:mb-0">
-                  <header className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3">
-                    <button type="button" onClick={toggle} aria-expanded={isOpen} className="flex items-center gap-2 text-left">
-                      {isOpen ? <ChevronDown className="h-5 w-5 text-slate-500" /> : <ChevronRight className="h-5 w-5 text-slate-500" />}
-                      <MapPinned className="h-4 w-4 text-brand-600" aria-hidden="true" />
-                      <h2 className="font-semibold text-brand-700">{destination.name}</h2>
-                      <span className="text-xs text-slate-500">
-                        {[...destination.cities.values()].reduce(
-                          (total, city) => total + city.items.length,
-                          0,
-                        )}{' '}
-                        attractions ({destination.cities.size}{' '}
-                        {destination.cities.size === 1 ? 'city' : 'cities'})
-                      </span>
-                    </button>
-                    <div className="flex gap-2">{canCreate && <Link to={`/masters/sightseeing/new?destinationId=${destinationId}`}><Button size="sm" variant="secondary"><Plus className="h-4 w-4" /> Add Sightseeing</Button></Link>}<Link to={`/masters/destinations/${destinationId}`}><Button size="sm" variant="secondary">View Destination</Button></Link></div>
-                  </header>
-
-                  {isOpen && <>{[...destination.cities.entries()].map(([cityId, city]) => (
-                    <div key={cityId}>
-                      <div className="flex items-center gap-2 border-y bg-slate-100/70 px-4 py-1.5">
-                        <Building2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-                        <span className="text-xs font-semibold text-slate-700">{city.name}</span>
-                        <span className="rounded bg-slate-200 px-1.5 text-[11px] font-semibold text-slate-700">
-                          {city.items.length}
+                const toggle = () =>
+                  setOpenDestinations((current) => {
+                    const next = new Set(current);
+                    if (next.has(destinationId)) next.delete(destinationId);
+                    else next.add(destinationId);
+                    return next;
+                  });
+                return (
+                  <section
+                    key={destinationId}
+                    className="mb-4 overflow-hidden rounded-lg border last:mb-0"
+                  >
+                    <header className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={toggle}
+                        aria-expanded={isOpen}
+                        className="flex items-center gap-2 text-left"
+                      >
+                        {isOpen ? (
+                          <ChevronDown className="h-5 w-5 text-slate-500" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-slate-500" />
+                        )}
+                        <MapPinned className="h-4 w-4 text-brand-600" aria-hidden="true" />
+                        <h2 className="font-semibold text-brand-700">{destination.name}</h2>
+                        <span className="text-xs text-slate-500">
+                          {[...destination.cities.values()].reduce(
+                            (total, city) => total + city.items.length,
+                            0,
+                          )}{' '}
+                          attractions ({destination.cities.size}{' '}
+                          {destination.cities.size === 1 ? 'city' : 'cities'})
                         </span>
+                      </button>
+                      <div className="flex gap-2">
+                        {canCreate && (
+                          <Link to={`/masters/sightseeing/new?destinationId=${destinationId}`}>
+                            <Button size="sm" variant="secondary">
+                              <Plus className="h-4 w-4" /> Add Sightseeing
+                            </Button>
+                          </Link>
+                        )}
+                        <Link to={`/masters/destinations/${destinationId}`}>
+                          <Button size="sm" variant="secondary">
+                            View Destination
+                          </Button>
+                        </Link>
                       </div>
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="sr-only">
-                          <tr>
-                            <th>Image</th>
-                            <th>Title</th>
-                            <th>City</th>
-                            <th>Sequence</th>
-                            <th>Duration</th>
-                            <th>Start time</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {city.items.map((row) => (
-                            <tr key={row.id} className="hover:bg-slate-50">
-                              <td className="w-16 px-4 py-2.5">
-                                <SightseeingThumbnail row={row} />
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <Link
-                                  to={`/masters/sightseeing/${row.id}`}
-                                  className="font-semibold text-brand-700 hover:underline"
-                                >
-                                  {row.title}
-                                  {row.isGlobal && <GlobalBadge />}
-                                </Link>
-                                <RichTextPreview
-                                  html={row.description}
-                                  className="mt-0.5 text-xs text-slate-500"
-                                />
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                  {row.city.name}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className="rounded bg-brand-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                                  {row.sequence}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                {row.estimatedHours != null ? (
-                                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
-                                    {row.estimatedHours.toFixed(1)}h
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">—</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2.5 text-slate-600">
-                                {row.suggestedStartTime ? (
-                                  <span className="inline-flex items-center gap-1 text-xs">
-                                    <Clock className="h-3 w-3 text-slate-400" aria-hidden="true" />
-                                    {formatTime(row.suggestedStartTime)}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">—</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <StatusBadge value={row.status} />
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <div className="flex gap-1">
-                                  {canUpdate && row.status !== 'ARCHIVED' && !row.isGlobal && (
-                                    <>
-                                      <button
-                                        aria-label={`Move ${row.title} up`}
-                                        onClick={() =>
-                                          reorder.mutate({ id: row.id, direction: 'UP' })
-                                        }
-                                        className="rounded border p-1.5 text-slate-600 hover:bg-slate-100"
+                    </header>
+
+                    {isOpen && (
+                      <>
+                        {[...destination.cities.entries()].map(([cityId, city]) => (
+                          <div key={cityId}>
+                            <div className="flex items-center gap-2 border-y bg-slate-100/70 px-4 py-1.5">
+                              <Building2
+                                className="h-3.5 w-3.5 text-slate-500"
+                                aria-hidden="true"
+                              />
+                              <span className="text-xs font-semibold text-slate-700">
+                                {city.name}
+                              </span>
+                              <span className="rounded bg-slate-200 px-1.5 text-[11px] font-semibold text-slate-700">
+                                {city.items.length}
+                              </span>
+                            </div>
+                            <table className="min-w-full text-left text-sm">
+                              <thead className="sr-only">
+                                <tr>
+                                  <th>Image</th>
+                                  <th>Title</th>
+                                  <th>City</th>
+                                  <th>Sequence</th>
+                                  <th>Duration</th>
+                                  <th>Start time</th>
+                                  <th>Status</th>
+                                  <th>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {city.items.map((row) => (
+                                  <tr key={row.id} className="hover:bg-slate-50">
+                                    <td className="w-16 px-4 py-2.5">
+                                      <SightseeingThumbnail row={row} />
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <Link
+                                        to={`/masters/sightseeing/${row.id}`}
+                                        className="font-semibold text-brand-700 hover:underline"
                                       >
-                                        <ArrowUp className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
-                                        aria-label={`Move ${row.title} down`}
-                                        onClick={() =>
-                                          reorder.mutate({ id: row.id, direction: 'DOWN' })
-                                        }
-                                        className="rounded border p-1.5 text-slate-600 hover:bg-slate-100"
-                                      >
-                                        <ArrowDown className="h-3.5 w-3.5" />
-                                      </button>
-                                    </>
-                                  )}
-                                  <Link
-                                    aria-label={`View ${row.title}`}
-                                    to={`/masters/sightseeing/${row.id}`}
-                                    className="rounded bg-cyan-600 p-1.5 text-white"
-                                  >
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </Link>
-                                  {canUpdate && !row.isGlobal && (
-                                    <Link
-                                      aria-label={`Edit ${row.title}`}
-                                      to={`/masters/sightseeing/${row.id}/edit`}
-                                      className="rounded bg-brand-600 p-1.5 text-white"
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Link>
-                                  )}
-                                  {row.canHide && (
-                                    <button
-                                      aria-label={`Hide ${row.title} for this company`}
-                                      title="Hide this global record for your company"
-                                      onClick={() => hideRow(row.id)}
-                                      className="rounded bg-amber-600 p-1.5 text-white"
-                                    >
-                                      <EyeOff className="h-3.5 w-3.5" />
-                                    </button>
-                                  )}
-                                  {canArchive && row.status !== 'ARCHIVED' && !row.isGlobal && (
-                                    <button
-                                      aria-label={`Archive ${row.title}`}
-                                      onClick={() => archiveRow(row.id)}
-                                      className="rounded bg-red-600 p-1.5 text-white"
-                                    >
-                                      <Archive className="h-3.5 w-3.5" />
-                                    </button>
-                                  )}
-                                  {canUpdate && row.status === 'ARCHIVED' && !row.isGlobal && (
-                                    <button
-                                      aria-label={`Restore ${row.title}`}
-                                      onClick={() => setRestoreTarget(row)}
-                                      className="rounded bg-emerald-600 p-1.5 text-white"
-                                    >
-                                      <RotateCcw className="h-3.5 w-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}</>}</section>;
+                                        {row.title}
+                                        {row.isGlobal && <GlobalBadge />}
+                                      </Link>
+                                      <RichTextPreview
+                                        html={row.description}
+                                        className="mt-0.5 text-xs text-slate-500"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                        {row.city.name}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <span className="rounded bg-brand-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                        {row.sequence}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      {row.estimatedHours != null ? (
+                                        <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                                          {row.estimatedHours.toFixed(1)}h
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-slate-600">
+                                      {row.suggestedStartTime ? (
+                                        <span className="inline-flex items-center gap-1 text-xs">
+                                          <Clock
+                                            className="h-3 w-3 text-slate-400"
+                                            aria-hidden="true"
+                                          />
+                                          {formatTime12Hour(row.suggestedStartTime)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <StatusBadge value={row.status} />
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                      <div className="flex gap-1">
+                                        {canUpdate &&
+                                          row.status !== 'ARCHIVED' &&
+                                          !row.isGlobal && (
+                                            <>
+                                              <button
+                                                aria-label={`Move ${row.title} up`}
+                                                onClick={() =>
+                                                  reorder.mutate({ id: row.id, direction: 'UP' })
+                                                }
+                                                className="rounded border p-1.5 text-slate-600 hover:bg-slate-100"
+                                              >
+                                                <ArrowUp className="h-3.5 w-3.5" />
+                                              </button>
+                                              <button
+                                                aria-label={`Move ${row.title} down`}
+                                                onClick={() =>
+                                                  reorder.mutate({ id: row.id, direction: 'DOWN' })
+                                                }
+                                                className="rounded border p-1.5 text-slate-600 hover:bg-slate-100"
+                                              >
+                                                <ArrowDown className="h-3.5 w-3.5" />
+                                              </button>
+                                            </>
+                                          )}
+                                        <Link
+                                          aria-label={`View ${row.title}`}
+                                          to={`/masters/sightseeing/${row.id}`}
+                                          className="rounded bg-cyan-600 p-1.5 text-white"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" />
+                                        </Link>
+                                        {canUpdate && !row.isGlobal && (
+                                          <Link
+                                            aria-label={`Edit ${row.title}`}
+                                            to={`/masters/sightseeing/${row.id}/edit`}
+                                            className="rounded bg-brand-600 p-1.5 text-white"
+                                          >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                          </Link>
+                                        )}
+                                        {row.canHide && (
+                                          <button
+                                            aria-label={`Hide ${row.title} for this company`}
+                                            title="Hide this global record for your company"
+                                            onClick={() => hideRow(row.id)}
+                                            className="rounded bg-amber-600 p-1.5 text-white"
+                                          >
+                                            <EyeOff className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                        {canArchive &&
+                                          row.status !== 'ARCHIVED' &&
+                                          !row.isGlobal && (
+                                            <button
+                                              aria-label={`Archive ${row.title}`}
+                                              onClick={() => archiveRow(row.id)}
+                                              className="rounded bg-red-600 p-1.5 text-white"
+                                            >
+                                              <Archive className="h-3.5 w-3.5" />
+                                            </button>
+                                          )}
+                                        {canUpdate &&
+                                          row.status === 'ARCHIVED' &&
+                                          !row.isGlobal && (
+                                            <button
+                                              aria-label={`Restore ${row.title}`}
+                                              onClick={() => setRestoreTarget(row)}
+                                              className="rounded bg-emerald-600 p-1.5 text-white"
+                                            >
+                                              <RotateCcw className="h-3.5 w-3.5" />
+                                            </button>
+                                          )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </section>
+                );
               })}
             </div>
 
@@ -446,7 +499,6 @@ export function SightseeingPage() {
                 </article>
               ))}
             </div>
-
           </>
         )}
       </section>
@@ -490,10 +542,7 @@ export function SightseeingPage() {
               <Button variant="secondary" onClick={() => setRestoreTarget(null)}>
                 Cancel
               </Button>
-              <Button
-                isLoading={restore.isPending}
-                onClick={() => confirmRestore(restoreTarget)}
-              >
+              <Button isLoading={restore.isPending} onClick={() => confirmRestore(restoreTarget)}>
                 Restore Sightseeing
               </Button>
             </div>

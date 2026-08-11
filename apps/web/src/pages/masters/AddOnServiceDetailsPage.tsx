@@ -110,9 +110,7 @@ export function AddOnServiceDetailsPage() {
               <th scope="row" className="bg-slate-50 px-4 py-2.5 font-medium text-slate-700">
                 Created
               </th>
-              <td className="px-4 py-2.5 text-slate-800">
-                {formatMasterDate(value.createdAt)}
-              </td>
+              <td className="px-4 py-2.5 text-slate-800">{formatMasterDate(value.createdAt)}</td>
             </tr>
             <tr>
               <th scope="row" className="bg-slate-50 px-4 py-2.5 font-medium text-slate-700">
@@ -124,9 +122,7 @@ export function AddOnServiceDetailsPage() {
               <th scope="row" className="bg-slate-50 px-4 py-2.5 font-medium text-slate-700">
                 Last Updated
               </th>
-              <td className="px-4 py-2.5 text-slate-800">
-                {formatMasterDate(value.updatedAt)}
-              </td>
+              <td className="px-4 py-2.5 text-slate-800">{formatMasterDate(value.updatedAt)}</td>
             </tr>
             <tr>
               <th scope="row" className="bg-slate-50 px-4 py-2.5 font-medium text-slate-700">

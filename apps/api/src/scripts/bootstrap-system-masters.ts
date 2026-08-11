@@ -16,7 +16,9 @@ async function main() {
   console.log('System Global Masters bootstrap completed.');
   console.log(`System company: ${result.systemCompany}`);
   console.log(`System admin: ${result.systemAdmin}`);
-  console.log(`Password updated: ${result.passwordUpdated ? 'yes (reset requested)' : 'no (unchanged)'}`);
+  console.log(
+    `Password updated: ${result.passwordUpdated ? 'yes (reset requested)' : 'no (unchanged)'}`,
+  );
   console.log('Permissions: synchronized');
 }
 

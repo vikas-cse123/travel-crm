@@ -35,11 +35,11 @@ export function AddNotePage() {
       {
         content: content.trim(),
         ...(withReminder && reminderAt
-            ? {
-                reminderAt: new Date(reminderAt).toISOString(),
-                ...(reminderNotes.trim() ? { reminderNotes: reminderNotes.trim() } : {}),
-              }
-            : {}),
+          ? {
+              reminderAt: new Date(reminderAt).toISOString(),
+              ...(reminderNotes.trim() ? { reminderNotes: reminderNotes.trim() } : {}),
+            }
+          : {}),
       },
       { onSuccess: () => navigate(`/queries/${queryId}/notes`) },
     );

@@ -55,7 +55,10 @@ export async function getSystemCompanyId(): Promise<string | null> {
     take: 2,
   });
   if (flagged.length === 1) {
-    cachedSystemCompanyId = { id: flagged[0]!.id, expiresAt: Date.now() + SYSTEM_COMPANY_ID_CACHE_MS };
+    cachedSystemCompanyId = {
+      id: flagged[0]!.id,
+      expiresAt: Date.now() + SYSTEM_COMPANY_ID_CACHE_MS,
+    };
     return flagged[0]!.id;
   }
   if (flagged.length > 1) {
@@ -103,10 +106,20 @@ export async function resolveMasterScope(
 ): Promise<MasterScope> {
   const systemCompanyId = await getSystemCompanyId();
   if (!systemCompanyId) {
-    return { systemCompanyId: null, tenantCompanyId: auth.companyId, isSystemAdmin: false, hiddenMasterIds: [] };
+    return {
+      systemCompanyId: null,
+      tenantCompanyId: auth.companyId,
+      isSystemAdmin: false,
+      hiddenMasterIds: [],
+    };
   }
   if (auth.companyId === systemCompanyId) {
-    return { systemCompanyId, tenantCompanyId: auth.companyId, isSystemAdmin: true, hiddenMasterIds: [] };
+    return {
+      systemCompanyId,
+      tenantCompanyId: auth.companyId,
+      isSystemAdmin: true,
+      hiddenMasterIds: [],
+    };
   }
   const hiddenRows = await prisma.companyHiddenMaster.findMany({
     where: { tenantId: auth.companyId, masterType, restoredAt: null },
@@ -181,9 +194,7 @@ export function assertCanModifyMaster(
     );
   }
   if (!global && scope.isSystemAdmin) {
-    throw new ForbiddenError(
-      'System administrators cannot modify tenant-owned master records.',
-    );
+    throw new ForbiddenError('System administrators cannot modify tenant-owned master records.');
   }
 }
 

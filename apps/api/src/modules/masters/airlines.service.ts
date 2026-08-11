@@ -115,7 +115,12 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_AIRLINES_UPDATE);
 }
 
-async function getAirline(auth: AuthContext, airlineId: string, scope: MasterScope, forManage = false) {
+async function getAirline(
+  auth: AuthContext,
+  airlineId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageAirlines = forManage ? true : await canManage(auth);
   const airline = await prisma.airline.findFirst({
     where: {

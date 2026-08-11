@@ -602,9 +602,8 @@ async function restrictedClient(ownerEmail: string, keys: string[], email: strin
   });
   const client = createAuthClient(app);
   expect(
-    (
-      (await client.post('/api/auth/login', { email, password: 'Sales@2026', rememberMe: false }))
-    ).status,
+    (await client.post('/api/auth/login', { email, password: 'Sales@2026', rememberMe: false }))
+      .status,
   ).toBe(200);
   return client;
 }
@@ -661,7 +660,9 @@ describe('Phase 17 lead workflow parity', () => {
 
     // Record a view through the public endpoint.
     const token = rowBefore.weblink.publicUrl.split('/q/')[1];
-    await request(app).get(`/public/quotations/${token}`).set('X-Forwarded-For', '203.0.113.99');
+    await request(app)
+      .get(`/api/public/quotations/${token}`)
+      .set('X-Forwarded-For', '203.0.113.99');
 
     const listAfter = await client.get('/api/queries');
     const rowAfter = listAfter.body.data.data.find((r: { id: string }) => r.id === lead.id);
@@ -693,7 +694,9 @@ describe('Phase 17 lead workflow parity', () => {
       quotationId: quotation.id,
       isGenerated: true,
     });
-    expect(row.weblink.publicUrl).toMatch(/^https:\/\/quotation\.p17e\.test\/q\/[A-Za-z0-9_-]{32,}$/);
+    expect(row.weblink.publicUrl).toMatch(
+      /^https:\/\/quotation\.p17e\.test\/q\/[A-Za-z0-9_-]{32,}$/,
+    );
     expect(row.weblink.publicUrl).not.toContain('app.travelagencycrm.in');
   });
 
@@ -1092,8 +1095,16 @@ describe('Lead date-range filtering', () => {
 
   it('filters by Created Date from-only (records on or after From)', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90001 00001', name: 'Early' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-10T00:00:00Z'), phone: '+91 90001 00002', name: 'Later' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      phone: '+91 90001 00001',
+      name: 'Early',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-10T00:00:00Z'),
+      phone: '+91 90001 00002',
+      name: 'Later',
+    });
     const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-05');
     expect(res.status).toBe(200);
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
@@ -1103,8 +1114,16 @@ describe('Lead date-range filtering', () => {
 
   it('filters by Created Date to-only (records on or before To)', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90002 00001', name: 'Early' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-10T00:00:00Z'), phone: '+91 90002 00002', name: 'Later' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      phone: '+91 90002 00001',
+      name: 'Early',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-10T00:00:00Z'),
+      phone: '+91 90002 00002',
+      name: 'Later',
+    });
     const res = await client.get('/api/queries?dateType=CREATED_DATE&dateTo=2026-08-05');
     expect(res.status).toBe(200);
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
@@ -1114,13 +1133,31 @@ describe('Lead date-range filtering', () => {
 
   it('filters by Created Date full range and includes both boundaries', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-01T00:00:00Z'), phone: '+91 90003 00001', name: 'BoundaryFrom' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-04T12:00:00Z'), phone: '+91 90003 00002', name: 'Middle' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      phone: '+91 90003 00001',
+      name: 'BoundaryFrom',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-04T12:00:00Z'),
+      phone: '+91 90003 00002',
+      name: 'Middle',
+    });
     // 2026-08-07T18:29:59Z is still Aug 7 in Asia/Kolkata (+05:30).
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-07T18:29:59Z'), phone: '+91 90003 00003', name: 'BoundaryTo' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-07T18:29:59Z'),
+      phone: '+91 90003 00003',
+      name: 'BoundaryTo',
+    });
     // 2026-08-07T18:30:00Z is exactly Aug 8 00:00 in Asia/Kolkata -> excluded.
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-07T18:30:00Z'), phone: '+91 90003 00004', name: 'After' });
-    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-07T18:30:00Z'),
+      phone: '+91 90003 00004',
+      name: 'After',
+    });
+    const res = await client.get(
+      '/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    );
     expect(res.status).toBe(200);
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
     expect(names.sort()).toEqual(['BoundaryFrom', 'BoundaryTo', 'Middle']);
@@ -1129,16 +1166,36 @@ describe('Lead date-range filtering', () => {
 
   it('excludes a record after To and before From', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-07-31T00:00:00Z'), phone: '+91 90004 00001', name: 'Before' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-09T00:00:00Z'), phone: '+91 90004 00002', name: 'After' });
-    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-07-31T00:00:00Z'),
+      phone: '+91 90004 00001',
+      name: 'Before',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-09T00:00:00Z'),
+      phone: '+91 90004 00002',
+      name: 'After',
+    });
+    const res = await client.get(
+      '/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    );
     expect(res.body.data.pagination.total).toBe(0);
   });
 
   it('filters by Travel Date from-only', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90005 00001', name: 'TravelAug' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-07-01', phone: '+91 90005 00002', name: 'TravelJul' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-08-15',
+      phone: '+91 90005 00001',
+      name: 'TravelAug',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-07-01',
+      phone: '+91 90005 00002',
+      name: 'TravelJul',
+    });
     const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01');
     expect(res.status).toBe(200);
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
@@ -1148,8 +1205,18 @@ describe('Lead date-range filtering', () => {
 
   it('filters by Travel Date to-only', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-07-01', phone: '+91 90006 00001', name: 'TravelJul' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90006 00002', name: 'TravelAug' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-07-01',
+      phone: '+91 90006 00001',
+      name: 'TravelJul',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-08-15',
+      phone: '+91 90006 00002',
+      name: 'TravelAug',
+    });
     const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateTo=2026-08-01');
     expect(res.status).toBe(200);
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
@@ -1159,17 +1226,44 @@ describe('Lead date-range filtering', () => {
 
   it('filters by Travel Date full inclusive range', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-10', phone: '+91 90007 00001', name: 'InRange' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-20', phone: '+91 90007 00002', name: 'InRangeTo' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-09-01', phone: '+91 90007 00003', name: 'OutOfRange' });
-    const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-08-10',
+      phone: '+91 90007 00001',
+      name: 'InRange',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-08-20',
+      phone: '+91 90007 00002',
+      name: 'InRangeTo',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-09-01',
+      phone: '+91 90007 00003',
+      name: 'OutOfRange',
+    });
+    const res = await client.get(
+      '/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31',
+    );
     expect(res.body.data.pagination.total).toBe(2);
   });
 
   it('excludes leads with null travelDate when Travel Date filtering is active', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: null, phone: '+91 90008 00001', name: 'NoTravelDate' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90008 00002', name: 'HasTravelDate' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: null,
+      phone: '+91 90008 00001',
+      name: 'NoTravelDate',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: '2026-08-15',
+      phone: '+91 90008 00002',
+      name: 'HasTravelDate',
+    });
     const res = await client.get('/api/queries?dateType=TRAVEL_DATE&dateFrom=2026-08-01');
     const names = res.body.data.data.map((lead: { customerName: string }) => lead.customerName);
     expect(names).toEqual(['HasTravelDate']);
@@ -1178,7 +1272,12 @@ describe('Lead date-range filtering', () => {
 
   it('keeps leads with null travelDate visible without Travel Date filtering', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-01-01T00:00:00Z'), travelStartDate: null, phone: '+91 90009 00001', name: 'NoTravelDate' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      travelStartDate: null,
+      phone: '+91 90009 00001',
+      name: 'NoTravelDate',
+    });
     const res = await client.get('/api/queries');
     expect(res.body.data.pagination.total).toBe(1);
     expect(res.body.data.data[0].customerName).toBe('NoTravelDate');
@@ -1186,7 +1285,9 @@ describe('Lead date-range filtering', () => {
 
   it('rejects From greater than To', async () => {
     const { client } = await ownerClient();
-    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01');
+    const res = await client.get(
+      '/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01',
+    );
     expect(res.status).toBe(400);
   });
 
@@ -1211,9 +1312,15 @@ describe('Lead date-range filtering', () => {
   it('enforces tenant isolation with the date filter', async () => {
     await owner('owner@alpha-date.test', 'Alpha Date');
     const alphaCompany = await db.company.findUniqueOrThrow({ where: { slug: 'alpha-date' } });
-    await createLeadAt(alphaCompany.id, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90010 00001', name: 'AlphaLead' });
+    await createLeadAt(alphaCompany.id, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      phone: '+91 90010 00001',
+      name: 'AlphaLead',
+    });
     const beta = await owner('owner@beta-date.test', 'Beta Date');
-    const res = await beta.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    const res = await beta.get(
+      '/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    );
     expect(res.status).toBe(200);
     expect(res.body.data.pagination.total).toBe(0);
   });
@@ -1221,8 +1328,22 @@ describe('Lead date-range filtering', () => {
   it('combines the date range with search, assignee, type, stage and Hot', async () => {
     const { client, companyId } = await ownerClient();
     const salesUser = await db.user.findFirstOrThrow({ where: { companyId } });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90011 00001', name: 'Singapore Bound', leadType: 'HOT', leadStage: 'NEW_LEAD' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), travelStartDate: '2026-08-15', phone: '+91 90011 00002', name: 'Another Lead', leadType: 'COLD', leadStage: 'NEW_LEAD' });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      travelStartDate: '2026-08-15',
+      phone: '+91 90011 00001',
+      name: 'Singapore Bound',
+      leadType: 'HOT',
+      leadStage: 'NEW_LEAD',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      travelStartDate: '2026-08-15',
+      phone: '+91 90011 00002',
+      name: 'Another Lead',
+      leadType: 'COLD',
+      leadStage: 'NEW_LEAD',
+    });
     const res = await client.get(
       `/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&search=Singapore&leadType=HOT&leadStage=NEW_LEAD&assignedToId=${salesUser.id}`,
     );
@@ -1233,18 +1354,48 @@ describe('Lead date-range filtering', () => {
 
   it('reports the filtered total in pagination', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90012 00001', name: 'InRange' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), phone: '+91 90012 00002', name: 'OutOfRange' });
-    const res = await client.get('/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&page=1&pageSize=10');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      phone: '+91 90012 00001',
+      name: 'InRange',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-20T00:00:00Z'),
+      phone: '+91 90012 00002',
+      name: 'OutOfRange',
+    });
+    const res = await client.get(
+      '/api/queries?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07&page=1&pageSize=10',
+    );
     expect(res.body.data.pagination).toMatchObject({ page: 1, pageSize: 10, total: 1 });
   });
 
   it('applies the same date filter to analytics counts and distributions', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90013 00001', name: 'InRange' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'BOOKING_CONFIRMED', phone: '+91 90013 00002', name: 'InRangeWon' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90013 00003', name: 'OutOfRange' });
-    const res = await client.get('/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      leadType: 'HOT',
+      leadStage: 'NEW_LEAD',
+      phone: '+91 90013 00001',
+      name: 'InRange',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      leadType: 'HOT',
+      leadStage: 'BOOKING_CONFIRMED',
+      phone: '+91 90013 00002',
+      name: 'InRangeWon',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-20T00:00:00Z'),
+      leadType: 'HOT',
+      leadStage: 'NEW_LEAD',
+      phone: '+91 90013 00003',
+      name: 'OutOfRange',
+    });
+    const res = await client.get(
+      '/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    );
     expect(res.status).toBe(200);
     expect(res.body.data.totalLeads).toBe(2);
     expect(res.body.data.bookingConfirmed).toBe(1);
@@ -1254,9 +1405,23 @@ describe('Lead date-range filtering', () => {
 
   it('uses the same date filter for Type and Stage counts in analytics', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'COLD', leadStage: 'LOST', phone: '+91 90014 00001', name: 'ColdLost' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), leadType: 'HOT', leadStage: 'NEW_LEAD', phone: '+91 90014 00002', name: 'HotNew' });
-    const res = await client.get('/api/queries/analytics?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      leadType: 'COLD',
+      leadStage: 'LOST',
+      phone: '+91 90014 00001',
+      name: 'ColdLost',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      leadType: 'HOT',
+      leadStage: 'NEW_LEAD',
+      phone: '+91 90014 00002',
+      name: 'HotNew',
+    });
+    const res = await client.get(
+      '/api/queries/analytics?dateType=TRAVEL_DATE&dateFrom=2026-08-01&dateTo=2026-08-31',
+    );
     // No travel dates set -> zero leads within the travel range.
     expect(res.body.data.totalLeads).toBe(0);
     expect(res.body.data.byLeadType).toEqual({});
@@ -1265,9 +1430,19 @@ describe('Lead date-range filtering', () => {
 
   it('applies the date filter to the CSV export', async () => {
     const { client, companyId } = await ownerClient();
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-03T00:00:00Z'), phone: '+91 90015 00001', name: 'ExportInRange' });
-    await createLeadAt(companyId, { createdAt: new Date('2026-08-20T00:00:00Z'), phone: '+91 90015 00002', name: 'ExportOutOfRange' });
-    const res = await client.get('/api/queries/export?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07');
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-03T00:00:00Z'),
+      phone: '+91 90015 00001',
+      name: 'ExportInRange',
+    });
+    await createLeadAt(companyId, {
+      createdAt: new Date('2026-08-20T00:00:00Z'),
+      phone: '+91 90015 00002',
+      name: 'ExportOutOfRange',
+    });
+    const res = await client.get(
+      '/api/queries/export?dateType=CREATED_DATE&dateFrom=2026-08-01&dateTo=2026-08-07',
+    );
     expect(res.status).toBe(200);
     expect(res.body.data.content).toContain('ExportInRange');
     expect(res.body.data.content).not.toContain('ExportOutOfRange');
@@ -1275,7 +1450,9 @@ describe('Lead date-range filtering', () => {
 
   it('rejects the date filter on analytics when From is after To', async () => {
     const { client } = await ownerClient();
-    const res = await client.get('/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01');
+    const res = await client.get(
+      '/api/queries/analytics?dateType=CREATED_DATE&dateFrom=2026-08-07&dateTo=2026-08-01',
+    );
     expect(res.status).toBe(400);
   });
 });

@@ -39,11 +39,7 @@ router.post(
   asyncHandler(authController.register),
 );
 
-router.post(
-  '/login',
-  validateRequest({ body: loginSchema }),
-  asyncHandler(authController.login),
-);
+router.post('/login', validateRequest({ body: loginSchema }), asyncHandler(authController.login));
 
 router.post(
   '/forgot-password',

@@ -13,6 +13,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 import {
   BOOKING_COST_CATEGORIES,
   BOOKING_DOCUMENT_TYPES,
@@ -264,8 +265,8 @@ export function BookingWorkspacePage() {
                   booking.quotationVersion ? `v${booking.quotationVersion.versionNumber}` : 'None',
                 ],
                 ['Booked by', booking.bookedBy.fullName],
-                ['Created', new Date(booking.createdAt).toLocaleString()],
-                ['Updated', new Date(booking.updatedAt).toLocaleString()],
+                ['Created', formatDateTime12Hour(booking.createdAt)],
+                ['Updated', formatDateTime12Hour(booking.updatedAt)],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-xs uppercase text-slate-500">{label}</dt>
@@ -841,7 +842,7 @@ export function BookingWorkspacePage() {
                           <strong>{payment.paymentNumber}</strong>
                           <p className="text-xs text-slate-500">
                             {labelForLookup(payment.paymentMethod)} ·{' '}
-                            {new Date(payment.receivedAt).toLocaleString()} ·{' '}
+                            {formatDateTime12Hour(payment.receivedAt)} ·{' '}
                             {labelForLookup(payment.paymentStatus)}
                           </p>
                         </div>
@@ -1305,7 +1306,7 @@ export function BookingWorkspacePage() {
                   <div className="flex justify-between">
                     <strong>{labelForLookup(note.noteType)}</strong>
                     <span className="text-xs text-slate-500">
-                      {new Date(note.createdAt).toLocaleString()}
+                      {formatDateTime12Hour(note.createdAt)}
                     </span>
                   </div>
                   <p className="mt-1 text-sm">{note.content}</p>
@@ -1363,9 +1364,7 @@ export function BookingWorkspacePage() {
                 <p className="text-sm text-slate-600">
                   {item.actor?.fullName ?? 'System'} · {item.description}
                 </p>
-                <p className="text-xs text-slate-400">
-                  {new Date(item.timestamp).toLocaleString()}
-                </p>
+                <p className="text-xs text-slate-400">{formatDateTime12Hour(item.timestamp)}</p>
               </article>
             ))}
           </div>
@@ -1385,7 +1384,7 @@ export function BookingWorkspacePage() {
                   </div>
                   <p className="text-sm text-slate-500">
                     {email.recipientEmail} · {labelForLookup(email.emailType)} ·{' '}
-                    {new Date(email.createdAt).toLocaleString()}
+                    {formatDateTime12Hour(email.createdAt)}
                   </p>
                 </article>
               ))}

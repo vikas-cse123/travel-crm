@@ -43,7 +43,7 @@ export function AppShell() {
       >
         <Topbar onOpenMobile={() => setMobileOpen(true)} breadcrumbs={breadcrumbs} />
 
-        <main className="mx-auto w-full max-w-[1440px] p-4 sm:p-6">
+        <main className="w-full p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

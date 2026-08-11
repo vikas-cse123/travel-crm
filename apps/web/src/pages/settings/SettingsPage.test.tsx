@@ -71,9 +71,11 @@ describe('Phase 18 settings page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Tax' }));
     expect(await screen.findByLabelText('GSTIN')).toHaveValue('29ABCDE1234F1Z5');
     expect(screen.getByLabelText('TAN')).toHaveValue('ABC12345E');
-    await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
-    expect(await screen.findByLabelText('Timezone')).toHaveValue('Asia/Kolkata');
-    // Default Terms, Primary Colour and Bank Account are UI-hidden.
+    // Preferences, Default Terms, Primary Colour and Bank Account are UI-hidden.
+    // Timezone is fixed at Asia/Kolkata, so the tab and its fields are gone.
+    expect(screen.queryByRole('button', { name: 'Preferences' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Timezone')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Default currency')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Default Terms' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Default quotation terms')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Bank Account' })).not.toBeInTheDocument();
@@ -105,8 +107,8 @@ describe('Phase 18 settings page', () => {
     );
   });
 
-  it('keeps primary colour data intact while hiding the control, and saves preferences', async () => {
-    const mock = stub(settings());
+  it('keeps primary colour data intact while hiding the control', async () => {
+    stub(settings());
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
     // The colour picker/save control is hidden from the UI…
@@ -115,16 +117,8 @@ describe('Phase 18 settings page', () => {
     // …while other branding (logo) remains usable.
     await userEvent.click(screen.getByRole('button', { name: 'Branding' }));
     expect(await screen.findByText('Company logo')).toBeInTheDocument();
-    // Preferences still work.
-    await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
-    await userEvent.selectOptions(screen.getByLabelText('Timezone'), 'Asia/Dubai');
-    await userEvent.selectOptions(screen.getByLabelText('Default currency'), 'AED');
-    await userEvent.click(screen.getByRole('button', { name: 'Save preferences' }));
-    await waitFor(() =>
-      expect(mock.mock.calls.some(([url]) => String(url).endsWith('/settings/preferences'))).toBe(
-        true,
-      ),
-    );
+    // The preferences save control is gone with the tab; no request is possible.
+    expect(screen.queryByRole('button', { name: 'Save preferences' })).not.toBeInTheDocument();
   });
 
   it('saves GSTIN and TAN together and renders field-specific errors', async () => {
@@ -282,8 +276,7 @@ describe('Phase 18 settings page', () => {
     await waitFor(() =>
       expect(
         mock.mock.calls.some(
-          ([url, o]) =>
-            String(url).endsWith('/settings/custom-domain') && o?.method === 'PUT',
+          ([url, o]) => String(url).endsWith('/settings/custom-domain') && o?.method === 'PUT',
         ),
       ).toBe(true),
     );
@@ -295,7 +288,12 @@ describe('Phase 18 settings page', () => {
   });
 
   it('deletes a custom domain after confirmation and returns to the empty state', async () => {
-    const none = domainFixture({ hostname: null, status: 'NONE', validationName: null, validationValue: null });
+    const none = domainFixture({
+      hostname: null,
+      status: 'NONE',
+      validationName: null,
+      validationValue: null,
+    });
     const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/settings/custom-domain') && options?.method === 'DELETE')
@@ -310,16 +308,14 @@ describe('Phase 18 settings page', () => {
     await screen.findByText('quote.travelenfield.in');
     await userEvent.click(screen.getByRole('button', { name: 'Delete Domain' }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete Custom Domain' });
-    expect(dialog).toHaveTextContent(/Remove this custom domain\? Your CRM will no longer be accessible/);
+    expect(dialog).toHaveTextContent(
+      /Remove this custom domain\? Your CRM will no longer be accessible/,
+    );
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Domain' }));
     await waitFor(() =>
-      expect(
-        mock.mock.calls.some(([, o]) => String(o?.method) === 'DELETE'),
-      ).toBe(true),
+      expect(mock.mock.calls.some(([, o]) => String(o?.method) === 'DELETE')).toBe(true),
     );
-    expect(
-      await screen.findByRole('button', { name: 'Add Custom Domain' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add Custom Domain' })).toBeInTheDocument();
     expect(screen.getByText('Custom domain removed.')).toBeInTheDocument();
   });
 
@@ -330,7 +326,12 @@ describe('Phase 18 settings page', () => {
         const url = String(input);
         if (url.endsWith('/settings/custom-domain'))
           return response(
-            domainFixture({ hostname: null, status: 'NONE', validationName: null, validationValue: null }),
+            domainFixture({
+              hostname: null,
+              status: 'NONE',
+              validationName: null,
+              validationValue: null,
+            }),
           );
         return response(settings());
       }),
@@ -338,8 +339,6 @@ describe('Phase 18 settings page', () => {
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
     await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
-    expect(
-      await screen.findByRole('button', { name: 'Add Custom Domain' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add Custom Domain' })).toBeInTheDocument();
   });
 });

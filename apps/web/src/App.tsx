@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/providers/ThemeProvider';
 import { AuthProvider } from '@/features/auth/AuthProvider';
 import { AppRoutes } from '@/routes/AppRoutes';
 import { RouteErrorBoundary } from '@/components/feedback/AppErrorBoundary';
+import { ImageDropPasteManager } from '@/components/media/ImageDropPasteManager';
 
 /**
  * Provider order matters: AuthProvider reads the session through TanStack
@@ -14,6 +15,7 @@ import { RouteErrorBoundary } from '@/components/feedback/AppErrorBoundary';
 export function App() {
   return (
     <ThemeProvider>
+      <ImageDropPasteManager />
       <QueryProvider>
         <AuthProvider>
           <BrowserRouter>

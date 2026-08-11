@@ -186,9 +186,9 @@ describe('Phase 13D master pages', () => {
       (link) => link.textContent,
     );
     expect(titles).toEqual(['Garden', 'Zoo', 'Museum']);
-    const sequences = [
-      ...(table?.querySelectorAll('tbody tr td:nth-child(4) span') ?? []),
-    ].map((badge) => badge.textContent);
+    const sequences = [...(table?.querySelectorAll('tbody tr td:nth-child(4) span') ?? [])].map(
+      (badge) => badge.textContent,
+    );
     expect(sequences).toEqual(['1', '2', '3']);
   });
 
@@ -408,7 +408,7 @@ describe('Phase 13D master pages', () => {
 
     await waitFor(() => expect(screen.getByDisplayValue('Singapore Visa')).toBeInTheDocument());
     expect(screen.getByDisplayValue('3800')).toBeInTheDocument();
-    expect(screen.getByLabelText(/active/i)).toBeChecked();
+    expect(screen.getByLabelText(/status/i)).toHaveValue('ACTIVE');
     expect(screen.getByRole('button', { name: /update/i })).toBeInTheDocument();
   });
 
@@ -442,12 +442,11 @@ describe('Sightseeing master status filter and restore', () => {
     stubApi();
     renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
     const select = screen.getByLabelText('Sightseeing status');
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Current statuses',
-      'ACTIVE',
-      'INACTIVE',
-      'ARCHIVED',
-    ]);
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Current statuses', 'ACTIVE', 'INACTIVE', 'ARCHIVED']);
   });
 
   it('changing status sends the status query parameter', async () => {
@@ -463,9 +462,7 @@ describe('Sightseeing master status filter and restore', () => {
     renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
     await userEvent.selectOptions(screen.getByLabelText('Sightseeing status'), 'ARCHIVED');
     await waitFor(() =>
-      expect(
-        mock.mock.calls.some(([url]) => String(url).includes('status=ARCHIVED')),
-      ).toBe(true),
+      expect(mock.mock.calls.some(([url]) => String(url).includes('status=ARCHIVED'))).toBe(true),
     );
   });
 
@@ -492,13 +489,13 @@ describe('Sightseeing master status filter and restore', () => {
     });
     renderWithProviders(<SightseeingPage />, { route: '/masters/sightseeing' });
     await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
-    await userEvent.click(
-      screen.getByRole('button', { name: `Restore ${sightseeing.title}` }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: `Restore ${sightseeing.title}` }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Restore this sightseeing?')).toBeInTheDocument();
     expect(
-      screen.getByText(/This will make the sightseeing active and available for use in quotations again/),
+      screen.getByText(
+        /This will make the sightseeing active and available for use in quotations again/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restore Sightseeing' })).toBeInTheDocument();

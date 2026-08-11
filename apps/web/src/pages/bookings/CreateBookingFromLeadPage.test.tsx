@@ -152,7 +152,9 @@ describe('Create Booking from Lead page', () => {
       expect(screen.getByText('2A, 1 CWB')).toBeInTheDocument();
       expect(screen.getByText('Booking Confirmed')).toBeInTheDocument();
       expect(screen.getByText(/₹3,500\.00/)).toBeInTheDocument();
-      expect(screen.getByText(/Services will be imported with profit tracking\./)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Services will be imported with profit tracking\./),
+      ).toBeInTheDocument();
     });
 
     it('shows the travel start date beside the duration', async () => {
@@ -243,7 +245,9 @@ describe('Create Booking from Lead page', () => {
       stubPreview(null);
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Create New Customer');
-      expect(screen.queryByText(/No existing customer was found for this phone number/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/No existing customer was found for this phone number/),
+      ).not.toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'New Customer' })).not.toBeInTheDocument();
       // The new-customer form is shown instead.
       expect(screen.getByRole('heading', { name: 'Create New Customer' })).toBeInTheDocument();
@@ -253,7 +257,9 @@ describe('Create Booking from Lead page', () => {
       stubPreview(existingCustomerPreview.customer);
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Lead Information');
-      expect(screen.queryByText(/No existing customer was found for this phone number/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/No existing customer was found for this phone number/),
+      ).not.toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'New Customer' })).not.toBeInTheDocument();
     });
   });
@@ -263,9 +269,15 @@ describe('Create Booking from Lead page', () => {
       stubPreview(null);
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Lead Information');
-      expect(screen.getByRole('checkbox', { name: /TCS Exempt - Exempt this booking from TCS calculation/ })).not.toBeChecked();
       expect(
-        screen.getByText(/Check this option if this international booking should be exempted from TCS calculation/),
+        screen.getByRole('checkbox', {
+          name: /TCS Exempt - Exempt this booking from TCS calculation/,
+        }),
+      ).not.toBeChecked();
+      expect(
+        screen.getByText(
+          /Check this option if this international booking should be exempted from TCS calculation/,
+        ),
       ).toBeInTheDocument();
     });
 
@@ -299,7 +311,11 @@ describe('Create Booking from Lead page', () => {
       await userEvent.selectOptions(screen.getByLabelText(/^State/), 'Goa');
       await userEvent.click(screen.getByRole('button', { name: 'Create Booking' }));
       await waitFor(() => expect(calls.length).toBe(1));
-      expect(submittedBody(calls)).toMatchObject({ tcsExempt: true, gstRate: 18, gstMode: 'ADDITIVE' });
+      expect(submittedBody(calls)).toMatchObject({
+        tcsExempt: true,
+        gstRate: 18,
+        gstMode: 'ADDITIVE',
+      });
     });
   });
 
@@ -309,7 +325,9 @@ describe('Create Booking from Lead page', () => {
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Lead Information');
       const gst = screen.getByLabelText(/GST Rate/);
-      const options = within(gst).getAllByRole('option').map((o) => o.textContent);
+      const options = within(gst)
+        .getAllByRole('option')
+        .map((o) => o.textContent);
       expect(options).toEqual(
         expect.arrayContaining([
           'Default (0% Additive)',
@@ -380,7 +398,9 @@ describe('Create Booking from Lead page', () => {
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Create New Customer');
       const state = screen.getByLabelText(/^State/);
-      const options = within(state).getAllByRole('option').map((o) => o.textContent);
+      const options = within(state)
+        .getAllByRole('option')
+        .map((o) => o.textContent);
       expect(options[0]).toBe('-- Select State --');
       expect(options).toContain('Karnataka');
       expect(options).toContain('Maharashtra');
@@ -449,8 +469,12 @@ describe('Create Booking from Lead page', () => {
       stubPreview(existingCustomerPreview.customer);
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Lead Information');
-      expect(screen.queryByRole('heading', { name: 'Create New Customer' })).not.toBeInTheDocument();
-      expect(screen.getByText(/linked to the existing customer CUS-000010 - Aarav Mehta/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { name: 'Create New Customer' }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/linked to the existing customer CUS-000010 - Aarav Mehta/),
+      ).toBeInTheDocument();
     });
 
     it('opening the page does not create a customer', async () => {
@@ -475,7 +499,9 @@ describe('Create Booking from Lead page', () => {
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Booking Reminders');
       expect(
-        screen.getByText(/Set reminders before travel start date \(10 Oct 2026\)\. Reminders will be sent to the company admin and lead assignee\./),
+        screen.getByText(
+          /Set reminders before travel start date \(10 Oct 2026\)\. Reminders will be sent to the company admin and lead assignee\./,
+        ),
       ).toBeInTheDocument();
     });
 
@@ -501,9 +527,9 @@ describe('Create Booking from Lead page', () => {
       expect(secondOptions.find((option) => option.getAttribute('value') === '2')).toHaveAttribute(
         'disabled',
       );
-      expect(secondOptions.find((option) => option.getAttribute('value') === '3')).not.toHaveAttribute(
-        'disabled',
-      );
+      expect(
+        secondOptions.find((option) => option.getAttribute('value') === '3'),
+      ).not.toHaveAttribute('disabled');
     });
 
     it('shows the inline duplicate error and blocks submission for a real duplicate', async () => {
@@ -555,7 +581,9 @@ describe('Create Booking from Lead page', () => {
       stubPreview(null);
       renderWithProviders(<CreateBookingFromLeadPage leadId="lead-1" quotationId="quote-1" />);
       await screen.findByText('Lead Information');
-      expect(screen.getByLabelText(/Booking Title/)).toHaveValue('Aarav Mehta - Singapore Package for Aarav Mehta');
+      expect(screen.getByLabelText(/Booking Title/)).toHaveValue(
+        'Aarav Mehta - Singapore Package for Aarav Mehta',
+      );
       expect(screen.getByLabelText(/Total Customer Amount/)).toHaveValue(3500);
     });
 

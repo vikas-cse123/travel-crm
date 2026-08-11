@@ -7,6 +7,7 @@ import {
   useNotifications,
 } from '@/features/reminders/reminders.api';
 import { EmptyState, fieldClass, PageHeader, Pill, SummaryCards } from './ReminderUi';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 
 export function NotificationsPage() {
   const [params, setParams] = useSearchParams();
@@ -109,9 +110,7 @@ export function NotificationsPage() {
                   </span>
                 </div>
                 <p className="mt-1 break-words text-sm text-slate-600">{row.message}</p>
-                <p className="mt-2 text-xs text-slate-400">
-                  {new Date(row.createdAt).toLocaleString()}
-                </p>
+                <p className="mt-2 text-xs text-slate-400">{formatDateTime12Hour(row.createdAt)}</p>
               </div>
               <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:items-start sm:gap-1">
                 {row.actionUrl && (

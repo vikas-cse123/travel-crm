@@ -19,9 +19,7 @@ export interface CustomDomainContext {
  * DISABLED domains, unknown hostnames, and reserved platform hostnames never
  * resolve to a Company — there is no fallback to any default/first tenant.
  */
-export async function resolveCustomDomain(
-  hostname: string,
-): Promise<CustomDomainContext | null> {
+export async function resolveCustomDomain(hostname: string): Promise<CustomDomainContext | null> {
   const normalized = normalizeHostname(hostname);
   if (!normalized || isReservedHostname(normalized)) return null;
 

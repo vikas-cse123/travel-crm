@@ -90,11 +90,7 @@ export function errorHandler(
 
   // Anything reaching here is unexpected. Log it fully, tell the client nothing.
   logger.error({ requestId, err: error }, 'Unhandled error');
-  sendError(
-    res,
-    500,
-    ERROR_CODES.INTERNAL_ERROR,
-    'Something went wrong. Please try again.',
-    { requestId },
-  );
+  sendError(res, 500, ERROR_CODES.INTERNAL_ERROR, 'Something went wrong. Please try again.', {
+    requestId,
+  });
 }

@@ -1,5 +1,5 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
-import { Construct } from 'constructs';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { type Construct } from 'constructs';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
@@ -7,7 +7,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import { DeployConfig } from '../config.js';
+import { type DeployConfig } from '../config.js';
 
 export interface AlbFrontendStackProps extends StackProps {
   config: DeployConfig;
@@ -36,7 +36,8 @@ export class AlbFrontendStack extends Stack {
     // --------------------------------------------------- Imported resources
     const vpc = ec2.Vpc.fromVpcAttributes(this, 'Vpc', {
       vpcId: config.vpcId,
-      availabilityZones: config.publicSubnetIds.length === 2 ? ['ap-south-1a', 'ap-south-1b'] : ['ap-south-1a'],
+      availabilityZones:
+        config.publicSubnetIds.length === 2 ? ['ap-south-1a', 'ap-south-1b'] : ['ap-south-1a'],
       publicSubnetIds: config.publicSubnetIds,
     });
 
@@ -49,15 +50,11 @@ export class AlbFrontendStack extends Stack {
       securityGroups: [albSg],
     });
 
-    const listener = elbv2.ApplicationListener.fromApplicationListenerAttributes(
-      this,
-      'Listener',
-      {
-        listenerArn: config.listenerArn,
-        securityGroup: albSg,
-        defaultPort: 443,
-      },
-    );
+    const listener = elbv2.ApplicationListener.fromApplicationListenerAttributes(this, 'Listener', {
+      listenerArn: config.listenerArn,
+      securityGroup: albSg,
+      defaultPort: 443,
+    });
 
     const apiTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(
       this,

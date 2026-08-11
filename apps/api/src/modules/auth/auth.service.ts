@@ -90,8 +90,7 @@ async function toAuthenticatedUser(user: AuthUser): Promise<AuthenticatedUser> {
     mustChangePassword: user.mustChangePassword,
     // The System Admin is identified by membership of the System Global Masters
     // company plus its dedicated role — never by email or display name.
-    isSystemAdmin:
-      user.company.isSystem === true && user.role.name === SYSTEM_ADMIN_ROLE_NAME,
+    isSystemAdmin: user.company.isSystem === true && user.role.name === SYSTEM_ADMIN_ROLE_NAME,
     company: {
       id: user.company.id,
       name: user.company.name,

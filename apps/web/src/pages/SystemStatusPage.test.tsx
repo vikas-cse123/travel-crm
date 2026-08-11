@@ -116,7 +116,9 @@ describe('SystemStatusPage', () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Database is unreachable.');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Something went wrong. Please try again.',
+      );
     });
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });
@@ -129,8 +131,6 @@ describe('SystemStatusPage', () => {
 
     renderPage();
 
-    expect(
-      screen.getByRole('heading', { name: 'Travel CRM', level: 1 }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Travel CRM', level: 1 })).toBeInTheDocument();
   });
 });

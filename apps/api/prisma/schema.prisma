@@ -2846,10 +2846,14 @@ model QuotationTemplateHotelOption {
   category        String?           @db.VarChar(40)
   roomType        String?           @db.VarChar(100)
   mealPlan        String?           @db.VarChar(100)
-  rooms           Int               @default(1)
+  rooms           Int?
   nights          Int
   checkInDate     DateTime?         @db.Date
   checkOutDate    DateTime?         @db.Date
+  checkInTime     String?           @db.VarChar(5)
+  checkOutTime    String?           @db.VarChar(5)
+  showCheckInTime Boolean?
+  showCheckOutTime Boolean?
   internalCost    Decimal?          @db.Decimal(14, 2)
   sellingPrice    Decimal?          @db.Decimal(14, 2)
   selected        Boolean           @default(true)
@@ -3033,6 +3037,52 @@ model QuotationWeblinkView {
   firstViewedAt DateTime        @default(now())
   lastViewedAt  DateTime        @updatedAt
 
+  // Rich visitor snapshot (best-effort; the latest visit overwrites). All
+  // optional — populated by the public /track beacon + server IP/UA enrichment.
+  userAgent         String? @db.Text
+  browser           String? @db.VarChar(60)
+  browserVersion    String? @db.VarChar(40)
+  os                String? @db.VarChar(60)
+  osVersion         String? @db.VarChar(40)
+  deviceType        String? @db.VarChar(20)
+  deviceVendor      String? @db.VarChar(60)
+  deviceModel       String? @db.VarChar(80)
+  country           String? @db.VarChar(80)
+  region            String? @db.VarChar(80)
+  city              String? @db.VarChar(80)
+  isp               String? @db.VarChar(120)
+  geoTimezone       String? @db.VarChar(60)
+  latitude          Float?
+  longitude         Float?
+  platform           String?  @db.VarChar(60)
+  language           String?  @db.VarChar(20)
+  languages          String?  @db.Text
+  clientTimezone     String?  @db.VarChar(60)
+  screenWidth        Int?
+  screenHeight       Int?
+  screenAvailWidth   Int?
+  screenAvailHeight  Int?
+  viewportWidth      Int?
+  viewportHeight     Int?
+  pixelRatio         Float?
+  colorDepth         Int?
+  orientation        String?  @db.VarChar(24)
+  cpuCores           Int?
+  deviceMemory       Float?
+  connectionType     String?  @db.VarChar(20)
+  connectionDownlink Float?
+  connectionRtt      Int?
+  online             Boolean?
+  referrer           String?  @db.Text
+  landingUrl         String?  @db.Text
+  utmSource          String?  @db.VarChar(120)
+  utmMedium          String?  @db.VarChar(120)
+  utmCampaign        String?  @db.VarChar(120)
+  visitorId          String?  @db.VarChar(60)
+  maxScrollDepth     Int?
+  timeOnPageSeconds  Int?
+  ctaClicks          Int?
+
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
 
@@ -3084,6 +3134,9 @@ model QuotationVersion {
   markServiceChargesOutside    Boolean                @default(false)
   hidePricing                  Boolean                @default(false)
   showIndividualPricing        Boolean                @default(false)
+  // Weblink "Quick Navigation" section index. Shown by default; sticky opt-in.
+  showQuickNav                 Boolean                @default(true)
+  quickNavSticky               Boolean                @default(false)
   // Reference "Inclusions & Exclusions" — rich-text/HTML blocks.
   inclusionsHtml               String?                @db.VarChar(8000)
   exclusionsHtml               String?                @db.VarChar(8000)
@@ -3172,10 +3225,14 @@ model QuotationVersionHotelOption {
   category           String?          @db.VarChar(40)
   roomType           String?          @db.VarChar(100)
   mealPlan           String?          @db.VarChar(100)
-  rooms              Int              @default(1)
+  rooms              Int?
   nights             Int
   checkInDate        DateTime?        @db.Date
   checkOutDate       DateTime?        @db.Date
+  checkInTime        String?          @db.VarChar(5)
+  checkOutTime       String?          @db.VarChar(5)
+  showCheckInTime    Boolean?
+  showCheckOutTime   Boolean?
   internalCost       Decimal          @default(0) @db.Decimal(14, 2)
   sellingPrice       Decimal          @default(0) @db.Decimal(14, 2)
   selected           Boolean          @default(true)

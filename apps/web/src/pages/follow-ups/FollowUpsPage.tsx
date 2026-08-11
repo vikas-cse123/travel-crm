@@ -9,6 +9,7 @@ import {
   labelForLookup,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useDedicatedFollowUpAction,
@@ -57,6 +58,7 @@ export function FollowUpsPage() {
       new Intl.DateTimeFormat('en-IN', {
         dateStyle: 'medium',
         timeStyle: 'short',
+        hour12: true,
         timeZone: timezone,
       }),
     [timezone],
@@ -432,27 +434,13 @@ export function FollowUpsPage() {
                 </article>
               ))}
             </div>
-            <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
-              <span>{list.data.pagination.total} follow-ups</span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={list.data.pagination.page <= 1}
-                  onClick={() => update('page', String(list.data!.pagination.page - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={list.data.pagination.page >= list.data.pagination.totalPages}
-                  onClick={() => update('page', String(list.data!.pagination.page + 1))}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+            <Pagination
+              page={list.data.pagination.page}
+              pageSize={list.data.pagination.pageSize}
+              totalPages={list.data.pagination.totalPages}
+              total={list.data.pagination.total}
+              onPage={(page) => update('page', String(page))}
+            />
           </>
         )}
       </section>

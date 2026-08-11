@@ -22,7 +22,12 @@ export interface MasterTypeInfo {
   nameField: 'name' | 'title' | 'clientName' | null;
   viewPermission: string;
   /** Best-effort human label for a record, used by the hidden-list screen. */
-  displayName: (row: { name?: string | null; title?: string | null; clientName?: string | null; destinationName?: string | null }) => string;
+  displayName: (row: {
+    name?: string | null;
+    title?: string | null;
+    clientName?: string | null;
+    destinationName?: string | null;
+  }) => string;
 }
 
 /** Narrowed list of the Prisma delegates we are allowed to touch. */
@@ -97,7 +102,8 @@ export const MASTER_TYPE_REGISTRY: Record<MasterType, MasterTypeInfo> = {
     model: 'sightseeing',
     nameField: 'title',
     viewPermission: MASTER_PERMISSIONS[MASTER_TYPE.SIGHTSEEING].viewPermission,
-    displayName: (row) => labelOf(row as Record<string, unknown>, 'title') || 'Untitled sightseeing',
+    displayName: (row) =>
+      labelOf(row as Record<string, unknown>, 'title') || 'Untitled sightseeing',
   },
   [MASTER_TYPE.ADD_ON_SERVICE]: {
     type: MASTER_TYPE.ADD_ON_SERVICE,
@@ -105,7 +111,8 @@ export const MASTER_TYPE_REGISTRY: Record<MasterType, MasterTypeInfo> = {
     model: 'addOnService',
     nameField: 'name',
     viewPermission: MASTER_PERMISSIONS[MASTER_TYPE.ADD_ON_SERVICE].viewPermission,
-    displayName: (row) => labelOf(row as Record<string, unknown>, 'name') || 'Untitled add-on service',
+    displayName: (row) =>
+      labelOf(row as Record<string, unknown>, 'name') || 'Untitled add-on service',
   },
   [MASTER_TYPE.VISA_TYPE]: {
     type: MASTER_TYPE.VISA_TYPE,

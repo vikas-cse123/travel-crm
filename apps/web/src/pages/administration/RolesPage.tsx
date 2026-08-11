@@ -69,52 +69,52 @@ export function RolesPage() {
             {/* Table from md up; stacked cards below it — a six-column table is
                 not readable at phone widths. */}
             <div className="hidden overflow-x-auto md:block">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th>Hierarchy</th>
-                  <th>Permissions</th>
-                  <th>Active users</th>
-                  <th>Type</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {q.data.data.map((r) => (
-                  <tr key={r.id}>
-                    <td className="p-3">
-                      <Link className="font-medium text-brand-700" to={`/roles/${r.id}`}>
-                        {r.name}
-                      </Link>
-                    </td>
-                    <td>{r.hierarchyLevel}</td>
-                    <td>{r.permissionCount}</td>
-                    <td>{r.activeUserCount}</td>
-                    <td>
-                      {r.isSystem ? (
-                        <span className="rounded bg-blue-50 px-2 py-1 text-xs">System</span>
-                      ) : (
-                        'Custom'
-                      )}
-                    </td>
-                    <td className="space-x-3">
-                      {hasPermission('roles.update') && (
-                        <Link to={`/roles/${r.id}/edit`}>Edit</Link>
-                      )}
-                      {hasPermission('roles.delete') && !r.isSystem && (
-                        <button
-                          className="text-red-600"
-                          onClick={() => window.confirm(`Delete ${r.name}?`) && del.mutate(r.id)}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="p-3">Name</th>
+                    <th>Hierarchy</th>
+                    <th>Permissions</th>
+                    <th>Active users</th>
+                    <th>Type</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y">
+                  {q.data.data.map((r) => (
+                    <tr key={r.id}>
+                      <td className="p-3">
+                        <Link className="font-medium text-brand-700" to={`/roles/${r.id}`}>
+                          {r.name}
+                        </Link>
+                      </td>
+                      <td>{r.hierarchyLevel}</td>
+                      <td>{r.permissionCount}</td>
+                      <td>{r.activeUserCount}</td>
+                      <td>
+                        {r.isSystem ? (
+                          <span className="rounded bg-blue-50 px-2 py-1 text-xs">System</span>
+                        ) : (
+                          'Custom'
+                        )}
+                      </td>
+                      <td className="space-x-3">
+                        {hasPermission('roles.update') && (
+                          <Link to={`/roles/${r.id}/edit`}>Edit</Link>
+                        )}
+                        {hasPermission('roles.delete') && !r.isSystem && (
+                          <button
+                            className="text-red-600"
+                            onClick={() => window.confirm(`Delete ${r.name}?`) && del.mutate(r.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <ul className="divide-y md:hidden">
               {q.data.data.map((r) => (

@@ -24,8 +24,11 @@ import {
   useQuotation,
   useQuotationAction,
   useSendQuotation,
+  useUpdateQuotationWeblinkSettings,
 } from '@/features/quotations/quotations.api';
+import { WeblinkVisitors } from '@/features/quotations/WeblinkVisitors';
 import { resolveTravelDates } from '@/features/quotations/travel-dates';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 
 /** Trigger a normal browser download for a generated document URL. */
 function downloadPdf(url: string, fileName?: string) {
@@ -45,6 +48,7 @@ export function QuotationDetailsPage() {
   const action = useQuotationAction(quotationId);
   const generatePdf = useGenerateQuotationPdf(quotationId);
   const send = useSendQuotation(quotationId);
+  const weblinkSettings = useUpdateQuotationWeblinkSettings(quotationId);
   const [sendOpen, setSendOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [includePdf, setIncludePdf] = useState(true);
@@ -69,9 +73,8 @@ export function QuotationDetailsPage() {
   // hook runs unconditionally before any early return.
   useEffect(() => {
     const data = query.data;
-    const current = data?.versions.find(
-      (version) => version.id === data.currentVersionId,
-    ) ?? data?.versions[0];
+    const current =
+      data?.versions.find((version) => version.id === data.currentVersionId) ?? data?.versions[0];
     if (!current || current.status === 'DRAFT') {
       setPublicLinkUrl(null);
       setPublicLinkVersionId(null);
@@ -150,7 +153,8 @@ export function QuotationDetailsPage() {
     }
     pdfTab.opener = null;
     pdfTab.document.title = 'Generating PDF…';
-    pdfTab.document.body.innerHTML = '<p style="font:16px system-ui;padding:32px">Generating PDF…</p>';
+    pdfTab.document.body.innerHTML =
+      '<p style="font:16px system-ui;padding:32px">Generating PDF…</p>';
     let coverImageDataUrl: string | undefined;
     if (style === 'STYLISH' && selectedCoverSource === 'UPLOAD') {
       if (!coverFile) {
@@ -170,15 +174,23 @@ export function QuotationDetailsPage() {
         return;
       }
     }
-    generatePdf.mutate({ versionId: current.id, style, coverSource: selectedCoverSource, coverImageDataUrl }, {
-      onSuccess: ({ url }) => {
-        if (url) pdfTab.location.replace(url);
+    generatePdf.mutate(
+      {
+        versionId: current.id,
+        style,
+        coverSource: selectedCoverSource,
+        ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
       },
-      onError: () => {
-        pdfTab.close();
-        setPdfError('PDF generation failed. Please try again.');
+      {
+        onSuccess: ({ url }) => {
+          if (url) pdfTab.location.replace(url);
+        },
+        onError: () => {
+          pdfTab.close();
+          setPdfError('PDF generation failed. Please try again.');
+        },
       },
-    });
+    );
   };
   return (
     <div className="space-y-5">
@@ -388,6 +400,46 @@ export function QuotationDetailsPage() {
             </p>
             <h2 className="mt-1 text-2xl font-semibold">{current.title}</h2>
             <p className="mt-2 text-slate-600">{current.introduction}</p>
+
+            {hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
+              <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Weblink
+                </span>
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={current.showQuickNav ?? true}
+                    disabled={weblinkSettings.isPending}
+                    onChange={(event) =>
+                      weblinkSettings.mutate({
+                        versionId: current.id,
+                        showQuickNav: event.target.checked,
+                      })
+                    }
+                  />
+                  Show Quick Navigation
+                </label>
+                <label
+                  className={`flex items-center gap-2 text-sm font-medium ${
+                    (current.showQuickNav ?? true) ? 'text-slate-700' : 'text-slate-400'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={current.quickNavSticky ?? false}
+                    disabled={!(current.showQuickNav ?? true) || weblinkSettings.isPending}
+                    onChange={(event) =>
+                      weblinkSettings.mutate({
+                        versionId: current.id,
+                        quickNavSticky: event.target.checked,
+                      })
+                    }
+                  />
+                  Keep it sticky while scrolling
+                </label>
+              </div>
+            )}
           </div>
           <div className="mt-5 grid gap-5 lg:grid-cols-2">
             <div>
@@ -397,7 +449,9 @@ export function QuotationDetailsPage() {
                   <article key={hotel.id} className="rounded-lg bg-slate-50 p-3">
                     <strong>{hotel.hotelName}</strong>
                     <p className="text-sm text-slate-600">
-                      {hotel.city} · {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights} nights · {hotel.roomType || 'Room open'} ·{' '}
+                      {hotel.city} ·{' '}
+                      {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights}{' '}
+                      nights · {hotel.roomType || 'Room open'} ·{' '}
                       {hotel.mealPlan || 'Meal plan open'}
                     </p>
                   </article>
@@ -448,6 +502,7 @@ export function QuotationDetailsPage() {
           </div>
         </section>
       )}
+      <WeblinkVisitors quotationId={quotationId} />
       <div className="grid gap-5 lg:grid-cols-3">
         <section className="rounded-xl border bg-card p-5 lg:col-span-2">
           <h2 className="font-semibold">Version history</h2>
@@ -460,8 +515,8 @@ export function QuotationDetailsPage() {
                 <div>
                   <strong>Version {version.versionNumber}</strong>
                   <p className="text-xs text-slate-500">
-                    {labelForLookup(version.status)} ·{' '}
-                    {new Date(version.createdAt).toLocaleString()} · {version.createdBy.fullName}
+                    {labelForLookup(version.status)} · {formatDateTime12Hour(version.createdAt)} ·{' '}
+                    {version.createdBy.fullName}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -561,8 +616,8 @@ export function QuotationDetailsPage() {
                 <p className="text-sm text-slate-600">{log.subject}</p>
                 <p className="text-xs text-slate-500">
                   {log.sentAt
-                    ? new Date(log.sentAt).toLocaleString()
-                    : new Date(log.createdAt).toLocaleString()}
+                    ? formatDateTime12Hour(log.sentAt)
+                    : formatDateTime12Hour(log.createdAt)}
                 </p>
               </article>
             ))
@@ -580,7 +635,7 @@ export function QuotationDetailsPage() {
                 <p className="text-sm font-medium">{labelForLookup(entry.action)}</p>
                 <p className="text-xs text-slate-500">
                   {entry.actorUser?.fullName ?? 'Customer / system'} ·{' '}
-                  {new Date(entry.createdAt).toLocaleString()}
+                  {formatDateTime12Hour(entry.createdAt)}
                 </p>
               </article>
             ))
@@ -591,9 +646,18 @@ export function QuotationDetailsPage() {
       </section>
       {pdfChoiceOpen && current && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="pdf-style-title" className="w-full max-w-2xl rounded-2xl bg-card p-6 shadow-xl">
-            <h2 id="pdf-style-title" className="text-xl font-semibold">Choose PDF style</h2>
-            <p className="mt-1 text-sm text-slate-500">Select how this quotation should be presented.</p>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pdf-style-title"
+            className="w-full max-w-2xl rounded-2xl bg-card p-6 shadow-xl"
+          >
+            <h2 id="pdf-style-title" className="text-xl font-semibold">
+              Choose PDF style
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Select how this quotation should be presented.
+            </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <button
                 type="button"
@@ -605,11 +669,14 @@ export function QuotationDetailsPage() {
               >
                 <FileText className="h-7 w-7 text-brand-700" />
                 <strong className="mt-4 block text-lg">Classic PDF</strong>
-                <span className="mt-1 block text-sm text-slate-500">The existing clean quotation PDF currently used by the CRM.</span>
+                <span className="mt-1 block text-sm text-slate-500">
+                  The existing clean quotation PDF currently used by the CRM.
+                </span>
               </button>
               <button
                 type="button"
-                className="rounded-xl border p-5 text-left transition hover:border-amber-400 hover:bg-amber-50"
+                disabled
+                className="relative cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-5 text-left opacity-70"
                 onClick={() => {
                   setPdfChoiceOpen(false);
                   setCoverSource('DESTINATION');
@@ -617,33 +684,71 @@ export function QuotationDetailsPage() {
                   setStylishCoverOpen(true);
                 }}
               >
+                <span className="absolute right-4 top-4 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                  Coming soon
+                </span>
                 <Sparkles className="h-7 w-7 text-amber-500" />
                 <strong className="mt-4 block text-lg">Stylish PDF</strong>
-                <span className="mt-1 block text-sm text-slate-500">A photo-led navy and gold proposal inspired by the supplied design.</span>
+                <span className="mt-1 block text-sm text-slate-500">
+                  A photo-led navy and gold proposal inspired by the supplied design.
+                </span>
               </button>
             </div>
             <div className="mt-5 flex justify-end">
-              <Button variant="secondary" onClick={() => setPdfChoiceOpen(false)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => setPdfChoiceOpen(false)}>
+                Cancel
+              </Button>
             </div>
           </div>
         </div>
       )}
       {stylishCoverOpen && current && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="cover-image-title" className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl">
-            <h2 id="cover-image-title" className="text-xl font-semibold">Choose first-page image</h2>
-            <p className="mt-1 text-sm text-slate-500">This image fills the cover of the stylish PDF.</p>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cover-image-title"
+            className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl"
+          >
+            <h2 id="cover-image-title" className="text-xl font-semibold">
+              Choose first-page image
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              This image fills the cover of the stylish PDF.
+            </p>
             <div className="mt-5 space-y-3">
-              <label className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${coverSource === 'DESTINATION' ? 'border-brand-500 bg-brand-50' : ''}`}>
-                <input type="radio" name="cover-source" checked={coverSource === 'DESTINATION'} onChange={() => setCoverSource('DESTINATION')} />
+              <label
+                className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${coverSource === 'DESTINATION' ? 'border-brand-500 bg-brand-50' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="cover-source"
+                  checked={coverSource === 'DESTINATION'}
+                  onChange={() => setCoverSource('DESTINATION')}
+                />
                 <ImageIcon className="h-5 w-5 text-brand-700" />
-                <span><strong className="block">Use destination image</strong><span className="text-sm text-slate-500">Use the destination master image already linked to this quotation.</span></span>
+                <span>
+                  <strong className="block">Use destination image</strong>
+                  <span className="text-sm text-slate-500">
+                    Use the destination master image already linked to this quotation.
+                  </span>
+                </span>
               </label>
-              <label className={`block cursor-pointer rounded-xl border p-4 ${coverSource === 'UPLOAD' ? 'border-brand-500 bg-brand-50' : ''}`}>
+              <label
+                className={`block cursor-pointer rounded-xl border p-4 ${coverSource === 'UPLOAD' ? 'border-brand-500 bg-brand-50' : ''}`}
+              >
                 <span className="flex gap-3">
-                  <input type="radio" name="cover-source" checked={coverSource === 'UPLOAD'} onChange={() => setCoverSource('UPLOAD')} />
+                  <input
+                    type="radio"
+                    name="cover-source"
+                    checked={coverSource === 'UPLOAD'}
+                    onChange={() => setCoverSource('UPLOAD')}
+                  />
                   <ImageIcon className="h-5 w-5 text-brand-700" />
-                  <span><strong className="block">Upload another image</strong><span className="text-sm text-slate-500">JPEG, PNG or WebP, up to 5 MB.</span></span>
+                  <span>
+                    <strong className="block">Upload another image</strong>
+                    <span className="text-sm text-slate-500">JPEG, PNG or WebP, up to 5 MB.</span>
+                  </span>
                 </span>
                 {coverSource === 'UPLOAD' && (
                   <input
@@ -666,10 +771,15 @@ export function QuotationDetailsPage() {
               </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => {
-                setStylishCoverOpen(false);
-                setPdfChoiceOpen(true);
-              }}>Back</Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setStylishCoverOpen(false);
+                  setPdfChoiceOpen(true);
+                }}
+              >
+                Back
+              </Button>
               <Button
                 disabled={coverSource === 'UPLOAD' && !coverFile}
                 onClick={() => {

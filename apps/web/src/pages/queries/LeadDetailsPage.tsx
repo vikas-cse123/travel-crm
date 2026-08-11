@@ -110,6 +110,7 @@ export function LeadDetailsPage() {
     new Intl.DateTimeFormat('en-IN', {
       dateStyle: 'medium',
       timeStyle: 'short',
+      hour12: true,
       timeZone: workspace.data.timezone,
     }).format(new Date(value));
   const money = (v: string | null) =>

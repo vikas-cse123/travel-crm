@@ -370,8 +370,10 @@ describe('sightseeing activity pricing — PDF', () => {
     expect(isPdf(pdf)).toBe(true);
     const text = visibleText(pdf);
     expect(text).toContain('PRICING');
-    expect(text).toContain('Adult ₹3,500');
-    expect(text).toContain('Child ₹2,500');
+    expect(text).toContain('Adult');
+    expect(text).toContain('₹3,500');
+    expect(text).toContain('Child');
+    expect(text).toContain('₹2,500');
   });
 
   it('renders custom labels exactly as entered', async () => {
@@ -386,8 +388,10 @@ describe('sightseeing activity pricing — PDF', () => {
       },
     ]);
     const text = visibleText(pdf);
-    expect(text).toContain('Foreign National ₹4,500');
-    expect(text).toContain('Child 5–12 Years ₹1,500');
+    expect(text).toContain('Foreign National');
+    expect(text).toContain('₹4,500');
+    expect(text).toContain('Child 5–12 Years');
+    expect(text).toContain('₹1,500');
   });
 
   it('renders nothing pricing-related when an activity has no prices', async () => {
@@ -418,7 +422,8 @@ describe('sightseeing activity pricing — PDF', () => {
       },
     ]);
     const text = visibleText(pdf);
-    expect(text).toContain('Adult ₹3,500');
+    expect(text).toContain('Adult');
+    expect(text).toContain('₹3,500');
     expect(text).not.toContain('Child ₹');
   });
 

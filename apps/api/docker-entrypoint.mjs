@@ -1,3 +1,5 @@
+/* global console, process */
+
 /**
  * Production entrypoint for the Interscale Travel CRM API container.
  *
@@ -13,13 +15,14 @@ import { spawn } from 'node:child_process';
 const required = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
 const missing = required.filter((name) => !process.env[name]);
 if (missing.length > 0) {
-  console.error(`Database bootstrap: missing required environment variables: ${missing.join(', ')}`);
+  console.error(
+    `Database bootstrap: missing required environment variables: ${missing.join(', ')}`,
+  );
   process.exit(1);
 }
 
 const credentials =
-  `${encodeURIComponent(process.env.DB_USER)}:` +
-  `${encodeURIComponent(process.env.DB_PASSWORD)}`;
+  `${encodeURIComponent(process.env.DB_USER)}:` + `${encodeURIComponent(process.env.DB_PASSWORD)}`;
 process.env.DATABASE_URL =
   `postgresql://${credentials}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}` +
   '?connect_timeout=10';

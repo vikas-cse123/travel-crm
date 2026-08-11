@@ -186,7 +186,10 @@ export const visaTypesService = {
 
   async details(auth: AuthContext, visaTypeId: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.VISA_TYPE);
-    return present((await getVisaType(auth, visaTypeId, scope)) as unknown as Record<string, unknown>, scope);
+    return present(
+      (await getVisaType(auth, visaTypeId, scope)) as unknown as Record<string, unknown>,
+      scope,
+    );
   },
 
   async create(auth: AuthContext, input: VisaTypeInput, context: MastersRequestContext) {

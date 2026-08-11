@@ -1,5 +1,9 @@
 import { createContext, useContext, useMemo } from 'react';
-import { SYSTEM_ADMIN_LANDING_PATH, TENANT_LANDING_PATH, type AuthenticatedUser } from '@interscale/shared';
+import {
+  SYSTEM_ADMIN_LANDING_PATH,
+  TENANT_LANDING_PATH,
+  type AuthenticatedUser,
+} from '@interscale/shared';
 import { useCurrentUser } from './auth.api';
 
 /**

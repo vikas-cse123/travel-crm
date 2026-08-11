@@ -41,7 +41,10 @@ describe('UserActionMenu Set New Password', () => {
       'users.change_status',
       'users.reset_password',
     ]);
-    vi.stubGlobal('fetch', vi.fn(async () => response({ updated: true })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response({ updated: true })),
+    );
   });
 
   it('shows Set New Password for an Owner targeting another user', async () => {
@@ -86,9 +89,7 @@ describe('UserActionMenu Set New Password', () => {
 
     // Success message from the backend is surfaced, then the modal closes.
     await waitFor(() =>
-      expect(
-        screen.queryByRole('dialog', { name: 'Set New Password' }),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: 'Set New Password' })).not.toBeInTheDocument(),
     );
   });
 

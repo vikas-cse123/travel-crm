@@ -2,7 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Express } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
-import { createCompanyFixture, createUserFixture, seedPermissionCatalog } from './helpers/fixtures.js';
+import {
+  createCompanyFixture,
+  createUserFixture,
+  seedPermissionCatalog,
+} from './helpers/fixtures.js';
 import { createAuthClient } from './helpers/auth-client.js';
 
 const awsMock = vi.hoisted(() => ({

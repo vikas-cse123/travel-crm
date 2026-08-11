@@ -68,7 +68,14 @@ describe('marketing site build output', () => {
   });
 
   it('contains important offerings', () => {
-    for (const phrase of ['Leads and enquiries', 'Quotations and itineraries', 'Bookings and operations', 'Payments and customers', 'Team and access control', 'Follow-ups and reminders']) {
+    for (const phrase of [
+      'Leads and enquiries',
+      'Quotations and itineraries',
+      'Bookings and operations',
+      'Payments and customers',
+      'Team and access control',
+      'Follow-ups and reminders',
+    ]) {
       expect(home).toContain(phrase);
     }
   });

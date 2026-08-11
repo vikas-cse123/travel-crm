@@ -57,12 +57,30 @@ export function isPublicTaxNote(taxNote: string | null | undefined): taxNote is 
   );
 }
 
+/** Remove one or more stale leading "Day N:" prefixes from an itinerary title. */
+export function stripItineraryDayPrefixes(value: string | null | undefined): string {
+  let title = (value ?? '').replace(/\s+/g, ' ').trim();
+  while (/^day\s+\d+\s*:?\s*/i.test(title)) title = title.replace(/^day\s+\d+\s*:?\s*/i, '').trim();
+  return title;
+}
+
+/** Format an itinerary title with exactly one prefix for its current position. */
+export function formatItineraryDayTitle(
+  dayNumber: number,
+  value: string | null | undefined,
+): string {
+  const title = stripItineraryDayPrefixes(value);
+  return title ? `Day ${dayNumber}: ${title}` : `Day ${dayNumber}`;
+}
+
 export interface ItineraryImageActivityRef {
+  imageDocumentId?: string | null;
   imageUrl?: string | null;
   sightseeingId?: string | null;
 }
 
 export interface ItineraryImageResolver<T> {
+  document?: (imageDocumentId: string) => T | null | undefined;
   snapshot: (imageUrl: string) => T | null | undefined;
   sightseeing: (sightseeingId: string) => T | null | undefined;
   destination?: T | null;
@@ -73,6 +91,11 @@ export function resolveItineraryActivityImage<T>(
   activity: ItineraryImageActivityRef,
   resolver: ItineraryImageResolver<T>,
 ): T | null {
+  const imageDocumentId = activity.imageDocumentId?.trim();
+  if (imageDocumentId && resolver.document) {
+    const document = resolver.document(imageDocumentId);
+    if (document != null) return document;
+  }
   const imageUrl = activity.imageUrl?.trim();
   if (imageUrl) {
     const snapshot = resolver.snapshot(imageUrl);
@@ -91,6 +114,14 @@ export function resolveItineraryDayImage<T>(
   activities: readonly ItineraryImageActivityRef[],
   resolver: ItineraryImageResolver<T>,
 ): T | null {
+  if (resolver.document) {
+    for (const activity of activities) {
+      const imageDocumentId = activity.imageDocumentId?.trim();
+      if (!imageDocumentId) continue;
+      const document = resolver.document(imageDocumentId);
+      if (document != null) return document;
+    }
+  }
   for (const activity of activities) {
     const imageUrl = activity.imageUrl?.trim();
     if (!imageUrl) continue;
@@ -129,6 +160,15 @@ const optionalRichText = (visibleMax: number) =>
     .nullable()
     .optional();
 const optionalDate = z.coerce.date().nullable().optional();
+/** Optional wall-clock HH:mm (24h). Blank is normalised to null so an unset
+ * time is stored consistently and can be "shown as nothing" downstream. */
+const optionalTime = z
+  .string()
+  .trim()
+  .refine((value) => value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'Use a HH:MM time.')
+  .transform((value) => (value ? value : null))
+  .nullable()
+  .optional();
 const money = z.coerce.number().finite().min(0).max(999_999_999_999);
 const optionalMoney = money.nullable().optional();
 const sequence = z.coerce.number().int().min(1).max(500);
@@ -167,10 +207,18 @@ export const quotationHotelSchema = z
     category: optionalText(40),
     roomType: optionalText(100),
     mealPlan: optionalText(100),
-    rooms: z.coerce.number().int().min(1).max(100).default(1),
+    rooms: z.preprocess(
+      (value) => (value === '' ? null : value),
+      z.coerce.number().int().min(1).max(100).nullable().optional(),
+    ),
     nights: z.coerce.number().int().min(1).max(365),
     checkInDate: optionalDate,
     checkOutDate: optionalDate,
+    // Optional per-stay wall-clock times (HH:mm). Left blank shows no time.
+    checkInTime: optionalTime,
+    checkOutTime: optionalTime,
+    showCheckInTime: z.boolean().nullable().optional(),
+    showCheckOutTime: z.boolean().nullable().optional(),
     internalCost: optionalMoney,
     sellingPrice: optionalMoney,
     selected: z.boolean().default(true),
@@ -332,14 +380,41 @@ export const flightJourneySchema = z.object({
   segments: z.array(flightSegmentSchema).max(20).default([]),
 });
 
-export const flightDetailsSchema = z.object({
-  include: z.boolean().default(true),
-  sectionTitle: optionalText(200),
-  amount: optionalMoney,
-  journeyType: z.enum(FLIGHT_JOURNEY_TYPES).default('ROUND_TRIP'),
-  outbound: flightJourneySchema.default({ segments: [] }),
-  returnJourney: flightJourneySchema.default({ segments: [] }),
+export const flightImageSchema = z.object({
+  documentId: z.string().uuid(),
+  fileName: optionalText(255),
+  description: optionalText(500),
+  /** Legacy field retained so existing quotation snapshots remain readable. */
+  heading: optionalText(200),
 });
+
+export const flightDetailsSchema = z
+  .object({
+    include: z.boolean().default(true),
+    sectionTitle: optionalText(200),
+    amount: optionalMoney,
+    entryMode: z.enum(['MANUAL', 'IMAGE']).default('MANUAL'),
+    imageDocumentId: z.string().uuid().nullable().optional(),
+    imageFileName: optionalText(255),
+    images: z.array(flightImageSchema).max(10).default([]),
+    journeyType: z.enum(FLIGHT_JOURNEY_TYPES).default('ROUND_TRIP'),
+    outbound: flightJourneySchema.default({ segments: [] }),
+    returnJourney: flightJourneySchema.default({ segments: [] }),
+  })
+  .superRefine((details, ctx) => {
+    if (
+      details.include &&
+      details.entryMode === 'IMAGE' &&
+      !details.imageDocumentId &&
+      details.images.length === 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['images'],
+        message: 'Upload at least one flight image.',
+      });
+    }
+  });
 
 export const SIGHTSEEING_MEAL_MODES = ['NO_TRANSFER', 'INCLUDE_AT_HOTEL', 'WITH_TRANSFER'] as const;
 export const SIGHTSEEING_TRANSFER_MODES = ['PRIVATE', 'SHARED', 'NO_TRANSFER'] as const;
@@ -436,14 +511,19 @@ export const sightseeingPricingOptionsSchema = z
     (rows ?? [])
       .map((row) => ({ label: (row.label ?? '').trim(), price: parsePriceValue(row.price) }))
       // Persist only meaningful rows — a real label with a real price.
-      .filter((row): row is { label: string; price: number } => Boolean(row.label) && row.price !== null),
+      .filter(
+        (row): row is { label: string; price: number } => Boolean(row.label) && row.price !== null,
+      ),
   );
 
 /** Reference "Sightseeing" tab — one attraction/activity within a day. */
 export const sightseeingActivitySchema = z.object({
   sightseeingId: z.string().uuid().nullable().optional(),
+  imageDocumentId: z.string().uuid().nullable().optional(),
   name: optionalText(300),
   startTime: optionalText(20),
+  // Per-activity customer-output control. Legacy snapshots default to visible.
+  showTime: z.boolean().default(true),
   duration: optionalText(40),
   city: optionalText(120),
   description: optionalRichText(8000),
@@ -546,6 +626,9 @@ export const quotationVersionInputSchema = z
     markServiceChargesOutside: z.boolean().optional(),
     hidePricing: z.boolean().optional(),
     showIndividualPricing: z.boolean().optional(),
+    // Weblink "Quick Navigation" section index (default shown; sticky opt-in).
+    showQuickNav: z.boolean().optional(),
+    quickNavSticky: z.boolean().optional(),
     // Reference "Inclusions & Exclusions" — rich-text/HTML blocks.
     inclusionsHtml: optionalText(8000),
     exclusionsHtml: optionalText(8000),
@@ -587,6 +670,58 @@ export const quotationVersionUpdateSchema = quotationVersionInputSchema
   .innerType()
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field must be supplied.');
+
+/**
+ * Weblink display settings — cosmetic flags editable directly from the
+ * quotation detail view (no full edit). Unlike a version edit, this is allowed
+ * on finalized versions too, since it changes only how the shared link is
+ * presented, never the quoted content or pricing.
+ */
+export const quotationWeblinkSettingsSchema = z
+  .object({
+    showQuickNav: z.boolean().optional(),
+    quickNavSticky: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'At least one setting must be supplied.');
+export type QuotationWeblinkSettings = z.infer<typeof quotationWeblinkSettingsSchema>;
+
+/**
+ * Public weblink visitor telemetry. Sent by the customer-facing page (no auth):
+ * an initial snapshot on load and a final beacon with scroll/time on leave.
+ * Every field is optional and bounded — the server adds IP, User-Agent parsing
+ * and approximate geolocation. Never carries personally identifying data.
+ */
+export const quotationTrackSchema = z.object({
+  platform: z.string().max(60).optional(),
+  language: z.string().max(20).optional(),
+  languages: z.string().max(500).optional(),
+  clientTimezone: z.string().max(60).optional(),
+  screenWidth: z.coerce.number().int().min(0).max(100000).optional(),
+  screenHeight: z.coerce.number().int().min(0).max(100000).optional(),
+  screenAvailWidth: z.coerce.number().int().min(0).max(100000).optional(),
+  screenAvailHeight: z.coerce.number().int().min(0).max(100000).optional(),
+  viewportWidth: z.coerce.number().int().min(0).max(100000).optional(),
+  viewportHeight: z.coerce.number().int().min(0).max(100000).optional(),
+  pixelRatio: z.coerce.number().min(0).max(16).optional(),
+  colorDepth: z.coerce.number().int().min(0).max(64).optional(),
+  orientation: z.string().max(24).optional(),
+  cpuCores: z.coerce.number().int().min(0).max(1024).optional(),
+  deviceMemory: z.coerce.number().min(0).max(1024).optional(),
+  connectionType: z.string().max(20).optional(),
+  connectionDownlink: z.coerce.number().min(0).max(100000).optional(),
+  connectionRtt: z.coerce.number().int().min(0).max(600000).optional(),
+  online: z.coerce.boolean().optional(),
+  referrer: z.string().max(2000).optional(),
+  landingUrl: z.string().max(2000).optional(),
+  utmSource: z.string().max(120).optional(),
+  utmMedium: z.string().max(120).optional(),
+  utmCampaign: z.string().max(120).optional(),
+  visitorId: z.string().max(60).optional(),
+  maxScrollDepth: z.coerce.number().int().min(0).max(100).optional(),
+  timeOnPageSeconds: z.coerce.number().int().min(0).max(86400).optional(),
+  ctaClicks: z.coerce.number().int().min(0).max(100000).optional(),
+});
+export type QuotationTrackInput = z.infer<typeof quotationTrackSchema>;
 
 export const quotationInputSchema = z.object({
   queryId: z.string().uuid(),

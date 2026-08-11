@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 import { App } from 'aws-cdk-lib';
 import { config } from '../config.js';
-import { ApiStack, ApiStackProps } from '../lib/api-stack.js';
-import { FrontendStack, FrontendStackProps } from '../lib/frontend-stack.js';
-import { AlbFrontendStack, AlbFrontendStackProps } from '../lib/alb-frontend-stack.js';
-import { CicdStack, CicdStackProps } from '../lib/cicd-stack.js';
-import { MarketingRegistryStack, MarketingRegistryStackProps } from '../lib/marketing-registry-stack.js';
-import { MarketingServiceStack, MarketingServiceStackProps } from '../lib/marketing-service-stack.js';
+import { ApiStack, type ApiStackProps } from '../lib/api-stack.js';
+import { FrontendStack, type FrontendStackProps } from '../lib/frontend-stack.js';
+import { AlbFrontendStack, type AlbFrontendStackProps } from '../lib/alb-frontend-stack.js';
+import { CicdStack, type CicdStackProps } from '../lib/cicd-stack.js';
+import {
+  MarketingRegistryStack,
+  type MarketingRegistryStackProps,
+} from '../lib/marketing-registry-stack.js';
+import {
+  MarketingServiceStack,
+  type MarketingServiceStackProps,
+} from '../lib/marketing-service-stack.js';
 
 const app = new App();
 

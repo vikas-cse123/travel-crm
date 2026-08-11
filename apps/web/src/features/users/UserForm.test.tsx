@@ -86,9 +86,7 @@ describe('UserForm edit does not send password', () => {
   });
 
   it('does not render password fields while editing an existing user', () => {
-    renderWithProviders(
-      <UserForm user={editingUser} onSubmit={() => {}} isLoading={false} />,
-    );
+    renderWithProviders(<UserForm user={editingUser} onSubmit={() => {}} isLoading={false} />);
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
   });

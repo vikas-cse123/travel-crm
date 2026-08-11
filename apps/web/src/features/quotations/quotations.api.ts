@@ -48,10 +48,14 @@ export interface TemplateHotel extends MasterHotelRefs {
   category: string | null;
   roomType: string | null;
   mealPlan: string | null;
-  rooms: number;
+  rooms: number | null;
   nights: number;
   checkInDate: string | null;
   checkOutDate: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  showCheckInTime: boolean | null;
+  showCheckOutTime: boolean | null;
   internalCost?: string;
   sellingPrice: string | null;
   selected: boolean;
@@ -133,6 +137,15 @@ export interface FlightDetails {
   include: boolean;
   sectionTitle?: string | null;
   amount?: number | null;
+  entryMode?: 'MANUAL' | 'IMAGE';
+  imageDocumentId?: string | null;
+  imageFileName?: string | null;
+  images?: Array<{
+    documentId: string;
+    fileName?: string | null;
+    description?: string | null;
+    heading?: string | null;
+  }>;
   journeyType: 'ROUND_TRIP' | 'ONEWAY_OUTBOUND' | 'ONEWAY_RETURN';
   outbound: FlightJourney;
   returnJourney: FlightJourney;
@@ -145,8 +158,10 @@ export interface HotelDetails {
 }
 export interface SightseeingActivity {
   sightseeingId?: string | null;
+  imageDocumentId?: string | null;
   name?: string | null;
   startTime?: string | null;
+  showTime?: boolean;
   duration?: string | null;
   city?: string | null;
   description?: string | null;
@@ -219,6 +234,8 @@ export interface QuotationVersion {
   markServiceChargesOutside: boolean;
   hidePricing: boolean;
   showIndividualPricing: boolean;
+  showQuickNav?: boolean;
+  quickNavSticky?: boolean;
   // Reference "Inclusions & Exclusions" — rich-text blocks.
   inclusionsHtml: string | null;
   exclusionsHtml: string | null;
@@ -515,6 +532,28 @@ export function useUpdateQuotationVersion(quotationId: string, versionId: string
     },
   });
 }
+
+/** Toggle the weblink display flags (Quick Navigation) without a full edit. */
+export function useUpdateQuotationWeblinkSettings(quotationId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      versionId,
+      ...input
+    }: {
+      versionId: string;
+      showQuickNav?: boolean;
+      quickNavSticky?: boolean;
+    }) =>
+      apiClient.patch<QuotationVersion>(
+        `/quotations/${quotationId}/versions/${versionId}/weblink-settings`,
+        input,
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: quotationKeys.quotation(quotationId) });
+    },
+  });
+}
 export function useSendQuotation(id: string) {
   const client = useQueryClient();
   return useMutation({
@@ -534,6 +573,48 @@ export interface WeblinkAnalyticsEntry {
   views: number;
   firstViewedAt: string;
   lastViewedAt: string;
+  browser: string | null;
+  browserVersion: string | null;
+  os: string | null;
+  osVersion: string | null;
+  deviceType: string | null;
+  deviceVendor: string | null;
+  deviceModel: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  isp: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  clientTimezone: string | null;
+  language: string | null;
+  languages: string | null;
+  platform: string | null;
+  userAgent: string | null;
+  screenWidth: number | null;
+  screenHeight: number | null;
+  screenAvailWidth: number | null;
+  screenAvailHeight: number | null;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  pixelRatio: number | null;
+  colorDepth: number | null;
+  orientation: string | null;
+  cpuCores: number | null;
+  deviceMemory: number | null;
+  connectionType: string | null;
+  connectionDownlink: number | null;
+  connectionRtt: number | null;
+  online: boolean | null;
+  referrer: string | null;
+  landingUrl: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  visitorId: string | null;
+  maxScrollDepth: number | null;
+  timeOnPageSeconds: number | null;
+  ctaClicks: number | null;
 }
 export interface WeblinkAnalytics {
   totalViews: number;
@@ -554,7 +635,11 @@ export function useQuotationWeblinkAnalytics(quotationId: string | null) {
   });
 }
 
-export async function uploadQuotationAttachment(quotationId: string, file: File) {
+export async function uploadQuotationAttachment(
+  quotationId: string,
+  file: File,
+  quotationVersionId?: string,
+) {
   const approved = await apiClient.post<{
     documentId: string;
     uploadUrl: string;
@@ -564,13 +649,33 @@ export async function uploadQuotationAttachment(quotationId: string, file: File)
     mimeType: file.type,
     fileSize: file.size,
     documentType: 'SUPPORTING_ATTACHMENT',
+    ...(quotationVersionId ? { quotationVersionId } : {}),
   });
-  const response = await fetch(approved.uploadUrl, {
-    method: 'PUT',
-    headers: approved.requiredHeaders,
-    body: file,
-  });
-  if (!response.ok) throw new Error('The storage provider rejected the upload.');
-  await apiClient.post(`/quotations/${quotationId}/uploads/${approved.documentId}/confirm`);
-  return approved.documentId;
+  try {
+    const response = await fetch(approved.uploadUrl, {
+      method: 'PUT',
+      headers: approved.requiredHeaders,
+      body: file,
+    });
+    if (!response.ok) throw new Error('The storage provider rejected the upload.');
+    await apiClient.post(`/quotations/${quotationId}/uploads/${approved.documentId}/confirm`);
+    const { url } = await apiClient.get<{ url: string }>(
+      `/quotations/${quotationId}/documents/${approved.documentId}/download-url?disposition=inline`,
+    );
+    return { documentId: approved.documentId, url };
+  } catch (error) {
+    // A failed direct PUT/confirmation must not leave a PENDING attachment that
+    // consumes one of the quotation's limited attachment slots.
+    await apiClient
+      .delete(`/quotations/${quotationId}/documents/${approved.documentId}`)
+      .catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function quotationDocumentInlineUrl(quotationId: string, documentId: string) {
+  const { url } = await apiClient.get<{ url: string }>(
+    `/quotations/${quotationId}/documents/${documentId}/download-url?disposition=inline`,
+  );
+  return url;
 }

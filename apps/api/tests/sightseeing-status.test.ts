@@ -82,9 +82,7 @@ describe('Sightseeing master status and restore', () => {
     });
 
     const current = await client.get('/api/masters/sightseeing?pageSize=50');
-    const currentTitles = current.body.data.data.map(
-      (row: { title: string }) => row.title,
-    );
+    const currentTitles = current.body.data.data.map((row: { title: string }) => row.title);
     expect(currentTitles).toContain('Active Tour');
     expect(currentTitles).toContain('Inactive Tour');
     expect(currentTitles).not.toContain('Archived Tour');
@@ -159,9 +157,7 @@ describe('Sightseeing master status and restore', () => {
       status: 'ARCHIVED',
     });
     const lookups = await client.get('/api/masters/sightseeing/lookups');
-    const titles = lookups.body.data.sightseeings.map(
-      (row: { title: string }) => row.title,
-    );
+    const titles = lookups.body.data.sightseeings.map((row: { title: string }) => row.title);
     expect(titles).toContain('Active Dropdown');
     expect(titles).not.toContain('Inactive Dropdown');
     expect(titles).not.toContain('Archived Dropdown');

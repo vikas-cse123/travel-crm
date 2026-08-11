@@ -105,9 +105,7 @@ export async function isCertificateAttached(certificateArn: string): Promise<boo
   const result = await elbv2Client().send(
     new DescribeListenerCertificatesCommand({ ListenerArn: listenerArn }),
   );
-  return (result.Certificates ?? []).some(
-    (entry) => entry.CertificateArn === certificateArn,
-  );
+  return (result.Certificates ?? []).some((entry) => entry.CertificateArn === certificateArn);
 }
 
 /** Delete an ACM certificate. Throws on AWS failure; callers clean up best-effort. */

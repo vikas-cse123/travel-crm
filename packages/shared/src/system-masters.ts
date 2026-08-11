@@ -71,7 +71,11 @@ export const MASTER_TYPE_LABELS: Record<MasterType, string> = {
 export const MASTER_TYPE_LIST: readonly MasterType[] = GLOBAL_MASTER_TYPES;
 
 export function isMasterType(value: string | undefined | null): value is MasterType {
-  return value !== undefined && value !== null && (GLOBAL_MASTER_TYPES as readonly string[]).includes(value);
+  return (
+    value !== undefined &&
+    value !== null &&
+    (GLOBAL_MASTER_TYPES as readonly string[]).includes(value)
+  );
 }
 
 /**

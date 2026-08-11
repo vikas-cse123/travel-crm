@@ -40,23 +40,59 @@ export function RichTextEditor({ value, onChange, ariaLabel, placeholder }: Rich
   return (
     <div className="overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
       <div className="flex flex-wrap items-center gap-0.5 border-b bg-slate-50 px-2 py-1">
-        <button type="button" className={btn} aria-label="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Bold"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exec('bold')}
+        >
           <Bold className="h-4 w-4" />
         </button>
-        <button type="button" className={btn} aria-label="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Italic"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exec('italic')}
+        >
           <Italic className="h-4 w-4" />
         </button>
-        <button type="button" className={btn} aria-label="Underline" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Underline"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exec('underline')}
+        >
           <Underline className="h-4 w-4" />
         </button>
         <span className="mx-1 h-4 w-px bg-slate-300" />
-        <button type="button" className={btn} aria-label="Bulleted list" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Bulleted list"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exec('insertUnorderedList')}
+        >
           <List className="h-4 w-4" />
         </button>
-        <button type="button" className={btn} aria-label="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertOrderedList')}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Numbered list"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => exec('insertOrderedList')}
+        >
           <ListOrdered className="h-4 w-4" />
         </button>
-        <button type="button" className={btn} aria-label="Insert link" onMouseDown={(e) => e.preventDefault()} onClick={addLink}>
+        <button
+          type="button"
+          className={btn}
+          aria-label="Insert link"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={addLink}
+        >
           <LinkIcon className="h-4 w-4" />
         </button>
       </div>

@@ -411,7 +411,7 @@ export const usersService = {
     const [c, target] = await Promise.all([caller(auth), targetOr404(auth, id)]);
     // Owner authority only — not merely a permission grant.
     if (c.role.hierarchyLevel !== 100)
-      throw new ForbiddenError('Only an Owner may set another user\'s password.');
+      throw new ForbiddenError("Only an Owner may set another user's password.");
     if (id === auth.userId)
       throw new ForbiddenError('Use your own change-password flow for your account.');
     // Preserve existing Owner protection rules (e.g. an Owner cannot be

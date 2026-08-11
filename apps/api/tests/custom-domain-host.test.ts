@@ -40,7 +40,11 @@ async function company(slug: string) {
   });
 }
 
-async function domainFor(companyId: string, hostname: string, status: 'PENDING' | 'ACTIVE' | 'DISABLED') {
+async function domainFor(
+  companyId: string,
+  hostname: string,
+  status: 'PENDING' | 'ACTIVE' | 'DISABLED',
+) {
   return db.customDomain.create({ data: { companyId, hostname, status } });
 }
 

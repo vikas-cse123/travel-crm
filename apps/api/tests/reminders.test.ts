@@ -237,7 +237,9 @@ describe('Phase 12 reminders, notifications and automation', () => {
     const preview = await client.get(`/api/reminder-rules/${rule.id}/preview`);
     expect(preview.body.data.eligible).toBeGreaterThan(0);
     expect(
-      await db.queryFollowUp.count({ where: { companyId: user.companyId, reminderRuleId: rule.id } }),
+      await db.queryFollowUp.count({
+        where: { companyId: user.companyId, reminderRuleId: rule.id },
+      }),
     ).toBe(0);
 
     // Processing a company must not generate reminders from rules.

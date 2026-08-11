@@ -39,7 +39,8 @@ export function CitiesPage() {
     if (window.confirm('Are you sure you want to delete this city?')) archive.mutate(id);
   };
   const hideCity = (id: string) => {
-    if (window.confirm(HIDE_GLOBAL_CONFIRM)) hideMaster.mutate({ masterType: 'CITY', masterId: id });
+    if (window.confirm(HIDE_GLOBAL_CONFIRM))
+      hideMaster.mutate({ masterType: 'CITY', masterId: id });
   };
   return (
     <div className="space-y-5">

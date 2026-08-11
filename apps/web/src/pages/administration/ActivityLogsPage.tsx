@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { useActivityLogs } from '@/features/administration/admin.api';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 export function ActivityLogsPage() {
   const [p, setP] = useSearchParams();
   const q = useActivityLogs(p);
@@ -106,7 +107,7 @@ export function ActivityLogsPage() {
               <tbody className="divide-y">
                 {q.data.data.map((e) => (
                   <tr key={e.id}>
-                    <td className="p-3">{new Date(e.createdAt).toLocaleString()}</td>
+                    <td className="p-3">{formatDateTime12Hour(e.createdAt)}</td>
                     <td>{e.actorUser?.fullName ?? 'System'}</td>
                     <td>{e.action.replaceAll('_', ' ').toLowerCase()}</td>
                     <td>{e.targetUser?.fullName ?? '—'}</td>

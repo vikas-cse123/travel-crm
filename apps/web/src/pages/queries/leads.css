@@ -912,12 +912,69 @@
 }
 
 /* ---------------------------------- mobile -------------------------------- */
-/* The Leads page uses the same dense table on all screen sizes. On mobile the
-   table is horizontally scrollable (`.leads-table-scroll` + `.leads-table`
-   min-width) so every column stays readable; there is no card layout. */
+/* The Leads page uses the same dense table on all screen sizes. Below 1500px
+   the table is horizontally scrollable (`.leads-table-scroll` + `.leads-table`
+   min-width) so every column stays readable; there is no card layout. See the
+   wide-screen block at the end of this file for the no-scrollbar desktop fit. */
 
 @media (max-width: 767px) {
   .leads-search {
     min-width: 100%;
+  }
+}
+
+/* ------------------------------ wide screens ------------------------------ */
+/* On a large desktop the whole grid fits the viewport, so the 1634px floor is
+   the only reason a horizontal slider appears. Above this breakpoint the floor
+   and the per-cell min-widths are dropped and the table fluidly fills the card:
+   no slider. Narrower viewports keep the floor and scroll as before. */
+
+@media (min-width: 1500px) {
+  .leads-table {
+    min-width: 0;
+  }
+
+  /* Headers may wrap to two lines instead of forcing the table wider. */
+  .leads-thead th {
+    padding: 7px 5px;
+    white-space: normal;
+  }
+
+  .leads-tbody td {
+    padding: 9px 5px;
+    overflow-wrap: anywhere;
+  }
+
+  /* Values that must stay readable are never broken mid-token — phone numbers,
+     lead ids, money and dates wrap at spaces or not at all. */
+  .leads-tbody .leads-meta,
+  .leads-tbody .leads-id,
+  .leads-tbody .leads-amount,
+  .leads-tbody .leads-created,
+  .leads-tbody .leads-chip {
+    overflow-wrap: normal;
+  }
+
+  /* Type/Stage pills wrap ("Quotation Sent") rather than widen the table. The
+     toolbar filter chips keep their nowrap — only body cells are relaxed. */
+  .leads-tbody .leads-chip {
+    height: auto;
+    min-height: 27px;
+    white-space: normal;
+  }
+
+  .leads-created {
+    white-space: normal;
+  }
+
+  /* These floors add up to more than the available width on their own. */
+  .leads-dest-wrap,
+  .leads-traveller,
+  .leads-services,
+  .leads-quote,
+  .leads-booking,
+  .leads-assigned,
+  .leads-actions {
+    min-width: 0;
   }
 }

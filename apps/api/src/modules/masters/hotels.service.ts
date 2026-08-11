@@ -144,9 +144,7 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, sco
   void pendingImageMimeType;
   void pendingImageFileSize;
 
-  const global = Boolean(
-    scope.systemCompanyId && String(companyId) === scope.systemCompanyId,
-  );
+  const global = Boolean(scope.systemCompanyId && String(companyId) === scope.systemCompanyId);
   const isTenantViewingGlobal = global && !scope.isSystemAdmin;
   const effectiveCanViewCosting = canViewCosting && !isTenantViewingGlobal;
 
@@ -201,11 +199,7 @@ async function getHotel(auth: AuthContext, hotelId: string, scope: MasterScope, 
 }
 
 /** Confirm the city is linked to the destination, both visible to this company. */
-async function validateDestinationCity(
-  scope: MasterScope,
-  destinationId: string,
-  cityId: string,
-) {
+async function validateDestinationCity(scope: MasterScope, destinationId: string, cityId: string) {
   const link = await prisma.destinationCity.findFirst({
     where: {
       destinationId,
@@ -315,20 +309,25 @@ export const hotelsService = {
           : sortBy === 'updatedAt'
             ? { updatedAt: order }
             : { name: order };
-    const [rows, total, rating, destinationRows, cityRows, roomTypes, mealPlans] = await Promise.all([
-      prisma.hotel.findMany({
-        where,
-        ...toPrismaPagination(pagination),
-        orderBy,
-        include: hotelListInclude,
-      }),
-      prisma.hotel.count({ where }),
-      prisma.hotel.aggregate({ where, _avg: { starRating: true } }),
-      prisma.hotel.findMany({ where, distinct: ['destinationId'], select: { destinationId: true } }),
-      prisma.hotel.findMany({ where, distinct: ['cityId'], select: { cityId: true } }),
-      prisma.hotelRoomType.count({ where: { hotel: where, status: 'ACTIVE' } }),
-      prisma.hotelMealPlan.count({ where: { hotel: where, status: 'ACTIVE' } }),
-    ]);
+    const [rows, total, rating, destinationRows, cityRows, roomTypes, mealPlans] =
+      await Promise.all([
+        prisma.hotel.findMany({
+          where,
+          ...toPrismaPagination(pagination),
+          orderBy,
+          include: hotelListInclude,
+        }),
+        prisma.hotel.count({ where }),
+        prisma.hotel.aggregate({ where, _avg: { starRating: true } }),
+        prisma.hotel.findMany({
+          where,
+          distinct: ['destinationId'],
+          select: { destinationId: true },
+        }),
+        prisma.hotel.findMany({ where, distinct: ['cityId'], select: { cityId: true } }),
+        prisma.hotelRoomType.count({ where: { hotel: where, status: 'ACTIVE' } }),
+        prisma.hotelMealPlan.count({ where: { hotel: where, status: 'ACTIVE' } }),
+      ]);
     return {
       data: rows.map((row) =>
         presentHotel(row as unknown as Record<string, unknown>, false, scope),

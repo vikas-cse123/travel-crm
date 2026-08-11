@@ -103,6 +103,9 @@ describe('Phase 7 follow-up workspace', () => {
     );
     expect(screen.getByText('75%')).toBeInTheDocument();
     expect(screen.getAllByText('Hot Leads Requiring Attention')[0]).toBeInTheDocument();
+    // Shared Masters-style pagination footer, not the old "N follow-ups" label.
+    expect(screen.getByText('Showing 1 to 1 of 1 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('renders loading, empty and error states', async () => {

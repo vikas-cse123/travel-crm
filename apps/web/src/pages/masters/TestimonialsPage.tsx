@@ -165,15 +165,17 @@ export function TestimonialsPage() {
                               <EyeOff className="h-4 w-4" />
                             </button>
                           )}
-                          {canArchive && testimonial.status !== 'ARCHIVED' && !testimonial.isGlobal && (
-                            <button
-                              aria-label={`Archive testimonial from ${label(testimonial.clientName)}`}
-                              onClick={() => archiveRow(testimonial.id)}
-                              className="rounded bg-red-600 p-2 text-white"
-                            >
-                              <Archive className="h-4 w-4" />
-                            </button>
-                          )}
+                          {canArchive &&
+                            testimonial.status !== 'ARCHIVED' &&
+                            !testimonial.isGlobal && (
+                              <button
+                                aria-label={`Archive testimonial from ${label(testimonial.clientName)}`}
+                                onClick={() => archiveRow(testimonial.id)}
+                                className="rounded bg-red-600 p-2 text-white"
+                              >
+                                <Archive className="h-4 w-4" />
+                              </button>
+                            )}
                         </div>
                       </td>
                     </tr>

@@ -101,7 +101,10 @@ const hiddenListQuery = z.object({
 
 router.get(
   '/hidden',
-  requireAnyPermission(PERMISSIONS.MASTERS_VIEW, ...GLOBAL_MASTER_TYPES.map((t) => MASTER_PERMISSIONS[t].viewPermission)),
+  requireAnyPermission(
+    PERMISSIONS.MASTERS_VIEW,
+    ...GLOBAL_MASTER_TYPES.map((t) => MASTER_PERMISSIONS[t].viewPermission),
+  ),
   validateRequest({ query: hiddenListQuery }),
   asyncHandler(systemMasters.listHidden),
 );

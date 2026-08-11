@@ -62,7 +62,10 @@ export function normalizeServiceType(value: string | null | undefined): string {
   if (raw === 'SIGHT SEEING') return 'SIGHTSEEING';
   if (raw === 'GENERAL ENQUIRY') return 'GENERAL_ENQUIRY';
   if (raw === 'TRAVEL INSURANCE') return 'TRAVEL_INSURANCE';
-  return raw.replace(/[^A-Z0-9]/g, '_').replace(/__+/g, '_').replace(/^_+|_+$/g, '');
+  return raw
+    .replace(/[^A-Z0-9]/g, '_')
+    .replace(/__+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 /** Icons keyed by canonical service type; unknown types use the fallback. */

@@ -170,7 +170,12 @@ async function canManage(auth: AuthContext) {
  * A cross-tenant id simply matches nothing and surfaces as a 404, so the API
  * never confirms that another company's record exists.
  */
-async function getCruise(auth: AuthContext, cruiseId: string, scope: MasterScope, forManage = false) {
+async function getCruise(
+  auth: AuthContext,
+  cruiseId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageCruises = forManage ? true : await canManage(auth);
   const cruise = await prisma.cruise.findFirst({
     where: {

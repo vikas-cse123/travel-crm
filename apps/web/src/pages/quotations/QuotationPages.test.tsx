@@ -11,7 +11,11 @@ import { QuotationTemplateFormPage } from './QuotationTemplateFormPage';
 import { QuotationsPage } from './QuotationsPage';
 import { NewQuotationPage } from './NewQuotationPage';
 import { PublicQuotationPage } from './PublicQuotationPage';
-import { buildQuotationDescription, formatPublicQuotationNumber, normalizeWhatsAppPhone } from './quotationContact';
+import {
+  buildQuotationDescription,
+  formatPublicQuotationNumber,
+  normalizeWhatsAppPhone,
+} from './quotationContact';
 import { QuotationBuilderPage } from './QuotationBuilderPage';
 import { QuotationDetailsPage } from './QuotationDetailsPage';
 import { uploadQuotationAttachment } from '@/features/quotations/quotations.api';
@@ -410,6 +414,9 @@ describe('Phase 8 quotation pages', () => {
     renderWithProviders(<QuotationsPage />);
     expect((await screen.findAllByText('QT-2026-000001')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Aarav Mehta').length).toBeGreaterThan(0);
+    // Shared Masters-style pagination footer (the list had none before).
+    expect(screen.getByText('Showing 1 to 1 of 1 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
     await userEvent.type(screen.getByLabelText('Search quotations'), 'Aarav');
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('search=Aarav'))).toBe(true),
@@ -587,12 +594,90 @@ describe('Phase 8 quotation pages', () => {
       itinerary: [],
       hotels: [],
       services: [
-        { serviceType: 'FLIGHT', name: 'flight', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 1 },
-        { serviceType: 'HOTEL', name: 'hotel', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 2 },
-        { serviceType: 'SIGHTSEEING', name: 'sightseeing', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 3 },
-        { serviceType: 'CRUISE', name: 'cruise', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 4 },
-        { serviceType: 'VEHICLE_TRANSFER', name: 'vehicle', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 5 },
-        { serviceType: 'OTHER_ADD_ON', name: 'add-on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '0', totalSellingPrice: '0', sellingPrice: '0', taxCategory: null, notes: null, sequence: 6 },
+        {
+          serviceType: 'FLIGHT',
+          name: 'flight',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 1,
+        },
+        {
+          serviceType: 'HOTEL',
+          name: 'hotel',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 2,
+        },
+        {
+          serviceType: 'SIGHTSEEING',
+          name: 'sightseeing',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 3,
+        },
+        {
+          serviceType: 'CRUISE',
+          name: 'cruise',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 4,
+        },
+        {
+          serviceType: 'VEHICLE_TRANSFER',
+          name: 'vehicle',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 5,
+        },
+        {
+          serviceType: 'OTHER_ADD_ON',
+          name: 'add-on',
+          description: null,
+          dayNumber: null,
+          city: null,
+          quantity: '1',
+          unitSellingPrice: '0',
+          totalSellingPrice: '0',
+          sellingPrice: '0',
+          taxCategory: null,
+          notes: null,
+          sequence: 6,
+        },
       ],
       inclusions: [],
       exclusions: [],
@@ -648,7 +733,14 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByRole('button', { name: 'Flight' });
     // Every Lead-requested service tab shows a red `*` inside its button text.
-    for (const label of ['Flight', 'Hotel', 'Sightseeing', 'Cruise', 'Vehicle', 'Add-on Services']) {
+    for (const label of [
+      'Flight',
+      'Hotel',
+      'Sightseeing',
+      'Cruise',
+      'Vehicle',
+      'Add-on Services',
+    ]) {
       const tab = screen.getByRole('button', { name: label });
       expect(tab.textContent).toContain('*');
     }
@@ -803,8 +895,32 @@ describe('Phase 8 quotation pages', () => {
           travelStartDate: '2026-09-02',
           travelEndDate: null,
           itinerary: [
-            { id: 'i1', dayNumber: 1, title: 'Arrive', destination: 'Kuala Lumpur', description: 'a', meals: null, overnightLocation: null, activities: null, transfers: null, notes: null, sequence: 1 },
-            { id: 'i2', dayNumber: 7, title: 'Depart', destination: 'Kuala Lumpur', description: 'b', meals: null, overnightLocation: null, activities: null, transfers: null, notes: null, sequence: 2 },
+            {
+              id: 'i1',
+              dayNumber: 1,
+              title: 'Arrive',
+              destination: 'Kuala Lumpur',
+              description: 'a',
+              meals: null,
+              overnightLocation: null,
+              activities: null,
+              transfers: null,
+              notes: null,
+              sequence: 1,
+            },
+            {
+              id: 'i2',
+              dayNumber: 7,
+              title: 'Depart',
+              destination: 'Kuala Lumpur',
+              description: 'b',
+              meals: null,
+              overnightLocation: null,
+              activities: null,
+              transfers: null,
+              notes: null,
+              sequence: 2,
+            },
           ],
         },
       ],
@@ -831,10 +947,11 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.queryByText(/– Open/)).not.toBeInTheDocument();
     // No lifecycle Status card and no Valid until row.
     expect(screen.queryByText('Valid until')).not.toBeInTheDocument();
-    const statusLabel = screen.queryByText((_content, element) =>
-      element?.textContent === 'Status' &&
-      element?.tagName === 'P' &&
-      element?.className?.includes('uppercase'),
+    const statusLabel = screen.queryByText(
+      (_content, element) =>
+        element?.textContent === 'Status' &&
+        element?.tagName === 'P' &&
+        element?.className?.includes('uppercase'),
     );
     expect(statusLabel).toBeNull();
   });
@@ -877,10 +994,9 @@ describe('Phase 8 quotation pages', () => {
     // Tooltip shows "Copied!" after a successful copy.
     await waitFor(() => expect(screen.getByText('Copied!')).toBeInTheDocument());
     // Tooltip resets to the default label afterwards (after ~1.8s).
-    await waitFor(
-      () => expect(screen.queryByText('Copied!')).not.toBeInTheDocument(),
-      { timeout: 3000 },
-    );
+    await waitFor(() => expect(screen.queryByText('Copied!')).not.toBeInTheDocument(), {
+      timeout: 3000,
+    });
     // Open Weblink is a same-origin anchor to the same URL with rel noopener.
     const weblink = screen.getByRole('link', { name: 'Open Weblink' });
     expect(weblink.getAttribute('href')).toBe('http://localhost:5173/q/customer-token');
@@ -1204,12 +1320,17 @@ describe('Phase 8 quotation pages', () => {
           });
         if (url.endsWith('/uploads/document-1/confirm'))
           return response({ id: 'document-1', status: 'AVAILABLE' });
+        if (url.includes('/documents/document-1/download-url?disposition=inline'))
+          return response({ url: 'https://storage.example.test/voucher.pdf' });
         throw new Error(`Unexpected request: ${url} ${options?.method}`);
       },
     );
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['%PDF'], 'voucher.pdf', { type: 'application/pdf' });
-    await expect(uploadQuotationAttachment('quotation-1', file)).resolves.toBe('document-1');
+    await expect(uploadQuotationAttachment('quotation-1', file)).resolves.toEqual({
+      documentId: 'document-1',
+      url: 'https://storage.example.test/voucher.pdf',
+    });
     expect(
       fetchMock.mock.calls.some(
         ([url, options]) =>
@@ -1588,31 +1709,71 @@ describe('Phase 8 quotation pages', () => {
   it('deduplicates destination names in the Destinations summary', async () => {
     const base = {
       company: {
-        name: 'Alpha Travel', email: 'hello@alpha.test', phone: '919876543210',
-        website: null, address: null, primaryColor: '#2563eb',
-        operatingSince: 2015, tripsSold: 4200, tan: 'ABCD12345E',
-        taxRegistrationNumber: '29ABCDE1234F1Z5', logoUrl: null,
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: '919876543210',
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: null,
       },
       quotation: {
-        quotationNumber: 'QT-2026-000124', customerName: 'Rajesh Kumar',
+        quotationNumber: 'QT-2026-000124',
+        customerName: 'Rajesh Kumar',
         destinationSummary: 'Kuala Lumpur',
         // Malaysia repeated across two itinerary stays → deduplicated.
         destinations: 'Malaysia → Singapore',
-        travelStartDate: '2026-10-23', travelEndDate: '2026-10-27',
-        adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1,
-        validUntil: null, createdAt: '2026-08-04T10:00:00.000Z', status: 'VIEWED',
+        travelStartDate: '2026-10-23',
+        travelEndDate: '2026-10-27',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
       },
       version: {
-        title: 'Malaysia & Singapore Package', introduction: null, versionNumber: 1,
-        currency: 'INR', finalAmount: '80000', notes: null,
-        perAdultPrice: '40000', perChildWithBedPrice: '0', perChildWithoutBedPrice: '0', perInfantPrice: '0',
-        taxNote: null, initialPaymentAmount: '0', paymentLink: null,
-        inclusionsHtml: null, exclusionsHtml: null, paymentPolicies: null,
-        cancellationPolicies: null, bookingTerms: null, weblinkHeading: 'Kuala Lumpur',
-        includeVisa: false, visaSectionTitle: null, visaAmount: '0', visaDestination: null,
-        visaType: null, visaServiceCharge: '0', visaGstPercent: '0', visaVfsCharge: '0',
-        sightseeingDetails: { include: false, days: [] }, flightDetails: null,
-        hotels: [], services: [], itinerary: [], inclusions: [], exclusions: [], terms: [],
+        title: 'Malaysia & Singapore Package',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '80000',
+        notes: null,
+        perAdultPrice: '40000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: null,
+        initialPaymentAmount: '0',
+        paymentLink: null,
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: null,
+        cancellationPolicies: null,
+        bookingTerms: null,
+        weblinkHeading: 'Kuala Lumpur',
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        sightseeingDetails: { include: false, days: [] },
+        flightDetails: null,
+        hotels: [],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
         createdBy: null,
       },
       downloadUrl: null,
@@ -1749,8 +1910,29 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders multiple hotels as wide cards and falls back without an image', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        durationNights: 11,
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Grand Escape',
         versionNumber: 1,
@@ -1758,8 +1940,38 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'h1', hotelName: 'Marina Bay Sands', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 3, checkInDate: null, checkOutDate: null, sellingPrice: '20000', selected: true, notes: null, sequence: 1 },
-          { id: 'h2', hotelName: 'Orchard Hotel', city: 'Singapore', category: '4 Star', roomType: 'Superior', mealPlan: 'Half Board', rooms: 1, nights: 3, checkInDate: null, checkOutDate: null, sellingPrice: '15000', selected: true, notes: null, sequence: 2 },
+          {
+            id: 'h1',
+            hotelName: 'Marina Bay Sands',
+            city: 'Singapore',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 3,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '20000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'h2',
+            hotelName: 'Orchard Hotel',
+            city: 'Singapore',
+            category: '4 Star',
+            roomType: 'Superior',
+            mealPlan: 'Half Board',
+            rooms: 1,
+            nights: 3,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '15000',
+            selected: true,
+            notes: null,
+            sequence: 2,
+          },
         ],
         services: [],
         itinerary: [],
@@ -1768,7 +1980,17 @@ describe('Phase 8 quotation pages', () => {
         terms: [],
       },
       hotelPresentations: {
-        'h1': { imageUrl: 'https://storage.example.test/marina-bay.jpg', starCategory: 5, starRating: '4.8', address: 'Bayfront', reviewLink: null, checkInTime: '15:00', checkOutTime: '12:00', destination: 'Singapore', country: 'Singapore' },
+        h1: {
+          imageUrl: 'https://storage.example.test/marina-bay.jpg',
+          starCategory: 5,
+          starRating: '4.8',
+          address: 'Bayfront',
+          reviewLink: null,
+          checkInTime: '15:00',
+          checkOutTime: '12:00',
+          destination: 'Singapore',
+          country: 'Singapore',
+        },
       },
       downloadUrl: null,
     };
@@ -1784,8 +2006,13 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Grand Escape');
 
+    // Duration comes from all destination rows (11 nights), not the two hotels (6 nights).
+    expect(screen.getAllByText('11 Nights / 12 Days').length).toBeGreaterThan(0);
+
     // Both hotels render as separate full-width cards.
-    const section = screen.getByRole('heading', { name: 'Your Hotels' }).closest('section') as HTMLElement;
+    const section = screen
+      .getByRole('heading', { name: 'Your Hotels' })
+      .closest('section') as HTMLElement;
     expect(section.querySelectorAll('article').length).toBe(2);
     expect(section.querySelector('div.grid')?.className).not.toContain('md:grid-cols-2');
     // First hotel uses its own dynamic image with a landscape cover wrapper.
@@ -1855,7 +2082,9 @@ describe('Phase 8 quotation pages', () => {
     await screen.findByText('Singapore Package for Vikas Singh');
 
     // The stock "prepared for" sentence is fully gone from the hero.
-    expect(screen.queryByText('A travel proposal prepared for Vikas Singh.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('A travel proposal prepared for Vikas Singh.'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/A travel proposal prepared for/)).not.toBeInTheDocument();
 
     // Destination and duration headline remain visible.
@@ -2199,6 +2428,7 @@ describe('Phase 8 quotation pages', () => {
           },
           {
             id: 's-addon',
+            addOnServiceId: 'addon-travel-insurance',
             serviceType: 'TRAVEL_INSURANCE',
             name: 'Travel Insurance',
             description: null,
@@ -2266,8 +2496,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('does not render a duplicate Services & Experiences block on the public page', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000007', customerName: 'Aarav Mehta', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000007',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'No Duplicate Block',
         versionNumber: 1,
@@ -2306,13 +2556,85 @@ describe('Phase 8 quotation pages', () => {
           returnJourney: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] },
         },
         hotels: [
-          { id: 'h1', hotelName: 'Marina Bay Sands', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 3, checkInDate: null, checkOutDate: null, sellingPrice: '20000', selected: true, notes: null, sequence: 1 },
+          {
+            id: 'h1',
+            hotelName: 'Marina Bay Sands',
+            city: 'Singapore',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 3,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '20000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
         ],
         services: [
-          { id: 's-sight', serviceType: 'SIGHTSEEING', name: 'City Tour', description: null, dayNumber: 1, city: 'Singapore', quantity: '1', unitSellingPrice: '3000', totalSellingPrice: '3000', sellingPrice: '3000', taxCategory: 'Sightseeing', notes: null, sequence: 1 },
-          { id: 's-cruise', serviceType: 'CRUISE', name: 'Harbour Cruise', description: null, dayNumber: 2, city: 'Singapore', quantity: '1', unitSellingPrice: '5000', totalSellingPrice: '5000', sellingPrice: '5000', taxCategory: 'Cruise', notes: null, sequence: 2 },
-          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: 1, city: 'Singapore', quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: 'Transportation', notes: null, sequence: 3 },
-          { id: 's-addon', serviceType: 'TRAVEL_INSURANCE', name: 'Travel Insurance', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: 'Add-on', notes: null, sequence: 4 },
+          {
+            id: 's-sight',
+            serviceType: 'SIGHTSEEING',
+            name: 'City Tour',
+            description: null,
+            dayNumber: 1,
+            city: 'Singapore',
+            quantity: '1',
+            unitSellingPrice: '3000',
+            totalSellingPrice: '3000',
+            sellingPrice: '3000',
+            taxCategory: 'Sightseeing',
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 's-cruise',
+            serviceType: 'CRUISE',
+            name: 'Harbour Cruise',
+            description: null,
+            dayNumber: 2,
+            city: 'Singapore',
+            quantity: '1',
+            unitSellingPrice: '5000',
+            totalSellingPrice: '5000',
+            sellingPrice: '5000',
+            taxCategory: 'Cruise',
+            notes: null,
+            sequence: 2,
+          },
+          {
+            id: 's-vehicle',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            dayNumber: 1,
+            city: 'Singapore',
+            quantity: '1',
+            unitSellingPrice: '2000',
+            totalSellingPrice: '2000',
+            sellingPrice: '2000',
+            taxCategory: 'Transportation',
+            notes: null,
+            sequence: 3,
+          },
+          {
+            id: 's-addon',
+            addOnServiceId: 'addon-travel-insurance',
+            serviceType: 'TRAVEL_INSURANCE',
+            name: 'Travel Insurance',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+            totalSellingPrice: '1500',
+            sellingPrice: '1500',
+            taxCategory: 'Add-on',
+            notes: null,
+            sequence: 4,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -2332,7 +2654,9 @@ describe('Phase 8 quotation pages', () => {
     await screen.findByText('No Duplicate Block');
 
     // The duplicate block is gone entirely.
-    expect(screen.queryByRole('heading', { name: 'Services & Experiences' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Services & Experiences' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Services & Experiences')).not.toBeInTheDocument();
     // No duplicate standalone row for the non-addon sightseeing service (the
     // only kind the old block would have shown without a dedicated section).
@@ -2367,8 +2691,28 @@ describe('Phase 8 quotation pages', () => {
       sequence: 1,
     });
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000008', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000008',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Legacy Generic Services',
         versionNumber: 1,
@@ -2381,7 +2725,7 @@ describe('Phase 8 quotation pages', () => {
           service('s2', 'CRUISE', 'cruise'),
           service('s3', 'VEHICLE_TRANSFER', 'vehicle'),
           service('s4', 'FLIGHT', 'flight'),
-          service('s5', 'TRAVEL_INSURANCE', 'visa'),
+          { ...service('s5', 'TRAVEL_INSURANCE', 'visa'), addOnServiceId: 'addon-visa' },
           service('s6', 'SIGHTSEEING', 'hotel'),
         ],
         itinerary: [],
@@ -2403,7 +2747,9 @@ describe('Phase 8 quotation pages', () => {
 
     // No "Services & Experiences" block, and no bare duplicate value rows for
     // values that only the old block ever displayed (no dedicated section).
-    expect(screen.queryByRole('heading', { name: 'Services & Experiences' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Services & Experiences' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Services & Experiences')).not.toBeInTheDocument();
     expect(screen.queryByText('hotel', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText('sightseeing', { exact: true })).not.toBeInTheDocument();
@@ -2418,8 +2764,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows the Sightseeing service card from saved sightseeing details', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Sightseeing Trip',
         versionNumber: 1,
@@ -2427,7 +2793,22 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'h1', hotelName: 'Marina Bay', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '1000', selected: true, notes: null, sequence: 1 },
+          {
+            id: 'h1',
+            hotelName: 'Marina Bay',
+            city: 'Singapore',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '1000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
         ],
         // No SIGHTSEEING service rows — the canonical sightseeingDetails drives the card.
         services: [],
@@ -2437,8 +2818,40 @@ describe('Phase 8 quotation pages', () => {
           amount: 0,
           description: null,
           days: [
-            { dayNumber: 1, title: 'City Tour', city: 'Singapore', meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
-            { dayNumber: 2, title: 'Gardens by the Bay', city: 'Singapore', meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Cloud Forest', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+            {
+              dayNumber: 1,
+              title: 'City Tour',
+              city: 'Singapore',
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
+            {
+              dayNumber: 2,
+              title: 'Gardens by the Bay',
+              city: 'Singapore',
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Cloud Forest',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
           ],
         },
         itinerary: [],
@@ -2460,7 +2873,9 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Sightseeing Trip');
 
-    const section = screen.getByRole('heading', { name: 'Services Include' }).closest('section') as HTMLElement;
+    const section = screen
+      .getByRole('heading', { name: 'Services Include' })
+      .closest('section') as HTMLElement;
     // Exactly one Sightseeing card, with a green icon and check indicator.
     const sightseeingCards = within(section).getAllByText('Sightseeing');
     expect(sightseeingCards).toHaveLength(1);
@@ -2480,7 +2895,22 @@ describe('Phase 8 quotation pages', () => {
       finalAmount: '100',
       hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
       hotels: [
-        { id: 'h1', hotelName: 'Marina Bay', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '1000', selected: true, notes: null, sequence: 1 },
+        {
+          id: 'h1',
+          hotelName: 'Marina Bay',
+          city: 'Singapore',
+          category: '5 Star',
+          roomType: 'Deluxe',
+          mealPlan: 'Breakfast',
+          rooms: 1,
+          nights: 2,
+          checkInDate: null,
+          checkOutDate: null,
+          sellingPrice: '1000',
+          selected: true,
+          notes: null,
+          sequence: 1,
+        },
       ],
       services: [],
       itinerary: [],
@@ -2489,10 +2919,32 @@ describe('Phase 8 quotation pages', () => {
       terms: [],
     };
     const renderVersion = async (sightseeingDetails: unknown) => {
-      const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-        async () => response({
-          company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-          quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      const fetchMock = vi.fn<
+        (input: RequestInfo | URL, options?: RequestInit) => Promise<Response>
+      >(async () =>
+        response({
+          company: {
+            name: 'Alpha Travel',
+            email: 'a@b.test',
+            phone: null,
+            website: null,
+            address: null,
+            primaryColor: '#2563eb',
+          },
+          quotation: {
+            quotationNumber: 'QT-2026-000002',
+            customerName: 'Mira Shah',
+            destinationSummary: 'Singapore',
+            travelStartDate: null,
+            travelEndDate: null,
+            adults: 2,
+            childrenWithBed: 0,
+            childrenWithoutBed: 0,
+            infants: 0,
+            rooms: 1,
+            validUntil: null,
+            status: 'VIEWED',
+          },
           version: { ...baseVersion, sightseeingDetails },
           downloadUrl: null,
         }),
@@ -2505,12 +2957,22 @@ describe('Phase 8 quotation pages', () => {
         { route: '/q/public-token-value-with-at-least-32-characters' },
       );
       await screen.findByText('No Sightseeing');
-      const section = screen.getByRole('heading', { name: 'Services Include' }).closest('section') as HTMLElement;
+      const section = screen
+        .getByRole('heading', { name: 'Services Include' })
+        .closest('section') as HTMLElement;
       return within(section).queryByText('Sightseeing');
     };
 
     // Empty days array → no card.
-    expect(await renderVersion({ include: true, sectionTitle: 'Sightseeing', amount: 0, description: null, days: [] })).not.toBeInTheDocument();
+    expect(
+      await renderVersion({
+        include: true,
+        sectionTitle: 'Sightseeing',
+        amount: 0,
+        description: null,
+        days: [],
+      }),
+    ).not.toBeInTheDocument();
     cleanup();
     // Placeholder day with no title and empty activities → no card.
     expect(
@@ -2520,7 +2982,15 @@ describe('Phase 8 quotation pages', () => {
         amount: 0,
         description: null,
         days: [
-          { dayNumber: 1, title: '', city: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [] },
+          {
+            dayNumber: 1,
+            title: '',
+            city: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [],
+          },
         ],
       }),
     ).not.toBeInTheDocument();
@@ -2528,8 +2998,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('removes the old generic itinerary card but keeps the detailed sightseeing timeline', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Itinerary Check',
         versionNumber: 1,
@@ -2540,7 +3030,17 @@ describe('Phase 8 quotation pages', () => {
         services: [],
         // The old generic itinerary snapshot must no longer be rendered.
         itinerary: [
-          { id: 'd1', dayNumber: 1, title: 'Singapore', destination: 'Singapore', description: '4 night stay in Singapore.', overnightLocation: 'Singapore', meals: null, transfers: null, sequence: 1 },
+          {
+            id: 'd1',
+            dayNumber: 1,
+            title: 'Singapore',
+            destination: 'Singapore',
+            description: '4 night stay in Singapore.',
+            overnightLocation: 'Singapore',
+            meals: null,
+            transfers: null,
+            sequence: 1,
+          },
         ],
         // The detailed sightseeing timeline must still render.
         sightseeingDetails: {
@@ -2549,7 +3049,23 @@ describe('Phase 8 quotation pages', () => {
           amount: 0,
           description: null,
           days: [
-            { dayNumber: 1, title: 'City Tour', city: 'Singapore', meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+            {
+              dayNumber: 1,
+              title: 'City Tour',
+              city: 'Singapore',
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
           ],
         },
         inclusions: [],
@@ -2581,8 +3097,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('does not render any itinerary fallback when there is no detailed sightseeing', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'No Itinerary',
         versionNumber: 1,
@@ -2592,7 +3128,17 @@ describe('Phase 8 quotation pages', () => {
         hotels: [],
         services: [],
         itinerary: [
-          { id: 'd1', dayNumber: 1, title: 'Singapore', destination: 'Singapore', description: '4 night stay in Singapore.', overnightLocation: 'Singapore', meals: null, transfers: null, sequence: 1 },
+          {
+            id: 'd1',
+            dayNumber: 1,
+            title: 'Singapore',
+            destination: 'Singapore',
+            description: '4 night stay in Singapore.',
+            overnightLocation: 'Singapore',
+            meals: null,
+            transfers: null,
+            sequence: 1,
+          },
         ],
         sightseeingDetails: null,
         inclusions: [],
@@ -2621,8 +3167,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders the Your Itinerary timeline with deduplicated titles, metadata and badges', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: '2026-08-10T00:00:00.000Z', travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: '2026-08-10T00:00:00.000Z',
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Singapore Escape',
         versionNumber: 1,
@@ -2645,7 +3211,13 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'INCLUDE_AT_HOTEL',
               dailyTransfer: 'SHARED',
               activities: [
-                { name: 'Merlion Park', description: '<p>Visit the <strong>Merlion</strong>.</p>', startTime: '09:00', sightseeingId: null, imageUrl: 'https://storage.example.test/merlion.jpg' },
+                {
+                  name: 'Merlion Park',
+                  description: '<p>Visit the <strong>Merlion</strong>.</p>',
+                  startTime: '09:00',
+                  sightseeingId: null,
+                  imageUrl: 'https://storage.example.test/merlion.jpg',
+                },
               ],
             },
           ],
@@ -2677,9 +3249,12 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByRole('heading', { name: 'Day 1: City Tour' })).toBeInTheDocument();
     expect(screen.queryByText('Day 1: Day 1: City Tour')).not.toBeInTheDocument();
     // Metadata: city + formatted date.
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     expect(within(article).getByText('Singapore')).toBeInTheDocument();
     expect(within(article).getByText(/Mon, 10 Aug 2026/)).toBeInTheDocument();
+    expect(within(article).getByText('9:00 AM')).toBeInTheDocument();
     // Snapshot image used first.
     const img = within(article).getByAltText('Day 1: City Tour');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/merlion.jpg');
@@ -2696,8 +3271,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders independent per-meal modes and transfer details in the Meals summary', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000005', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000005',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Per Meal Options',
         versionNumber: 1,
@@ -2724,7 +3319,15 @@ describe('Phase 8 quotation pages', () => {
                 dinner: { mode: 'WITH_TRANSFER', transferDetails: 'at the Taj Hotel' },
               },
               dailyTransfer: 'SHARED',
-              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -2744,9 +3347,13 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Per Meal Options');
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     expect(
-      within(article).getByText('Breakfast (No Transfer), Lunch (Hotel), Dinner (With Transfer: at the Taj Hotel)'),
+      within(article).getByText(
+        'Breakfast (No Transfer), Lunch (Hotel), Dinner (With Transfer: at the Taj Hotel)',
+      ),
     ).toBeInTheDocument();
     // Daily transfer badge stays independent of the meal-transfer configuration.
     expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
@@ -2754,8 +3361,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('falls back to the shared mealMode when no per-meal preferences exist', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000006', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000006',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Legacy Meals',
         versionNumber: 1,
@@ -2777,7 +3404,15 @@ describe('Phase 8 quotation pages', () => {
               meals: { breakfast: true, dinner: true },
               mealMode: 'WITH_TRANSFER',
               dailyTransfer: 'SHARED',
-              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -2797,7 +3432,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Legacy Meals');
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     // The shared legacy WITH_TRANSFER mode now renders per meal.
     expect(
       within(article).getByText('Breakfast (With Transfer), Dinner (With Transfer)'),
@@ -2806,8 +3443,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows With Transfer without details and hides the Meals row when nothing is selected', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000011', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000011',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'No Detail Meal',
         versionNumber: 1,
@@ -2832,7 +3489,15 @@ describe('Phase 8 quotation pages', () => {
                 dinner: { mode: 'WITH_TRANSFER', transferDetails: '' },
               },
               dailyTransfer: 'NO_TRANSFER',
-              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -2852,7 +3517,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('No Detail Meal');
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     // WITH_TRANSFER with blank details renders without a trailing colon.
     expect(within(article).getByText('Dinner (With Transfer)')).toBeInTheDocument();
     // Unselected meals (Breakfast/Lunch) are never shown.
@@ -2862,8 +3529,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('normalizes legacy meal-mode variants instead of falling back to Hotel', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000012', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000012',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Legacy Variants',
         versionNumber: 1,
@@ -2890,7 +3577,15 @@ describe('Phase 8 quotation pages', () => {
                 dinner: { mode: 'HOTEL', transferDetails: null },
               },
               dailyTransfer: 'NO_TRANSFER',
-              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -2910,7 +3605,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Legacy Variants');
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     // Each variant normalizes to its canonical label; none becomes (Hotel).
     expect(
       within(article).getByText('Breakfast (No Transfer), Lunch (No Transfer), Dinner (Hotel)'),
@@ -2919,8 +3616,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('does not fall back to Hotel for an unknown per-meal mode', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000013', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000013',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Unknown Mode',
         versionNumber: 1,
@@ -2945,7 +3662,15 @@ describe('Phase 8 quotation pages', () => {
                 breakfast: { mode: 'PICNIC', transferDetails: null },
               },
               dailyTransfer: 'NO_TRANSFER',
-              activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -2965,7 +3690,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Unknown Mode');
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     // A present-but-unknown per-meal mode shows no suffix (never (Hotel)).
     expect(within(article).getByText('Meals:')).toBeInTheDocument();
     expect(within(article).getByText('Breakfast')).toBeInTheDocument();
@@ -2974,8 +3701,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows a thumbnail for every activity and matches them to the correct activity', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000009', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000009',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Thumbnails',
         versionNumber: 1,
@@ -2998,8 +3745,20 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'INCLUDE_AT_HOTEL',
               dailyTransfer: 'NO_TRANSFER',
               activities: [
-                { name: 'Arrival in Singapore & Hotel Check-in', description: '<p>Check in.</p>', startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/arrival.jpg' },
-                { name: 'Night Safari – Singapore', description: null, startTime: null, sightseeingId: 'sg-ns', imageUrl: null },
+                {
+                  name: 'Arrival in Singapore & Hotel Check-in',
+                  description: '<p>Check in.</p>',
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: 'https://storage.example.test/arrival.jpg',
+                },
+                {
+                  name: 'Night Safari – Singapore',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: 'sg-ns',
+                  imageUrl: null,
+                },
               ],
             },
           ],
@@ -3024,7 +3783,9 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Thumbnails');
 
-    const article = screen.getByRole('heading', { name: 'Day 1: City Tour' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: City Tour' })
+      .closest('article') as HTMLElement;
     expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
     // First activity uses its snapshot image; second resolves its signed presentation.
     const arrival = within(article).getByAltText('Arrival in Singapore & Hotel Check-in');
@@ -3039,8 +3800,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows a neutral thumbnail placeholder when an activity has no image', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000010', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000010',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'No Thumbnails',
         versionNumber: 1,
@@ -3063,7 +3844,13 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'INCLUDE_AT_HOTEL',
               dailyTransfer: 'NO_TRANSFER',
               activities: [
-                { name: 'Free Walking', description: null, startTime: null, sightseeingId: null, imageUrl: null },
+                {
+                  name: 'Free Walking',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
               ],
             },
           ],
@@ -3091,8 +3878,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('falls back to the primary activity title when the day title is missing', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3114,7 +3921,15 @@ describe('Phase 8 quotation pages', () => {
               meals: { breakfast: false, lunch: false, dinner: false },
               mealMode: 'NO_TRANSFER',
               dailyTransfer: 'NO_TRANSFER',
-              activities: [{ name: 'Sentosa Tour', description: null, startTime: null, sightseeingId: null, imageUrl: null }],
+              activities: [
+                {
+                  name: 'Sentosa Tour',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
             },
           ],
         },
@@ -3143,8 +3958,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders the light-blue Instructions box with formatted rich text', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000003',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Instructions Box',
         versionNumber: 1,
@@ -3160,7 +3995,24 @@ describe('Phase 8 quotation pages', () => {
           description:
             '<p>Meet your guide at the <strong>lobby</strong>.</p><p>Carry:</p><ul><li>Passport</li><li>Water bottle</li></ul><p>More at <a href="https://example.test">the site</a>.</p>',
           days: [
-            { dayNumber: 1, title: 'Day 1: City Tour', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
           ],
         },
         itinerary: [],
@@ -3200,8 +4052,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides the Instructions box when the section description is empty', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000004', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000004',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Empty Instructions',
         versionNumber: 1,
@@ -3216,7 +4088,24 @@ describe('Phase 8 quotation pages', () => {
           amount: 0,
           description: '<p><br></p>',
           days: [
-            { dayNumber: 1, title: 'Day 1: City Tour', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'Merlion Park', description: null, startTime: null, sightseeingId: null, imageUrl: null }] },
+            {
+              dayNumber: 1,
+              title: 'Day 1: City Tour',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Merlion Park',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
           ],
         },
         itinerary: [],
@@ -3243,8 +4132,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides empty sightseeing days and renders multiple activities in one card', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3267,8 +4176,22 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'NO_TRANSFER',
               dailyTransfer: 'NO_TRANSFER',
               activities: [
-                { name: 'Morning Tour', description: '<p>Desc A</p>', startTime: null, sightseeingId: null, imageUrl: null },
-                { name: 'Evening Dinner Cruise', description: '<p>Desc B</p>', startTime: null, sightseeingId: null, imageUrl: null },
+                {
+                  name: 'Morning Tour',
+                  description: '<p>Desc A</p>',
+                  startTime: '09:00',
+                  showTime: true,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+                {
+                  name: 'Evening Dinner Cruise',
+                  description: '<p>Desc B</p>',
+                  startTime: '18:30',
+                  showTime: false,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
               ],
             },
             {
@@ -3303,9 +4226,13 @@ describe('Phase 8 quotation pages', () => {
     // The empty day 2 is hidden entirely.
     expect(screen.queryByRole('heading', { name: 'Day 2:' })).not.toBeInTheDocument();
     // Both activities render inside the same day card, in order.
-    const article = screen.getByRole('heading', { name: 'Day 1: Full Day' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: Full Day' })
+      .closest('article') as HTMLElement;
     expect(within(article).getByText('Morning Tour')).toBeInTheDocument();
     expect(within(article).getByText('Evening Dinner Cruise')).toBeInTheDocument();
+    expect(within(article).getByText('9:00 AM')).toBeInTheDocument();
+    expect(within(article).queryByText('6:30 PM')).not.toBeInTheDocument();
     expect(article.querySelectorAll('h3').length).toBe(1);
     const activityOrder = [...article.querySelectorAll('p')]
       .map((node) => node.textContent)
@@ -3315,8 +4242,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders sanitized rich text and strips unsafe scripts from activities', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3339,7 +4286,13 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'NO_TRANSFER',
               dailyTransfer: 'NO_TRANSFER',
               activities: [
-                { name: 'Safe Tour', description: '<p>Safe content</p><script>window.pwned = true</script>', startTime: null, sightseeingId: null, imageUrl: null },
+                {
+                  name: 'Safe Tour',
+                  description: '<p>Safe content</p><script>window.pwned = true</script>',
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
               ],
             },
           ],
@@ -3367,8 +4320,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('single activity: omits thumbnail, keeps full-width title and description, transfer inside panel, meals below', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Ladakh', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000003',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Ladakh',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Ladakh Trip',
         versionNumber: 1,
@@ -3391,7 +4364,13 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'INCLUDE_AT_HOTEL',
               dailyTransfer: 'SHARED',
               activities: [
-                { name: 'Pangong Lake Visit', description: '<p>Beautiful lake at high altitude</p>', startTime: null, sightseeingId: null, imageUrl: null },
+                {
+                  name: 'Pangong Lake Visit',
+                  description: '<p>Beautiful lake at high altitude</p>',
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
               ],
             },
           ],
@@ -3412,7 +4391,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Ladakh Trip');
-    const article = screen.getByRole('heading', { name: 'Day 1: Pangong' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: Pangong' })
+      .closest('article') as HTMLElement;
     // Header exists
     expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
     // Activity name rendered without a dedicated thumbnail img
@@ -3428,8 +4409,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('multiple activities: shows thumbnails, dividers, transfer per activity, meals once below panel', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000004', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000004',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Goa Beach Holiday',
         versionNumber: 1,
@@ -3452,8 +4453,20 @@ describe('Phase 8 quotation pages', () => {
               mealMode: 'INCLUDE_AT_HOTEL',
               dailyTransfer: 'PRIVATE',
               activities: [
-                { name: 'Fort Aguada', description: null, startTime: null, sightseeingId: null, imageUrl: null },
-                { name: 'Calangute Beach', description: '<p>Relax by the shore</p>', startTime: null, sightseeingId: null, imageUrl: null },
+                {
+                  name: 'Fort Aguada',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+                {
+                  name: 'Calangute Beach',
+                  description: '<p>Relax by the shore</p>',
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
               ],
             },
           ],
@@ -3474,7 +4487,9 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Goa Beach Holiday');
-    const article = screen.getByRole('heading', { name: 'Day 1: North Goa' }).closest('article') as HTMLElement;
+    const article = screen
+      .getByRole('heading', { name: 'Day 1: North Goa' })
+      .closest('article') as HTMLElement;
     expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
     expect(within(article).getByText('Fort Aguada')).toBeInTheDocument();
     expect(within(article).getByText('Calangute Beach')).toBeInTheDocument();
@@ -3491,8 +4506,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows each activity its own transfer in the itinerary', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000009', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000009',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Per Activity Transfer',
         versionNumber: 1,
@@ -3516,9 +4551,30 @@ describe('Phase 8 quotation pages', () => {
               mealPreferences: { breakfast: { mode: 'NO_TRANSFER', transferDetails: null } },
               dailyTransfer: 'SHARED',
               activities: [
-                { name: 'Singapore City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'SHARED' },
-                { name: 'Singapore Zoo', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'NO_TRANSFER' },
-                { name: 'Day at Cruise', description: null, startTime: null, sightseeingId: null, imageUrl: null, dailyTransfer: 'PRIVATE' },
+                {
+                  name: 'Singapore City Tour',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'SHARED',
+                },
+                {
+                  name: 'Singapore Zoo',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'NO_TRANSFER',
+                },
+                {
+                  name: 'Day at Cruise',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'PRIVATE',
+                },
               ],
             },
           ],
@@ -3553,8 +4609,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders legacy sightseeing snapshot shapes without crashing', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3576,7 +4652,9 @@ describe('Phase 8 quotation pages', () => {
               meals: ['Breakfast', 'Dinner'],
               mealMode: 'WITH_TRANSFER',
               dailyTransfer: 'PRIVATE_TRANSFER',
-              activity: [{ title: 'Legacy Activity', image: 'https://storage.example.test/legacy.jpg' }],
+              activity: [
+                { title: 'Legacy Activity', image: 'https://storage.example.test/legacy.jpg' },
+              ],
             },
           ],
         },
@@ -3600,7 +4678,9 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByText('Legacy Activity')).toBeInTheDocument();
     expect(screen.getByText('Private Transfer')).toBeInTheDocument();
     // Array meals normalize to booleans; the shared WITH_TRANSFER mode renders per meal.
-    expect(screen.getByText('Breakfast (With Transfer), Dinner (With Transfer)')).toBeInTheDocument();
+    expect(
+      screen.getByText('Breakfast (With Transfer), Dinner (With Transfer)'),
+    ).toBeInTheDocument();
     const img = screen.getByAltText('Day 3: Legacy Day');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/legacy.jpg');
   });
@@ -3652,8 +4732,35 @@ describe('Phase 8 quotation pages', () => {
       terms: [],
     };
     const render = (version: unknown) => {
-      const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
-        async () => response({ company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' }, quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' }, version, downloadUrl: null }),
+      const fetchMock = vi.fn<
+        (input: RequestInfo | URL, options?: RequestInit) => Promise<Response>
+      >(async () =>
+        response({
+          company: {
+            name: 'Alpha Travel',
+            email: 'a@b.test',
+            phone: null,
+            website: null,
+            address: null,
+            primaryColor: '#2563eb',
+          },
+          quotation: {
+            quotationNumber: 'QT-2026-000002',
+            customerName: 'Mira Shah',
+            destinationSummary: 'Kerala',
+            travelStartDate: null,
+            travelEndDate: null,
+            adults: 2,
+            childrenWithBed: 0,
+            childrenWithoutBed: 0,
+            infants: 0,
+            rooms: 1,
+            validUntil: null,
+            status: 'VIEWED',
+          },
+          version,
+          downloadUrl: null,
+        }),
       );
       vi.stubGlobal('fetch', fetchMock);
       return renderWithProviders(
@@ -3667,7 +4774,9 @@ describe('Phase 8 quotation pages', () => {
     // Hotels only: Flights/Hotels shown, everything else omitted.
     render(base);
     await screen.findByText('Kerala Escape');
-    const section = screen.getByRole('heading', { name: 'Services Include' }).closest('section') as HTMLElement;
+    const section = screen
+      .getByRole('heading', { name: 'Services Include' })
+      .closest('section') as HTMLElement;
     expect(within(section).getByText('Hotels')).toBeInTheDocument();
     expect(within(section).queryByText('Flights')).not.toBeInTheDocument();
     expect(within(section).queryByText('Sightseeing')).not.toBeInTheDocument();
@@ -3681,7 +4790,14 @@ describe('Phase 8 quotation pages', () => {
     const noServices = {
       ...base,
       hotels: [],
-      flightDetails: { include: false, sectionTitle: 'Flight Details', amount: 0, journeyType: 'ONEWAY_OUTBOUND', outbound: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] }, returnJourney: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] } },
+      flightDetails: {
+        include: false,
+        sectionTitle: 'Flight Details',
+        amount: 0,
+        journeyType: 'ONEWAY_OUTBOUND',
+        outbound: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] },
+        returnJourney: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [] },
+      },
     };
     render(noServices);
     await screen.findByText('Kerala Escape');
@@ -3690,8 +4806,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('does not show a Hotels card when the quotation has no hotels', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3699,7 +4835,21 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: 'Transportation', notes: null, sequence: 1 },
+          {
+            id: 's-vehicle',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '2000',
+            totalSellingPrice: '2000',
+            sellingPrice: '2000',
+            taxCategory: 'Transportation',
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3720,7 +4870,9 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Kerala Escape');
 
-    const section = screen.getByRole('heading', { name: 'Services Include' }).closest('section') as HTMLElement;
+    const section = screen
+      .getByRole('heading', { name: 'Services Include' })
+      .closest('section') as HTMLElement;
     expect(within(section).getByText('Transportation')).toBeInTheDocument();
     expect(within(section).queryByText('Hotels')).not.toBeInTheDocument();
     expect(within(section).queryByText('Flights')).not.toBeInTheDocument();
@@ -3728,8 +4880,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders the saved custom Vehicle section title on the public page', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3737,7 +4909,21 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: 'Airport Transfers', notes: null, sequence: 1 },
+          {
+            id: 's-vehicle',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '2000',
+            totalSellingPrice: '2000',
+            sellingPrice: '2000',
+            taxCategory: 'Airport Transfers',
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3755,16 +4941,34 @@ describe('Phase 8 quotation pages', () => {
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Kerala Escape');
-    expect(
-      screen.getByRole('heading', { name: 'Airport Transfers' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Airport Transfers' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Vehicle Details' })).not.toBeInTheDocument();
   });
 
   it('falls back to Transportation for the public Vehicle section title when empty', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3772,7 +4976,21 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: '', notes: null, sequence: 1 },
+          {
+            id: 's-vehicle',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '2000',
+            totalSellingPrice: '2000',
+            sellingPrice: '2000',
+            taxCategory: '',
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3795,8 +5013,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders included add-on services as formatted Additional Services cards', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3804,7 +5042,22 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-addon', serviceType: 'TRAVEL_INSURANCE', addOnServiceId: 'addon-master-1', name: 'Travel Insurance', description: '<p><strong>Cover</strong> for the trip.</p>', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 1 },
+          {
+            id: 's-addon',
+            serviceType: 'TRAVEL_INSURANCE',
+            addOnServiceId: 'addon-master-1',
+            name: 'Travel Insurance',
+            description: '<p><strong>Cover</strong> for the trip.</p>',
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+            totalSellingPrice: '1500',
+            sellingPrice: '1500',
+            taxCategory: null,
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3832,8 +5085,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides Additional Services when no add-on service is included', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3841,7 +5114,21 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-vehicle', serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '2000', totalSellingPrice: '2000', sellingPrice: '2000', taxCategory: 'Transportation', notes: null, sequence: 1 },
+          {
+            id: 's-vehicle',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '2000',
+            totalSellingPrice: '2000',
+            sellingPrice: '2000',
+            taxCategory: 'Transportation',
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3864,8 +5151,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders only add-on rows that are actually selected (have an addOnServiceId)', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3873,8 +5180,38 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-checked', serviceType: 'OTHER_ADD_ON', addOnServiceId: 'master-visa', name: 'Singapore Visa', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 1 },
-          { id: 's-unchecked', serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 2 },
+          {
+            id: 's-checked',
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'master-visa',
+            name: 'Singapore Visa',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+            totalSellingPrice: '1500',
+            sellingPrice: '1500',
+            taxCategory: null,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 's-unchecked',
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: null,
+            name: 'other add on',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '500',
+            totalSellingPrice: '500',
+            sellingPrice: '500',
+            taxCategory: null,
+            notes: null,
+            sequence: 2,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3900,8 +5237,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides the whole Additional Services section when every add-on row is unselected', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3909,8 +5266,38 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotels: [],
         services: [
-          { id: 's-unchecked-1', serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 1 },
-          { id: 's-unchecked-2', serviceType: 'TRAVEL_INSURANCE', addOnServiceId: null, name: 'Singapore Visa', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '1500', totalSellingPrice: '1500', sellingPrice: '1500', taxCategory: null, notes: null, sequence: 2 },
+          {
+            id: 's-unchecked-1',
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: null,
+            name: 'other add on',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '500',
+            totalSellingPrice: '500',
+            sellingPrice: '500',
+            taxCategory: null,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 's-unchecked-2',
+            serviceType: 'TRAVEL_INSURANCE',
+            addOnServiceId: null,
+            name: 'Singapore Visa',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+            totalSellingPrice: '1500',
+            sellingPrice: '1500',
+            taxCategory: null,
+            notes: null,
+            sequence: 2,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3935,8 +5322,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides Add-ons publicly when top-level Add-on Services include is off', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -3946,7 +5353,21 @@ describe('Phase 8 quotation pages', () => {
         // Top-level Add-on include is OFF even though an add-on row exists.
         addOnDetails: { include: false },
         services: [
-          { id: 's-addon', serviceType: 'OTHER_ADD_ON', name: 'other add on', description: null, dayNumber: null, city: null, quantity: '1', unitSellingPrice: '500', totalSellingPrice: '500', sellingPrice: '500', taxCategory: null, notes: null, sequence: 1 },
+          {
+            id: 's-addon',
+            serviceType: 'OTHER_ADD_ON',
+            name: 'other add on',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '500',
+            totalSellingPrice: '500',
+            sellingPrice: '500',
+            taxCategory: null,
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -3975,8 +5396,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows Cabin: 10 kg+ on the public page for a stored 10kg value', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -4040,8 +5481,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders flight notes inside a transparent scoped container despite inline white backgrounds', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000003', customerName: 'Mira Shah', destinationSummary: 'Kerala', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000003',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Kerala',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Kerala Escape',
         versionNumber: 1,
@@ -4072,7 +5533,8 @@ describe('Phase 8 quotation pages', () => {
                 duration: '2h 0m',
                 cabinLuggage: '7kg',
                 checkInLuggage: '20kg',
-                notes: '<p style="background-color: white">Outbound note line</p><span style="background: white">inline note</span>',
+                notes:
+                  '<p style="background-color: white">Outbound note line</p><span style="background: white">inline note</span>',
                 connectionVia: null,
               },
             ],
@@ -4145,8 +5607,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders the public cruise card with image, duration, room type and description', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Cruise Trip',
         versionNumber: 1,
@@ -4155,7 +5637,21 @@ describe('Phase 8 quotation pages', () => {
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [],
         services: [
-          { id: 's-cruise', serviceType: 'CRUISE', name: 'Dream Genting', description: '<p>A lovely voyage.</p>', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '18000', totalSellingPrice: '18000', sellingPrice: '18000', taxCategory: 'Ocean Cruise', notes: '2 nights', sequence: 1 },
+          {
+            id: 's-cruise',
+            serviceType: 'CRUISE',
+            name: 'Dream Genting',
+            description: '<p>A lovely voyage.</p>',
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '18000',
+            totalSellingPrice: '18000',
+            sellingPrice: '18000',
+            taxCategory: 'Ocean Cruise',
+            notes: '2 nights',
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -4163,7 +5659,11 @@ describe('Phase 8 quotation pages', () => {
         terms: [],
       },
       cruisePresentations: {
-        's-cruise': { imageUrl: 'https://storage.example.test/cruise.jpg', name: 'Dream Genting', roomTypeName: 'Balcony' },
+        's-cruise': {
+          imageUrl: 'https://storage.example.test/cruise.jpg',
+          name: 'Dream Genting',
+          roomTypeName: 'Balcony',
+        },
       },
       downloadUrl: null,
     };
@@ -4196,8 +5696,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides a raw localhost URL and falls back when a cruise has no image', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Cruise Trip',
         versionNumber: 1,
@@ -4206,7 +5726,21 @@ describe('Phase 8 quotation pages', () => {
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [],
         services: [
-          { id: 's-cruise', serviceType: 'CRUISE', name: 'Dream Genting', description: 'http://localhost:5173/q/some-token', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '18000', totalSellingPrice: '18000', sellingPrice: '18000', taxCategory: null, notes: null, sequence: 1 },
+          {
+            id: 's-cruise',
+            serviceType: 'CRUISE',
+            name: 'Dream Genting',
+            description: 'http://localhost:5173/q/some-token',
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '18000',
+            totalSellingPrice: '18000',
+            sellingPrice: '18000',
+            taxCategory: null,
+            notes: null,
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -4244,8 +5778,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('treats editor-empty cruise descriptions as no description', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Cruise Trip',
         versionNumber: 1,
@@ -4254,7 +5808,21 @@ describe('Phase 8 quotation pages', () => {
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [],
         services: [
-          { id: 's-cruise', serviceType: 'CRUISE', name: 'Dream Genting', description: '<p><br></p>', dayNumber: null, city: null, quantity: '1', unitSellingPrice: '18000', totalSellingPrice: '18000', sellingPrice: '18000', taxCategory: null, notes: '2 nights', sequence: 1 },
+          {
+            id: 's-cruise',
+            serviceType: 'CRUISE',
+            name: 'Dream Genting',
+            description: '<p><br></p>',
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '18000',
+            totalSellingPrice: '18000',
+            sellingPrice: '18000',
+            taxCategory: null,
+            notes: '2 nights',
+            sequence: 1,
+          },
         ],
         itinerary: [],
         inclusions: [],
@@ -4287,8 +5855,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('renders the public policies accordion with one section open at a time', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Policies Check',
         versionNumber: 1,
@@ -4347,8 +5935,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides the public policies section when all values are empty', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'No Policies',
         versionNumber: 1,
@@ -4450,14 +6058,12 @@ describe('Phase 8 quotation pages', () => {
     expect(within(contactSection as HTMLElement).getByText('Aditi Rao')).toBeInTheDocument();
 
     // Clickable phone and email, plus the address row (scoped to the Contact Us card).
-    expect(within(contactSection as HTMLElement).getByRole('link', { name: '+91 98765 43210' })).toHaveAttribute(
-      'href',
-      'tel:+91 98765 43210',
-    );
-    expect(within(contactSection as HTMLElement).getByRole('link', { name: 'hello@alpha.test' })).toHaveAttribute(
-      'href',
-      'mailto:hello@alpha.test',
-    );
+    expect(
+      within(contactSection as HTMLElement).getByRole('link', { name: '+91 98765 43210' }),
+    ).toHaveAttribute('href', 'tel:+91 98765 43210');
+    expect(
+      within(contactSection as HTMLElement).getByRole('link', { name: 'hello@alpha.test' }),
+    ).toHaveAttribute('href', 'mailto:hello@alpha.test');
     expect(screen.getByText(/1 MG Road, Bengaluru/)).toBeInTheDocument();
 
     // Action buttons: tel, WhatsApp (new tab, prefilled message), mailto (prefilled).
@@ -4553,7 +6159,9 @@ describe('Phase 8 quotation pages', () => {
     expect(whatsappHref).not.toContain(duplicate);
 
     const emailHref = screen.getByRole('link', { name: /Email/ }).getAttribute('href') ?? '';
-    expect(emailHref).toContain(encodeURIComponent('Quotation Inquiry (ID: QT-34 - Singapore Package for Vikas Singh)'));
+    expect(emailHref).toContain(
+      encodeURIComponent('Quotation Inquiry (ID: QT-34 - Singapore Package for Vikas Singh)'),
+    );
     expect(emailHref).not.toContain(duplicate);
   });
 
@@ -4690,6 +6298,8 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByText('Traveler Name')).toBeInTheDocument();
     expect(screen.getByText('Quotation ID')).toBeInTheDocument();
     expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
+    expect(screen.queryByText('Rooms')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 Room')).not.toBeInTheDocument();
   });
 
   it('omits the separator when only one Prepared By contact value exists', async () => {
@@ -4811,8 +6421,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('hides stars and 0/5 for zero or missing ratings while keeping review links and scores', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Rating Check',
         versionNumber: 1,
@@ -4820,9 +6450,54 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'h0', hotelName: 'Zero Star Hotel', city: 'Goa', category: '0 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '10000', selected: true, notes: null, sequence: 1 },
-          { id: 'h1', hotelName: 'Three Star Hotel', city: 'Goa', category: '3 Star', roomType: 'Superior', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '15000', selected: true, notes: null, sequence: 2 },
-          { id: 'h2', hotelName: 'No Rating Hotel', city: 'Goa', category: null, roomType: 'Standard', mealPlan: 'Bed', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '8000', selected: true, notes: null, sequence: 3 },
+          {
+            id: 'h0',
+            hotelName: 'Zero Star Hotel',
+            city: 'Goa',
+            category: '0 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '10000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'h1',
+            hotelName: 'Three Star Hotel',
+            city: 'Goa',
+            category: '3 Star',
+            roomType: 'Superior',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '15000',
+            selected: true,
+            notes: null,
+            sequence: 2,
+          },
+          {
+            id: 'h2',
+            hotelName: 'No Rating Hotel',
+            city: 'Goa',
+            category: null,
+            roomType: 'Standard',
+            mealPlan: 'Bed',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '8000',
+            selected: true,
+            notes: null,
+            sequence: 3,
+          },
         ],
         services: [],
         itinerary: [],
@@ -4831,9 +6506,39 @@ describe('Phase 8 quotation pages', () => {
         terms: [],
       },
       hotelPresentations: {
-        'h0': { imageUrl: null, starCategory: 0, starRating: '0', address: null, reviewLink: null, checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
-        'h1': { imageUrl: null, starCategory: 3, starRating: null, address: null, reviewLink: 'https://reviews.example.test/three-star', checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
-        'h2': { imageUrl: null, starCategory: null, starRating: '3.7', address: null, reviewLink: 'https://reviews.example.test/no-rating', checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
+        h0: {
+          imageUrl: null,
+          starCategory: 0,
+          starRating: '0',
+          address: null,
+          reviewLink: null,
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
+        h1: {
+          imageUrl: null,
+          starCategory: 3,
+          starRating: null,
+          address: null,
+          reviewLink: 'https://reviews.example.test/three-star',
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
+        h2: {
+          imageUrl: null,
+          starCategory: null,
+          starRating: '3.7',
+          address: null,
+          reviewLink: 'https://reviews.example.test/no-rating',
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
       },
       downloadUrl: null,
     };
@@ -4874,8 +6579,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('clamps star count to five and hides the score badge when the score is zero', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Clamp Check',
         versionNumber: 1,
@@ -4883,8 +6608,38 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'h5', hotelName: 'Five Star Hotel', city: 'Goa', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '20000', selected: true, notes: null, sequence: 1 },
-          { id: 'h9', hotelName: 'Overrated Hotel', city: 'Goa', category: '9 Star', roomType: 'Suite', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '25000', selected: true, notes: null, sequence: 2 },
+          {
+            id: 'h5',
+            hotelName: 'Five Star Hotel',
+            city: 'Goa',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '20000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'h9',
+            hotelName: 'Overrated Hotel',
+            city: 'Goa',
+            category: '9 Star',
+            roomType: 'Suite',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '25000',
+            selected: true,
+            notes: null,
+            sequence: 2,
+          },
         ],
         services: [],
         itinerary: [],
@@ -4893,8 +6648,28 @@ describe('Phase 8 quotation pages', () => {
         terms: [],
       },
       hotelPresentations: {
-        'h5': { imageUrl: null, starCategory: 5, starRating: '3.7', address: null, reviewLink: 'https://reviews.example.test/five', checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
-        'h9': { imageUrl: null, starCategory: 9, starRating: '0', address: null, reviewLink: null, checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
+        h5: {
+          imageUrl: null,
+          starCategory: 5,
+          starRating: '3.7',
+          address: null,
+          reviewLink: 'https://reviews.example.test/five',
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
+        h9: {
+          imageUrl: null,
+          starCategory: 9,
+          starRating: '0',
+          address: null,
+          reviewLink: null,
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
       },
       downloadUrl: null,
     };
@@ -4986,7 +6761,9 @@ describe('Phase 8 quotation pages', () => {
       screen.getByText('Since: 2015 | Trips: 4200 | TAN: ABCD12345E | GSTIN: 29ABCDE1234F1Z5'),
     ).toBeInTheDocument();
     // Right side: quotation number + formatted generated date.
-    expect(screen.getByText('Quotation ID: #QT-2026-000001 | Generated: 04 Aug 2026')).toBeInTheDocument();
+    expect(
+      screen.getByText('Quotation ID: #QT-2026-000001 | Generated: 04 Aug 2026'),
+    ).toBeInTheDocument();
 
     // The company logo becomes the favicon.
     await waitFor(() =>
@@ -5065,7 +6842,14 @@ describe('Phase 8 quotation pages', () => {
   it('sets the browser tab title from the quotation title and restores it on leave', async () => {
     document.title = 'Travel CRM';
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
       quotation: {
         quotationNumber: 'QT-2026-000001',
         customerName: 'Aarav Mehta',
@@ -5112,7 +6896,14 @@ describe('Phase 8 quotation pages', () => {
 
   it('falls back to the Quotation title when the quotation has no title', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
       quotation: {
         quotationNumber: 'QT-2026-000002',
         customerName: 'Mira Shah',
@@ -5220,8 +7011,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('shows each hotel card its own full address below the location row', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Singapore', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Address Check',
         versionNumber: 1,
@@ -5229,9 +7040,58 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'hA', hotelName: 'V Hotel Lavender', city: 'Singapore', category: null, roomType: 'Family Room', mealPlan: 'Breakfast Only (CP)', rooms: 3, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '20000', selected: true, notes: null, sequence: 1 },
-          { id: 'hB', hotelName: 'Marina Bay Hotel', city: 'Singapore', category: null, roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '30000', selected: true, notes: null, sequence: 2 },
-          { id: 'hC', hotelName: 'Bare Hotel', city: 'Goa', category: null, roomType: 'Standard', mealPlan: 'Bed', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '8000', selected: true, notes: null, sequence: 3 },
+          {
+            id: 'hA',
+            hotelName: 'V Hotel Lavender',
+            city: 'Singapore',
+            category: null,
+            roomType: 'Family Room',
+            mealPlan: 'Breakfast Only (CP)',
+            rooms: 3,
+            nights: 2,
+            checkInDate: '2026-08-10',
+            checkOutDate: '2026-08-12',
+            checkInTime: '15:30',
+            checkOutTime: '11:15',
+            showCheckInTime: true,
+            showCheckOutTime: false,
+            sellingPrice: '20000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'hB',
+            hotelName: 'Marina Bay Hotel',
+            city: 'Singapore',
+            category: null,
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '30000',
+            selected: true,
+            notes: null,
+            sequence: 2,
+          },
+          {
+            id: 'hC',
+            hotelName: 'Bare Hotel',
+            city: 'Goa',
+            category: null,
+            roomType: 'Standard',
+            mealPlan: 'Bed',
+            rooms: null,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '8000',
+            selected: true,
+            notes: null,
+            sequence: 3,
+          },
         ],
         services: [],
         itinerary: [],
@@ -5240,9 +7100,39 @@ describe('Phase 8 quotation pages', () => {
         terms: [],
       },
       hotelPresentations: {
-        'hA': { imageUrl: null, starCategory: 4, starRating: '3.7', address: '70 Jellicoe Rd, Singapore 208767', reviewLink: 'https://reviews.example.test/v-hotel', checkInTime: null, checkOutTime: null, destination: 'Singapore', country: 'Singapore' },
-        'hB': { imageUrl: null, starCategory: null, starRating: null, address: '10 Bayfront Avenue, Singapore 018956', reviewLink: null, checkInTime: null, checkOutTime: null, destination: 'Singapore', country: 'Singapore' },
-        'hC': { imageUrl: null, starCategory: null, starRating: null, address: null, reviewLink: null, checkInTime: null, checkOutTime: null, destination: 'Goa', country: 'India' },
+        hA: {
+          imageUrl: null,
+          starCategory: 4,
+          starRating: '3.7',
+          address: '70 Jellicoe Rd, Singapore 208767',
+          reviewLink: 'https://reviews.example.test/v-hotel',
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Singapore',
+          country: 'Singapore',
+        },
+        hB: {
+          imageUrl: null,
+          starCategory: null,
+          starRating: null,
+          address: '10 Bayfront Avenue, Singapore 018956',
+          reviewLink: null,
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Singapore',
+          country: 'Singapore',
+        },
+        hC: {
+          imageUrl: null,
+          starCategory: null,
+          starRating: null,
+          address: null,
+          reviewLink: null,
+          checkInTime: null,
+          checkOutTime: null,
+          destination: 'Goa',
+          country: 'India',
+        },
       },
       downloadUrl: null,
     };
@@ -5266,9 +7156,14 @@ describe('Phase 8 quotation pages', () => {
     // No-address hotel renders no address line.
     const cardC = screen.getByText('Bare Hotel').closest('article') as HTMLElement;
     expect(cardC).not.toHaveTextContent(/Address unavailable|No address|undefined|null/i);
+    expect(within(cardC).queryByText('Rooms:')).not.toBeInTheDocument();
     // Existing card content remains visible.
     expect(within(cardA).getByText(/Family Room/)).toBeInTheDocument();
     expect(within(cardA).getByText(/Breakfast Only \(CP\)/)).toBeInTheDocument();
+    expect(within(cardA).getByText('Rooms:')).toBeInTheDocument();
+    expect(cardA).toHaveTextContent('Rooms: 3');
+    expect(cardA).toHaveTextContent('3:30 PM');
+    expect(cardA).not.toHaveTextContent('11:15 AM');
     expect(within(cardA).getByText('Nights:')).toBeInTheDocument();
     expect(within(cardA).getByText('Hotel Review')).toBeInTheDocument();
     expect(within(cardA).getByLabelText('4 star hotel')).toBeInTheDocument();
@@ -5276,8 +7171,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('keeps older quotations without an address loading on the public page', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Legacy Quotation',
         versionNumber: 1,
@@ -5285,7 +7200,22 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'hL', hotelName: 'Legacy Hotel', city: 'Goa', category: null, roomType: 'Standard', mealPlan: 'Bed', rooms: 1, nights: 2, checkInDate: null, checkOutDate: null, sellingPrice: '8000', selected: true, notes: null, sequence: 1 },
+          {
+            id: 'hL',
+            hotelName: 'Legacy Hotel',
+            city: 'Goa',
+            category: null,
+            roomType: 'Standard',
+            mealPlan: 'Bed',
+            rooms: 1,
+            nights: 2,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '8000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
         ],
         services: [],
         itinerary: [],
@@ -5314,8 +7244,28 @@ describe('Phase 8 quotation pages', () => {
 
   it('displays the date-derived hotel nights on the public page', async () => {
     const publicData = {
-      company: { name: 'Alpha Travel', email: 'a@b.test', phone: null, website: null, address: null, primaryColor: '#2563eb' },
-      quotation: { quotationNumber: 'QT-2026-000002', customerName: 'Mira Shah', destinationSummary: 'Goa', travelStartDate: null, travelEndDate: null, adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null, status: 'VIEWED' },
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000002',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
       version: {
         title: 'Nights Check',
         versionNumber: 1,
@@ -5323,8 +7273,38 @@ describe('Phase 8 quotation pages', () => {
         finalAmount: '100',
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
         hotels: [
-          { id: 'hA', hotelName: 'Coastal Bay Resort', city: 'Goa', category: '4 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', rooms: 1, nights: 4, checkInDate: '2026-08-10T00:00:00.000Z', checkOutDate: '2026-08-12T00:00:00.000Z', sellingPrice: '12000', selected: true, notes: null, sequence: 1 },
-          { id: 'hB', hotelName: 'No Dates Hotel', city: 'Goa', category: null, roomType: 'Standard', mealPlan: 'Bed', rooms: 1, nights: 4, checkInDate: null, checkOutDate: null, sellingPrice: '8000', selected: true, notes: null, sequence: 2 },
+          {
+            id: 'hA',
+            hotelName: 'Coastal Bay Resort',
+            city: 'Goa',
+            category: '4 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 4,
+            checkInDate: '2026-08-10T00:00:00.000Z',
+            checkOutDate: '2026-08-12T00:00:00.000Z',
+            sellingPrice: '12000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+          {
+            id: 'hB',
+            hotelName: 'No Dates Hotel',
+            city: 'Goa',
+            category: null,
+            roomType: 'Standard',
+            mealPlan: 'Bed',
+            rooms: 1,
+            nights: 4,
+            checkInDate: null,
+            checkOutDate: null,
+            sellingPrice: '8000',
+            selected: true,
+            notes: null,
+            sequence: 2,
+          },
         ],
         services: [],
         itinerary: [],
@@ -5361,40 +7341,162 @@ describe('Phase 8 quotation pages', () => {
   it('renders sections in the required order on the public page', async () => {
     const publicData = {
       company: {
-        name: 'Alpha Travel', email: 'a@b.test', phone: '+91 90000 00000', website: null,
-        address: '1 MG Road, Bengaluru', primaryColor: '#2563eb',
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: '+91 90000 00000',
+        website: null,
+        address: '1 MG Road, Bengaluru',
+        primaryColor: '#2563eb',
       },
       quotation: {
-        quotationNumber: 'QT-2026-000100', customerName: 'Priya Sharma',
-        destinationSummary: 'Singapore', travelStartDate: '2026-10-23', travelEndDate: '2026-10-29',
-        adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0, rooms: 1, validUntil: null,
+        quotationNumber: 'QT-2026-000100',
+        customerName: 'Priya Sharma',
+        destinationSummary: 'Singapore',
+        travelStartDate: '2026-10-23',
+        travelEndDate: '2026-10-29',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
         status: 'VIEWED',
       },
       version: {
-        title: 'Section Order Test', versionNumber: 1, currency: 'INR', finalAmount: '45000',
-        notes: null, perAdultPrice: '22500', perChildWithBedPrice: '0', perChildWithoutBedPrice: '0',
-        perInfantPrice: '0', taxNote: 'Inclusive of GST', initialPaymentAmount: '5000',
+        title: 'Section Order Test',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '45000',
+        notes: null,
+        perAdultPrice: '22500',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: 'Inclusive of GST',
+        initialPaymentAmount: '5000',
         paymentLink: 'https://rzp.io/l/test',
-        inclusionsHtml: null, exclusionsHtml: null, paymentPolicies: '<p>Policy</p>',
-        cancellationPolicies: '<p>Cancellation</p>', bookingTerms: '<p>Terms</p>',
-        includeVisa: true, visaSectionTitle: 'Visa', visaAmount: '2000', visaDestination: 'Singapore',
-        visaType: 'e-Visa', visaServiceCharge: '500', visaGstPercent: '18', visaVfsCharge: '300',
+        inclusionsHtml: null,
+        exclusionsHtml: null,
+        paymentPolicies: '<p>Policy</p>',
+        cancellationPolicies: '<p>Cancellation</p>',
+        bookingTerms: '<p>Terms</p>',
+        includeVisa: true,
+        visaSectionTitle: 'Visa',
+        visaAmount: '2000',
+        visaDestination: 'Singapore',
+        visaType: 'e-Visa',
+        visaServiceCharge: '500',
+        visaGstPercent: '18',
+        visaVfsCharge: '300',
         sightseeingDetails: {
-          include: true, sectionTitle: 'Sightseeing', amount: 0, description: null,
-          days: [{ dayNumber: 1, title: 'Day 1', city: 'Singapore', date: null, meals: { breakfast: true, lunch: false, dinner: false }, mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED', activities: [{ name: 'City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: null }] }],
+          include: true,
+          sectionTitle: 'Sightseeing',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'City Tour',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: null,
+                },
+              ],
+            },
+          ],
         },
         flightDetails: {
-          include: true, journeyType: 'ROUND_TRIP',
-          outbound: { fromCity: 'DEL', toCity: 'SIN', segments: [{ airlineName: 'IndiGo', flightNumber: '6E101', from: 'DEL', to: 'SIN', departureDate: '2026-10-23', departureTime: '06:00', arrivalDate: '2026-10-23', arrivalTime: '12:00', duration: '6h' }] },
-          returnJourney: { fromCity: 'SIN', toCity: 'DEL', segments: [{ airlineName: 'IndiGo', flightNumber: '6E102', from: 'SIN', to: 'DEL', departureDate: '2026-10-29', departureTime: '14:00', arrivalDate: '2026-10-29', arrivalTime: '20:00', duration: '6h 30m' }] },
+          include: true,
+          journeyType: 'ROUND_TRIP',
+          outbound: {
+            fromCity: 'DEL',
+            toCity: 'SIN',
+            segments: [
+              {
+                airlineName: 'IndiGo',
+                flightNumber: '6E101',
+                from: 'DEL',
+                to: 'SIN',
+                departureDate: '2026-10-23',
+                departureTime: '06:00',
+                arrivalDate: '2026-10-23',
+                arrivalTime: '12:00',
+                duration: '6h',
+              },
+            ],
+          },
+          returnJourney: {
+            fromCity: 'SIN',
+            toCity: 'DEL',
+            segments: [
+              {
+                airlineName: 'IndiGo',
+                flightNumber: '6E102',
+                from: 'SIN',
+                to: 'DEL',
+                departureDate: '2026-10-29',
+                departureTime: '14:00',
+                arrivalDate: '2026-10-29',
+                arrivalTime: '20:00',
+                duration: '6h 30m',
+              },
+            ],
+          },
         },
         hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
-        hotels: [{ id: 'h1', hotelName: 'Marina Bay Sands', city: 'Singapore', category: '5 Star', roomType: 'Deluxe', mealPlan: 'Breakfast', nights: 6, selected: true, notes: null, sequence: 1 }],
+        hotels: [
+          {
+            id: 'h1',
+            hotelName: 'Marina Bay Sands',
+            city: 'Singapore',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            nights: 6,
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
         itinerary: [],
         services: [
-          { serviceType: 'VEHICLE_TRANSFER', name: 'Airport Transfer', description: null, city: 'Singapore', quantity: '1', unitSellingPrice: '3000', notes: null },
-          { serviceType: 'CRUISE', name: 'River Cruise', description: 'Cruise.', city: 'Singapore', quantity: '1', unitSellingPrice: '1500', notes: null },
-          { serviceType: 'OTHER_ADD_ON', name: 'Travel Insurance', description: 'Cover.', city: null, quantity: '1', unitSellingPrice: '800', notes: null },
+          {
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport Transfer',
+            description: null,
+            city: 'Singapore',
+            quantity: '1',
+            unitSellingPrice: '3000',
+            notes: null,
+          },
+          {
+            serviceType: 'CRUISE',
+            name: 'River Cruise',
+            description: 'Cruise.',
+            city: 'Singapore',
+            quantity: '1',
+            unitSellingPrice: '1500',
+            notes: null,
+          },
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'addon-travel-insurance',
+            name: 'Travel Insurance',
+            description: 'Cover.',
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '800',
+            notes: null,
+          },
         ],
         inclusions: [{ content: 'Inclusion A' }],
         exclusions: [{ content: 'Exclusion A' }],
@@ -5405,7 +7507,9 @@ describe('Phase 8 quotation pages', () => {
     const fetchMock = vi.fn(async () => response(publicData));
     vi.stubGlobal('fetch', fetchMock);
     renderWithProviders(
-      <Routes><Route path="/q/:token" element={<PublicQuotationPage />} /></Routes>,
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
       { route: '/q/public-token-value-with-at-least-32-characters' },
     );
     await screen.findByText('Section Order Test');
@@ -5423,15 +7527,12 @@ describe('Phase 8 quotation pages', () => {
       'Contact Us',
     ];
 
-    const headings = headingNames.map((name) =>
-      screen.getByRole('heading', { name }),
-    );
+    const headings = headingNames.map((name) => screen.getByRole('heading', { name }));
 
     // Verify ascending DOM position confirms the required order
     for (let i = 1; i < headings.length; i += 1) {
       expect(
-        headings[i - 1]!.compareDocumentPosition(headings[i]!) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
+        headings[i - 1]!.compareDocumentPosition(headings[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
   });
@@ -5573,7 +7674,11 @@ function masterFetch(base: unknown, extra: Record<string, unknown> = {}) {
   // /masters/sightseeing/activities response from the same data.
   const sightseeingExtra = extra['/masters/sightseeing'];
   if (sightseeingExtra && !extra['/masters/sightseeing/activities']) {
-    if (typeof sightseeingExtra === 'object' && sightseeingExtra !== null && 'data' in sightseeingExtra) {
+    if (
+      typeof sightseeingExtra === 'object' &&
+      sightseeingExtra !== null &&
+      'data' in sightseeingExtra
+    ) {
       routes['/masters/sightseeing/activities'] = sightseeingActivitiesFrom(
         sightseeingExtra as { data: Array<Record<string, unknown>> },
       );
@@ -5683,6 +7788,477 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
   });
 
+  it('inserts a hotel stay after the selected stay without clearing existing stays', async () => {
+    const hotelRow = (city: string, hotelName: string, sequence: number) => ({
+      hotelId: null,
+      hotelRoomTypeId: null,
+      hotelMealPlanId: null,
+      city,
+      hotelName,
+      category: null,
+      roomType: null,
+      mealPlan: null,
+      rooms: 1,
+      nights: 1,
+      checkInDate: null,
+      checkOutDate: null,
+      internalCost: '0',
+      sellingPrice: '0',
+      selected: true,
+      notes: null,
+      sequence,
+    });
+    const fetchMock = masterFetch(
+      builderQuotation({
+        destinationSummary: 'Delhi',
+        hotels: [hotelRow('Delhi', 'Delhi Hotel', 1), hotelRow('Goa', 'Goa Hotel', 2)],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Add hotel stay after stay 1' }),
+    );
+
+    expect(
+      screen.getAllByLabelText('Hotel city').map((input) => input.getAttribute('value')),
+    ).toEqual(['Delhi', 'Delhi', 'Goa']);
+    expect(screen.queryByText('Add Hotel Stay')).not.toBeInTheDocument();
+  });
+
+  it('inserts a new hotel stay before the first existing stay', async () => {
+    const hotelRow = (city: string, hotelName: string, sequence: number) => ({
+      hotelId: null,
+      hotelRoomTypeId: null,
+      hotelMealPlanId: null,
+      city,
+      hotelName,
+      category: null,
+      roomType: null,
+      mealPlan: null,
+      rooms: 1,
+      nights: 1,
+      checkInDate: null,
+      checkOutDate: null,
+      internalCost: '0',
+      sellingPrice: '0',
+      selected: true,
+      notes: null,
+      sequence,
+    });
+    const fetchMock = masterFetch(
+      builderQuotation({
+        destinationSummary: 'Delhi',
+        hotels: [hotelRow('Delhi', 'Delhi Hotel', 1), hotelRow('Goa', 'Goa Hotel', 2)],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    expect(screen.queryByRole('button', { name: 'Add Hotel' })).not.toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Add hotel stay before stay 1' }),
+    );
+
+    expect(
+      screen.getAllByLabelText('Hotel city').map((input) => input.getAttribute('value')),
+    ).toEqual(['Delhi', 'Delhi', 'Goa']);
+
+    await userEvent.type(screen.getAllByLabelText('Hotel master')[0]!, 'Shah Palace Hotel');
+    await waitFor(() =>
+      expect(screen.getAllByLabelText('Hotel master')[0]).toHaveValue('Shah Palace Hotel'),
+    );
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    expect(
+      JSON.parse(String(patch![1]!.body)).hotels.map(
+        (hotel: { hotelName: string }) => hotel.hotelName,
+      ),
+    ).toEqual(['Shah Palace Hotel', 'Delhi Hotel', 'Goa Hotel']);
+  });
+
+  it('allows blank room counts and keeps hotel time visibility independent', async () => {
+    const fetchMock = masterFetch(
+      builderQuotation({
+        hotels: [
+          {
+            hotelId: null,
+            hotelRoomTypeId: null,
+            hotelMealPlanId: null,
+            city: 'Goa',
+            hotelName: 'Coastal Hotel',
+            category: null,
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 2,
+            nights: 2,
+            checkInDate: '2026-08-10',
+            checkOutDate: '2026-08-12',
+            checkInTime: '15:30',
+            checkOutTime: null,
+            internalCost: '0',
+            sellingPrice: '0',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    const rooms = await screen.findByLabelText('Hotel number of rooms');
+    const checkInToggle = screen.getByRole('checkbox', {
+      name: 'Hotel check-in include time in PDF and weblink',
+    });
+    const checkOutToggle = screen.getByRole('checkbox', {
+      name: 'Hotel check-out include time in PDF and weblink',
+    });
+    expect(checkInToggle).toBeChecked();
+    expect(checkOutToggle).not.toBeChecked();
+
+    await userEvent.clear(rooms);
+    fireEvent.change(screen.getByLabelText('Hotel check-out time'), {
+      target: { value: '11:15' },
+    });
+    expect(checkOutToggle).toBeChecked();
+    await userEvent.click(checkInToggle);
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    expect(JSON.parse(String(patch![1]!.body)).hotels[0]).toMatchObject({
+      rooms: null,
+      checkInTime: '15:30',
+      showCheckInTime: false,
+      checkOutTime: '11:15',
+      showCheckOutTime: true,
+    });
+  });
+
+  it('inserts a sightseeing activity after the selected activity without clearing others', async () => {
+    const activity = (name: string, sequence: number) => ({
+      sightseeingId: null,
+      name,
+      description: null,
+      startTime: '09:00',
+      duration: null,
+      city: 'Delhi',
+      imageUrl: null,
+      dailyTransfer: null,
+      pricingOptions: [],
+      sequence,
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({
+          sightseeingDetails: {
+            include: true,
+            sectionTitle: 'Sightseeing & Experiences',
+            amount: '0',
+            description: null,
+            days: [
+              {
+                dayNumber: 1,
+                title: 'Day 1',
+                city: 'Delhi',
+                date: null,
+                meals: { breakfast: true, lunch: false, dinner: false },
+                mealMode: 'INCLUDE_AT_HOTEL',
+                dailyTransfer: 'SHARED',
+                activities: [activity('First activity', 1), activity('Second activity', 2)],
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Add activity after activity 1 on day 1' }),
+    );
+
+    expect(
+      screen
+        .getAllByLabelText(/Day 1 activity \d+ name/)
+        .map((input) => (input as HTMLInputElement).value),
+    ).toEqual(['First activity', '', 'Second activity']);
+  });
+
+  it('persists an independent PDF and weblink time choice for every sightseeing activity', async () => {
+    const activity = (name: string, startTime: string, sequence: number) => ({
+      sightseeingId: null,
+      name,
+      description: null,
+      startTime,
+      duration: null,
+      city: 'Delhi',
+      imageUrl: null,
+      dailyTransfer: null,
+      pricingOptions: [],
+      sequence,
+    });
+    const fetchMock = masterFetch(
+      builderQuotation({
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: '0',
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1',
+              city: 'Delhi',
+              date: null,
+              meals: { breakfast: true, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                activity('Morning tour', '09:00', 1),
+                activity('Evening tour', '18:30', 2),
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    const firstToggle = await screen.findByRole('checkbox', {
+      name: 'Day 1 activity 1 include time in PDF and weblink',
+    });
+    const secondToggle = screen.getByRole('checkbox', {
+      name: 'Day 1 activity 2 include time in PDF and weblink',
+    });
+    // Legacy activities with no stored flag remain visible by default.
+    expect(firstToggle).toBeChecked();
+    expect(secondToggle).toBeChecked();
+    await userEvent.click(secondToggle);
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const savedActivities = JSON.parse(String(patch![1]!.body)).sightseeingDetails.days[0]
+      .activities;
+    expect(savedActivities).toMatchObject([
+      { name: 'Morning tour', startTime: '09:00', showTime: true },
+      { name: 'Evening tour', startTime: '18:30', showTime: false },
+    ]);
+  });
+
+  it('renumbers existing sightseeing titles when a day is inserted between them', async () => {
+    const day = (dayNumber: number, title: string, activityName: string) => ({
+      dayNumber,
+      title,
+      city: 'Singapore',
+      date: null,
+      meals: { breakfast: true, lunch: false, dinner: false },
+      mealMode: 'INCLUDE_AT_HOTEL',
+      dailyTransfer: 'SHARED',
+      activities: [
+        {
+          sightseeingId: null,
+          name: activityName,
+          description: null,
+          startTime: '09:00',
+          duration: null,
+          city: 'Singapore',
+          imageUrl: null,
+          dailyTransfer: null,
+          pricingOptions: [],
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({
+          sightseeingDetails: {
+            include: true,
+            sectionTitle: 'Sightseeing & Experiences',
+            amount: '0',
+            description: null,
+            days: [
+              day(1, 'Day 1: Universal Studios', 'Universal Studios'),
+              day(2, 'Day 2: Singapore City Tour', 'Singapore City Tour'),
+            ],
+          },
+        }),
+      ),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Insert sightseeing day after day 1' }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByLabelText(/Sightseeing day \d+ title/)
+          .map((input) => (input as HTMLInputElement).value),
+      ).toEqual(['Day 1: Universal Studios', 'Day 2', 'Day 3: Singapore City Tour']);
+    });
+  });
+
+  it('inserts a new day before day 1 and renumbers the existing days', async () => {
+    const day = (dayNumber: number, title: string, activityName: string) => ({
+      dayNumber,
+      title,
+      city: 'Singapore',
+      date: null,
+      meals: { breakfast: true, lunch: false, dinner: false },
+      mealMode: 'INCLUDE_AT_HOTEL',
+      dailyTransfer: 'SHARED',
+      activities: [
+        {
+          sightseeingId: null,
+          name: activityName,
+          description: null,
+          startTime: '09:00',
+          duration: null,
+          city: 'Singapore',
+          imageUrl: null,
+          dailyTransfer: null,
+          pricingOptions: [],
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({
+          sightseeingDetails: {
+            include: true,
+            sectionTitle: 'Sightseeing & Experiences',
+            amount: '0',
+            description: null,
+            days: [day(1, 'Day 1: Universal Studios', 'Universal Studios')],
+          },
+        }),
+      ),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Insert sightseeing day before day 1' }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByLabelText(/Sightseeing day \d+ title/)
+          .map((input) => (input as HTMLInputElement).value),
+      ).toEqual(['Day 1', 'Day 2: Universal Studios']);
+    });
+    expect(
+      screen.getAllByRole('button', { name: /Insert sightseeing day before day/ }),
+    ).toHaveLength(1);
+  });
+
+  it('uploads and persists an image for a manually entered sightseeing activity', async () => {
+    const quotation = builderQuotation({
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: '0',
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Delhi',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: null,
+                imageDocumentId: null,
+                name: 'Manual city tour',
+                description: null,
+                startTime: '09:00',
+                duration: null,
+                city: 'Delhi',
+                imageUrl: null,
+                dailyTransfer: null,
+                pricingOptions: [],
+                sequence: 1,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const fallback = masterFetch(quotation);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/quotations/quotation-1/uploads') && options?.method === 'POST')
+        return response({
+          documentId: '11111111-2222-4333-8444-555555555557',
+          uploadUrl: 'https://uploads.example/manual-sightseeing.png',
+          requiredHeaders: { 'Content-Type': 'image/png' },
+        });
+      if (url === 'https://uploads.example/manual-sightseeing.png')
+        return new Response(null, { status: 200 });
+      if (url.includes('/uploads/11111111-2222-4333-8444-555555555557/confirm'))
+        return response({});
+      if (url.includes('/documents/11111111-2222-4333-8444-555555555557/download-url'))
+        return response({ url: 'https://storage.example/manual-sightseeing.png' });
+      return fallback(input, options);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    await userEvent.upload(
+      await screen.findByLabelText('Day 1 activity 1 image'),
+      new File(['image'], 'manual-sightseeing.png', { type: 'image/png' }),
+    );
+    expect(await screen.findByRole('img', { name: 'Activity' })).toHaveAttribute(
+      'src',
+      'https://storage.example/manual-sightseeing.png',
+    );
+    expect(screen.getByText('Replace')).toBeInTheDocument();
+    expect(screen.queryByText(/drop|paste/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Remove uploaded image')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String(patchCall![1]!.body));
+      expect(body.sightseeingDetails.days[0].activities[0]).toMatchObject({
+        imageDocumentId: '11111111-2222-4333-8444-555555555557',
+        imageUrl: null,
+      });
+    });
+  });
+
   it('prefills hotel stays from the lead itinerary', async () => {
     const quotation = {
       ...builderQuotation(),
@@ -5715,7 +8291,7 @@ describe('Phase 14 master selectors', () => {
     expect(await screen.findByLabelText('Hotel city')).toHaveValue('Baku');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-13');
-    expect(screen.queryByLabelText('Rooms')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
     // Nights is read-only and derived from the stay dates (10 Sep → 13 Sep = 3).
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('3');
   });
@@ -5759,9 +8335,7 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByText('Default Hotel Option')).not.toBeInTheDocument();
     expect(screen.queryByText('Hotel for Default Option')).not.toBeInTheDocument();
     // The default hotel is still auto-prefilled into the Hotel Stay card.
-    expect(screen.getByLabelText('Hotel master')).toHaveValue(
-      'Aloft Singapore Novena by Marriott',
-    );
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
   });
 
   it('warns and blocks saving when arrival is not after departure', async () => {
@@ -5953,6 +8527,83 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Sightseeing master')).not.toBeInTheDocument();
   });
 
+  it('uploads a flight image as an alternative to structured flight details', async () => {
+    const fallback = masterFetch(builderQuotation());
+    let uploadCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/quotations/quotation-1/uploads')) {
+        uploadCount += 1;
+        const suffix = uploadCount === 1 ? '555555555555' : '555555555556';
+        return response({
+          documentId: `11111111-2222-4333-8444-${suffix}`,
+          uploadUrl: `https://uploads.example/flight-${uploadCount}.png`,
+          requiredHeaders: { 'Content-Type': 'image/png' },
+        });
+      }
+      if (url.startsWith('https://uploads.example/flight-'))
+        return { ok: true, status: 200 } as Response;
+      if (url.includes('/confirm')) return response({ status: 'AVAILABLE' });
+      if (url.includes('555555555555/download-url'))
+        return response({ url: 'https://cdn.example/flight-1.png' });
+      if (url.includes('555555555556/download-url'))
+        return response({ url: 'https://cdn.example/flight-2.png' });
+      return fallback(input, options);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Flight');
+    await userEvent.click(await screen.findByRole('radio', { name: 'Upload image' }));
+    expect(screen.queryByLabelText('Journey type')).not.toBeInTheDocument();
+    await userEvent.upload(
+      screen.getByLabelText('Flight image'),
+      new File(['flight'], 'outbound.png', { type: 'image/png' }),
+    );
+    const storagePut = fetchMock.mock.calls.find(
+      ([url]) => String(url) === 'https://uploads.example/flight-1.png',
+    );
+    expect(storagePut?.[1]?.headers).toEqual({ 'Content-Type': 'image/png' });
+    expect(await screen.findByRole('img', { name: 'Uploaded flight itinerary 1' })).toHaveAttribute(
+      'src',
+      'https://cdn.example/flight-1.png',
+    );
+    await userEvent.type(
+      screen.getByLabelText('Flight image 1 description'),
+      'Outbound flight ticket',
+    );
+    await userEvent.upload(
+      screen.getByLabelText('Flight image'),
+      new File(['flight'], 'return.png', { type: 'image/png' }),
+    );
+    expect(await screen.findByRole('img', { name: 'Uploaded flight itinerary 2' })).toHaveAttribute(
+      'src',
+      'https://cdn.example/flight-2.png',
+    );
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patch).toBeDefined();
+      const body = JSON.parse(String(patch![1]!.body));
+      expect(body.flightDetails).toMatchObject({
+        entryMode: 'IMAGE',
+        images: [
+          {
+            documentId: '11111111-2222-4333-8444-555555555555',
+            fileName: 'outbound.png',
+            description: 'Outbound flight ticket',
+            heading: null,
+          },
+          {
+            documentId: '11111111-2222-4333-8444-555555555556',
+            fileName: 'return.png',
+            description: null,
+            heading: null,
+          },
+        ],
+      });
+    });
+  });
+
   it('links a cruise before its cabin and prefills the cabin price', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
@@ -6137,8 +8788,22 @@ describe('Phase 14 master selectors', () => {
     const multiRoomCruise = {
       ...cruise,
       roomTypes: [
-        { id: 'rt-1', name: 'Interior', price: 18000, currency: 'INR', status: 'ACTIVE', sortOrder: 1 },
-        { id: 'rt-2', name: 'Ocean View', price: 24000, currency: 'INR', status: 'ACTIVE', sortOrder: 2 },
+        {
+          id: 'rt-1',
+          name: 'Interior',
+          price: 18000,
+          currency: 'INR',
+          status: 'ACTIVE',
+          sortOrder: 1,
+        },
+        {
+          id: 'rt-2',
+          name: 'Ocean View',
+          price: 24000,
+          currency: 'INR',
+          status: 'ACTIVE',
+          sortOrder: 2,
+        },
       ],
     };
     vi.stubGlobal(
@@ -6181,13 +8846,24 @@ describe('Phase 14 master selectors', () => {
       id: 'cruise-a',
       name: 'Cruise Alpha',
       status: 'ACTIVE',
-      roomTypes: [{ id: 'rt-a', name: 'Balcony', price: 100, currency: 'INR', status: 'ACTIVE', sortOrder: 1 }],
+      roomTypes: [
+        {
+          id: 'rt-a',
+          name: 'Balcony',
+          price: 100,
+          currency: 'INR',
+          status: 'ACTIVE',
+          sortOrder: 1,
+        },
+      ],
     };
     const cruiseB = {
       id: 'cruise-b',
       name: 'Cruise Beta',
       status: 'ACTIVE',
-      roomTypes: [{ id: 'rt-b', name: 'Suite', price: 200, currency: 'INR', status: 'ACTIVE', sortOrder: 1 }],
+      roomTypes: [
+        { id: 'rt-b', name: 'Suite', price: 200, currency: 'INR', status: 'ACTIVE', sortOrder: 1 },
+      ],
     };
     const quotation = builderQuotation({
       services: [
@@ -6325,7 +9001,9 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Day 1 activity 2 name')).not.toBeInTheDocument();
     // Meaningful day titles derived from the primary activity (no duplicated prefix).
     expect(screen.getByLabelText('Sightseeing day 1 title')).toHaveValue('Day 1: City Tour');
-    expect(screen.getByLabelText('Sightseeing day 5 title')).toHaveValue('Day 5: Gardens by the Bay');
+    expect(screen.getByLabelText('Sightseeing day 5 title')).toHaveValue(
+      'Day 5: Gardens by the Bay',
+    );
   });
 
   it('defaults the Sightseeing section title to Sightseeing & Experiences', async () => {
@@ -6355,7 +9033,13 @@ describe('Phase 14 master selectors', () => {
             mealMode: 'NO_TRANSFER',
             dailyTransfer: 'NO_TRANSFER',
             activities: [
-              { sightseeingId: 'sg-1', name: 'City Tour', description: null, startTime: '09:00', imageUrl: null },
+              {
+                sightseeingId: 'sg-1',
+                name: 'City Tour',
+                description: null,
+                startTime: '09:00',
+                imageUrl: null,
+              },
             ],
           },
         ],
@@ -6365,7 +9049,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Sightseeing');
     await waitFor(() =>
-      expect(screen.getByLabelText('Sightseeing day 1 title')).toHaveValue('My Custom Day'),
+      expect(screen.getByLabelText('Sightseeing day 1 title')).toHaveValue('Day 1: My Custom Day'),
     );
   });
 
@@ -6505,9 +9189,7 @@ describe('Phase 14 master selectors', () => {
     });
     // Clearing the master removes the preview entirely.
     fireEvent.change(picker, { target: { value: '' } });
-    await waitFor(() =>
-      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''),
-    );
+    await waitFor(() => expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''));
     expect(screen.queryByAltText('Activity')).not.toBeInTheDocument();
     // And a load failure on an image falls back to the neutral placeholder.
     fireEvent.change(picker, { target: { value: 'Marina Bay' } });
@@ -6676,10 +9358,7 @@ describe('Phase 14 master selectors', () => {
     await openTab('Sightseeing');
     const images = await screen.findAllByAltText('Activity');
     expect(images).toHaveLength(2);
-    expect(images[0]).toHaveAttribute(
-      'src',
-      'https://storage.example.test/signed/marina-bay.jpg',
-    );
+    expect(images[0]).toHaveAttribute('src', 'https://storage.example.test/signed/marina-bay.jpg');
     const presentationCalls = fetchMock.mock.calls.filter(([input]) =>
       String(input).includes('/masters/sightseeing/presentations'),
     );
@@ -6821,7 +9500,9 @@ describe('Phase 14 master selectors', () => {
     const picker = await screen.findByLabelText('Day 1 activity 1');
     fireEvent.focus(picker);
     const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
-    const texts = within(listbox).getAllByRole('option').map((option) => option.textContent ?? '');
+    const texts = within(listbox)
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '');
     // Reference quick options are always present.
     expect(texts.some((text) => text.includes('Day at Leisure'))).toBe(true);
     expect(texts.some((text) => text.includes('Custom Sightseeing'))).toBe(true);
@@ -6848,9 +9529,7 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Sightseeing day 1 title')).toHaveValue('Day 1: Day at Leisure');
 
     fireEvent.change(picker, { target: { value: 'Custom Sightseeing' } });
-    await waitFor(() =>
-      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''),
-    );
+    await waitFor(() => expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(''));
 
     fireEvent.change(picker, { target: { value: 'Arrival and Check-in' } });
     await waitFor(() =>
@@ -6895,7 +9574,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -6941,7 +9631,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -6949,7 +9650,10 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal(
       'fetch',
       masterFetch(quotation, {
-        '/masters/sightseeing': page([sgMaster('sg-2', 'Singapore Zoo', 3), sgMaster('sg-1', 'Singapore City Tour', 1)]),
+        '/masters/sightseeing': page([
+          sgMaster('sg-2', 'Singapore Zoo', 3),
+          sgMaster('sg-1', 'Singapore City Tour', 1),
+        ]),
       }),
     );
     renderBuilderPage();
@@ -7008,7 +9712,9 @@ describe('Phase 14 master selectors', () => {
     });
     vi.stubGlobal(
       'fetch',
-      masterFetch(quotation, { '/masters/sightseeing': page([sgMaster('sg-1', 'Singapore City Tour', 1)]) }),
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([sgMaster('sg-1', 'Singapore City Tour', 1)]),
+      }),
     );
     renderBuilderPage();
     await openTab('Sightseeing');
@@ -7043,7 +9749,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -7051,12 +9768,15 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal(
       'fetch',
       masterFetch(quotation, {
-        '/masters/sightseeing': page([sgMaster('sg-1', 'Singapore City Tour', 1), sgMaster('sg-2', 'Singapore Zoo', 2)]),
+        '/masters/sightseeing': page([
+          sgMaster('sg-1', 'Singapore City Tour', 1),
+          sgMaster('sg-2', 'Singapore Zoo', 2),
+        ]),
       }),
     );
     renderBuilderPage();
     await openTab('Sightseeing');
-    await userEvent.click(screen.getByRole('button', { name: 'Add Activity' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add Activity at End' }));
     const picker = await screen.findByLabelText('Day 1 activity 2');
     fireEvent.focus(picker);
     const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 2' });
@@ -7069,8 +9789,13 @@ describe('Phase 14 master selectors', () => {
   });
 
   it('searches destination masters case-insensitively', async () => {
-    const fullDaySentosa = { ...sgMaster('sg-1', 'Full Day Sentosa', 1), description: '<p>Sentosa island.</p>' };
-    const fullDayExpress = { ...sgMaster('sg-2', 'Full Day Universal Studios Tour with Express Pass', 2) };
+    const fullDaySentosa = {
+      ...sgMaster('sg-1', 'Full Day Sentosa', 1),
+      description: '<p>Sentosa island.</p>',
+    };
+    const fullDayExpress = {
+      ...sgMaster('sg-2', 'Full Day Universal Studios Tour with Express Pass', 2),
+    };
     const zoo = sgMaster('sg-3', 'Singapore Zoo', 3);
     const quotation = builderQuotation({
       destinationSummary: 'Singapore',
@@ -7088,7 +9813,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -7139,7 +9875,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -7201,7 +9948,18 @@ describe('Phase 14 master selectors', () => {
             meals: { breakfast: true, lunch: false, dinner: false },
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
-            activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
           },
         ],
       },
@@ -7230,10 +9988,14 @@ describe('Phase 14 master selectors', () => {
     // Selecting it autofills from the selected master record.
     fireEvent.change(picker, { target: { value: 'Universal Studios Singapore' } });
     await waitFor(() =>
-      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('Universal Studios Singapore'),
+      expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue(
+        'Universal Studios Singapore',
+      ),
     );
     expect(screen.getByLabelText('Day 1 activity 1 start time')).toHaveValue('09:00');
-    expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent('Theme park day.');
+    expect(screen.getByLabelText('Day 1 activity 1 description')).toHaveTextContent(
+      'Theme park day.',
+    );
     // The itinerary day city is untouched.
     expect(screen.getByLabelText('Sightseeing day 1 city')).toHaveValue('Kuala Lumpur');
     // The image comes from the selected activity's own master presentation.
@@ -7273,7 +10035,7 @@ describe('Phase 14 master selectors', () => {
     );
     renderBuilderPage();
     await openTab('Sightseeing');
-    await userEvent.click(screen.getByRole('button', { name: 'Add Activity' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add Activity at End' }));
     const picker1 = await screen.findByLabelText('Day 1 activity 1');
     const picker2 = await screen.findByLabelText('Day 1 activity 2');
     await openActivityPicker(picker1, 'Singapore City Tour');
@@ -7298,7 +10060,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Sightseeing');
     expect(await screen.findByLabelText('Day 1 activity 1 name')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Add Activity' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add Activity at End' }));
     expect(await screen.findByLabelText('Day 1 activity 2 name')).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Remove activity' })[0]!);
     expect(screen.queryByLabelText('Day 1 activity 2 name')).not.toBeInTheDocument();
@@ -7323,9 +10085,39 @@ describe('Phase 14 master selectors', () => {
             mealMode: 'INCLUDE_AT_HOTEL',
             dailyTransfer: 'SHARED',
             activities: [
-              { sightseeingId: null, name: 'Singapore City Tour', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
-              { sightseeingId: null, name: 'Singapore Zoo', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
-              { sightseeingId: null, name: 'Day at Cruise', description: null, startTime: null, duration: null, city: null, imageUrl: null, dailyTransfer: null, sequence: null },
+              {
+                sightseeingId: null,
+                name: 'Singapore City Tour',
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                dailyTransfer: null,
+                sequence: null,
+              },
+              {
+                sightseeingId: null,
+                name: 'Singapore Zoo',
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                dailyTransfer: null,
+                sequence: null,
+              },
+              {
+                sightseeingId: null,
+                name: 'Day at Cruise',
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                dailyTransfer: null,
+                sequence: null,
+              },
             ],
           },
         ],
@@ -7445,10 +10237,41 @@ describe('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByLabelText('Include Sightseeing in Quotation'));
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() => {
-
       const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
       expect(patch).toBeDefined();
     });
+  });
+
+  it('collapses and expands each sightseeing day without changing its data', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Sightseeing');
+
+    const dayToggle = await screen.findByRole('button', { name: 'Collapse day 1' });
+    expect(dayToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toBeInTheDocument();
+
+    await userEvent.click(dayToggle);
+    expect(screen.getByRole('button', { name: 'Expand day 1' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.queryByLabelText('Day 1 activity 1 name')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand day 1' }));
+    expect(screen.getByRole('button', { name: 'Collapse day 1' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByLabelText('Day 1 activity 1 name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sightseeing day 1 title')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse day 1' }));
+    expect(screen.getByRole('button', { name: 'Expand day 1' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.queryByLabelText('Day 1 activity 1 name')).not.toBeInTheDocument();
   });
 
   it('persists each meal mode and transfer details on save', async () => {
@@ -7951,7 +10774,10 @@ describe('Phase 14 master selectors', () => {
       notes: null,
       sequence: 1,
     };
-    const quotation = { ...builderQuotation({ hotels: [emptyRow, { ...emptyRow, id: 'empty-hotel-2' }] }), destinationSummary: 'Goa' };
+    const quotation = {
+      ...builderQuotation({ hotels: [emptyRow, { ...emptyRow, id: 'empty-hotel-2' }] }),
+      destinationSummary: 'Goa',
+    };
     const fetchMock = masterFetch(quotation);
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
@@ -8362,7 +11188,9 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await waitFor(() =>
-      expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott'),
+      expect(screen.getByLabelText('Hotel master')).toHaveValue(
+        'Aloft Singapore Novena by Marriott',
+      ),
     );
     cleanup();
 
@@ -8431,9 +11259,12 @@ describe('Phase 14 master selectors', () => {
         ],
       },
     };
-    vi.stubGlobal('fetch', masterFetch(quotation, {
-      '/masters/hotels': page([singaporeDefaultHotel()]),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/hotels': page([singaporeDefaultHotel()]),
+      }),
+    );
     renderBuilderPage();
     await openTab('Hotel');
     // Exactly one Hotel Stay row despite Singapore appearing twice
@@ -8467,9 +11298,12 @@ describe('Phase 14 master selectors', () => {
         ],
       },
     };
-    vi.stubGlobal('fetch', masterFetch(quotation, {
-      '/masters/hotels': page([singaporeDefaultHotel()]),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/hotels': page([singaporeDefaultHotel()]),
+      }),
+    );
     renderBuilderPage();
     await openTab('Hotel');
     expect(await screen.findAllByLabelText('Hotel master')).toHaveLength(1);
@@ -8536,7 +11370,7 @@ describe('Phase 14 master selectors', () => {
       ),
     );
     // Adding another hotel row for the same destination must not duplicate the default.
-    await userEvent.click(screen.getByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add hotel stay after stay 1' }));
     await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(2));
     expect(screen.getAllByLabelText('Hotel master')[1]).toHaveValue('');
   });
@@ -8583,13 +11417,16 @@ describe('Phase 14 master selectors', () => {
     const quotation = builderQuotation({ destinationSummary: 'Singapore' });
     const baseFetch = masterFetch(quotation);
     let activitiesUrl = '';
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/masters/sightseeing/activities')) {
-        activitiesUrl = url;
-      }
-      return baseFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/masters/sightseeing/activities')) {
+          activitiesUrl = url;
+        }
+        return baseFetch(input, init);
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     await screen.findByLabelText('Day 1 activity 1');
@@ -8603,14 +11440,19 @@ describe('Phase 14 master selectors', () => {
   it('shows loading state when sightseeing master data is pending', async () => {
     const quotation = builderQuotation();
     const baseFetch = masterFetch(quotation);
-    const pending = new Promise<Response>(() => { /* never resolves */ });
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/masters/sightseeing/activities')) {
-        return pending;
-      }
-      return baseFetch(input, init);
-    }));
+    const pending = new Promise<Response>(() => {
+      /* never resolves */
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/masters/sightseeing/activities')) {
+          return pending;
+        }
+        return baseFetch(input, init);
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
@@ -8623,13 +11465,24 @@ describe('Phase 14 master selectors', () => {
   it('shows error state when sightseeing master request fails', async () => {
     const quotation = builderQuotation();
     const baseFetch = masterFetch(quotation);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/masters/sightseeing/activities')) {
-        return { ok: false, status: 500, headers: new Headers(), json: async () => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'error' } }) } as unknown as Response;
-      }
-      return baseFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/masters/sightseeing/activities')) {
+          return {
+            ok: false,
+            status: 500,
+            headers: new Headers(),
+            json: async () => ({
+              success: false,
+              error: { code: 'INTERNAL_ERROR', message: 'error' },
+            }),
+          } as unknown as Response;
+        }
+        return baseFetch(input, init);
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
@@ -8640,16 +11493,21 @@ describe('Phase 14 master selectors', () => {
 
   it('shows empty state when no active master records exist for the destination', async () => {
     const quotation = builderQuotation({ destinationSummary: 'Singapore' });
-    vi.stubGlobal('fetch', masterFetch(quotation, {
-      '/masters/sightseeing': page([]),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([]),
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
     fireEvent.focus(picker);
     const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
     expect(within(listbox).getByText('Day at Leisure')).toBeInTheDocument();
-    expect(within(listbox).getByText('No sightseeing activities found for Singapore.')).toBeInTheDocument();
+    expect(
+      within(listbox).getByText('No sightseeing activities found for Singapore.'),
+    ).toBeInTheDocument();
   });
 
   it('uses destination fallback when day city is Cruise for a Singapore quotation', async () => {
@@ -8670,17 +11528,37 @@ describe('Phase 14 master selectors', () => {
         sectionTitle: 'Sightseeing',
         amount: '0',
         description: null,
-        days: [{
-          dayNumber: 1, title: 'Day 1', city: 'Cruise', date: null,
-          meals: { breakfast: true, lunch: false, dinner: false },
-          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
-          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
-        }],
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Cruise',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
+          },
+        ],
       },
     });
-    vi.stubGlobal('fetch', masterFetch(quotation, {
-      '/masters/sightseeing': page([singaporeMaster]),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(quotation, {
+        '/masters/sightseeing': page([singaporeMaster]),
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
@@ -8725,7 +11603,13 @@ describe('Phase 14 master selectors', () => {
         departureCity: 'Delhi',
         departureCountry: 'India',
         itinerary: [
-          { id: 'kl-stay', country: 'Malaysia', destination: 'Kuala Lumpur', nights: 3, sequence: 1 },
+          {
+            id: 'kl-stay',
+            country: 'Malaysia',
+            destination: 'Kuala Lumpur',
+            nights: 3,
+            sequence: 1,
+          },
         ],
       },
       sightseeingDetails: {
@@ -8733,39 +11617,71 @@ describe('Phase 14 master selectors', () => {
         sectionTitle: 'Sightseeing',
         amount: '0',
         description: null,
-        days: [{
-          dayNumber: 1, title: 'Day 1', city: 'Kuala Lumpur', date: null,
-          meals: { breakfast: true, lunch: false, dinner: false },
-          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
-          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
-        }],
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Kuala Lumpur',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
+          },
+        ],
       },
     };
     const baseFetch = masterFetch(quotation, {
       '/masters/sightseeing': page([klMaster1, klMaster2]),
-      '/masters/destinations': page([{
-        id: 'dest-my', countryCode: 'MY', countryName: 'Malaysia', name: 'Malaysia',
-        destinationType: 'CITY', status: 'ACTIVE',
-        inclusions: null, exclusions: null, paymentPolicies: null, cancellationPolicies: null, bookingTerms: null,
-        cities: [], _count: { cities: 0 },
-        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-      }]),
+      '/masters/destinations': page([
+        {
+          id: 'dest-my',
+          countryCode: 'MY',
+          countryName: 'Malaysia',
+          name: 'Malaysia',
+          destinationType: 'CITY',
+          status: 'ACTIVE',
+          inclusions: null,
+          exclusions: null,
+          paymentPolicies: null,
+          cancellationPolicies: null,
+          bookingTerms: null,
+          cities: [],
+          _count: { cities: 0 },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]),
     });
     let activitiesUrl = '';
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/masters/sightseeing/activities')) {
-        activitiesUrl = url;
-        // The endpoint is global: all tenant-visible activities are returned,
-        // and the builder orders current-day-city options first.
-        return response({
-          destination: { id: 'dest-my', name: 'Malaysia' },
-          city: null,
-          activities: [klMaster1, klMaster2],
-        });
-      }
-      return baseFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/masters/sightseeing/activities')) {
+          activitiesUrl = url;
+          // The endpoint is global: all tenant-visible activities are returned,
+          // and the builder orders current-day-city options first.
+          return response({
+            destination: { id: 'dest-my', name: 'Malaysia' },
+            city: null,
+            activities: [klMaster1, klMaster2],
+          });
+        }
+        return baseFetch(input, init);
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
@@ -8792,7 +11708,13 @@ describe('Phase 14 master selectors', () => {
         departureCity: 'Delhi',
         departureCountry: 'India',
         itinerary: [
-          { id: 'kl-stay', country: 'Malaysia', destination: 'Kuala Lumpur', nights: 3, sequence: 1 },
+          {
+            id: 'kl-stay',
+            country: 'Malaysia',
+            destination: 'Kuala Lumpur',
+            nights: 3,
+            sequence: 1,
+          },
         ],
       },
       sightseeingDetails: {
@@ -8800,38 +11722,76 @@ describe('Phase 14 master selectors', () => {
         sectionTitle: 'Sightseeing',
         amount: '0',
         description: null,
-        days: [{
-          dayNumber: 1, title: 'Day 1', city: 'Kuala Lumpur', date: null,
-          meals: { breakfast: true, lunch: false, dinner: false },
-          mealMode: 'INCLUDE_AT_HOTEL', dailyTransfer: 'SHARED',
-          activities: [{ sightseeingId: null, name: null, description: null, startTime: null, duration: null, city: null, imageUrl: null, sequence: null }],
-        }],
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1',
+            city: 'Kuala Lumpur',
+            date: null,
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [
+              {
+                sightseeingId: null,
+                name: null,
+                description: null,
+                startTime: null,
+                duration: null,
+                city: null,
+                imageUrl: null,
+                sequence: null,
+              },
+            ],
+          },
+        ],
       },
     };
     const baseFetch = masterFetch(quotation, {
       '/masters/sightseeing': page([]),
-      '/masters/destinations': page([{
-        id: 'dest-my', countryCode: 'MY', countryName: 'Malaysia', name: 'Malaysia',
-        destinationType: 'CITY', status: 'ACTIVE',
-        inclusions: null, exclusions: null, paymentPolicies: null, cancellationPolicies: null, bookingTerms: null,
-        cities: [], _count: { cities: 0 },
-        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-      }]),
+      '/masters/destinations': page([
+        {
+          id: 'dest-my',
+          countryCode: 'MY',
+          countryName: 'Malaysia',
+          name: 'Malaysia',
+          destinationType: 'CITY',
+          status: 'ACTIVE',
+          inclusions: null,
+          exclusions: null,
+          paymentPolicies: null,
+          cancellationPolicies: null,
+          bookingTerms: null,
+          cities: [],
+          _count: { cities: 0 },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]),
     });
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/masters/sightseeing/activities')) {
-        return response({ destination: { id: 'dest-my', name: 'Malaysia' }, city: null, activities: [] });
-      }
-      return baseFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/masters/sightseeing/activities')) {
+          return response({
+            destination: { id: 'dest-my', name: 'Malaysia' },
+            city: null,
+            activities: [],
+          });
+        }
+        return baseFetch(input, init);
+      }),
+    );
     renderBuilderPage();
     await openTab('Sightseeing');
     const picker = await screen.findByLabelText('Day 1 activity 1');
     fireEvent.focus(picker);
     const listbox = await screen.findByRole('listbox', { name: 'Day 1 activity 1' });
     expect(within(listbox).getByText('Day at Leisure')).toBeInTheDocument();
-    expect(within(listbox).getByText(/No sightseeing activities found for Malaysia/i)).toBeInTheDocument();
+    expect(
+      within(listbox).getByText(/No sightseeing activities found for Malaysia/i),
+    ).toBeInTheDocument();
   });
 
   it('prefills the final day with a departure master regardless of sequence', async () => {
@@ -8897,6 +11857,11 @@ describe('Phase 14 master selectors', () => {
     // Day 7 activity name field is pre-populated
     expect(screen.getByLabelText('Day 7 activity 1 name')).toHaveValue('Departure from Singapore');
     expect(screen.getByLabelText('Day 7 activity 1 start time')).toHaveValue('10:00');
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Day 7 activity 1 include time in PDF and weblink',
+      }),
+    ).toBeChecked();
   });
 
   it('uses departure master for the final day and never assigns a non-departure by sequence', async () => {
@@ -8911,8 +11876,26 @@ describe('Phase 14 master selectors', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
     const normalMasters = [
-      { id: 'sg-n1', title: 'City Tour', sequence: 1, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
-      { id: 'sg-n2', title: 'Sentosa', sequence: 2, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      {
+        id: 'sg-n1',
+        title: 'City Tour',
+        sequence: 1,
+        status: 'ACTIVE',
+        destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+        city: { id: 'city-sg', name: 'Singapore' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'sg-n2',
+        title: 'Sentosa',
+        sequence: 2,
+        status: 'ACTIVE',
+        destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+        city: { id: 'city-sg', name: 'Singapore' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
     ];
     const quotation = {
       ...builderQuotation({
@@ -8945,8 +11928,16 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Day 1 activity 1 name')).toHaveValue('City Tour');
     expect(screen.getByLabelText('Day 2 activity 1 name')).toHaveValue('Sentosa');
     expect(screen.getByLabelText('Day 3 activity 1 name')).toHaveValue('Departure from Singapore');
+    expect(screen.getByLabelText('Day 3 activity 1 start time')).toHaveValue('');
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Day 3 activity 1 include time in PDF and weblink',
+      }),
+    ).not.toBeChecked();
     // Normal day never gets the departure master
-    expect(screen.getByLabelText('Day 1 activity 1 name')).not.toHaveValue('Departure from Singapore');
+    expect(screen.getByLabelText('Day 1 activity 1 name')).not.toHaveValue(
+      'Departure from Singapore',
+    );
   });
 
   it('does not use a departure master on non-final days', async () => {
@@ -8961,9 +11952,36 @@ describe('Phase 14 master selectors', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
     const normalMasters = [
-      { id: 'sg-ct', title: 'City Tour', sequence: 2, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
-      { id: 'sg-gb', title: 'Gardens by the Bay', sequence: 3, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
-      { id: 'sg-ss', title: 'Sentosa', sequence: 4, status: 'ACTIVE', destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' }, city: { id: 'city-sg', name: 'Singapore' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      {
+        id: 'sg-ct',
+        title: 'City Tour',
+        sequence: 2,
+        status: 'ACTIVE',
+        destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+        city: { id: 'city-sg', name: 'Singapore' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'sg-gb',
+        title: 'Gardens by the Bay',
+        sequence: 3,
+        status: 'ACTIVE',
+        destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+        city: { id: 'city-sg', name: 'Singapore' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'sg-ss',
+        title: 'Sentosa',
+        sequence: 4,
+        status: 'ACTIVE',
+        destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+        city: { id: 'city-sg', name: 'Singapore' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
     ];
     const quotation = {
       ...builderQuotation({
@@ -9080,9 +12098,9 @@ describe('public quotation contact message helpers', () => {
   });
 
   it('does not repeat a lead name that the title already contains', () => {
-    expect(buildQuotationDescription('QT-000034', 'Singapore Package for Vikas Singh', 'Vikas Singh')).toBe(
-      'QT-34 - Singapore Package for Vikas Singh',
-    );
+    expect(
+      buildQuotationDescription('QT-000034', 'Singapore Package for Vikas Singh', 'Vikas Singh'),
+    ).toBe('QT-34 - Singapore Package for Vikas Singh');
   });
 
   it('avoids the duplicate even when the title capitalisation differs', () => {
@@ -9093,7 +12111,11 @@ describe('public quotation contact message helpers', () => {
 
   it('avoids the duplicate with extra surrounding and internal whitespace', () => {
     expect(
-      buildQuotationDescription('QT-000034', 'Singapore Package for Vikas  Singh', '  Vikas Singh '),
+      buildQuotationDescription(
+        'QT-000034',
+        'Singapore Package for Vikas  Singh',
+        '  Vikas Singh ',
+      ),
     ).toBe('QT-34 - Singapore Package for Vikas  Singh');
   });
 
@@ -9236,7 +12258,11 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
 
   it('keeps the saved tax note on "no change" and saves the initial amount and link', async () => {
     const fetchMock = masterFetch(
-      pricingBase({ taxNote: 'Inclusive of GST and TCS', initialPaymentAmount: '0', paymentLink: null }),
+      pricingBase({
+        taxNote: 'Inclusive of GST and TCS',
+        initialPaymentAmount: '0',
+        paymentLink: null,
+      }),
     );
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
@@ -9441,19 +12467,25 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
   it('Secure Your Booking card hides when amount is zero', async () => {
     renderPublic(publicPayload({ initialPaymentAmount: '0' }));
     await screen.findByText('Singapore Package');
-    expect(screen.queryByRole('heading', { name: 'Secure Your Booking Now' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Secure Your Booking Now' }),
+    ).not.toBeInTheDocument();
   });
 
   it('Secure Your Booking card hides when payment link is invalid', async () => {
     renderPublic(publicPayload({ paymentLink: 'not-a-url' }));
     await screen.findByText('Singapore Package');
-    expect(screen.queryByRole('heading', { name: 'Secure Your Booking Now' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Secure Your Booking Now' }),
+    ).not.toBeInTheDocument();
   });
 
   it('raw payment URL is not visible', async () => {
     renderPublic(publicPayload());
     await screen.findByText('Singapore Package');
-    const card = screen.getByRole('heading', { name: 'Secure Your Booking Now' }).closest('section') as HTMLElement;
+    const card = screen
+      .getByRole('heading', { name: 'Secure Your Booking Now' })
+      .closest('section') as HTMLElement;
     expect(card.textContent).not.toContain('https://');
   });
 });
@@ -9547,12 +12579,13 @@ describe('Generate PDF button — real request, open, loading and error states',
       { route: '/quotations/quotation-1' },
     );
 
-  const pdfTab = () => ({
-    opener: window,
-    document: { title: '', body: { innerHTML: '' } },
-    location: { replace: vi.fn() },
-    close: vi.fn(),
-  }) as unknown as Window;
+  const pdfTab = () =>
+    ({
+      opener: window,
+      document: { title: '', body: { innerHTML: '' } },
+      location: { replace: vi.fn() },
+      close: vi.fn(),
+    }) as unknown as Window;
 
   it('offers both styles and opens the generated Classic PDF inline in a new tab', async () => {
     const tab = pdfTab();
@@ -9563,6 +12596,14 @@ describe('Generate PDF button — real request, open, loading and error states',
         return response({ id: 'doc-new', fileName: 'qt-2026-000001-aarav-mehta-v1-quotation.pdf' });
       if (url.includes('/download-url'))
         return response({ url: 'https://files.example.test/quotation.pdf' });
+      if (url.endsWith('/weblink-analytics'))
+        return response({
+          totalViews: 0,
+          externalViews: 0,
+          homeIpViews: 0,
+          uniqueIps: 0,
+          entries: [],
+        });
       return response(detail);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -9570,45 +12611,39 @@ describe('Generate PDF button — real request, open, loading and error states',
     await screen.findByText('Version 1');
     await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
     expect(screen.getByRole('dialog', { name: 'Choose PDF style' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Stylish PDF/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Stylish PDF/ })).toBeDisabled();
+    expect(screen.getByText('Coming soon')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
-    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/quotation.pdf'));
+    await waitFor(() =>
+      expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/quotation.pdf'),
+    );
     const genCall = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
     expect(String(genCall![0])).toContain('/versions/version-1/generate-pdf');
     expect(JSON.parse(String(genCall![1]?.body))).toMatchObject({ force: true, style: 'CLASSIC' });
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/download-url?disposition=inline'))).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).includes('/download-url?disposition=inline')),
+    ).toBe(true);
     expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank');
   });
 
-  it('asks for the stylish cover and can use the quotation destination image', async () => {
-    const tab = pdfTab();
-    vi.spyOn(window, 'open').mockReturnValue(tab);
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/generate-pdf'))
-        return response({ id: 'doc-new', fileName: 'qt-v1-stylish-quotation.pdf' });
-      if (url.includes('/download-url'))
-        return response({ url: 'https://files.example.test/stylish.pdf' });
-      return response(detail);
-    });
+  it('shows Stylish PDF as coming soon and does not open its generation flow', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/weblink-analytics')
+        ? response({ totalViews: 0, externalViews: 0, homeIpViews: 0, uniqueIps: 0, entries: [] })
+        : response(detail),
+    );
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
     await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
-    await userEvent.click(screen.getByRole('button', { name: /Stylish PDF/ }));
-    expect(screen.getByRole('dialog', { name: 'Choose first-page image' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Use destination image/ })).toBeChecked();
-    await userEvent.click(screen.getByRole('button', { name: 'Generate Stylish PDF' }));
-    const genCall = await waitFor(() => {
-      const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/generate-pdf'));
-      expect(call).toBeDefined();
-      return call!;
-    });
-    expect(JSON.parse(String(genCall[1]?.body))).toMatchObject({
-      style: 'STYLISH',
-      coverSource: 'DESTINATION',
-    });
-    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/stylish.pdf'));
+    const stylish = screen.getByRole('button', { name: /Stylish PDF/ });
+    expect(stylish).toBeDisabled();
+    expect(screen.getByText('Coming soon')).toBeInTheDocument();
+    await userEvent.click(stylish);
+    expect(
+      screen.queryByRole('dialog', { name: 'Choose first-page image' }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-pdf'))).toBe(false);
   });
 
   it('closes the temporary tab and shows an error when generation fails', async () => {
@@ -9633,7 +12668,7 @@ describe('Generate PDF button — real request, open, loading and error states',
 
   it('shows a clear message when the browser blocks the new tab', async () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
-    const fetchMock = vi.fn(async () => response(detail));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => response(detail));
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
@@ -9648,7 +12683,8 @@ describe('Generate PDF button — real request, open, loading and error states',
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/generate-pdf')) return new Promise<Response>(() => {});
-      if (url.includes('/download-url')) return response({ url: 'https://files.example.test/q.pdf' });
+      if (url.includes('/download-url'))
+        return response({ url: 'https://files.example.test/q.pdf' });
       return response(detail);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -9658,7 +12694,9 @@ describe('Generate PDF button — real request, open, loading and error states',
     await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
     const busy = await screen.findByRole('button', { name: /Generating PDF/ });
     expect(busy).toBeDisabled();
-    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(1);
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/generate-pdf')).length).toBe(
+      1,
+    );
   });
 });
 

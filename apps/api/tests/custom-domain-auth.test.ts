@@ -66,6 +66,11 @@ function loginFrom(origin: string) {
     .send({ email: 'nobody@nowhere.test', password: 'WrongPassword@1' });
 }
 
+function responseCookies(header: string | string[] | undefined): string[] {
+  if (Array.isArray(header)) return header;
+  return header ? [header] : [];
+}
+
 describe('session cookies are host-scoped', () => {
   it('sets a host-only session cookie with no platform Domain attribute', async () => {
     await createVerifiedUser();
@@ -76,7 +81,7 @@ describe('session cookies are host-scoped', () => {
       .send({ email: 'owner@bluesky.test', password: PASSWORD });
 
     expect(response.status).toBe(200);
-    const session = (response.headers['set-cookie'] as string[]).find((entry) =>
+    const session = responseCookies(response.headers['set-cookie']).find((entry) =>
       entry.startsWith('interscale_sid='),
     );
     expect(session).toBeDefined();
@@ -95,7 +100,7 @@ describe('session cookies are host-scoped', () => {
     const response = await client.post('/api/auth/logout');
     expect(response.status).toBe(200);
     expect(client.cookies.session).toBeUndefined();
-    const cleared = (response.headers['set-cookie'] as string[]).find((entry) =>
+    const cleared = responseCookies(response.headers['set-cookie']).find((entry) =>
       entry.startsWith('interscale_sid='),
     );
     expect(cleared).toMatch(/Expires=Thu, 01 Jan 1970/i);
@@ -105,7 +110,12 @@ describe('session cookies are host-scoped', () => {
 describe('origin validation trusts ACTIVE custom domains', () => {
   async function createDomain(hostname: string, status: 'PENDING' | 'ACTIVE' | 'DISABLED') {
     const company = await db.company.create({
-      data: { name: 'Easy Tour', slug: `easy-tour-${status.toLowerCase()}`, email: 'hi@easytour.test', status: 'ACTIVE' },
+      data: {
+        name: 'Easy Tour',
+        slug: `easy-tour-${status.toLowerCase()}`,
+        email: 'hi@easytour.test',
+        status: 'ACTIVE',
+      },
     });
     return db.customDomain.create({
       data: { companyId: company.id, hostname, status },
@@ -171,7 +181,12 @@ describe('authenticated tenant match on custom-domain hosts', () => {
   it('rejects a session whose company does not match the custom-domain company', async () => {
     const client = await createVerifiedUser('owner@easytour.test');
     const otherCompany = await db.company.create({
-      data: { name: 'Masti Travels', slug: 'masti-travels', email: 'hi@masti.test', status: 'ACTIVE' },
+      data: {
+        name: 'Masti Travels',
+        slug: 'masti-travels',
+        email: 'hi@masti.test',
+        status: 'ACTIVE',
+      },
     });
     await db.customDomain.create({
       data: { companyId: otherCompany.id, hostname: 'crm.easytour.com', status: 'ACTIVE' },

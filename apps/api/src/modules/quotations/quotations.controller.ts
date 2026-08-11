@@ -91,6 +91,19 @@ export const quotationsController = {
       'Quotation version updated.',
     );
   },
+  async updateWeblinkSettings(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await quotationsService.updateWeblinkSettings(
+        auth(req),
+        req.params.quotationId!,
+        req.params.versionId!,
+        req.body,
+        context(req),
+      ),
+      'Weblink settings updated.',
+    );
+  },
   async finalize(req: Request, res: Response) {
     sendSuccess(
       res,
@@ -178,10 +191,7 @@ export const quotationsController = {
     sendSuccess(res, await quotationsService.emailHistory(auth(req), req.params.quotationId!));
   },
   async weblinkAnalytics(req: Request, res: Response) {
-    sendSuccess(
-      res,
-      await quotationsService.weblinkAnalytics(auth(req), req.params.quotationId!),
-    );
+    sendSuccess(res, await quotationsService.weblinkAnalytics(auth(req), req.params.quotationId!));
   },
   async publicLink(req: Request, res: Response) {
     sendSuccess(

@@ -5,7 +5,11 @@ import { createTestPrismaClient, truncateAll } from './helpers/test-database.js'
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
-import { normalizeCustomerName, normalizeCustomerPhone, normalizeEmail } from '../src/utils/normalize.js';
+import {
+  normalizeCustomerName,
+  normalizeCustomerPhone,
+  normalizeEmail,
+} from '../src/utils/normalize.js';
 
 let app: Express;
 let db: PrismaClient;
@@ -62,12 +66,7 @@ async function seedCustomer(
       type: payload.type as 'INDIVIDUAL' | 'CORPORATE' | 'AGENT' | 'GROUP',
       status: payload.status as 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'ARCHIVED' | 'MERGED',
       lifecycleStage: payload.lifecycleStage as
-        | 'NEW'
-        | 'PROSPECT'
-        | 'QUALIFIED'
-        | 'QUOTED'
-        | 'BOOKED'
-        | 'REPEAT',
+        'NEW' | 'PROSPECT' | 'QUALIFIED' | 'QUOTED' | 'BOOKED' | 'REPEAT',
       preferredCurrency: payload.preferredCurrency,
       assignedToId: userId,
       createdById: userId,
@@ -158,7 +157,8 @@ describe('Phase 10 customer profiles and relationship history', () => {
               displayName: `Aarav Mehta ${index}`,
               normalizedName: normalizeCustomerName(`Aarav Mehta ${index}`),
               primaryPhone: index === 0 ? 'not-a-phone' : String(9000000000 + index),
-              normalizedPhone: index === 0 ? null : normalizeCustomerPhone(String(9000000000 + index), 'IN'),
+              normalizedPhone:
+                index === 0 ? null : normalizeCustomerPhone(String(9000000000 + index), 'IN'),
               email: `concurrent-${index}@example.test`,
               normalizedEmail: normalizeEmail(`concurrent-${index}@example.test`),
               assignedToId: company.users[0]!.id,
@@ -222,7 +222,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('manages tags, notes, communications and a unified timeline', async () => {
     const client = await owner();
-    const customer = (await seedCustomer(client));
+    const customer = await seedCustomer(client);
     const tag = (
       await client.post('/api/customers/tags', { name: 'VIP prospect', color: '#7c3aed' })
     ).body.data;
@@ -256,7 +256,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('supports canonical tag routes and communication update, linkage and soft deletion', async () => {
     const client = await owner();
-    const customer = (await seedCustomer(client));
+    const customer = await seedCustomer(client);
     const tag = (await client.post('/api/customer-tags', { name: 'Family', color: '#2563eb' })).body
       .data;
     expect(
@@ -310,7 +310,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('projects travellers and financial payment history without turning travellers into customers', async () => {
     const client = await owner();
-    const customer = (await seedCustomer(client));
+    const customer = await seedCustomer(client);
     const booking = (
       await client.post('/api/bookings', {
         customerId: customer.id,
@@ -394,7 +394,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('keeps customer documents private, tenant-scoped and soft deletable', async () => {
     const client = await owner();
-    const customer = (await seedCustomer(client));
+    const customer = await seedCustomer(client);
     expect(
       (
         await client.post(`/api/customers/${customer.id}/documents/upload`, {
@@ -444,7 +444,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('merges duplicates transactionally and preserves provenance', async () => {
     const client = await owner();
-    const target = (await seedCustomer(client));
+    const target = await seedCustomer(client);
     const source = await seedCustomer(client, {
       ...customerPayload(' Two'),
       primaryPhone: '9000000002',
@@ -488,7 +488,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('enforces tenant isolation on details, relationships and merge', async () => {
     const alpha = await owner();
-    const customer = (await seedCustomer(alpha));
+    const customer = await seedCustomer(alpha);
     const beta = await owner('owner@beta-customers.test', 'Beta Customers');
     expect(
       (
@@ -517,7 +517,7 @@ describe('Phase 10 customer profiles and relationship history', () => {
 
   it('does not allow hard archival when booking history exists', async () => {
     const client = await owner();
-    const customer = (await seedCustomer(client));
+    const customer = await seedCustomer(client);
     const booking = await client.post('/api/bookings', {
       customerId: customer.id,
       customerName: customer.displayName,

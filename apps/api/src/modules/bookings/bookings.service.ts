@@ -1073,11 +1073,7 @@ export const bookingsService = {
   },
 
   /** Load the source lead and its explicitly selected finalized quotation version. */
-  async resolveLeadQuotation(
-    auth: AuthContext,
-    leadId: string,
-    quotationId: string,
-  ) {
+  async resolveLeadQuotation(auth: AuthContext, leadId: string, quotationId: string) {
     const lead = await getVisibleLead(auth, leadId);
     if (lead.leadType !== 'HOT')
       throw new ValidationError('Lead type must be Hot before creating a booking.');
@@ -1121,26 +1117,29 @@ export const bookingsService = {
     // Best-available state for prefilling the "Create New Customer" State
     // dropdown: matched customer, then the linked lead/quotation customer.
     const matchedState = customer && 'state' in customer ? customer.state : null;
-    const linkedCustomerId = customer && 'customerId' in customer
-      ? customer.customerId
-      : (lead.customerId ?? quotation.customerId);
+    const linkedCustomerId =
+      customer && 'customerId' in customer
+        ? customer.customerId
+        : (lead.customerId ?? quotation.customerId);
     const linkedState =
       matchedState ??
       (linkedCustomerId
-        ? await prisma.customer.findFirst({
-            where: {
-              companyId: auth.companyId,
-              id: linkedCustomerId,
-              deletedAt: null,
-              status: { not: 'MERGED' },
-            },
-            select: {
-              addresses: {
-                where: { deletedAt: null, isPrimary: true },
-                select: { state: true },
+        ? await prisma.customer
+            .findFirst({
+              where: {
+                companyId: auth.companyId,
+                id: linkedCustomerId,
+                deletedAt: null,
+                status: { not: 'MERGED' },
               },
-            },
-          }).then((row) => row?.addresses[0]?.state ?? null)
+              select: {
+                addresses: {
+                  where: { deletedAt: null, isPrimary: true },
+                  select: { state: true },
+                },
+              },
+            })
+            .then((row) => row?.addresses[0]?.state ?? null)
         : null);
     return {
       lead: {

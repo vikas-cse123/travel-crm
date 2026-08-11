@@ -59,11 +59,7 @@ export function SightseeingActivitySelect({
   const specialSelected = useMemo(() => {
     const label = displayLabel?.trim().toLowerCase();
     if (!label) return null;
-    return (
-      specialOptions.find(
-        (option) => option.label.trim().toLowerCase() === label,
-      ) ?? null
-    );
+    return specialOptions.find((option) => option.label.trim().toLowerCase() === label) ?? null;
   }, [specialOptions, displayLabel]);
   const masterSelected = useMemo(
     () => masterOptions.find((option) => option.id === value) ?? null,
@@ -83,9 +79,7 @@ export function SightseeingActivitySelect({
   const visibleSpecial = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return specialOptions;
-    return specialOptions.filter((option) =>
-      option.label.toLowerCase().includes(needle),
-    );
+    return specialOptions.filter((option) => option.label.toLowerCase().includes(needle));
   }, [specialOptions, query]);
 
   const close = () => {
@@ -96,8 +90,7 @@ export function SightseeingActivitySelect({
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node))
-        close();
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
     };
     document.addEventListener('mousedown', onPointerDown);
     return () => document.removeEventListener('mousedown', onPointerDown);
@@ -126,8 +119,7 @@ export function SightseeingActivitySelect({
   };
 
   const displayValue = query ?? '';
-  const currentLabel =
-    masterSelected?.label ?? specialSelected?.label ?? displayLabel ?? '';
+  const currentLabel = masterSelected?.label ?? specialSelected?.label ?? displayLabel ?? '';
 
   const totalOptions = visibleSpecial.length + filteredMasters.length;
 
@@ -161,9 +153,7 @@ export function SightseeingActivitySelect({
               else setHighlight((current) => (current + 1) % totalOptions);
             } else if (event.key === 'ArrowUp') {
               event.preventDefault();
-              setHighlight(
-                (current) => (current - 1 + totalOptions) % totalOptions,
-              );
+              setHighlight((current) => (current - 1 + totalOptions) % totalOptions);
             } else if (event.key === 'Enter') {
               event.preventDefault();
               if (open) selectHighlighted();
@@ -219,10 +209,7 @@ export function SightseeingActivitySelect({
             </li>
           ))}
           {visibleSpecial.length > 0 && (
-            <li
-              aria-hidden="true"
-              className="my-1 border-t border-slate-100"
-            />
+            <li aria-hidden="true" className="my-1 border-t border-slate-100" />
           )}
           <li
             aria-hidden="true"
@@ -240,13 +227,12 @@ export function SightseeingActivitySelect({
             </li>
           ) : status?.empty ? (
             <li aria-hidden="true" className="px-3 py-2 text-sm text-slate-400">
-              No sightseeing activities found{groupLabel ? ` for ${groupLabel.replace(/^Activities\s+in\s+/i, '')}.` : '.'}
+              No sightseeing activities found
+              {groupLabel ? ` for ${groupLabel.replace(/^Activities\s+in\s+/i, '')}.` : '.'}
             </li>
           ) : filteredMasters.length === 0 ? (
             <li aria-hidden="true" className="px-3 py-2 text-sm text-slate-400">
-              {query.trim()
-                ? `No activities match "${query.trim()}"`
-                : 'No matching activities'}
+              {query.trim() ? `No activities match "${query.trim()}"` : 'No matching activities'}
             </li>
           ) : null}
           {filteredMasters.map((option, index) => {
@@ -264,14 +250,10 @@ export function SightseeingActivitySelect({
                   <span className="min-w-0">
                     <span className="block truncate">{option.label}</span>
                     {option.hint && (
-                      <span className="block text-xs text-slate-400">
-                        {option.hint}
-                      </span>
+                      <span className="block text-xs text-slate-400">{option.hint}</span>
                     )}
                   </span>
-                  {option.id === value && (
-                    <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                  )}
+                  {option.id === value && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
                 </button>
               </li>
             );

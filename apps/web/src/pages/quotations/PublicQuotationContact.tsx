@@ -43,15 +43,12 @@ export function PublicQuotationContact({
       <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1 space-y-5">
           <div className="flex items-start gap-3">
-            <span
-              aria-hidden="true"
-              className="mt-1.5 h-6 w-1 shrink-0 rounded bg-emerald-600"
-            />
+            <span aria-hidden="true" className="mt-1.5 h-6 w-1 shrink-0 rounded bg-emerald-600" />
             <div>
               <h2 className="text-xl font-bold text-slate-900">Contact Us</h2>
               <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-slate-500">
-                Ready to book this amazing journey or have questions? Get in touch with us for
-                more information.
+                Ready to book this amazing journey or have questions? Get in touch with us for more
+                information.
               </p>
             </div>
           </div>

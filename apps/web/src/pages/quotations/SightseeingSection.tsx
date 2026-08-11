@@ -1,15 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useFieldArray, useWatch, type FieldPath, type UseFormReturn } from 'react-hook-form';
+import { ChevronDown, Image as ImageIcon, Plus, Trash2, Upload } from 'lucide-react';
 import {
-  useFieldArray,
-  useWatch,
-  type FieldPath,
-  type UseFormReturn,
-} from 'react-hook-form';
-import { Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
-import { SIGHTSEEING_DEFAULT_PRICE_LABELS, type QuotationVersionInput } from '@interscale/shared';
+  SIGHTSEEING_DEFAULT_PRICE_LABELS,
+  formatItineraryDayTitle,
+  type QuotationVersionInput,
+} from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
-import { SightseeingActivitySelect, type SightseeingSelectOption } from '@/components/ui/SightseeingActivitySelect';
+import {
+  SightseeingActivitySelect,
+  type SightseeingSelectOption,
+} from '@/components/ui/SightseeingActivitySelect';
+import {
+  quotationDocumentInlineUrl,
+  uploadQuotationAttachment,
+} from '@/features/quotations/quotations.api';
 import {
   useSightseeingActivities,
   useSightseeingPresentations,
@@ -39,7 +45,10 @@ type SightPriceRow = SightActivity['pricingOptions'][number];
 const emptyPricingRows = (): SightPriceRow[] =>
   SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label) => ({ label, price: null as never }));
 
-const priceLabelKey = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const priceLabelKey = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase();
 const isDefaultPriceLabel = (value: unknown) =>
   SIGHTSEEING_DEFAULT_PRICE_LABELS.some((label) => label.toLowerCase() === priceLabelKey(value));
 
@@ -69,8 +78,16 @@ export const withSightseeingPricingRows = <T,>(details: T): T => {
     days: (source.days ?? []).map((day) => ({
       ...day,
       activities: (day.activities ?? []).map((activity) => {
-        const row = (activity ?? {}) as { pricingOptions?: SightPriceRow[] | null };
-        return { ...row, pricingOptions: withDefaultPricingRows(row.pricingOptions) };
+        const row = (activity ?? {}) as {
+          pricingOptions?: SightPriceRow[] | null;
+          startTime?: string | null;
+          showTime?: boolean;
+        };
+        return {
+          ...row,
+          showTime: Boolean(row.startTime) && row.showTime !== false,
+          pricingOptions: withDefaultPricingRows(row.pricingOptions),
+        };
       }),
     })),
   } as T;
@@ -78,8 +95,10 @@ export const withSightseeingPricingRows = <T,>(details: T): T => {
 
 export const emptySightseeingActivity = (): SightActivity => ({
   sightseeingId: null,
+  imageDocumentId: null,
   name: null,
-  startTime: '09:00',
+  startTime: null,
+  showTime: false,
   duration: null,
   city: null,
   description: null,
@@ -207,10 +226,7 @@ function ActivityPricing({
           {customRows.map((row, offset) => {
             const index = defaultCount + offset;
             return (
-              <div
-                key={row.id}
-                className="grid gap-2 sm:grid-cols-[1fr_170px_auto] sm:items-end"
-              >
+              <div key={row.id} className="grid gap-2 sm:grid-cols-[1fr_170px_auto] sm:items-end">
                 <label className="block text-xs font-medium text-slate-600">
                   Label
                   <input
@@ -279,20 +295,28 @@ function ActivityPricing({
 /** One day card: title/city + activities + meals + transfer. */
 function DayCard({
   form,
+  quotationId,
+  quotationVersionId,
   dayIndex,
   attractions,
   presentations,
   destinationLabel,
   attractionsStatus,
+  onInsertBefore,
+  onInsertAfter,
   onRemove,
 }: {
   form: Form;
+  quotationId: string;
+  quotationVersionId: string;
   dayIndex: number;
   attractions: SightseeingActivity[];
   presentations: SightseeingPresentationMap;
   /** Display name of the resolved quotation destination, e.g. "Singapore". */
   destinationLabel: string;
   attractionsStatus: { loading: boolean; error: boolean };
+  onInsertBefore?: (() => void) | undefined;
+  onInsertAfter: () => void;
   onRemove: () => void;
 }) {
   const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
@@ -301,6 +325,40 @@ function DayCard({
     control: form.control,
     name: `sightseeingDetails.days.${dayIndex}.activities`,
   });
+  const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
+  const [uploadingActivity, setUploadingActivity] = useState<number | null>(null);
+  const [imageError, setImageError] = useState('');
+  const [expanded, setExpanded] = useState(true);
+  const savedDocumentIds = useMemo(
+    () =>
+      activities.fields
+        .map((activity) => activity.imageDocumentId)
+        .filter((id): id is string => Boolean(id)),
+    [activities.fields],
+  );
+  useEffect(() => {
+    let active = true;
+    const missing = savedDocumentIds.filter((id) => !documentPreviews[id]);
+    if (!missing.length)
+      return () => {
+        active = false;
+      };
+    void Promise.all(
+      missing.map(async (documentId) => {
+        try {
+          return [documentId, await quotationDocumentInlineUrl(quotationId, documentId)] as const;
+        } catch {
+          return [documentId, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (active)
+        setDocumentPreviews((current) => ({ ...current, ...Object.fromEntries(entries) }));
+    });
+    return () => {
+      active = false;
+    };
+  }, [documentPreviews, quotationId, savedDocumentIds]);
   const meals = ['breakfast', 'lunch', 'dinner'] as const;
   const dayCity = (form.watch(fp(`${base}.city`)) as string | null) ?? '';
   // Day-level transfer is a legacy fallback for activities without their own
@@ -315,17 +373,11 @@ function DayCard({
   // global across the tenant, not restricted to the itinerary day's city).
   const dayContext = useMemo(() => {
     const sortedAll = [...attractions].sort(
-      (a, b) =>
-        (a.sequence ?? 0) - (b.sequence ?? 0) ||
-        a.title.localeCompare(b.title),
+      (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.title.localeCompare(b.title),
     );
     const currentCity = cityKey(dayCity);
-    const cityMatches = sortedAll.filter(
-      (row) => cityKey(row.city?.name) === currentCity,
-    );
-    const others = sortedAll.filter(
-      (row) => cityKey(row.city?.name) !== currentCity,
-    );
+    const cityMatches = sortedAll.filter((row) => cityKey(row.city?.name) === currentCity);
+    const others = sortedAll.filter((row) => cityKey(row.city?.name) !== currentCity);
     return {
       options: [...cityMatches, ...others],
       cityHasMatch: cityMatches.length > 0,
@@ -352,7 +404,10 @@ function DayCard({
           row.title,
           row.city?.name,
           row.destination?.name,
-          (row.description ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+          (row.description ?? '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim(),
         ]
           .filter(Boolean)
           .join(' '),
@@ -360,30 +415,32 @@ function DayCard({
     [dayContext.options],
   );
 
-  // "Day {N}: {name}" without duplicating a leading "Day {N}:" prefix.
+  // Always replace stale prefixes after inserting/removing/reordering days.
   const autoDayTitle = (activityName: string | null): string => {
-    const cleaned = (activityName ?? '')
-      .trim()
-      .replace(new RegExp(`^day\\s+${dayIndex + 1}(?:\\s*:)?\\s*`, 'i'), '')
-      .trim();
-    return cleaned ? `Day ${dayIndex + 1}: ${cleaned}` : `Day ${dayIndex + 1}`;
+    return formatItineraryDayTitle(dayIndex + 1, activityName);
   };
 
   const clearActivity = (abase: string) => {
     form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.name`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.description`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.city`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.startTime`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.showTime`), false as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.duration`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.sequence`), null as never, { shouldDirty: true });
   };
 
   const pickSpecial = (abase: string, option: SightseeingSelectOption) => {
     form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.city`), (dayCity || null) as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.startTime`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.showTime`), false as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.duration`), null as never, { shouldDirty: true });
     const name =
       option.id === 'special:day_at_leisure'
         ? 'Day at Leisure'
@@ -408,6 +465,7 @@ function DayCard({
       shouldDirty: true,
     });
     form.setValue(fp(`${abase}.name`), (picked?.title ?? null) as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
     if (picked) {
       form.setValue(fp(`${abase}.description`), (picked.description ?? null) as never, {
@@ -419,6 +477,9 @@ function DayCard({
       form.setValue(fp(`${abase}.startTime`), (picked.suggestedStartTime ?? null) as never, {
         shouldDirty: true,
       });
+      form.setValue(fp(`${abase}.showTime`), Boolean(picked.suggestedStartTime) as never, {
+        shouldDirty: true,
+      });
       form.setValue(fp(`${abase}.duration`), (durationLabel(picked) ?? null) as never, {
         shouldDirty: true,
       });
@@ -428,10 +489,7 @@ function DayCard({
     }
   };
 
-  const applyActivitySelection = (
-    abase: string,
-    option: SightseeingSelectOption | null,
-  ) => {
+  const applyActivitySelection = (abase: string, option: SightseeingSelectOption | null) => {
     if (!option) {
       clearActivity(abase);
       return;
@@ -441,6 +499,33 @@ function DayCard({
       return;
     }
     pickMaster(abase, option);
+  };
+
+  const uploadActivityImage = async (abase: string, activityIndex: number, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setImageError('Choose a PNG, JPG, WebP, GIF, or AVIF image.');
+      return;
+    }
+    setImageError('');
+    setUploadingActivity(activityIndex);
+    try {
+      const { documentId, url } = await uploadQuotationAttachment(
+        quotationId,
+        file,
+        quotationVersionId,
+      );
+      form.setValue(fp(`${abase}.imageDocumentId`), documentId as never, {
+        shouldDirty: true,
+      });
+      form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+      setDocumentPreviews((current) => ({ ...current, [documentId]: url }));
+    } catch (error) {
+      setImageError(
+        error instanceof Error ? error.message : 'The sightseeing image upload failed.',
+      );
+    } finally {
+      setUploadingActivity(null);
+    }
   };
 
   return (
@@ -469,231 +554,352 @@ function DayCard({
             }
           />
         </label>
-        <Button variant="ghost" className="text-red-600 hover:bg-red-50" onClick={onRemove}>
-          <Trash2 className="h-4 w-4" /> Remove Day
-        </Button>
-      </div>
-
-      <div className="space-y-4">
-        {activities.fields.map((activity, aIndex) => {
-          const abase = `${base}.activities.${aIndex}`;
-          const snapshotUrl = (form.watch(fp(`${abase}.imageUrl`)) as string | null) ?? null;
-          const sightseeingId = (form.watch(fp(`${abase}.sightseeingId`)) as string | null) ?? null;
-          const activityName = (form.watch(fp(`${abase}.name`)) as string | null) ?? null;
-          // Fresh master presentation first (never persisted); the saved
-          // snapshot is only a fallback for legacy/custom rows.
-          const resolvedUrl =
-            (sightseeingId ? presentations[sightseeingId]?.imageUrl : null) ?? snapshotUrl;
-          return (
-            <div
-              key={activity.id}
-              className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-[200px_1fr]"
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} day ${dayIndex + 1}`}
+            title={`${expanded ? 'Collapse' : 'Expand'} day ${dayIndex + 1}`}
+            onClick={() => setExpanded((current) => !current)}
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+          >
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-5 w-5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {onInsertBefore && (
+            <Button
+              variant="secondary"
+              aria-label={`Insert sightseeing day before day ${dayIndex + 1}`}
+              onClick={onInsertBefore}
             >
-              <div className="aspect-[16/9] w-full overflow-hidden rounded-md md:aspect-auto md:h-28">
-                <ActivityThumb key={resolvedUrl ?? ''} imageUrl={resolvedUrl} />
-              </div>
-              <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-[1fr_150px]">
-                  <label className={labelCls}>
-                    Attraction / Activity
-                    <div className="mt-1">
-                      <SightseeingActivitySelect
-                        ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
-                        placeholder="Select or type an attraction"
-                        groupLabel={groupLabel}
-                        specialOptions={SPECIAL_SIGHTSEEING_OPTIONS}
-                        masterOptions={masterOptions}
-                        value={sightseeingId}
-                        displayLabel={activityName}
-                        onSelect={(option) => applyActivitySelection(abase, option)}
-                        status={{
-                          loading: attractionsStatus.loading,
-                          error: attractionsStatus.error,
-                          empty:
-                            !attractionsStatus.loading &&
-                            !attractionsStatus.error &&
-                            masterOptions.length === 0,
-                        }}
-                      />
-                    </div>
-                  </label>
-                  <label className={labelCls}>
-                    Start Time
-                    <input
-                      type="time"
-                      aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} start time`}
-                      className={`${field} mt-1`}
-                      {...form.register(fp(`${abase}.startTime`))}
-                    />
-                  </label>
-                </div>
-                <label className={labelCls}>
-                  Custom Name
-                  <input
-                    aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} name`}
-                    placeholder="Or type a custom activity name"
-                    className={`${field} mt-1`}
-                    {...form.register(fp(`${abase}.name`))}
-                  />
-                </label>
-                <div>
-                  <span className={labelCls}>Description</span>
-                  <div className="mt-1">
-                    <RichTextEditor
-                      ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1} description`}
-                      value={(form.watch(fp(`${abase}.description`)) as string) ?? ''}
-                      onChange={(html) =>
-                        form.setValue(fp(`${abase}.description`), html as never, {
-                          shouldDirty: true,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <p className={labelCls}>Daily Transfer</p>
-                  <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                    {(
-                      [
-                        ['PRIVATE', 'Private Transfer'],
-                        ['SHARED', 'Shared Transfer'],
-                        ['NO_TRANSFER', 'No Transfer'],
-                      ] as const
-                    ).map(([value, label]) => {
-                      const current =
-                        (form.watch(fp(`${abase}.dailyTransfer`)) as string | null | undefined) ??
-                        dayDailyTransfer;
-                      return (
-                        <label key={value} className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} daily transfer ${label}`}
-                            value={value}
-                            checked={current === value}
-                            onChange={() =>
-                              form.setValue(fp(`${abase}.dailyTransfer`), value as never, {
-                                shouldDirty: true,
-                              })
-                            }
-                          />
-                          {label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-                <ActivityPricing
-                  form={form}
-                  dayIndex={dayIndex}
-                  activityIndex={aIndex}
-                  ariaPrefix={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
-                />
-                {activities.fields.length > 1 && (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-red-600"
-                      onClick={() => activities.remove(aIndex)}
-                    >
-                      <Trash2 className="h-4 w-4" /> Remove activity
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        <div className="flex justify-end">
-          <Button size="sm" variant="secondary" onClick={() => activities.append(emptySightseeingActivity())}>
-            <Plus className="h-4 w-4" /> Add Activity
+              <Plus className="h-4 w-4" /> Add Day Before
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            aria-label={`Insert sightseeing day after day ${dayIndex + 1}`}
+            onClick={onInsertAfter}
+          >
+            <Plus className="h-4 w-4" /> Add Day After
+          </Button>
+          <Button variant="ghost" className="text-red-600 hover:bg-red-50" onClick={onRemove}>
+            <Trash2 className="h-4 w-4" /> Remove Day
           </Button>
         </div>
       </div>
 
-      <div className="rounded-lg bg-slate-50 p-4">
-        <div>
-          <p className={labelCls}>Meals Included</p>
-          <div className="mt-2 flex flex-wrap gap-4">
-            {meals.map((meal) => {
-              const mealPath = `${base}.meals.${meal}`;
-              const prefPath = `${base}.mealPreferences.${meal}`;
-              const prefMode = (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ?? null;
-              return (
-                <label key={meal} className="flex items-center gap-2 text-sm capitalize">
-                  <input
-                    type="checkbox"
-                    checked={(form.watch(fp(mealPath)) as boolean | undefined) ?? false}
-                    onChange={(event) => {
-                      form.setValue(fp(mealPath), event.target.checked as never, { shouldDirty: true });
-                      if (event.target.checked && !prefMode)
-                        form.setValue(fp(`${prefPath}.mode`), 'NO_TRANSFER' as never, { shouldDirty: true });
-                    }}
-                  />
-                  {meal}
-                </label>
-              );
-            })}
-          </div>
-          {meals
-            .filter((meal) => (form.watch(fp(`${base}.meals.${meal}`)) as boolean | undefined) ?? false)
-            .map((meal) => {
-              const prefPath = `${base}.mealPreferences.${meal}`;
-              const mode =
-                (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ?? 'NO_TRANSFER';
-              const transferDetails =
-                (form.watch(fp(`${prefPath}.transferDetails`)) as string | null | undefined) ?? '';
+      {expanded && (
+        <>
+          <div className="space-y-4">
+            {activities.fields.map((activity, aIndex) => {
+              const abase = `${base}.activities.${aIndex}`;
+              const snapshotUrl = (form.watch(fp(`${abase}.imageUrl`)) as string | null) ?? null;
+              const imageDocumentId =
+                (form.watch(fp(`${abase}.imageDocumentId`)) as string | null) ?? null;
+              const sightseeingId =
+                (form.watch(fp(`${abase}.sightseeingId`)) as string | null) ?? null;
+              const activityName = (form.watch(fp(`${abase}.name`)) as string | null) ?? null;
+              // Fresh master presentation first (never persisted); the saved
+              // snapshot is only a fallback for legacy/custom rows.
+              const resolvedUrl =
+                (imageDocumentId ? documentPreviews[imageDocumentId] : null) ??
+                (sightseeingId ? presentations[sightseeingId]?.imageUrl : null) ??
+                snapshotUrl;
+              const isUploading = uploadingActivity === aIndex;
               return (
                 <div
-                  key={meal}
-                  role="group"
-                  aria-label={`${meal} meal options`}
-                  className="mt-3 rounded-md border border-slate-200 bg-card p-3"
+                  key={activity.id}
+                  className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-[200px_1fr]"
                 >
-                  <p className="text-sm font-semibold capitalize text-slate-700">{meal}</p>
-                  <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                    {(
-                      [
-                        ['NO_TRANSFER', 'No Transfer'],
-                        ['INCLUDE_AT_HOTEL', 'Include At Hotel'],
-                        ['WITH_TRANSFER', 'With Transfer'],
-                      ] as const
-                    ).map(([value, label]) => (
-                      <label key={value} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name={`${base}-${meal}-meal-mode`}
-                          value={value}
-                          checked={mode === value}
-                          onChange={() =>
-                            form.setValue(fp(`${prefPath}.mode`), value as never, { shouldDirty: true })
-                          }
-                        />
-                        {label}
-                      </label>
-                    ))}
-                  </div>
-                  {mode === 'WITH_TRANSFER' && (
-                    <label className="mt-3 block">
-                      <span className={labelCls}>Transfer Details</span>
+                  <div>
+                    <label className="group relative block aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-md border border-dashed border-slate-300 bg-slate-50 transition hover:border-brand-400 hover:ring-2 hover:ring-brand-100 md:aspect-auto md:h-28">
+                      <ActivityThumb key={resolvedUrl ?? ''} imageUrl={resolvedUrl} />
+                      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-slate-900/75 px-2 py-1.5 text-center text-xs font-semibold text-white backdrop-blur-sm">
+                        <Upload className="h-3.5 w-3.5" />
+                        {isUploading ? 'Uploading…' : resolvedUrl ? 'Replace' : 'Upload'}
+                      </span>
                       <input
-                        aria-label={`${meal} transfer details`}
-                        className={`${field} mt-1`}
-                        placeholder="Enter transfer or meal-location details"
-                        value={transferDetails}
-                        onChange={(event) =>
-                          form.setValue(fp(`${prefPath}.transferDetails`), event.target.value || null, {
-                            shouldDirty: true,
-                          })
-                        }
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                        aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} image`}
+                        className="sr-only"
+                        disabled={isUploading}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = '';
+                          if (file) void uploadActivityImage(abase, aIndex, file);
+                        }}
                       />
                     </label>
-                  )}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-[1fr_190px]">
+                      <label className={labelCls}>
+                        Attraction / Activity
+                        <div className="mt-1">
+                          <SightseeingActivitySelect
+                            ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
+                            placeholder="Select or type an attraction"
+                            groupLabel={groupLabel}
+                            specialOptions={SPECIAL_SIGHTSEEING_OPTIONS}
+                            masterOptions={masterOptions}
+                            value={sightseeingId}
+                            displayLabel={activityName}
+                            onSelect={(option) => applyActivitySelection(abase, option)}
+                            status={{
+                              loading: attractionsStatus.loading,
+                              error: attractionsStatus.error,
+                              empty:
+                                !attractionsStatus.loading &&
+                                !attractionsStatus.error &&
+                                masterOptions.length === 0,
+                            }}
+                          />
+                        </div>
+                      </label>
+                      <label className={labelCls}>
+                        Start Time
+                        <input
+                          type="time"
+                          lang="en-US"
+                          aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} start time`}
+                          className={`${field} mt-1`}
+                          {...form.register(fp(`${abase}.startTime`), {
+                            onChange: (event) =>
+                              form.setValue(
+                                fp(`${abase}.showTime`),
+                                Boolean(event.target.value) as never,
+                                { shouldDirty: true },
+                              ),
+                          })}
+                        />
+                        <span className="mt-2 flex items-start gap-2 text-xs font-medium normal-case tracking-normal text-slate-600">
+                          <input
+                            {...form.register(fp(`${abase}.showTime`))}
+                            type="checkbox"
+                            aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} include time in PDF and weblink`}
+                            checked={
+                              (form.watch(fp(`${abase}.showTime`)) as boolean | undefined) === true
+                            }
+                            onChange={(event) =>
+                              form.setValue(
+                                fp(`${abase}.showTime`),
+                                event.target.checked as never,
+                                {
+                                  shouldDirty: true,
+                                },
+                              )
+                            }
+                            className="mt-0.5"
+                          />
+                          Include time in PDF and weblink
+                        </span>
+                      </label>
+                    </div>
+                    <label className={labelCls}>
+                      Custom Name
+                      <input
+                        aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} name`}
+                        placeholder="Or type a custom activity name"
+                        className={`${field} mt-1`}
+                        {...form.register(fp(`${abase}.name`))}
+                      />
+                    </label>
+                    <div>
+                      <span className={labelCls}>Description</span>
+                      <div className="mt-1">
+                        <RichTextEditor
+                          ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1} description`}
+                          value={(form.watch(fp(`${abase}.description`)) as string) ?? ''}
+                          onChange={(html) =>
+                            form.setValue(fp(`${abase}.description`), html as never, {
+                              shouldDirty: true,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <p className={labelCls}>Daily Transfer</p>
+                      <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                        {(
+                          [
+                            ['PRIVATE', 'Private Transfer'],
+                            ['SHARED', 'Shared Transfer'],
+                            ['NO_TRANSFER', 'No Transfer'],
+                          ] as const
+                        ).map(([value, label]) => {
+                          const current =
+                            (form.watch(fp(`${abase}.dailyTransfer`)) as
+                              string | null | undefined) ?? dayDailyTransfer;
+                          return (
+                            <label key={value} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                aria-label={`Day ${dayIndex + 1} activity ${aIndex + 1} daily transfer ${label}`}
+                                value={value}
+                                checked={current === value}
+                                onChange={() =>
+                                  form.setValue(fp(`${abase}.dailyTransfer`), value as never, {
+                                    shouldDirty: true,
+                                  })
+                                }
+                              />
+                              {label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <ActivityPricing
+                      form={form}
+                      dayIndex={dayIndex}
+                      activityIndex={aIndex}
+                      ariaPrefix={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
+                    />
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-label={`Add activity after activity ${aIndex + 1} on day ${dayIndex + 1}`}
+                        onClick={() => activities.insert(aIndex + 1, emptySightseeingActivity())}
+                      >
+                        <Plus className="h-4 w-4" /> Add Activity After
+                      </Button>
+                      {activities.fields.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600"
+                          onClick={() => activities.remove(aIndex)}
+                        >
+                          <Trash2 className="h-4 w-4" /> Remove activity
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
-        </div>
-      </div>
+            {imageError && (
+              <p role="alert" className="text-sm font-medium text-red-600">
+                {imageError}
+              </p>
+            )}
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => activities.append(emptySightseeingActivity())}
+              >
+                <Plus className="h-4 w-4" /> Add Activity at End
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-slate-50 p-4">
+            <div>
+              <p className={labelCls}>Meals Included</p>
+              <div className="mt-2 flex flex-wrap gap-4">
+                {meals.map((meal) => {
+                  const mealPath = `${base}.meals.${meal}`;
+                  const prefPath = `${base}.mealPreferences.${meal}`;
+                  const prefMode =
+                    (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ?? null;
+                  return (
+                    <label key={meal} className="flex items-center gap-2 text-sm capitalize">
+                      <input
+                        type="checkbox"
+                        checked={(form.watch(fp(mealPath)) as boolean | undefined) ?? false}
+                        onChange={(event) => {
+                          form.setValue(fp(mealPath), event.target.checked as never, {
+                            shouldDirty: true,
+                          });
+                          if (event.target.checked && !prefMode)
+                            form.setValue(fp(`${prefPath}.mode`), 'NO_TRANSFER' as never, {
+                              shouldDirty: true,
+                            });
+                        }}
+                      />
+                      {meal}
+                    </label>
+                  );
+                })}
+              </div>
+              {meals
+                .filter(
+                  (meal) =>
+                    (form.watch(fp(`${base}.meals.${meal}`)) as boolean | undefined) ?? false,
+                )
+                .map((meal) => {
+                  const prefPath = `${base}.mealPreferences.${meal}`;
+                  const mode =
+                    (form.watch(fp(`${prefPath}.mode`)) as string | null | undefined) ??
+                    'NO_TRANSFER';
+                  const transferDetails =
+                    (form.watch(fp(`${prefPath}.transferDetails`)) as string | null | undefined) ??
+                    '';
+                  return (
+                    <div
+                      key={meal}
+                      role="group"
+                      aria-label={`${meal} meal options`}
+                      className="mt-3 rounded-md border border-slate-200 bg-card p-3"
+                    >
+                      <p className="text-sm font-semibold capitalize text-slate-700">{meal}</p>
+                      <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                        {(
+                          [
+                            ['NO_TRANSFER', 'No Transfer'],
+                            ['INCLUDE_AT_HOTEL', 'Include At Hotel'],
+                            ['WITH_TRANSFER', 'With Transfer'],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <label key={value} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name={`${base}-${meal}-meal-mode`}
+                              value={value}
+                              checked={mode === value}
+                              onChange={() =>
+                                form.setValue(fp(`${prefPath}.mode`), value as never, {
+                                  shouldDirty: true,
+                                })
+                              }
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                      {mode === 'WITH_TRANSFER' && (
+                        <label className="mt-3 block">
+                          <span className={labelCls}>Transfer Details</span>
+                          <input
+                            aria-label={`${meal} transfer details`}
+                            className={`${field} mt-1`}
+                            placeholder="Enter transfer or meal-location details"
+                            value={transferDetails}
+                            onChange={(event) =>
+                              form.setValue(
+                                fp(`${prefPath}.transferDetails`),
+                                event.target.value || null,
+                                {
+                                  shouldDirty: true,
+                                },
+                              )
+                            }
+                          />
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </>
+      )}
     </article>
   );
 }
@@ -701,9 +907,13 @@ function DayCard({
 /** Reference "Sightseeing" tab — day-wise activity itinerary. */
 export function SightseeingSection({
   form,
+  quotationId = '',
+  quotationVersionId = '',
   destination,
 }: {
   form: Form;
+  quotationId?: string;
+  quotationVersionId?: string;
   /** Resolved destination/country name (e.g. "Malaysia") for the activities lookup. */
   destination?: string | null;
 }) {
@@ -725,17 +935,21 @@ export function SightseeingSection({
     loading: attractionsQuery.isLoading,
     error: attractionsQuery.isError,
   };
-  const attractions: SightseeingActivity[] =
-    attractionsQuery.data?.activities ?? [];
+  const attractions: SightseeingActivity[] = attractionsQuery.data?.activities ?? [];
   // Display name for the dropdown heading, e.g. "Singapore".
-  const destinationLabel = useMemo(
-    () => {
-      const source = resolvedDestination ?? destinationToken;
-      return source ? source.charAt(0).toUpperCase() + source.slice(1) : '';
-    },
-    [resolvedDestination, destinationToken],
-  );
+  const destinationLabel = useMemo(() => {
+    const source = resolvedDestination ?? destinationToken;
+    return source ? source.charAt(0).toUpperCase() + source.slice(1) : '';
+  }, [resolvedDestination, destinationToken]);
   const days = useFieldArray({ control: form.control, name: 'sightseeingDetails.days' });
+  useEffect(() => {
+    days.fields.forEach((_, index) => {
+      const path = `sightseeingDetails.days.${index}.title` as FieldPath<QuotationVersionInput>;
+      const current = (form.getValues(path) as string | null | undefined) ?? '';
+      const normalized = formatItineraryDayTitle(index + 1, current);
+      if (current !== normalized) form.setValue(path, normalized as never, { shouldDirty: false });
+    });
+  }, [days.fields, form]);
   const include = form.watch('sightseeingDetails.include') ?? true;
   const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
   // Resolve every selected master's current display URL in one batched request
@@ -807,11 +1021,17 @@ export function SightseeingSection({
               <DayCard
                 key={day.id}
                 form={form}
+                quotationId={quotationId}
+                quotationVersionId={quotationVersionId}
                 dayIndex={index}
                 attractions={attractions}
                 presentations={presentations}
                 destinationLabel={destinationLabel}
                 attractionsStatus={attractionsStatus}
+                onInsertBefore={
+                  index === 0 ? () => days.insert(0, emptySightseeingDay(1)) : undefined
+                }
+                onInsertAfter={() => days.insert(index + 1, emptySightseeingDay(index + 2))}
                 onRemove={() => days.remove(index)}
               />
             ))}

@@ -49,7 +49,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
 });
 
-const auth = (companyId: string) => ({ companyId, userId: 'u' } as never);
+const auth = (companyId: string) => ({ companyId, userId: 'u' }) as never;
 const CNAME = 'app.travelagencycrm.in';
 
 async function createCompany(slug: string) {
@@ -80,9 +80,9 @@ describe('subdomain validation', () => {
 
   it('rejects a reserved platform hostname on create', async () => {
     const company = await createCompany('easy-tour');
-    await expect(createCustomDomain(auth(company.id), 'app.travelagencycrm.in')).rejects.toBeInstanceOf(
-      ConflictError,
-    );
+    await expect(
+      createCustomDomain(auth(company.id), 'app.travelagencycrm.in'),
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   it('rejects an apex hostname on create', async () => {
@@ -99,7 +99,11 @@ describe('create domain', () => {
     awsMock.requestCertificate.mockResolvedValue('arn:cert-1');
     awsMock.describeCertificate.mockResolvedValue({
       status: 'PENDING_VALIDATION',
-      validationRecord: { name: '_abc.crm.easytour.com', type: 'CNAME', value: '_xyz.acm-validations.aws' },
+      validationRecord: {
+        name: '_abc.crm.easytour.com',
+        type: 'CNAME',
+        value: '_xyz.acm-validations.aws',
+      },
     });
 
     const info = await createCustomDomain(auth(company.id), 'https://CRM.EASYTOUR.COM/');
@@ -138,9 +142,9 @@ describe('create domain', () => {
     await createCustomDomain(auth(company.id), 'crm.easytour.com');
     await checkCustomDomain(auth(company.id));
 
-    await expect(createCustomDomain(auth(company.id), 'secure.easytour.com')).rejects.toBeInstanceOf(
-      ConflictError,
-    );
+    await expect(
+      createCustomDomain(auth(company.id), 'secure.easytour.com'),
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 });
 
@@ -160,7 +164,11 @@ describe('check domain', () => {
     const company = await setupPending();
     awsMock.describeCertificate.mockResolvedValue({
       status: 'PENDING_VALIDATION',
-      validationRecord: { name: '_abc.crm.easytour.com', type: 'CNAME', value: '_xyz.acm-validations.aws' },
+      validationRecord: {
+        name: '_abc.crm.easytour.com',
+        type: 'CNAME',
+        value: '_xyz.acm-validations.aws',
+      },
     });
     dnsMock.resolveCnameChain.mockResolvedValue([CNAME]);
 

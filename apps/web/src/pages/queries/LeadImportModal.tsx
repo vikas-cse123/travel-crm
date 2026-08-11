@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
-import {
-  ArrowRight,
-  CheckCircle2,
-  FileSpreadsheet,
-  Loader2,
-  UploadCloud,
-  X,
-} from 'lucide-react';
+import { ArrowRight, CheckCircle2, FileSpreadsheet, Loader2, UploadCloud, X } from 'lucide-react';
 import {
   LEAD_IMPORT_FIELDS,
   LEAD_IMPORT_MAX_ROWS,
@@ -280,7 +273,12 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
           continue;
         }
         if (target === 'services') {
-          out[target] = value ? value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          out[target] = value
+            ? value
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : [];
         } else {
           out[target] = value;
         }
@@ -385,7 +383,10 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-5">
           {error && (
-            <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               {error}
             </div>
           )}
@@ -430,7 +431,13 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => downloadCsv({ fileName: 'lead-import-sample.csv', mimeType: 'text/csv', content: buildSampleCsv() })}
+                  onClick={() =>
+                    downloadCsv({
+                      fileName: 'lead-import-sample.csv',
+                      mimeType: 'text/csv',
+                      content: buildSampleCsv(),
+                    })
+                  }
                 >
                   Download Sample CSV
                 </Button>
@@ -446,7 +453,10 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-slate-800">
-                    <FileSpreadsheet className="mr-1 inline h-4 w-4 text-blue-600" aria-hidden="true" />
+                    <FileSpreadsheet
+                      className="mr-1 inline h-4 w-4 text-blue-600"
+                      aria-hidden="true"
+                    />
                     {fileName}
                   </p>
                   <p className="text-sm text-slate-500">{rawRows.length} data rows detected</p>
@@ -463,7 +473,10 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                 <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
                   {headers.map((header) => (
                     <div key={header} className="block text-sm">
-                      <span className="mb-1 block truncate font-medium text-slate-600" title={header}>
+                      <span
+                        className="mb-1 block truncate font-medium text-slate-600"
+                        title={header}
+                      >
                         {header}
                       </span>
                       <select
@@ -636,12 +649,10 @@ export function LeadImportModal({ onClose }: { onClose: () => void }) {
                       Retry failed rows with invalid optional fields left blank. Customer name,
                       phone and lead source are still required.
                     </p>
-                    <Button
-                      size="sm"
-                      onClick={retryFailedRows}
-                      disabled={importMutation.isPending}
-                    >
-                      {importMutation.isPending ? 'Retrying…' : 'Import failed rows without invalid fields'}
+                    <Button size="sm" onClick={retryFailedRows} disabled={importMutation.isPending}>
+                      {importMutation.isPending
+                        ? 'Retrying…'
+                        : 'Import failed rows without invalid fields'}
                     </Button>
                   </div>
                 </section>

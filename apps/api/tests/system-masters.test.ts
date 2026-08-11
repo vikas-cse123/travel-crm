@@ -257,7 +257,9 @@ describe('Global Master visibility', () => {
 
     const stored = await db.city.findUniqueOrThrow({ where: { id: created.body.data.id } });
     expect(stored.companyId).toBe(company.companyId);
-    expect(stored.companyId).not.toBe((await db.company.findFirstOrThrow({ where: { isSystem: true } })).id);
+    expect(stored.companyId).not.toBe(
+      (await db.company.findFirstOrThrow({ where: { isSystem: true } })).id,
+    );
   });
 
   it('forces System Admin creations to the System Company', async () => {
@@ -372,9 +374,11 @@ describe('Hide and restore global records', () => {
     await bootstrap();
     const city = await createGlobalCity(await systemAdminClient());
     const clientA = await tenant('a@share.test');
-    const companyId = (await db.user.findUniqueOrThrow({
-      where: { normalizedEmail: 'a@share.test' },
-    })).companyId;
+    const companyId = (
+      await db.user.findUniqueOrThrow({
+        where: { normalizedEmail: 'a@share.test' },
+      })
+    ).companyId;
     const extra = await extraUser('a2@share.test', companyId);
 
     await clientA.post(`/api/masters/CITY/${city.id}/hide`);
@@ -506,7 +510,10 @@ describe('System Masters API and security', () => {
     const clientA = await tenant('a@lead.test');
     const lookups = await clientA.get('/api/queries/lookups');
     expect(lookups.status).toBe(200);
-    const assignable = (lookups.body.data.assignableUsers ?? []) as Array<{ email?: string; username?: string }>;
+    const assignable = (lookups.body.data.assignableUsers ?? []) as Array<{
+      email?: string;
+      username?: string;
+    }>;
     const identities = assignable.flatMap((u) => [u.email, u.username]).filter(Boolean);
     expect(identities).not.toContain(SYSTEM_EMAIL);
   });

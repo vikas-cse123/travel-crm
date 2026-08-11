@@ -19,6 +19,7 @@ import {
   labelForLookup,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveCustomer,
@@ -352,32 +353,13 @@ export function CustomersPage() {
                 </tbody>
               </table>
             </div>
-            {customers.data.pagination.totalPages > 1 && (
-              <footer className="flex items-center justify-between border-t px-4 py-3 text-sm">
-                <span className="text-slate-500">
-                  Page {customers.data.pagination.page} of {customers.data.pagination.totalPages} ·{' '}
-                  {customers.data.pagination.total} customers
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    disabled={customers.data.pagination.page <= 1}
-                    variant="secondary"
-                    onClick={() => setPage(customers.data!.pagination.page - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    disabled={
-                      customers.data.pagination.page >= customers.data.pagination.totalPages
-                    }
-                    variant="secondary"
-                    onClick={() => setPage(customers.data!.pagination.page + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </footer>
-            )}
+            <Pagination
+              page={customers.data.pagination.page}
+              pageSize={customers.data.pagination.pageSize}
+              totalPages={customers.data.pagination.totalPages}
+              total={customers.data.pagination.total}
+              onPage={setPage}
+            />
           </>
         )}
       </section>

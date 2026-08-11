@@ -13,13 +13,7 @@ import { useSetUserPassword } from '@/features/users/users.api';
  * Owner-only "Set New Password" modal. Does not ask for the user's old
  * password — this is an administrative reset, not the normal change flow.
  */
-export function SetPasswordModal({
-  user,
-  onClose,
-}: {
-  user: ManagedUser;
-  onClose: () => void;
-}) {
+export function SetPasswordModal({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const mutation = useSetUserPassword();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -33,9 +27,10 @@ export function SetPasswordModal({
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const passwordError = password ? passwordSchema.safeParse(password).error?.issues[0]?.message : '';
-  const confirmError =
-    confirm && confirm !== password ? 'Passwords do not match.' : '';
+  const passwordError = password
+    ? passwordSchema.safeParse(password).error?.issues[0]?.message
+    : '';
+  const confirmError = confirm && confirm !== password ? 'Passwords do not match.' : '';
 
   const canSubmit =
     Boolean(password) &&
@@ -120,7 +115,10 @@ export function SetPasswordModal({
           </FormField>
 
           {submitError && (
-            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              role="alert"
+              className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               {submitError}
             </div>
           )}

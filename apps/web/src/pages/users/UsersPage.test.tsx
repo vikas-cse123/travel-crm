@@ -61,6 +61,10 @@ describe('Phase 4 user pages', () => {
     );
     renderWithProviders(<UsersPage />);
     expect(await screen.findByText('No users found')).toBeInTheDocument();
+    // Shared Masters-style pagination footer, not the old "N users" label.
+    expect(screen.getByText('Showing 0 to 0 of 0 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
   });
   it('renders user details and hides forbidden archive action', async () => {
     vi.stubGlobal(

@@ -142,7 +142,11 @@ describe('Owner set password', () => {
     return res.body.data as { id: string; email: string; fullName: string };
   }
 
-  async function signIn(email: string, password: string, loginMode: 'COMPANY_ADMIN' | 'COMPANY_USER') {
+  async function signIn(
+    email: string,
+    password: string,
+    loginMode: 'COMPANY_ADMIN' | 'COMPANY_USER',
+  ) {
     const client = createAuthClient(app);
     const res = await client.post('/api/auth/login', {
       email,
@@ -153,7 +157,11 @@ describe('Owner set password', () => {
     return { client, status: res.status };
   }
 
-  async function loginAs(email: string, password: string, loginMode: 'COMPANY_ADMIN' | 'COMPANY_USER') {
+  async function loginAs(
+    email: string,
+    password: string,
+    loginMode: 'COMPANY_ADMIN' | 'COMPANY_USER',
+  ) {
     const { client, status } = await signIn(email, password, loginMode);
     expect(status).toBe(200);
     return client;
@@ -181,9 +189,9 @@ describe('Owner set password', () => {
 
     // Target sessions revoked by the reset, Owner session untouched.
     expect(await db.session.count({ where: { userId: target.id, revokedAt: null } })).toBe(0);
-    expect(await db.session.count({ where: { userId: owner.id, revokedAt: null } })).toBeGreaterThan(
-      0,
-    );
+    expect(
+      await db.session.count({ where: { userId: owner.id, revokedAt: null } }),
+    ).toBeGreaterThan(0);
 
     // Old password no longer works; new one does.
     expect((await signIn(target.email, 'OldPass@2026', 'COMPANY_ADMIN')).status).toBe(401);
@@ -286,9 +294,9 @@ describe('Owner set password', () => {
     });
     expect(secondRes.status).toBe(200);
     // The single remaining active Owner (the caller) is protected from self-reset.
-    expect((await c.post(`/api/users/${me.id}/set-password`, { password: 'Third@2026' })).status).toBe(
-      403,
-    );
+    expect(
+      (await c.post(`/api/users/${me.id}/set-password`, { password: 'Third@2026' })).status,
+    ).toBe(403);
   });
 });
 

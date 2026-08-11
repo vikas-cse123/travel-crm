@@ -14,6 +14,7 @@ import {
   useReminders,
 } from '@/features/reminders/reminders.api';
 import { EmptyState, fieldClass, PageHeader, Pill, SummaryCards } from './ReminderUi';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 
 export function RemindersPage() {
   const { hasPermission } = useAuth();
@@ -165,7 +166,7 @@ export function RemindersPage() {
                   <p
                     className={`text-sm font-semibold ${row.status === 'OVERDUE' ? 'text-red-600' : 'text-slate-800'}`}
                   >
-                    {new Date(row.dueAt).toLocaleString()}
+                    {formatDateTime12Hour(row.dueAt)}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     Assigned to {row.assignedTo.fullName}

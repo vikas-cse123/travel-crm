@@ -1,12 +1,11 @@
-import {
-  isMasterType,
-  MASTER_TYPE_LABELS,
-  type MasterType,
-} from '@interscale/shared';
+import { isMasterType, MASTER_TYPE_LABELS, type MasterType } from '@interscale/shared';
 import { prisma } from '../../config/prisma.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
-import { companyHiddenMastersRepository, type HideMasterContext } from './company-hidden-masters.repository.js';
+import {
+  companyHiddenMastersRepository,
+  type HideMasterContext,
+} from './company-hidden-masters.repository.js';
 import { masterTypeInfo, type MasterRegistryRow } from './master-types.js';
 import { getSystemCompanyId } from './master-visibility.js';
 
@@ -63,12 +62,7 @@ export const systemMastersService = {
    * Hide an active global record for the current tenant.
    * Returns a stable response whether the record was already hidden.
    */
-  async hide(
-    auth: AuthContext,
-    rawType: string,
-    masterId: string,
-    context: HideMasterContext,
-  ) {
+  async hide(auth: AuthContext, rawType: string, masterId: string, context: HideMasterContext) {
     if (!isMasterType(rawType)) {
       throw new ValidationError(`Unsupported master type "${rawType}".`);
     }
@@ -111,12 +105,7 @@ export const systemMastersService = {
   },
 
   /** Restore a previously hidden global record for the current tenant. */
-  async restore(
-    auth: AuthContext,
-    rawType: string,
-    masterId: string,
-    context: HideMasterContext,
-  ) {
+  async restore(auth: AuthContext, rawType: string, masterId: string, context: HideMasterContext) {
     if (!isMasterType(rawType)) {
       throw new ValidationError(`Unsupported master type "${rawType}".`);
     }

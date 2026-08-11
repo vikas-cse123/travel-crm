@@ -6,6 +6,7 @@ import { initialsOf } from '@/components/layout/navigation';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { UserStatusBadge } from '@/features/users/UserStatusBadge';
 import { useUser, useUserActivity, useUserAction } from '@/features/users/users.api';
+import { formatDateTime12Hour } from '@/utils/dateTime';
 
 export function UserDetailsPage() {
   const { userId = '' } = useParams();
@@ -80,9 +81,9 @@ export function UserDetailsPage() {
                 ['Role', u.role.name],
                 ['Permission template', u.permissionTemplate?.name ?? 'None'],
                 ['Email verification', u.emailVerified ? 'Verified' : 'Not verified'],
-                ['Last login', u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'],
-                ['Created', new Date(u.createdAt).toLocaleString()],
-                ['Updated', u.updatedAt ? new Date(u.updatedAt).toLocaleString() : '—'],
+                ['Last login', u.lastLoginAt ? formatDateTime12Hour(u.lastLoginAt) : 'Never'],
+                ['Created', formatDateTime12Hour(u.createdAt)],
+                ['Updated', formatDateTime12Hour(u.updatedAt)],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-xs font-medium uppercase text-slate-500">{label}</dt>
@@ -116,7 +117,7 @@ export function UserDetailsPage() {
               {activity.data.data.map((e) => (
                 <li key={e.id} className="flex justify-between py-3 text-sm">
                   <span>{e.action.replaceAll('_', ' ').toLowerCase()}</span>
-                  <time className="text-slate-500">{new Date(e.createdAt).toLocaleString()}</time>
+                  <time className="text-slate-500">{formatDateTime12Hour(e.createdAt)}</time>
                 </li>
               ))}
             </ul>

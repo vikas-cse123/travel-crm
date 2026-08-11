@@ -1,7 +1,7 @@
-import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
-import { Construct } from 'constructs';
+import { CfnOutput, Stack, type StackProps } from 'aws-cdk-lib';
+import { type Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import { DeployConfig } from '../config.js';
+import { type DeployConfig } from '../config.js';
 
 export interface CicdStackProps extends StackProps {
   config: DeployConfig;

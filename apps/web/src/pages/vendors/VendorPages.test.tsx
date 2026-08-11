@@ -108,6 +108,9 @@ describe('Phase 11 vendor pages', () => {
     expect((await screen.findAllByText('Harbour Hotels')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('₹80,000').length).toBeGreaterThan(0);
     expect(screen.getByText('4.5 / 5')).toBeInTheDocument();
+    // Shared Masters-style pagination footer, not the old "N vendors" label.
+    expect(screen.getByText('Showing 1 to 1 of 1 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
     await userEvent.type(screen.getByLabelText('Search vendors'), 'Harbour');
     await userEvent.selectOptions(screen.getByLabelText('Vendor type'), 'HOTEL');
     await userEvent.selectOptions(screen.getByLabelText('Payment status'), 'PARTIALLY_PAID');

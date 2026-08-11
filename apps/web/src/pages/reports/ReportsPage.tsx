@@ -6,6 +6,7 @@ import {
   type DashboardPeriod,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { formatDateClock12Hour } from '@/utils/dateTime';
 import { HorizontalBarChart } from '@/components/charts/HorizontalBarChart';
 import {
   useBookingReport,
@@ -295,7 +296,7 @@ export function ReportsPage() {
         Showing <span className="font-medium text-slate-700">{periodLabel}</span>
         {data?.period.timezone ? ` · ${data.period.timezone}` : ''}
         {summary.dataUpdatedAt
-          ? ` · Last updated ${new Date(summary.dataUpdatedAt).toLocaleTimeString()}`
+          ? ` · Last updated ${formatDateClock12Hour(summary.dataUpdatedAt)}`
           : ''}
       </p>
 

@@ -80,6 +80,9 @@ describe('Phase 10 customer pages', () => {
     expect((await screen.findAllByRole('link', { name: 'Aarav Mehta' })).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/2 leads · 1 quotes/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('₹25,000').length).toBeGreaterThan(0);
+    // Shared Masters-style pagination footer, not the old "Page X of Y" label.
+    expect(screen.getByText('Showing 1 to 1 of 1 entries')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
     await userEvent.type(screen.getByLabelText('Search customers'), 'Aarav');
     await userEvent.selectOptions(screen.getByLabelText('Lifecycle stage'), 'REPEAT_CUSTOMER');
     await userEvent.selectOptions(screen.getByLabelText('Customer tag'), 'tag-1');
@@ -186,7 +189,10 @@ describe('Phase 10 customer pages', () => {
             possibleDuplicateGroups: 0,
             repeatPercentage: 0,
           });
-        return response({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } });
+        return response({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        });
       }),
     );
     renderWithProviders(<CustomersPage />);

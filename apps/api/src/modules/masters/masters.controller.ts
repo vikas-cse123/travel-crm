@@ -481,7 +481,10 @@ export const sightseeingController = {
   imageDownload: async (req: Request, res: Response) =>
     sendSuccess(res, await sightseeingService.imageDownload(auth(req), req.params.sightseeingId!)),
   presentations: async (req: Request, res: Response) =>
-    sendSuccess(res, await sightseeingService.presentations(auth(req), (req.query.ids as string[]) ?? [])),
+    sendSuccess(
+      res,
+      await sightseeingService.presentations(auth(req), (req.query.ids as string[]) ?? []),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,

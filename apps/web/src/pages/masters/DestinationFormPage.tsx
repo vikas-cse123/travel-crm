@@ -785,7 +785,7 @@ function DestinationImageEditor({
     }
 
     const ratio = CROP_ASPECTS.find((item) => item.value === aspect)?.ratio;
-    let width = drag.startCrop.width + deltaX;
+    const width = drag.startCrop.width + deltaX;
     let height = drag.startCrop.height + deltaY;
     if (ratio) height = width / ratio;
     setCrop(clampCrop({ ...drag.startCrop, width, height }));

@@ -1,7 +1,12 @@
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { resolveItineraryActivityImage, resolveItineraryDayImage } from '@interscale/shared';
+import {
+  formatItineraryDayTitle,
+  resolveItineraryActivityImage,
+  resolveItineraryDayImage,
+  stripItineraryDayPrefixes,
+} from '@interscale/shared';
 import {
   CONTENT_BOTTOM_LIMIT,
   PDF_BOTTOM_MARGIN,
@@ -48,16 +53,16 @@ const pageMediaBoxes = (buffer: Buffer): Array<{ width: number; height: number }
 };
 
 /** Word bounding boxes via poppler's pdftotext -bbox (y measured from the top). */
-function wordBoxes(
-  buffer: Buffer,
-): Array<{ text: string; yBottomFromTop: number }> {
+function wordBoxes(buffer: Buffer): Array<{ text: string; yBottomFromTop: number }> {
   const bbox = execFileSync('pdftotext', ['-bbox', '-', '-'], {
     input: buffer,
     maxBuffer: 32 * 1024 * 1024,
   }).toString('utf8');
-  return [...bbox.matchAll(/<word[^>]*xMin="([\d.]+)"[^>]*yMin="([\d.]+)"[^>]*xMax="([\d.]+)"[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g)].map(
-    (m) => ({ text: m[5] ?? '', yBottomFromTop: Number(m[4]) }),
-  );
+  return [
+    ...bbox.matchAll(
+      /<word[^>]*xMin="([\d.]+)"[^>]*yMin="([\d.]+)"[^>]*xMax="([\d.]+)"[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g,
+    ),
+  ].map((m) => ({ text: m[5] ?? '', yBottomFromTop: Number(m[4]) }));
 }
 
 function pageWordBoxes(buffer: Buffer): Array<{
@@ -124,18 +129,23 @@ describe('Stylish quotation PDF', () => {
         bookingTerms: '<p>Rates remain subject to availability.</p>',
         sightseeingDetails: {
           include: true,
-          days: [{
-            dayNumber: 4,
-            title: 'Day 4: Universal Studios',
-            city: 'Singapore',
-            date: '2027-01-09',
-            dailyTransfer: 'SHARED',
-            activities: [{
-              name: 'Universal Studios Singapore',
-              description: '<p>Highlights &amp; Rides:</p><ul><li>🦖 <strong>Jurassic Park Rapids Adventure</strong> – exciting river-rafting adventure</li><li>🚀 <strong>Battlestar Galactica</strong> – high-speed roller coasters</li></ul>',
-              startTime: '09:00',
-            }],
-          }],
+          days: [
+            {
+              dayNumber: 4,
+              title: 'Day 4: Universal Studios',
+              city: 'Singapore',
+              date: '2027-01-09',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Universal Studios Singapore',
+                  description:
+                    '<p>Highlights &amp; Rides:</p><ul><li>🦖 <strong>Jurassic Park Rapids Adventure</strong> – exciting river-rafting adventure</li><li>🚀 <strong>Battlestar Galactica</strong> – high-speed roller coasters</li></ul>',
+                  startTime: '09:00',
+                },
+              ],
+            },
+          ],
         },
       },
       images: { cover: PNG_1PX },
@@ -150,8 +160,218 @@ describe('Stylish quotation PDF', () => {
     const visible = pdfText(pdf);
     expect(visible).toContain('Singapore Package for Mira Shah');
     expect(visible).toContain('DAY WISE ITINERARY');
+    expect(visible).toContain('9:00 AM');
     expect(visible).toContain('Jurassic Park Rapids Adventure');
     expect(visible).toContain('THANK YOU');
+  });
+
+  it('renders optional per-stay hotel times and omits them when blank', async () => {
+    const timedHotel = {
+      city: 'Singapore',
+      hotelName: 'Marina Bay Hotel',
+      category: '5 Star',
+      roomType: 'Deluxe',
+      mealPlan: 'Breakfast',
+      rooms: 1,
+      nights: 2,
+      selected: true,
+      checkInDate: new Date('2027-01-06'),
+      checkOutDate: new Date('2027-01-08'),
+      checkInTime: '15:30',
+      checkOutTime: '11:15',
+      notes: null,
+    };
+    const input: Parameters<typeof renderQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: { ...baseVersionOverlap(), hotels: [timedHotel] },
+      images: { cover: PNG_1PX },
+    };
+
+    for (const pdf of [await renderQuotationPdf(input), await renderStylishQuotationPdf(input)]) {
+      const visible = pdfText(pdf);
+      expect(visible).toContain('3:30 PM');
+      expect(visible).toContain('11:15 AM');
+    }
+
+    const classicVisible = pdfText(await renderQuotationPdf(input));
+    expect(classicVisible).toContain('Check-in: 6 Jan 2027 | 3:30 PM');
+    expect(classicVisible).toContain('Check-out: 8 Jan 2027 | 11:15 AM');
+
+    const blankPdf = await renderQuotationPdf({
+      ...input,
+      version: {
+        ...input.version,
+        hotels: [{ ...timedHotel, checkInTime: null, checkOutTime: null }],
+      },
+    });
+    const blankVisible = pdfText(blankPdf);
+    expect(blankVisible).not.toContain('3:30 PM');
+    expect(blankVisible).not.toContain('11:15 AM');
+    expect(blankVisible).not.toContain(' | ');
+
+    const hiddenCheckIn = {
+      ...input,
+      version: {
+        ...input.version,
+        hotels: [
+          {
+            ...timedHotel,
+            rooms: null,
+            showCheckInTime: false,
+            showCheckOutTime: true,
+          },
+        ],
+      },
+    };
+    for (const pdf of [
+      await renderQuotationPdf(hiddenCheckIn),
+      await renderStylishQuotationPdf(hiddenCheckIn),
+    ]) {
+      const visible = pdfText(pdf);
+      expect(visible).not.toContain('3:30 PM');
+      expect(visible).toContain('11:15 AM');
+    }
+    expect(pdfText(await renderQuotationPdf(hiddenCheckIn))).not.toContain('Rooms:');
+  });
+
+  it('uses destination itinerary nights for duration instead of hotel nights', async () => {
+    const input: Parameters<typeof renderQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: {
+        ...quotationOverlap(),
+        durationNights: 11,
+        travelStartDate: new Date('2026-09-05'),
+        travelEndDate: new Date('2026-09-09'),
+      },
+      version: {
+        ...baseVersionOverlap(),
+        hotels: [
+          {
+            city: 'Singapore',
+            hotelName: 'Long Stay Hotel',
+            category: '4 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 32,
+            selected: true,
+            notes: null,
+          },
+        ],
+      },
+      images: { cover: PNG_1PX },
+    };
+
+    for (const pdf of [await renderQuotationPdf(input), await renderStylishQuotationPdf(input)]) {
+      const visible = pdfText(pdf);
+      expect(visible).toContain('11 Nights / 12 Days');
+      expect(visible).not.toContain('32 Nights / 33 Days');
+    }
+  });
+
+  it('renders flight segment times with AM and PM in both quotation PDFs', async () => {
+    const input: Parameters<typeof renderQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        flightDetails: {
+          include: true,
+          journeyType: 'ONEWAY_OUTBOUND',
+          outbound: {
+            fromCity: 'Rajkot',
+            toCity: 'Singapore',
+            segments: [
+              {
+                airlineName: 'Indigo',
+                from: 'Rajkot',
+                to: 'Singapore',
+                departureDate: '2026-09-05',
+                departureTime: '02:00',
+                arrivalDate: '2026-09-05',
+                arrivalTime: '13:00',
+                duration: '11h 0m',
+              },
+              {
+                airlineName: 'Thai Airways',
+                from: 'India',
+                to: 'Singapore',
+                departureDate: '2026-08-14',
+                departureTime: '10:00',
+                arrivalDate: '2026-08-22',
+                arrivalTime: '13:00',
+                duration: '195h 0m',
+              },
+            ],
+          },
+          returnJourney: { segments: [] },
+        },
+      },
+      images: { cover: PNG_1PX },
+    };
+
+    const classic = await renderQuotationPdf(input);
+    const stylish = await renderStylishQuotationPdf(input);
+    for (const pdf of [classic, stylish]) {
+      const visible = pdfText(pdf);
+      expect(visible).toContain('2:00 AM');
+      expect(visible).toContain('1:00 PM');
+      expect(visible).toContain('10:00 AM');
+    }
+
+    // Regression for the classic card: the AM suffix must share the exact
+    // baseline with 10:00 instead of wrapping onto the departure date.
+    const words = wordBoxes(classic);
+    const tenIndex = words.findIndex((word) => word.text === '10:00');
+    expect(tenIndex).toBeGreaterThanOrEqual(0);
+    expect(words[tenIndex + 1]?.text).toBe('AM');
+    expect(
+      Math.abs(words[tenIndex]!.yBottomFromTop - words[tenIndex + 1]!.yBottomFromTop),
+    ).toBeLessThan(1);
+  });
+
+  it('renders each sightseeing activity time independently in 12-hour format', async () => {
+    const input: Parameters<typeof renderQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Full Day',
+              city: 'Singapore',
+              date: '2027-01-06',
+              meals: { breakfast: false, lunch: false, dinner: false },
+              dailyTransfer: 'SHARED',
+              activities: [
+                { name: 'Morning Tour', description: null, startTime: '09:00', showTime: true },
+                {
+                  name: 'Hidden Evening Tour',
+                  description: null,
+                  startTime: '18:30',
+                  showTime: false,
+                },
+                { name: 'Untimed Visit', description: null, startTime: null, showTime: true },
+              ],
+            },
+          ],
+        },
+      },
+      images: { cover: PNG_1PX },
+    };
+
+    for (const pdf of [await renderQuotationPdf(input), await renderStylishQuotationPdf(input)]) {
+      const visible = pdfText(pdf);
+      expect(visible).toContain('Morning Tour');
+      expect(visible).toContain('9:00 AM');
+      expect(visible).toContain('Hidden Evening Tour');
+      expect(visible).not.toContain('6:30 PM');
+      expect(visible).toContain('Untimed Visit');
+    }
   });
 });
 
@@ -326,13 +546,17 @@ const invoiceBooking = {
 describe('PDF rendering with long content', () => {
   it('keeps rich-text list markers with their content and preserves emoji', () => {
     expect(
-      htmlToLines('<ul><li><p>First inclusion</p></li><li><p>🦖 Jurassic Park Rapids</p></li></ul>'),
+      htmlToLines(
+        '<ul><li><p>First inclusion</p></li><li><p>🦖 Jurassic Park Rapids</p></li></ul>',
+      ),
     ).toEqual(['• First inclusion', '• 🦖 Jurassic Park Rapids']);
   });
 
   it('retains bold runs while flattening sightseeing editor HTML', () => {
     expect(
-      htmlToRichTextLines('<p>Highlights &amp; Rides:</p><ul><li><p>🦖 <strong>Jurassic Park Rapids Adventure</strong> – Exciting ride</p></li></ul>'),
+      htmlToRichTextLines(
+        '<p>Highlights &amp; Rides:</p><ul><li><p>🦖 <strong>Jurassic Park Rapids Adventure</strong> – Exciting ride</p></li></ul>',
+      ),
     ).toEqual([
       [{ text: 'Highlights & Rides:', bold: false }],
       [
@@ -352,17 +576,22 @@ describe('PDF rendering with long content', () => {
         ...baseVersionOverlap(),
         sightseeingDetails: {
           include: true,
-          days: [{
-            dayNumber: 2,
-            title: 'Day 2: Universal Studios',
-            city: 'Singapore',
-            activities: [{
-              name: 'Universal Studios',
-              description: '<p>🎬 Universal Studios Singapore</p><ul><li><p>🦖 <strong>Jurassic Park Rapids</strong></p></li><li><p>🎢 Battlestar Galactica</p></li><li><p>🤖 Transformers</p></li></ul>',
-              imageUrl: null,
-              sightseeingId: null,
-            }],
-          }],
+          days: [
+            {
+              dayNumber: 2,
+              title: 'Day 2: Universal Studios',
+              city: 'Singapore',
+              activities: [
+                {
+                  name: 'Universal Studios',
+                  description:
+                    '<p>🎬 Universal Studios Singapore</p><ul><li><p>🦖 <strong>Jurassic Park Rapids</strong></p></li><li><p>🎢 Battlestar Galactica</p></li><li><p>🤖 Transformers</p></li></ul>',
+                  imageUrl: null,
+                  sightseeingId: null,
+                },
+              ],
+            },
+          ],
         },
       },
       images: { cover: PNG_1PX },
@@ -377,6 +606,65 @@ describe('PDF rendering with long content', () => {
     // robot that previously appeared as a missing-glyph square.
     const imageObjects = pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? [];
     expect(imageObjects.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('renders multiple uploaded flight itinerary images with descriptions and preview links instead of segment cards', async () => {
+    const input: Parameters<typeof renderQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      consultant: null,
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        flightDetails: {
+          include: true,
+          sectionTitle: 'My Flights',
+          entryMode: 'IMAGE',
+          images: [
+            {
+              documentId: '11111111-2222-4333-8444-555555555555',
+              fileName: 'outbound.png',
+              description: 'Outbound flight ticket',
+            },
+            {
+              documentId: '11111111-2222-4333-8444-555555555556',
+              fileName: 'return.png',
+              description: null,
+            },
+          ],
+          journeyType: 'ROUND_TRIP',
+          outbound: { segments: [] },
+          returnJourney: { segments: [] },
+        },
+      },
+      images: {
+        flights: [
+          {
+            description: 'Outbound flight ticket',
+            image: PNG_1PX,
+            url: 'https://files.example.test/outbound.png',
+          },
+          { description: null, image: PNG_1PX, url: 'https://files.example.test/return.png' },
+        ],
+      },
+    };
+    const pdf = await renderQuotationPdf(input);
+    expect(isPdf(pdf)).toBe(true);
+    expect(pdfText(pdf)).toContain('MY FLIGHTS');
+    expect(pdfText(pdf)).toContain('Outbound flight ticket');
+    expect(pdfText(pdf)).toContain('Preview');
+    expect(pdf.toString('latin1')).toContain('https://files.example.test/outbound.png');
+    expect(
+      pdf.toString('latin1').match(/\/Subtype\s*\/Image/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
+    const stylish = await renderStylishQuotationPdf(input);
+    expect(isPdf(stylish)).toBe(true);
+    expect(pdfText(stylish)).toContain('Outbound flight ticket');
+    expect(pdfText(stylish)).toContain('Preview');
+    expect(pdfTextPage(stylish, 1)).not.toMatch(/\bROOMS\b/i);
+    expect(stylish.toString('latin1')).toContain('https://files.example.test/outbound.png');
+    expect(
+      stylish.toString('latin1').match(/\/Subtype\s*\/Image/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('renders a multi-page quotation PDF with a long itinerary and terms', async () => {
@@ -477,6 +765,7 @@ describe('PDF rendering with long content', () => {
           roomType: 'Deluxe',
           mealPlan: 'MAP',
           nights: 2,
+          rooms: 3,
           selected: true,
           notes: 'Long note. '.repeat(20),
         })),
@@ -520,6 +809,9 @@ describe('PDF rendering with long content', () => {
     expect(visible).toContain('Email: vivek@interscale.example');
     // Package title is present (uppercased by the renderer).
     expect(visible).toContain('GRAND SOUTH INDIA DISCOVERY');
+    // Room count is hidden from the opening summary, while hotel cards retain it.
+    expect(pdfTextPage(pdf, 1)).not.toMatch(/^Rooms:/m);
+    expect(visible).toContain('Rooms: 3');
     // Tax note appears exactly once.
     const taxMatches = visible.match(/Inclusive of all taxes, excluding TCS/g) ?? [];
     expect(taxMatches).toHaveLength(1);
@@ -1007,9 +1299,29 @@ describe('PDF rendering with long content', () => {
           },
         },
         sightseeingDetails: null,
-        hotels: [{ city: 'Singapore', hotelName: 'Marina Bay Sands', category: '5 Star', roomType: 'Deluxe', mealPlan: 'BB', nights: 5, selected: true, notes: null }],
+        hotels: [
+          {
+            city: 'Singapore',
+            hotelName: 'Marina Bay Sands',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'BB',
+            nights: 5,
+            selected: true,
+            notes: null,
+          },
+        ],
         itinerary: [],
-        services: [{ serviceType: 'TRAVEL_INSURANCE', name: 'Travel Insurance', description: '<p>Coverage for the whole trip.</p>', city: null, quantity: '1', unitSellingPrice: '3000' }],
+        services: [
+          {
+            serviceType: 'TRAVEL_INSURANCE',
+            name: 'Travel Insurance',
+            description: '<p>Coverage for the whole trip.</p>',
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '3000',
+          },
+        ],
         inclusions: [{ content: 'Transfers' }],
         exclusions: [],
         terms: [{ content: 'Standard terms apply.' }],
@@ -1120,6 +1432,7 @@ describe('PDF rendering with long content', () => {
             category: '5 Star',
             roomType: 'Superior room with Bathtub',
             mealPlan: 'CP Breakfast',
+            rooms: 3,
             nights: 4,
             selected: true,
             checkInDate: new Date('2026-09-02'),
@@ -1144,6 +1457,7 @@ describe('PDF rendering with long content', () => {
     const text = pdfText(pdf);
     expect(text).toContain('Berjaya Times Square Hotel');
     expect(text).toContain('Room Type: Superior room with Bathtub');
+    expect(text).toContain('Rooms: 3');
     expect(text).toContain('Check-out:');
     // The hotel page still carries the identical footer.
     const pages = pageCount(pdf);
@@ -1361,9 +1675,7 @@ describe('PDF rendering with long content', () => {
     // text allowed below the divider is the "Page X/Y" badge.
     const footerTop = PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
     const offender = wordBoxes(pdf).find(
-      (word) =>
-        word.yBottomFromTop > footerTop &&
-        !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
+      (word) => word.yBottomFromTop > footerTop && !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
     );
     expect(offender).toBeUndefined();
   });
@@ -1393,9 +1705,11 @@ describe('PDF rendering with long content', () => {
     const total = pageCount(pdf);
     const pages = pageWordBoxes(pdf);
     expect(pages).toHaveLength(total);
-    const policyWord = /^(INCLUSIONDETAIL|EXCLUSIONDETAIL|PAYMENTDETAIL|CANCELLATIONDETAIL|BOOKINGDETAIL)$/;
+    const policyWord =
+      /^(INCLUSIONDETAIL|EXCLUSIONDETAIL|PAYMENTDETAIL|CANCELLATIONDETAIL|BOOKINGDETAIL)$/;
     pages.forEach((page, index) => {
-      const contentBottom = page.height - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT - PDF_POST_CONTENT_GAP;
+      const contentBottom =
+        page.height - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT - PDF_POST_CONTENT_GAP;
       expect(
         page.words.filter((word) => policyWord.test(word.text) && word.yMax > contentBottom),
         `policy body crossed the footer boundary on page ${index + 1}`,
@@ -1420,15 +1734,44 @@ describe('PDF rendering with long content', () => {
 
   it('uses one canonical itinerary image precedence for Weblink and PDF values', () => {
     const source = {
+      document: (key: string) => (key === 'document-a' ? 'document-value' : null),
       snapshot: (key: string) => (key === 'snapshot-a' ? 'snapshot-value' : null),
       sightseeing: (key: string) => `${key}-value`,
       destination: 'destination-value',
     };
-    expect(resolveItineraryDayImage([{ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }], source)).toBe('snapshot-value');
-    expect(resolveItineraryActivityImage({ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }, source)).toBe('snapshot-value');
-    expect(resolveItineraryDayImage([{ sightseeingId: 'master-b' }], source)).toBe('master-b-value');
+    expect(
+      resolveItineraryDayImage(
+        [{ imageDocumentId: 'document-a', imageUrl: 'snapshot-a', sightseeingId: 'master-a' }],
+        source,
+      ),
+    ).toBe('document-value');
+    expect(
+      resolveItineraryActivityImage(
+        { imageDocumentId: 'document-a', imageUrl: 'snapshot-a', sightseeingId: 'master-a' },
+        source,
+      ),
+    ).toBe('document-value');
+    expect(
+      resolveItineraryDayImage([{ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }], source),
+    ).toBe('snapshot-value');
+    expect(
+      resolveItineraryActivityImage({ imageUrl: 'snapshot-a', sightseeingId: 'master-a' }, source),
+    ).toBe('snapshot-value');
+    expect(resolveItineraryDayImage([{ sightseeingId: 'master-b' }], source)).toBe(
+      'master-b-value',
+    );
     expect(resolveItineraryDayImage([{ imageUrl: 'missing' }], source)).toBe('destination-value');
     expect(resolveItineraryActivityImage({ imageUrl: 'missing' }, source)).toBeNull();
+  });
+
+  it('replaces stale and repeated day-number prefixes with the current day number', () => {
+    expect(stripItineraryDayPrefixes('Day 5: Day 4: Day 3: Singapore City Tour')).toBe(
+      'Singapore City Tour',
+    );
+    expect(formatItineraryDayTitle(5, 'Day 4: Marina Bay')).toBe('Day 5: Marina Bay');
+    expect(formatItineraryDayTitle(4, 'Day 3: Singapore City Tour')).toBe(
+      'Day 4: Singapore City Tour',
+    );
   });
 
   it('uses the destination image for a single Day at Leisure without an activity image', async () => {
@@ -1440,18 +1783,29 @@ describe('PDF rendering with long content', () => {
         ...baseVersionOverlap(),
         sightseeingDetails: {
           include: true,
-          days: [{
-            dayNumber: 5,
-            title: 'Day 5: Day at Leisure',
-            city: 'Singapore',
-            activities: [{ name: 'Day at Leisure', description: 'Explore Singapore.', imageUrl: null, sightseeingId: null }],
-          }],
+          days: [
+            {
+              dayNumber: 5,
+              title: 'Day 5: Day at Leisure',
+              city: 'Singapore',
+              activities: [
+                {
+                  name: 'Day at Leisure',
+                  description: 'Explore Singapore.',
+                  imageUrl: null,
+                  sightseeingId: null,
+                },
+              ],
+            },
+          ],
         },
       },
       images: { cover: PNG_1PX },
     });
     expect(pdfText(pdf)).toContain('Day 5: Day at Leisure');
-    expect((pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(
+      (pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('renders only selected add-on rows in the PDF (linked to an add-on master)', async () => {
@@ -1463,8 +1817,26 @@ describe('PDF rendering with long content', () => {
         ...baseVersionOverlap(),
         addOnDetails: { include: true },
         services: [
-          { serviceType: 'OTHER_ADD_ON', addOnServiceId: 'master-visa', name: 'Singapore Visa', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '1500' },
-          { serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '500' },
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'master-visa',
+            name: 'Singapore Visa',
+            description: null,
+            city: null,
+            notes: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+          },
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: null,
+            name: 'other add on',
+            description: null,
+            city: null,
+            notes: null,
+            quantity: '1',
+            unitSellingPrice: '500',
+          },
         ],
       },
     });
@@ -1485,8 +1857,26 @@ describe('PDF rendering with long content', () => {
         ...baseVersionOverlap(),
         addOnDetails: { include: true },
         services: [
-          { serviceType: 'OTHER_ADD_ON', addOnServiceId: null, name: 'other add on', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '500' },
-          { serviceType: 'TRAVEL_INSURANCE', addOnServiceId: null, name: 'Singapore Visa', description: null, city: null, notes: null, quantity: '1', unitSellingPrice: '1500' },
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: null,
+            name: 'other add on',
+            description: null,
+            city: null,
+            notes: null,
+            quantity: '1',
+            unitSellingPrice: '500',
+          },
+          {
+            serviceType: 'TRAVEL_INSURANCE',
+            addOnServiceId: null,
+            name: 'Singapore Visa',
+            description: null,
+            city: null,
+            notes: null,
+            quantity: '1',
+            unitSellingPrice: '1500',
+          },
         ],
       },
     });
@@ -1577,9 +1967,30 @@ describe('PDF rendering with long content', () => {
               meals: { breakfast: false, lunch: false, dinner: false },
               dailyTransfer: 'SHARED',
               activities: [
-                { name: 'Singapore City Tour', description: '<p>City tour.</p>', startTime: '09:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'SHARED' },
-                { name: 'Singapore Zoo', description: '<p>Zoo visit.</p>', startTime: '10:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'NO_TRANSFER' },
-                { name: 'Day at Cruise', description: '<p>Cruise day.</p>', startTime: '11:00', sightseeingId: null, imageUrl: null, dailyTransfer: 'PRIVATE' },
+                {
+                  name: 'Singapore City Tour',
+                  description: '<p>City tour.</p>',
+                  startTime: '09:00',
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'SHARED',
+                },
+                {
+                  name: 'Singapore Zoo',
+                  description: '<p>Zoo visit.</p>',
+                  startTime: '10:00',
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'NO_TRANSFER',
+                },
+                {
+                  name: 'Day at Cruise',
+                  description: '<p>Cruise day.</p>',
+                  startTime: '11:00',
+                  sightseeingId: null,
+                  imageUrl: null,
+                  dailyTransfer: 'PRIVATE',
+                },
               ],
             },
           ],
@@ -1615,9 +2026,30 @@ describe('PDF rendering with long content', () => {
               date: null,
               meals: { breakfast: false, lunch: false, dinner: false },
               activities: [
-                { name: 'Singapore City Tour', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/city-tour.jpg', dailyTransfer: null },
-                { name: 'Singapore Zoo', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/zoo.jpg', dailyTransfer: null },
-                { name: 'Day at Cruise', description: null, startTime: null, sightseeingId: null, imageUrl: 'https://storage.example.test/cruise.jpg', dailyTransfer: null },
+                {
+                  name: 'Singapore City Tour',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: 'https://storage.example.test/city-tour.jpg',
+                  dailyTransfer: null,
+                },
+                {
+                  name: 'Singapore Zoo',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: 'https://storage.example.test/zoo.jpg',
+                  dailyTransfer: null,
+                },
+                {
+                  name: 'Day at Cruise',
+                  description: null,
+                  startTime: null,
+                  sightseeingId: null,
+                  imageUrl: 'https://storage.example.test/cruise.jpg',
+                  dailyTransfer: null,
+                },
               ],
             },
           ],

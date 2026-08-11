@@ -308,11 +308,7 @@ describe('Sightseeing master', () => {
 
     const list = await client.get('/api/masters/sightseeing');
     const rows = list.body.data.data;
-    expect(rows.map((row: { title: string }) => row.title)).toEqual([
-      'Garden',
-      'Zoo',
-      'Museum',
-    ]);
+    expect(rows.map((row: { title: string }) => row.title)).toEqual(['Garden', 'Zoo', 'Museum']);
     expect(rows.map((row: { sequence: number }) => row.sequence)).toEqual([1, 2, 3]);
   });
 

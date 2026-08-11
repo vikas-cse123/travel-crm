@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { publicAcceptSchema, publicRejectSchema } from '@interscale/shared';
+import { publicAcceptSchema, publicRejectSchema, quotationTrackSchema } from '@interscale/shared';
 import { asyncHandler } from '../../utils/async-handler.js';
 import { validateRequest } from '../../middleware/validate-request.js';
 import { optionalAuth } from '../../middleware/authenticate.js';
@@ -19,13 +19,27 @@ router.get(
     sendSuccess(
       res,
       await quotationsService.publicView(req.params.token!, {
-        userAgent: req.get('user-agent'),
+        userAgent: req.get('user-agent') ?? null,
         ip: req.ip ?? null,
         authCompanyId: req.auth?.companyId ?? null,
         customDomainCompanyId: req.customDomain?.companyId ?? null,
       }),
     ),
   ),
+);
+router.post(
+  '/:token/track',
+  optionalAuth,
+  validateRequest({ params: token, body: quotationTrackSchema }),
+  asyncHandler(async (req, res) => {
+    await quotationsService.trackWeblinkVisit(req.params.token!, req.body, {
+      userAgent: req.get('user-agent') ?? null,
+      ip: req.ip ?? null,
+      authCompanyId: req.auth?.companyId ?? null,
+      customDomainCompanyId: req.customDomain?.companyId ?? null,
+    });
+    sendSuccess(res, { ok: true });
+  }),
 );
 router.post(
   '/:token/accept',

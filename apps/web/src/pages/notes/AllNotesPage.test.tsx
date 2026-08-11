@@ -3,10 +3,16 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { AllNotesPage } from './AllNotesPage';
-import type { NotesOverview, NotesOverviewLead, Note, UserOption } from '@/features/queries/queries.api';
+import type {
+  NotesOverview,
+  NotesOverviewLead,
+  Note,
+  UserOption,
+} from '@/features/queries/queries.api';
 
+const hasPermissionMock = vi.fn(() => true);
 vi.mock('@/features/auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 'me' }, hasPermission: () => true }),
+  useAuth: () => ({ user: { id: 'me' }, hasPermission: hasPermissionMock }),
 }));
 
 const response = (data: unknown) =>
@@ -74,6 +80,7 @@ function stubNotes(leads: NotesOverviewLead[] = [lead()], stats = overview(leads
 describe('Lead Notes dashboard (AllNotesPage)', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    hasPermissionMock.mockReturnValue(true);
   });
 
   it('renders the page with the Lead Notes title and description', async () => {
@@ -194,20 +201,37 @@ describe('Lead Notes dashboard (AllNotesPage)', () => {
     expect(screen.getByLabelText('Search notes')).toBeInTheDocument();
   });
 
-  it('shows pagination when there is more than one page', async () => {
-    stubNotes([lead()], { ...overview(), stats: { totalNotes: 8, totalLeads: 4, totalLeadsWithNotes: 3, totalPages: 2 } });
+  it('links Add Note to the lead-picker page', async () => {
+    stubNotes();
+    renderWithProviders(<AllNotesPage />);
+    await screen.findByRole('heading', { name: 'Lead Notes' });
+    expect(screen.getByRole('link', { name: /Add Note/ })).toHaveAttribute('href', '/notes/new');
+  });
+
+  it('hides the Add Note button without the queries.update permission', async () => {
+    stubNotes();
+    hasPermissionMock.mockReturnValue(false);
+    renderWithProviders(<AllNotesPage />);
+    await screen.findByRole('heading', { name: 'Lead Notes' });
+    expect(screen.queryByRole('link', { name: /Add Note/ })).not.toBeInTheDocument();
+  });
+
+  it('uses the shared Masters-style pagination footer', async () => {
+    stubNotes([lead()], {
+      ...overview(),
+      stats: { totalNotes: 8, totalLeads: 4, totalLeadsWithNotes: 3, totalPages: 2 },
+    });
     renderWithProviders(<AllNotesPage />);
     await screen.findByText('Aarav Mehta');
-    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1 to 3 of 3 entries')).toBeInTheDocument();
+    // Numbered page buttons replace the old "Page X of Y" label.
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
     const next = screen.getByRole('button', { name: 'Next' });
     expect(next).toBeEnabled();
     fireEvent.click(next);
-    await waitFor(() =>
-      expect(
-        (screen.getByText('Page 1 of 2') && next) ||
-          screen.queryByText('Page 2 of 2'),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument());
   });
 
   it('action icon buttons have accessible labels', async () => {

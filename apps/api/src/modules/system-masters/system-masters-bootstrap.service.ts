@@ -82,7 +82,9 @@ export async function runSystemMastersBootstrap(
           take: 2,
         });
         if (flagged.length > 1) {
-          fail('Multiple system companies exist. The database integrity issue must be resolved first.');
+          fail(
+            'Multiple system companies exist. The database integrity issue must be resolved first.',
+          );
         }
         if (flagged.length === 1) {
           systemCompanyId = flagged[0]!.id;
@@ -194,8 +196,10 @@ export async function runSystemMastersBootstrap(
       } else {
         const passwordHash = await hashPassword(systemAdminPassword);
         const username =
-          normalizedEmail.split('@')[0]?.replace(/[^a-z0-9._-]/g, '').slice(0, 40) ||
-          'system-admin';
+          normalizedEmail
+            .split('@')[0]
+            ?.replace(/[^a-z0-9._-]/g, '')
+            .slice(0, 40) || 'system-admin';
         const createdUser = await tx.user.create({
           data: {
             companyId: systemCompanyId,

@@ -12,6 +12,8 @@ import {
   Sparkles,
   Star,
   Trash2,
+  Upload,
+  X,
 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -20,6 +22,7 @@ import {
   QUOTATION_TAX_NOTE_SENTINEL,
   SETTINGS_CURRENCIES,
   cabinLuggageLabel,
+  formatItineraryDayTitle,
   hotelStayNights,
   labelForLookup,
   quotationVersionInputSchema,
@@ -37,7 +40,12 @@ import {
 } from './SightseeingSection';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useQuotation, useUpdateQuotationVersion } from '@/features/quotations/quotations.api';
+import {
+  quotationDocumentInlineUrl,
+  uploadQuotationAttachment,
+  useQuotation,
+  useUpdateQuotationVersion,
+} from '@/features/quotations/quotations.api';
 import {
   hotelImageUrl,
   useAddOnServices,
@@ -171,6 +179,10 @@ const defaultFlightDetails = (): NonNullable<QuotationVersionInput['flightDetail
   include: true,
   sectionTitle: 'Flight Details',
   amount: 0,
+  entryMode: 'MANUAL',
+  imageDocumentId: null,
+  imageFileName: null,
+  images: [],
   journeyType: 'ROUND_TRIP',
   outbound: { fromCity: null, toCity: null, travelClass: 'Economy', segments: [emptySegment()] },
   returnJourney: {
@@ -285,6 +297,8 @@ const defaults: QuotationVersionInput = {
   markServiceChargesOutside: false,
   hidePricing: false,
   showIndividualPricing: false,
+  showQuickNav: true,
+  quickNavSticky: false,
   inclusionsHtml: null,
   exclusionsHtml: null,
   paymentPolicies: null,
@@ -342,10 +356,14 @@ const emptyHotel = (
   hotelId: null,
   hotelRoomTypeId: null,
   hotelMealPlanId: null,
-  rooms: 1,
+  rooms: null,
   nights: 1,
   checkInDate: null,
   checkOutDate: null,
+  checkInTime: null,
+  checkOutTime: null,
+  showCheckInTime: false,
+  showCheckOutTime: false,
   internalCost: 0,
   sellingPrice: 0,
   selected,
@@ -367,14 +385,29 @@ type DefaultHotelMaster = {
 
 /** Segments that do not require hotel accommodation. */
 const NON_HOTEL_CITIES = new Set([
-  'cruise', 'at sea', 'at-sea', 'at_sea',
-  'airport', 'transfer', 'in transit', 'in-transit', 'in_transit',
-  'bus journey', 'bus-journey', 'bus_journey',
-  'fly', 'flight', 'departure', 'arrival',
+  'cruise',
+  'at sea',
+  'at-sea',
+  'at_sea',
+  'airport',
+  'transfer',
+  'in transit',
+  'in-transit',
+  'in_transit',
+  'bus journey',
+  'bus-journey',
+  'bus_journey',
+  'fly',
+  'flight',
+  'departure',
+  'arrival',
 ]);
 
 const isHotelStay = (city: string | null | undefined): boolean => {
-  const key = (city ?? '').trim().toLowerCase().replace(/[\s-]+/g, '');
+  const key = (city ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '');
   return key.length > 0 && !NON_HOTEL_CITIES.has(key);
 };
 
@@ -382,9 +415,7 @@ const isHotelStay = (city: string | null | undefined): boolean => {
 const matchDefaultHotel = (rowCity: string, masters: DefaultHotelMaster[]) => {
   const city = rowCity.trim().toLowerCase();
   if (!city) return undefined;
-  const defaults = masters.filter(
-    (hotel) => hotel.status === 'ACTIVE' && hotel.isDefaultForCity,
-  );
+  const defaults = masters.filter((hotel) => hotel.status === 'ACTIVE' && hotel.isDefaultForCity);
   // Prefer an exact city match, then destination match — never a substring match
   // that could pick a default hotel from a different city.
   return (
@@ -411,7 +442,10 @@ const matchBestCityHotel = (city: string, masters: DefaultHotelMaster[]) => {
  * then fall back to the best available hotel for each city. Rows with no hotel
  * in the city keep their city/dates but have no hotel selected.
  */
-const autoPrefillLeadRows = (rows: HotelInputRow[], masters: DefaultHotelMaster[]): HotelInputRow[] => {
+const autoPrefillLeadRows = (
+  rows: HotelInputRow[],
+  masters: DefaultHotelMaster[],
+): HotelInputRow[] => {
   if (!rows.length) return rows;
   const built: HotelInputRow[] = [];
   for (const row of rows) {
@@ -450,11 +484,7 @@ const newCruiseServiceRow = (sequence: number) => ({
 });
 
 const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
  * Combine one policy across ordered destinations: single content is used as-is;
@@ -487,11 +517,7 @@ const DESTINATION_POLICY_MAP = [
 ] as const;
 
 type PolicyKey =
-  | 'inclusionsHtml'
-  | 'exclusionsHtml'
-  | 'paymentPolicies'
-  | 'cancellationPolicies'
-  | 'bookingTerms';
+  'inclusionsHtml' | 'exclusionsHtml' | 'paymentPolicies' | 'cancellationPolicies' | 'bookingTerms';
 
 /** True when rich-text HTML contains visible content (editor-empty markup excluded). */
 export const hasPolicyHtml = (html?: string | null): boolean =>
@@ -502,8 +528,7 @@ export const hasPolicyHtml = (html?: string | null): boolean =>
 export const policyValue = (
   versionValue: string | null | undefined,
   masterValue: string | null | undefined,
-): string | null =>
-  hasPolicyHtml(versionValue) ? (versionValue ?? null) : (masterValue ?? null);
+): string | null => (hasPolicyHtml(versionValue) ? (versionValue ?? null) : (masterValue ?? null));
 
 /** Build quotation-policy prefills from the destination masters in lead order. */
 const buildDestinationPolicyPrefill = (
@@ -631,6 +656,9 @@ export function QuotationBuilderPage() {
   }, [excluded]);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(defaultVehicleDraft);
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
+  const [flightImagePreviewUrls, setFlightImagePreviewUrls] = useState<Record<string, string>>({});
+  const [flightImageUploading, setFlightImageUploading] = useState(false);
+  const [flightImageError, setFlightImageError] = useState('');
   // "Tax Note on Total Price" is a control dropdown: it defaults to the sentinel
   // (keep the saved note) and only writes `taxNote` when a real option is picked.
   const [taxNoteChoice, setTaxNoteChoice] = useState<string>(QUOTATION_TAX_NOTE_SENTINEL);
@@ -644,9 +672,7 @@ export function QuotationBuilderPage() {
       if (excludedRef.current.cruise)
         prepared = {
           ...prepared,
-          services: (prepared.services ?? []).filter(
-            (service) => service.serviceType !== 'CRUISE',
-          ),
+          services: (prepared.services ?? []).filter((service) => service.serviceType !== 'CRUISE'),
         };
       return zodResolver(quotationVersionInputSchema)(prepared, context, options);
     },
@@ -708,6 +734,33 @@ export function QuotationBuilderPage() {
     }, [destinationIdSet]),
   );
   const version = quotation.data?.versions.find((row) => row.id === versionId);
+  useEffect(() => {
+    const details = version?.flightDetails;
+    const documentIds = details?.images?.length
+      ? details.images.map((image) => image.documentId)
+      : details?.imageDocumentId
+        ? [details.imageDocumentId]
+        : [];
+    if (documentIds.length === 0) {
+      setFlightImagePreviewUrls({});
+      return;
+    }
+    let active = true;
+    void Promise.all(
+      documentIds.map(async (documentId) => {
+        try {
+          return [documentId, await quotationDocumentInlineUrl(quotationId, documentId)] as const;
+        } catch {
+          return [documentId, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (active) setFlightImagePreviewUrls(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [quotationId, version?.flightDetails]);
   // Tabs requested by the Lead — the source of truth for the red `*` on each
   // service tab. Derived from the lead's own service selections, never from the
   // quotation's saved state (so a requested-but-unchecked service still shows
@@ -773,26 +826,22 @@ export function QuotationBuilderPage() {
 
     /** Detect a departure activity by normalized title. */
     const normTitle = (value: string | null | undefined) =>
-      (value ?? '').trim().toLowerCase().replace(/[\s-]+/g, ' ');
+      (value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, ' ');
     const isDepartureTitle = (title: string | null | undefined) => {
       const n = normTitle(title);
-      return (
-        n.includes('departure') ||
-        /check[\s-]?out\s+and\s+departure/i.test(n)
-      );
+      return n.includes('departure') || /check[\s-]?out\s+and\s+departure/i.test(n);
     };
 
     // Resolve the departure master for the final destination: exact city match
     // first, then any active departure master for the destination, then by
     // sequence then title.
     const finalCity = dayCities[dayCities.length - 1] ?? '';
-    const departureMasters = orderedMasters.filter(
-      (row) => isDepartureTitle(row.title),
-    );
+    const departureMasters = orderedMasters.filter((row) => isDepartureTitle(row.title));
     const departureMaster =
-      departureMasters.find(
-        (row) => cityKey(row.city?.name) === cityKey(finalCity),
-      ) ??
+      departureMasters.find((row) => cityKey(row.city?.name) === cityKey(finalCity)) ??
       departureMasters[0] ??
       null;
 
@@ -825,7 +874,8 @@ export function QuotationBuilderPage() {
     const toActivity = (row: Sightseeing) => ({
       sightseeingId: row.id,
       name: row.title,
-      startTime: row.suggestedStartTime ?? '09:00',
+      startTime: row.suggestedStartTime ?? null,
+      showTime: Boolean(row.suggestedStartTime),
       duration: row.estimatedHours != null ? `${row.estimatedHours} hours` : null,
       city: row.city?.name ?? null,
       description: row.description ?? null,
@@ -857,15 +907,13 @@ export function QuotationBuilderPage() {
     // (Cruise, Airport, Transfer, etc.) are excluded.  Consecutive same-city
     // segments are merged into a single continuous stay.
     let stayCursor = startStr ? new Date(startStr) : null;
-    const rawStays = (quotation.data?.query?.itinerary ?? [])
-      .filter((stay) => stay.nights > 0 && isHotelStay(stay.destination));
+    const rawStays = (quotation.data?.query?.itinerary ?? []).filter(
+      (stay) => stay.nights > 0 && isHotelStay(stay.destination),
+    );
     const mergedStays: typeof rawStays = [];
     for (const stay of rawStays) {
       const prev = mergedStays[mergedStays.length - 1];
-      if (
-        prev &&
-        prev.destination.trim().toLowerCase() === stay.destination.trim().toLowerCase()
-      ) {
+      if (prev && prev.destination.trim().toLowerCase() === stay.destination.trim().toLowerCase()) {
         prev.nights += stay.nights;
       } else {
         mergedStays.push({ ...stay });
@@ -876,8 +924,7 @@ export function QuotationBuilderPage() {
     // Hotel Stay must cover the quotation's complete total nights, not
     // only the land-segment nights.
     const itineraryHotelRows: HotelInputRow[] = mergedStays.map((stay, index) => {
-      const isSingleHotelCity =
-        mergedStays.length === 1 && leadTotalNights > (stay.nights ?? 0);
+      const isSingleHotelCity = mergedStays.length === 1 && leadTotalNights > (stay.nights ?? 0);
       const nightsForStay = isSingleHotelCity ? leadTotalNights : (stay.nights ?? 0);
       const checkIn = stay.arrivalDate ? new Date(stay.arrivalDate) : stayCursor;
       const derivedCheckOut = checkIn ? new Date(checkIn) : null;
@@ -1009,11 +1056,18 @@ export function QuotationBuilderPage() {
       markServiceChargesOutside: version.markServiceChargesOutside ?? false,
       hidePricing: version.hidePricing ?? false,
       showIndividualPricing: version.showIndividualPricing ?? false,
+      showQuickNav: version.showQuickNav ?? true,
+      quickNavSticky: version.quickNavSticky ?? false,
       inclusionsHtml: policyValue(version.inclusionsHtml, destinationPolicyPrefill.inclusionsHtml),
       exclusionsHtml: policyValue(version.exclusionsHtml, destinationPolicyPrefill.exclusionsHtml),
-      paymentPolicies: policyValue(version.paymentPolicies, destinationPolicyPrefill.paymentPolicies),
-      cancellationPolicies:
-        policyValue(version.cancellationPolicies, destinationPolicyPrefill.cancellationPolicies),
+      paymentPolicies: policyValue(
+        version.paymentPolicies,
+        destinationPolicyPrefill.paymentPolicies,
+      ),
+      cancellationPolicies: policyValue(
+        version.cancellationPolicies,
+        destinationPolicyPrefill.cancellationPolicies,
+      ),
       bookingTerms: policyValue(version.bookingTerms, destinationPolicyPrefill.bookingTerms),
       includeVisa: version.includeVisa ?? true,
       visaSectionTitle: version.visaSectionTitle ?? null,
@@ -1027,6 +1081,22 @@ export function QuotationBuilderPage() {
         ? {
             ...defaultFlightDetails(),
             ...version.flightDetails,
+            images: version.flightDetails.images?.length
+              ? version.flightDetails.images.map((image) => ({
+                  ...image,
+                  description: image.description ?? image.heading ?? null,
+                  heading: null,
+                }))
+              : version.flightDetails.imageDocumentId
+                ? [
+                    {
+                      documentId: version.flightDetails.imageDocumentId,
+                      fileName: version.flightDetails.imageFileName,
+                      description: null,
+                      heading: null,
+                    },
+                  ]
+                : [],
             outbound: {
               ...defaultFlightDetails().outbound,
               ...version.flightDetails.outbound,
@@ -1081,6 +1151,8 @@ export function QuotationBuilderPage() {
                 ? new Date(row.checkOutDate)
                 : (matchingStay?.checkOutDate ??
                   (returnStr ? new Date(returnStr) : endStr ? new Date(endStr) : null)),
+              showCheckInTime: Boolean(row.checkInTime) && row.showCheckInTime !== false,
+              showCheckOutTime: Boolean(row.checkOutTime) && row.showCheckOutTime !== false,
               internalCost: row.internalCost ? Number(row.internalCost) : 0,
               sellingPrice: row.sellingPrice ? Number(row.sellingPrice) : 0,
             };
@@ -1124,10 +1196,7 @@ export function QuotationBuilderPage() {
       : [];
     const savedHotelInclude = version.hotelDetails?.include ?? true;
     if (savedHotelInclude && !autoHotelRef.current.userToggledHotel) {
-      if (
-        prefilledHotelRows.some((row) => row.hotelId) ||
-        version.hotels.length > 0
-      ) {
+      if (prefilledHotelRows.some((row) => row.hotelId) || version.hotels.length > 0) {
         autoHotelRef.current.enabledByAuto = true;
         setExcluded((current) => ({ ...current, hotel: false }));
       }
@@ -1246,7 +1315,11 @@ export function QuotationBuilderPage() {
     }
   }, [watchedHotels, hotelMasters.data, version, form]);
 
-  const appendHotel = (selected: boolean, seed: Partial<HotelInputRow> = {}) => {
+  const createHotelRow = (
+    sequence: number,
+    selected: boolean,
+    seed: Partial<HotelInputRow> = {},
+  ) => {
     const start = quotation.data?.travelStartDate;
     const end = quotation.data?.travelEndDate;
     const stayNights =
@@ -1256,14 +1329,38 @@ export function QuotationBuilderPage() {
             Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000),
           )
         : 1;
-    hotels.append(
-      emptyHotel(hotels.fields.length + 1, selected, {
-        city: (quotation.data?.destinationSummary ?? '').split(/[•(→>,]/)[0]?.trim() ?? '',
-        rooms: Math.max(1, quotation.data?.rooms ?? 1),
-        nights: stayNights,
-        checkInDate: start ? new Date(start) : null,
-        checkOutDate: end ? new Date(end) : null,
-        ...seed,
+    return emptyHotel(sequence, selected, {
+      city: (quotation.data?.destinationSummary ?? '').split(/[•(→>,]/)[0]?.trim() ?? '',
+      rooms: Math.max(1, quotation.data?.rooms ?? 1),
+      nights: stayNights,
+      checkInDate: start ? new Date(start) : null,
+      checkOutDate: end ? new Date(end) : null,
+      ...seed,
+    });
+  };
+
+  const appendHotel = (selected: boolean, seed: Partial<HotelInputRow> = {}) => {
+    hotels.append(createHotelRow(hotels.fields.length + 1, selected, seed));
+  };
+
+  const insertHotelAfter = (index: number) => {
+    const current = watchedHotels?.[index];
+    hotels.insert(
+      index + 1,
+      createHotelRow(index + 2, current?.selected !== false, {
+        ...(current?.city ? { city: current.city } : {}),
+        rooms: Math.max(1, current?.rooms ?? quotation.data?.rooms ?? 1),
+      }),
+    );
+  };
+
+  const insertHotelBefore = (index: number) => {
+    const current = watchedHotels?.[index];
+    hotels.insert(
+      index,
+      createHotelRow(index + 1, current?.selected !== false, {
+        ...(current?.city ? { city: current.city } : {}),
+        rooms: current?.rooms ?? quotation.data?.rooms ?? null,
       }),
     );
   };
@@ -1356,7 +1453,7 @@ export function QuotationBuilderPage() {
           ),
         )
       : null;
-  const nights = dateNights || (itineraryNights > 0 ? itineraryNights : null);
+  const nights = itineraryNights > 0 ? itineraryNights : dateNights || null;
   const travellers = [
     q.adults ? `${q.adults} Adult(s)` : '',
     q.childrenWithBed + q.childrenWithoutBed
@@ -1407,7 +1504,10 @@ export function QuotationBuilderPage() {
 
   const submit = form.handleSubmit(
     (value) => {
-      if (hasInvalidFlightTiming(value.flightDetails)) {
+      if (
+        value.flightDetails?.entryMode !== 'IMAGE' &&
+        hasInvalidFlightTiming(value.flightDetails)
+      ) {
         setInvalidFields([
           'flightDetails: Arrival date and time must be after departure date and time.',
         ]);
@@ -1434,8 +1534,14 @@ export function QuotationBuilderPage() {
       const flightDetails = value.flightDetails
         ? {
             ...value.flightDetails,
-            outbound: withDurations(value.flightDetails.outbound),
-            returnJourney: withDurations(value.flightDetails.returnJourney),
+            outbound:
+              value.flightDetails.entryMode === 'IMAGE'
+                ? value.flightDetails.outbound
+                : withDurations(value.flightDetails.outbound),
+            returnJourney:
+              value.flightDetails.entryMode === 'IMAGE'
+                ? value.flightDetails.returnJourney
+                : withDurations(value.flightDetails.returnJourney),
           }
         : value.flightDetails;
       // The reference Vehicle tab is one structured vehicle configuration. It
@@ -1487,6 +1593,20 @@ export function QuotationBuilderPage() {
             include: value.addOnDetails?.include !== false,
             sectionTitle: value.addOnDetails?.sectionTitle ?? 'Additional Services',
           },
+          sightseeingDetails: value.sightseeingDetails
+            ? {
+                ...value.sightseeingDetails,
+                days: value.sightseeingDetails.days.map((day, dayIndex) => ({
+                  ...day,
+                  dayNumber: dayIndex + 1,
+                  title: formatItineraryDayTitle(dayIndex + 1, day.title),
+                  activities: day.activities.map((activity, activityIndex) => ({
+                    ...activity,
+                    sequence: activityIndex + 1,
+                  })),
+                })),
+              }
+            : value.sightseeingDetails,
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
           hotels: seq(value.hotels).map((hotel) => ({
             ...hotel,
@@ -1563,9 +1683,7 @@ export function QuotationBuilderPage() {
           .filter((index) => watchedServices?.[index]?.serviceType === 'CRUISE');
         if (cruiseIndexes.length) {
           form.clearErrors(
-            cruiseIndexes.map(
-              (index) => `services.${index}` as FieldPath<QuotationVersionInput>,
-            ),
+            cruiseIndexes.map((index) => `services.${index}` as FieldPath<QuotationVersionInput>),
           );
           setInvalidFields((current) =>
             current.filter((entry) => {
@@ -1881,7 +1999,7 @@ export function QuotationBuilderPage() {
     ({ index }) => watchedHotels?.[index]?.selected === false,
   );
 
-  const hotelCard = (index: number, rowId: string) => {
+  const hotelCard = (index: number, rowId: string, allowInsertBefore = false) => {
     const hotel = watchedHotels?.[index];
     // Nights are derived from the hotel's own check-in/check-out calendar dates
     // and written back to the snapshot whenever either date changes.
@@ -1893,7 +2011,8 @@ export function QuotationBuilderPage() {
       if (computed !== null)
         form.setValue(`hotels.${index}.nights`, computed, { shouldDirty: true });
     };
-    const displayNights = hotelStayNights(hotel?.checkInDate, hotel?.checkOutDate) ?? hotel?.nights ?? '';
+    const displayNights =
+      hotelStayNights(hotel?.checkInDate, hotel?.checkOutDate) ?? hotel?.nights ?? '';
     return (
       <article
         key={rowId}
@@ -1904,9 +2023,29 @@ export function QuotationBuilderPage() {
             <h4 className="font-semibold text-slate-800">Hotel Stay</h4>
             <p className="text-xs text-slate-500">Choose the hotel, stay dates and room details.</p>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => hotels.remove(index)}>
-            <Trash2 className="h-4 w-4 text-red-600" /> Remove
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {allowInsertBefore && (
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label={`Add hotel stay before stay ${index + 1}`}
+                onClick={() => insertHotelBefore(index)}
+              >
+                <Plus className="h-4 w-4" /> Add Stay Before
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label={`Add hotel stay after stay ${index + 1}`}
+              onClick={() => insertHotelAfter(index)}
+            >
+              <Plus className="h-4 w-4" /> Add Stay After
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => hotels.remove(index)}>
+              <Trash2 className="h-4 w-4 text-red-600" /> Remove
+            </Button>
+          </div>
         </header>
 
         <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -1925,7 +2064,7 @@ export function QuotationBuilderPage() {
               />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-5">
               <label className="text-sm font-semibold text-slate-800">
                 City
                 <input
@@ -1949,6 +2088,36 @@ export function QuotationBuilderPage() {
                   }
                   className={`${field} mt-1`}
                 />
+                <input
+                  {...form.register(`hotels.${index}.checkInTime`)}
+                  aria-label="Hotel check-in time"
+                  type="time"
+                  value={hotel?.checkInTime ?? ''}
+                  onChange={(event) => {
+                    const time = event.target.value || null;
+                    form.setValue(`hotels.${index}.checkInTime`, time, {
+                      shouldDirty: true,
+                    });
+                    form.setValue(`hotels.${index}.showCheckInTime`, Boolean(time), {
+                      shouldDirty: true,
+                    });
+                  }}
+                  className={`${field} mt-1`}
+                />
+                <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    aria-label="Hotel check-in include time in PDF and weblink"
+                    checked={hotel?.showCheckInTime === true}
+                    onChange={(event) =>
+                      form.setValue(`hotels.${index}.showCheckInTime`, event.target.checked, {
+                        shouldDirty: true,
+                      })
+                    }
+                    className="mt-0.5"
+                  />
+                  Include time in PDF and weblink
+                </span>
               </label>
               <label className="text-sm font-semibold text-slate-800">
                 Check-Out <span className="text-red-500">*</span>
@@ -1964,6 +2133,36 @@ export function QuotationBuilderPage() {
                   }
                   className={`${field} mt-1`}
                 />
+                <input
+                  {...form.register(`hotels.${index}.checkOutTime`)}
+                  aria-label="Hotel check-out time"
+                  type="time"
+                  value={hotel?.checkOutTime ?? ''}
+                  onChange={(event) => {
+                    const time = event.target.value || null;
+                    form.setValue(`hotels.${index}.checkOutTime`, time, {
+                      shouldDirty: true,
+                    });
+                    form.setValue(`hotels.${index}.showCheckOutTime`, Boolean(time), {
+                      shouldDirty: true,
+                    });
+                  }}
+                  className={`${field} mt-1`}
+                />
+                <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    aria-label="Hotel check-out include time in PDF and weblink"
+                    checked={hotel?.showCheckOutTime === true}
+                    onChange={(event) =>
+                      form.setValue(`hotels.${index}.showCheckOutTime`, event.target.checked, {
+                        shouldDirty: true,
+                      })
+                    }
+                    className="mt-0.5"
+                  />
+                  Include time in PDF and weblink
+                </span>
               </label>
               <label className="text-sm font-semibold text-slate-800">
                 Nights
@@ -1972,6 +2171,20 @@ export function QuotationBuilderPage() {
                   readOnly
                   value={String(displayNights)}
                   className={`${field} mt-1 bg-slate-100`}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Number of Rooms
+                <input
+                  aria-label="Hotel number of rooms"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  {...form.register(`hotels.${index}.rooms`, {
+                    setValueAs: (value) => (value === '' ? null : Number(value)),
+                  })}
+                  className={`${field} mt-1`}
                 />
               </label>
             </div>
@@ -2074,9 +2287,7 @@ export function QuotationBuilderPage() {
                 // Active options for new selections; a saved historical room type
                 // (now inactive/removed) is kept so reopening never loses it.
                 const allRoomTypes = cruiseMaster?.roomTypes ?? [];
-                const activeRoomTypes = allRoomTypes.filter(
-                  (room) => room.status === 'ACTIVE',
-                );
+                const activeRoomTypes = allRoomTypes.filter((room) => room.status === 'ACTIVE');
                 const savedRoomType = allRoomTypes.find(
                   (room) => room.id === cruise?.cruiseRoomTypeId,
                 );
@@ -2141,7 +2352,10 @@ export function QuotationBuilderPage() {
                                     ? 'Select room type'
                                     : 'No room types configured'
                               }
-                              options={roomOptions.map((room) => ({ id: room.id, label: room.name }))}
+                              options={roomOptions.map((room) => ({
+                                id: room.id,
+                                label: room.name,
+                              }))}
                               value={cruise?.cruiseRoomTypeId}
                               disabled={!cruise?.cruiseId}
                               loading={cruiseMasters.isPending}
@@ -2151,7 +2365,9 @@ export function QuotationBuilderPage() {
                                 applyService(index, {
                                   cruiseRoomTypeId: option?.id ?? null,
                                   // Price is absent for viewers without costing.
-                                  ...(room && room.price != null ? { sellingPrice: Number(room.price) } : {}),
+                                  ...(room && room.price != null
+                                    ? { sellingPrice: Number(room.price) }
+                                    : {}),
                                 });
                               }}
                             />
@@ -2164,9 +2380,7 @@ export function QuotationBuilderPage() {
                           <RichTextEditor
                             ariaLabel="Cruise description"
                             value={cruise?.description ?? ''}
-                            onChange={(html) =>
-                              applyService(index, { description: html || null })
-                            }
+                            onChange={(html) => applyService(index, { description: html || null })}
                           />
                         </div>
                       </label>
@@ -2190,6 +2404,8 @@ export function QuotationBuilderPage() {
     const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
     const currency = form.watch('currency');
     const include = form.watch('flightDetails.include') ?? true;
+    const entryMode = form.watch('flightDetails.entryMode') ?? 'MANUAL';
+    const flightImages = form.watch('flightDetails.images') ?? [];
     const journeyType = form.watch('flightDetails.journeyType') ?? 'ROUND_TRIP';
     const showOutbound = journeyType === 'ROUND_TRIP' || journeyType === 'ONEWAY_OUTBOUND';
     const showReturn = journeyType === 'ROUND_TRIP' || journeyType === 'ONEWAY_RETURN';
@@ -2304,6 +2520,7 @@ export function QuotationBuilderPage() {
               Departure Time
               <input
                 type="time"
+                lang="en-US"
                 className={`${field} mt-1`}
                 {...form.register(fp(`${base}.departureTime`))}
               />
@@ -2320,6 +2537,7 @@ export function QuotationBuilderPage() {
               Arrival Time
               <input
                 type="time"
+                lang="en-US"
                 className={`${field} mt-1`}
                 {...form.register(fp(`${base}.arrivalTime`))}
               />
@@ -2462,27 +2680,189 @@ export function QuotationBuilderPage() {
               </label>
             </div>
 
-            <label className="block max-w-md text-sm font-semibold text-slate-800">
-              Journey Type <span className="text-red-500">*</span>
-              <select
-                aria-label="Journey type"
-                className={`${field} mt-1`}
-                {...form.register('flightDetails.journeyType')}
+            <div>
+              <span className="text-sm font-semibold text-slate-800">Flight information</span>
+              <div
+                role="radiogroup"
+                aria-label="Flight information mode"
+                className="mt-2 grid max-w-xl grid-cols-2 rounded-lg border border-slate-300 bg-slate-50 p-1"
               >
-                {Object.entries(FLIGHT_JOURNEY_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
+                {(
+                  [
+                    ['MANUAL', 'Fill details'],
+                    ['IMAGE', 'Upload image'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={entryMode === value}
+                    className={cn(
+                      'rounded-md px-4 py-2 text-sm font-semibold transition',
+                      entryMode === value
+                        ? 'bg-white text-brand-700 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800',
+                    )}
+                    onClick={() =>
+                      form.setValue('flightDetails.entryMode', value, { shouldDirty: true })
+                    }
+                  >
+                    {value === 'IMAGE' ? <Upload className="mr-2 inline h-4 w-4" /> : null}
                     {label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-              <span className="mt-1 block text-xs font-normal text-slate-500">
-                Select flight direction to show relevant sections.
-              </span>
-            </label>
+              </div>
+            </div>
 
-            {showOutbound &&
+            {entryMode === 'IMAGE' && (
+              <div className="space-y-4 rounded-xl border border-dashed border-brand-300 bg-brand-50/40 p-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {flightImages.map((image, index) => (
+                    <div
+                      key={image.documentId}
+                      className="w-full rounded-lg border bg-white p-3 shadow-sm"
+                    >
+                      {flightImagePreviewUrls[image.documentId] && (
+                        <img
+                          src={flightImagePreviewUrls[image.documentId]}
+                          alt={`Uploaded flight itinerary ${index + 1}`}
+                          className="block h-auto w-full rounded-md"
+                        />
+                      )}
+                      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Description <span className="font-normal text-slate-400">(optional)</span>
+                          <input
+                            aria-label={`Flight image ${index + 1} description`}
+                            placeholder="e.g. Outbound flight ticket"
+                            className="mt-1 w-full rounded-lg border px-3 py-2 font-normal"
+                            {...form.register(`flightDetails.images.${index}.description`)}
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            form.setValue(
+                              'flightDetails.images',
+                              flightImages.filter((_, imageIndex) => imageIndex !== index),
+                              { shouldDirty: true, shouldValidate: true },
+                            );
+                            setFlightImagePreviewUrls((current) => {
+                              const next = { ...current };
+                              delete next[image.documentId];
+                              return next;
+                            });
+                            setFlightImageError('');
+                          }}
+                        >
+                          <X className="h-4 w-4" /> Remove
+                        </Button>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        {image.fileName || 'Flight image'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {flightImages.length < 10 && (
+                  <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg bg-white px-6 py-8 text-center shadow-sm">
+                    <ImageIcon className="h-9 w-9 text-brand-600" />
+                    <span className="font-semibold text-slate-800">
+                      {flightImages.length
+                        ? 'Add another flight image'
+                        : 'Upload flight screenshot or itinerary'}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      Choose, drop, or paste · PNG, JPG or WebP
+                    </span>
+                    <input
+                      type="file"
+                      aria-label="Flight image"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      disabled={flightImageUploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = '';
+                        if (!file) return;
+                        setFlightImageError('');
+                        setFlightImageUploading(true);
+                        void uploadQuotationAttachment(quotationId, file, versionId)
+                          .then(({ documentId, url }) => {
+                            form.setValue(
+                              'flightDetails.images',
+                              [
+                                ...flightImages,
+                                {
+                                  documentId,
+                                  fileName: file.name,
+                                  description: null,
+                                  heading: null,
+                                },
+                              ],
+                              { shouldDirty: true, shouldValidate: true },
+                            );
+                            form.setValue('flightDetails.imageDocumentId', null, {
+                              shouldDirty: true,
+                            });
+                            form.setValue('flightDetails.imageFileName', null, {
+                              shouldDirty: true,
+                            });
+                            setFlightImagePreviewUrls((current) => ({
+                              ...current,
+                              [documentId]: url,
+                            }));
+                          })
+                          .catch((error: unknown) =>
+                            setFlightImageError(
+                              error instanceof Error
+                                ? error.message
+                                : 'The flight image upload failed.',
+                            ),
+                          )
+                          .finally(() => setFlightImageUploading(false));
+                      }}
+                    />
+                    <span className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white">
+                      {flightImageUploading ? 'Uploading…' : 'Choose image'}
+                    </span>
+                  </label>
+                )}
+                {flightImageError && (
+                  <p role="alert" className="mt-3 text-sm font-medium text-red-600">
+                    {flightImageError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {entryMode === 'MANUAL' && (
+              <label className="block max-w-md text-sm font-semibold text-slate-800">
+                Journey Type <span className="text-red-500">*</span>
+                <select
+                  aria-label="Journey type"
+                  className={`${field} mt-1`}
+                  {...form.register('flightDetails.journeyType')}
+                >
+                  {Object.entries(FLIGHT_JOURNEY_TYPE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Select flight direction to show relevant sections.
+                </span>
+              </label>
+            )}
+
+            {entryMode === 'MANUAL' &&
+              showOutbound &&
               journeyBlock('outbound', outboundSegments, 'bg-brand-600', 'Outbound Journey')}
-            {showReturn &&
+            {entryMode === 'MANUAL' &&
+              showReturn &&
               journeyBlock('returnJourney', returnSegments, 'bg-emerald-600', 'Return Journey')}
           </>
         )}
@@ -2534,11 +2914,7 @@ export function QuotationBuilderPage() {
             type="checkbox"
             checked={form.watch('addOnDetails.include') !== false}
             onChange={(event) =>
-              form.setValue(
-                'addOnDetails.include',
-                event.target.checked,
-                { shouldDirty: true },
-              )
+              form.setValue('addOnDetails.include', event.target.checked, { shouldDirty: true })
             }
           />
           Include Add-on Services in Quotation
@@ -2550,101 +2926,103 @@ export function QuotationBuilderPage() {
             </p>
             <div className="overflow-hidden rounded-lg border">
               <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 text-left text-slate-600">
-                <th className="w-20 px-4 py-3 font-semibold">Include</th>
-                <th className="w-48 px-4 py-3 font-semibold">Service</th>
-                <th className="px-4 py-3 font-semibold">Description</th>
-                <th className="w-40 px-4 py-3 font-semibold">Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {masters.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                    {addOnMasters.isPending
-                      ? 'Loading add-on services…'
-                      : 'No add-on services in the master list yet.'}
-                  </td>
-                </tr>
-              )}
-              {masters.map((master) => {
-                const index = includedIndex(master.id);
-                const included = index >= 0;
-                return (
-                  <tr key={master.id} className="border-t align-top">
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        aria-label={`Include ${master.name}`}
-                        checked={included}
-                        onChange={(event) => toggle(master, event.target.checked)}
-                      />
+                <thead>
+                  <tr className="bg-slate-50 text-left text-slate-600">
+                    <th className="w-20 px-4 py-3 font-semibold">Include</th>
+                    <th className="w-48 px-4 py-3 font-semibold">Service</th>
+                    <th className="px-4 py-3 font-semibold">Description</th>
+                    <th className="w-40 px-4 py-3 font-semibold">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {masters.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                        {addOnMasters.isPending
+                          ? 'Loading add-on services…'
+                          : 'No add-on services in the master list yet.'}
+                      </td>
+                    </tr>
+                  )}
+                  {masters.map((master) => {
+                    const index = includedIndex(master.id);
+                    const included = index >= 0;
+                    return (
+                      <tr key={master.id} className="border-t align-top">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`Include ${master.name}`}
+                            checked={included}
+                            onChange={(event) => toggle(master, event.target.checked)}
+                          />
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{master.name}</td>
+                        <td className="min-w-[18rem] px-4 py-3">
+                          {included ? (
+                            <RichTextEditor
+                              ariaLabel={`${master.name} description`}
+                              value={(watchedServices?.[index]?.description as string) ?? ''}
+                              onChange={(html) =>
+                                form.setValue(
+                                  `services.${index}.description` as 'services.0.description',
+                                  html as never,
+                                  { shouldDirty: true },
+                                )
+                              }
+                              placeholder="Describe this add-on for the customer…"
+                            />
+                          ) : (
+                            <p className="text-slate-500">
+                              {master.description
+                                ?.replace(/<[^>]*>/g, ' ')
+                                .replace(/\s+/g, ' ')
+                                .trim() || '—'}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300">
+                            <span className="flex items-center bg-slate-100 px-2 text-slate-500">
+                              {currency}
+                            </span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              aria-label={`${master.name} price`}
+                              disabled={!included}
+                              value={
+                                included
+                                  ? (watchedServices?.[index]?.sellingPrice ?? 0)
+                                  : (master.price ?? 0)
+                              }
+                              onChange={(event) =>
+                                included &&
+                                form.setValue(
+                                  `services.${index}.sellingPrice`,
+                                  event.target.value === '' ? 0 : Number(event.target.value),
+                                  { shouldDirty: true },
+                                )
+                              }
+                              className="min-w-0 flex-1 bg-card px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t bg-slate-50">
+                    <td colSpan={3} className="px-4 py-3 text-right font-semibold text-slate-700">
+                      Total Add-on Services:
                     </td>
-                    <td className="px-4 py-3 font-medium text-slate-800">{master.name}</td>
-                    <td className="min-w-[18rem] px-4 py-3">
-                      {included ? (
-                        <RichTextEditor
-                          ariaLabel={`${master.name} description`}
-                          value={(watchedServices?.[index]?.description as string) ?? ''}
-                          onChange={(html) =>
-                            form.setValue(
-                              `services.${index}.description` as 'services.0.description',
-                              html as never,
-                              { shouldDirty: true },
-                            )
-                          }
-                          placeholder="Describe this add-on for the customer…"
-                        />
-                      ) : (
-                        <p className="text-slate-500">
-                          {master.description?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() ||
-                            '—'}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300">
-                        <span className="flex items-center bg-slate-100 px-2 text-slate-500">
-                          {currency}
-                        </span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          aria-label={`${master.name} price`}
-                          disabled={!included}
-                          value={
-                            included
-                              ? (watchedServices?.[index]?.sellingPrice ?? 0)
-                              : (master.price ?? 0)
-                          }
-                          onChange={(event) =>
-                            included &&
-                            form.setValue(
-                              `services.${index}.sellingPrice`,
-                              event.target.value === '' ? 0 : Number(event.target.value),
-                              { shouldDirty: true },
-                            )
-                          }
-                          className="min-w-0 flex-1 bg-card px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                        />
-                      </div>
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      {currency} {total.toFixed(2)}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t bg-slate-50">
-                <td colSpan={3} className="px-4 py-3 text-right font-semibold text-slate-700">
-                  Total Add-on Services:
-                </td>
-                <td className="px-4 py-3 font-semibold text-slate-900">
-                  {currency} {total.toFixed(2)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+                </tfoot>
+              </table>
             </div>
           </>
         )}
@@ -2864,7 +3242,12 @@ export function QuotationBuilderPage() {
 
         {/* Sightseeing — day-wise activity itinerary (reference layout). */}
         {activeTab === 'sightseeing' && (
-          <SightseeingSection form={form} destination={sightseeingDestinationName} />
+          <SightseeingSection
+            form={form}
+            quotationId={quotationId}
+            quotationVersionId={versionId}
+            destination={sightseeingDestinationName}
+          />
         )}
 
         {/* Add-on Services — master-driven include-table. */}
@@ -2947,20 +3330,24 @@ export function QuotationBuilderPage() {
                 )}
 
                 <section className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Hotel Options</h3>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      aria-label="Add Hotel"
-                      onClick={() => appendHotel(true)}
-                    >
-                      <Plus className="h-4 w-4" /> Add Hotel Stay
-                    </Button>
+                  <div>
+                    <h3 className="font-semibold text-slate-900">Hotel Options</h3>
                   </div>
-                  {defaultHotelRows.map(({ row, index }) => hotelCard(index, row.id))}
+                  {defaultHotelRows.length === 0 && (
+                    <div className="flex justify-center">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-label="Add Hotel"
+                        onClick={() => appendHotel(true)}
+                      >
+                        <Plus className="h-4 w-4" /> Add First Hotel Stay
+                      </Button>
+                    </div>
+                  )}
+                  {defaultHotelRows.map(({ row, index }, position) =>
+                    hotelCard(index, row.id, position === 0),
+                  )}
                 </section>
 
                 {SHOW_HOTEL_OPTIONS && (
@@ -3150,9 +3537,7 @@ export function QuotationBuilderPage() {
                     {...form.register('currency')}
                     className={`${field} mt-1`}
                   >
-                    {(SETTINGS_CURRENCIES.includes(
-                      currency as (typeof SETTINGS_CURRENCIES)[number],
-                    )
+                    {(SETTINGS_CURRENCIES.includes(currency as (typeof SETTINGS_CURRENCIES)[number])
                       ? SETTINGS_CURRENCIES
                       : [currency, ...SETTINGS_CURRENCIES]
                     ).map((code) => (
@@ -3271,7 +3656,8 @@ export function QuotationBuilderPage() {
                         className={`${field} mt-1 bg-slate-100`}
                       />
                       <span className="mt-1 block text-xs font-normal text-slate-500">
-                        Total Package Price − Net Amount. Internal cost {formatMoney(estimate.cost)}.
+                        Total Package Price − Net Amount. Internal cost {formatMoney(estimate.cost)}
+                        .
                       </span>
                     </label>
                   </div>

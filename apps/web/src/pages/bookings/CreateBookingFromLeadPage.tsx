@@ -40,11 +40,40 @@ const REMINDER_OPTIONS = [
 ];
 
 const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
-  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
-  'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan',
-  'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Delhi', 'Jammu and Kashmir', 'Puducherry', 'Ladakh', 'Andaman and Nicobar Islands', 'Chandigarh',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Delhi',
+  'Jammu and Kashmir',
+  'Puducherry',
+  'Ladakh',
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
 ];
 
 interface ReminderRow {
@@ -164,8 +193,7 @@ export function CreateBookingFromLeadPage({
 
   const customer = data?.customer;
   const customerConflict = customer !== null && customer !== undefined && 'conflict' in customer;
-  const existingCustomer =
-    customer !== null && customer !== undefined && !('conflict' in customer);
+  const existingCustomer = customer !== null && customer !== undefined && !('conflict' in customer);
   const newCustomerRequired = customer === null || customer === undefined;
 
   const duplicateOffsets = (rows: ReminderRow[]) => {
@@ -189,7 +217,10 @@ export function CreateBookingFromLeadPage({
     // duplicate offsets are never sent to the API.
     const completedReminders = values.reminders.filter((row) => row.daysBefore.trim() !== '');
     if (duplicateOffsets(completedReminders)) {
-      setError('reminders', { type: 'custom', message: 'Duplicate reminder offsets are not allowed.' });
+      setError('reminders', {
+        type: 'custom',
+        message: 'Duplicate reminder offsets are not allowed.',
+      });
       return;
     }
     create.mutate(
@@ -234,9 +265,13 @@ export function CreateBookingFromLeadPage({
     <div className="space-y-5">
       {/* Breadcrumb */}
       <nav className="text-sm text-slate-500">
-        <Link to="/" className="hover:text-slate-800">Home</Link>
+        <Link to="/" className="hover:text-slate-800">
+          Home
+        </Link>
         <span className="mx-1.5">/</span>
-        <Link to="/bookings" className="hover:text-slate-800">Bookings</Link>
+        <Link to="/bookings" className="hover:text-slate-800">
+          Bookings
+        </Link>
         <span className="mx-1.5">/</span>
         <span className="font-medium text-slate-800">Create</span>
       </nav>
@@ -253,7 +288,10 @@ export function CreateBookingFromLeadPage({
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-red-800">
           <p className="font-semibold">Unable to load booking preview.</p>
           <p className="mt-1 text-sm">{(preview.error as Error)?.message}</p>
-          <Link to={`/queries/${leadId}`} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-700 hover:underline">
+          <Link
+            to={`/queries/${leadId}`}
+            className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-700 hover:underline"
+          >
             <ArrowLeft className="h-4 w-4" /> Back to Lead
           </Link>
         </div>
@@ -263,7 +301,9 @@ export function CreateBookingFromLeadPage({
         <>
           {/* Blue title strip */}
           <div className="rounded-md bg-blue-600 px-4 py-2.5 text-white">
-            <p className="text-sm font-semibold">Create Booking from Lead: {data.lead.customerName}</p>
+            <p className="text-sm font-semibold">
+              Create Booking from Lead: {data.lead.customerName}
+            </p>
           </div>
 
           {/* Lead Information panel */}
@@ -271,10 +311,16 @@ export function CreateBookingFromLeadPage({
             <h2 className="text-sm font-semibold text-teal-900">Lead Information</h2>
             <div className="mt-3 grid gap-4 text-sm md:grid-cols-3">
               <div className="space-y-1">
-                <p><span className="font-medium text-slate-600">Lead:</span> {data.lead.customerName}</p>
-                <p><span className="font-medium text-slate-600">Phone:</span> {data.lead.phone}</p>
+                <p>
+                  <span className="font-medium text-slate-600">Lead:</span> {data.lead.customerName}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-600">Phone:</span> {data.lead.phone}
+                </p>
                 {data.lead.email?.trim() && (
-                  <p><span className="font-medium text-slate-600">Email:</span> {data.lead.email}</p>
+                  <p>
+                    <span className="font-medium text-slate-600">Email:</span> {data.lead.email}
+                  </p>
                 )}
               </div>
               <div className="space-y-1">
@@ -286,11 +332,18 @@ export function CreateBookingFromLeadPage({
                   <span className="font-medium text-slate-600">Duration:</span>{' '}
                   {data.duration.durationLabel ?? '—'}
                 </p>
-                <p><span className="font-medium text-slate-600">Travellers:</span> {data.lead.travellerSummary}</p>
+                <p>
+                  <span className="font-medium text-slate-600">Travellers:</span>{' '}
+                  {data.lead.travellerSummary}
+                </p>
               </div>
               <div className="space-y-1">
-                <p><span className="font-medium text-slate-600">Stage:</span> Booking Confirmed</p>
-                <p><span className="font-medium text-slate-600">Quotation:</span> {quotationLabel}</p>
+                <p>
+                  <span className="font-medium text-slate-600">Stage:</span> Booking Confirmed
+                </p>
+                <p>
+                  <span className="font-medium text-slate-600">Quotation:</span> {quotationLabel}
+                </p>
                 <p>
                   <span className="font-medium text-slate-600">Customer Price:</span>{' '}
                   {formatAmount(data.quotation.finalAmount, data.quotation.currency)}
@@ -306,12 +359,14 @@ export function CreateBookingFromLeadPage({
             {/* Existing-customer / duplicate-customer inline notes (compact, no cards) */}
             {existingCustomer && customer && 'customerNumber' in customer && (
               <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                This booking will be linked to the existing customer {customer.customerNumber} - {customer.displayName}.
+                This booking will be linked to the existing customer {customer.customerNumber} -{' '}
+                {customer.displayName}.
               </p>
             )}
             {customerConflict && (
               <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                Multiple customers match this lead. Resolve the duplicates before creating the booking.
+                Multiple customers match this lead. Resolve the duplicates before creating the
+                booking.
               </p>
             )}
 
@@ -321,7 +376,9 @@ export function CreateBookingFromLeadPage({
                 <label className="block">
                   <span className={labelCls}>Booking Title *</span>
                   <input className={field} {...register('title', { required: true })} />
-                  {errors.title && <span className="text-xs text-red-600">Booking title is required.</span>}
+                  {errors.title && (
+                    <span className="text-xs text-red-600">Booking title is required.</span>
+                  )}
                 </label>
 
                 <label className="block">
@@ -334,7 +391,9 @@ export function CreateBookingFromLeadPage({
                     {...register('totalSellingAmount', { required: true, min: 0 })}
                   />
                   {errors.totalSellingAmount && (
-                    <span className="text-xs text-red-600">A non-negative total customer amount is required.</span>
+                    <span className="text-xs text-red-600">
+                      A non-negative total customer amount is required.
+                    </span>
                   )}
                 </label>
 
@@ -342,11 +401,13 @@ export function CreateBookingFromLeadPage({
                   <label className="flex items-start gap-2 text-sm text-slate-700">
                     <input type="checkbox" className="mt-0.5" {...register('tcsExempt')} />
                     <span>
-                      <span className="font-medium">TCS Exempt</span> - Exempt this booking from TCS calculation
+                      <span className="font-medium">TCS Exempt</span> - Exempt this booking from TCS
+                      calculation
                     </span>
                   </label>
                   <p className="pl-6 text-xs text-slate-400">
-                    Check this option if this international booking should be exempted from TCS calculation.
+                    Check this option if this international booking should be exempted from TCS
+                    calculation.
                   </p>
                 </div>
 
@@ -355,7 +416,9 @@ export function CreateBookingFromLeadPage({
                   <div className="relative">
                     <select className={`${field} appearance-none pr-8`} {...register('gstChoice')}>
                       {gstOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -367,11 +430,14 @@ export function CreateBookingFromLeadPage({
                   <select className={`${field} appearance-none`} {...register('placeOfSupply')}>
                     <option value="">-- Auto (from lead/customer state) --</option>
                     {INDIAN_STATES.map((state) => (
-                      <option key={state} value={state}>{state}</option>
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
                     ))}
                   </select>
                   <span className="mt-1 block text-xs text-slate-400">
-                    Leave blank to auto-fill from the lead or matched customer state. Override only when the place of service delivery differs.
+                    Leave blank to auto-fill from the lead or matched customer state. Override only
+                    when the place of service delivery differs.
                   </span>
                 </label>
               </div>
@@ -446,7 +512,9 @@ export function CreateBookingFromLeadPage({
                     >
                       <option value="">-- Select State --</option>
                       {INDIAN_STATES.map((state) => (
-                        <option key={state} value={state}>{state}</option>
+                        <option key={state} value={state}>
+                          {state}
+                        </option>
                       ))}
                     </select>
                     {errors.customerState && (
@@ -461,7 +529,8 @@ export function CreateBookingFromLeadPage({
             <section className="rounded-md border border-slate-200 p-4">
               <h2 className="text-sm font-semibold text-slate-800">Booking Reminders</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Set reminders before travel start date ({formatDay(data.duration.travelStart)}). Reminders will be sent to the company admin and lead assignee.
+                Set reminders before travel start date ({formatDay(data.duration.travelStart)}).
+                Reminders will be sent to the company admin and lead assignee.
               </p>
               <div className="mt-3 space-y-3">
                 {fields.map((row, index) => {
@@ -470,13 +539,18 @@ export function CreateBookingFromLeadPage({
                     <div key={row.id} className="flex flex-wrap items-center gap-3">
                       <label className="block">
                         <span className={labelCls}>Days Before Travel</span>
-                        <select className={`${field} min-w-40`} {...register(`reminders.${index}.daysBefore`)}>
+                        <select
+                          className={`${field} min-w-40`}
+                          {...register(`reminders.${index}.daysBefore`)}
+                        >
                           <option value="">Select...</option>
                           {REMINDER_OPTIONS.map((option) => (
                             <option
                               key={option.value}
                               value={option.value}
-                              disabled={usedOffsets.has(option.value) && currentOffset !== option.value}
+                              disabled={
+                                usedOffsets.has(option.value) && currentOffset !== option.value
+                              }
                             >
                               {option.label}
                             </option>
@@ -487,11 +561,13 @@ export function CreateBookingFromLeadPage({
                         <span className={labelCls}>Reminder Time</span>
                         <input
                           type="time"
+                          lang="en-US"
                           className={field}
                           {...register(`reminders.${index}.dueTime`, {
                             validate: (value) => {
                               const offset = getValues(`reminders.${index}.daysBefore`);
-                              if (offset && !value) return 'Reminder time is required for this reminder.';
+                              if (offset && !value)
+                                return 'Reminder time is required for this reminder.';
                               return true;
                             },
                           })}
@@ -517,7 +593,9 @@ export function CreateBookingFromLeadPage({
                 })}
               </div>
               {hasDuplicateOffsets && (
-                <p className="mt-2 text-xs text-red-600">Duplicate reminder offsets are not allowed.</p>
+                <p className="mt-2 text-xs text-red-600">
+                  Duplicate reminder offsets are not allowed.
+                </p>
               )}
               <Button
                 type="button"
@@ -531,7 +609,10 @@ export function CreateBookingFromLeadPage({
             </section>
 
             {create.isError && (
-              <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div
+                role="alert"
+                className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
                 {(create.error as Error)?.message}
               </div>
             )}

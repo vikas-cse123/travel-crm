@@ -13,7 +13,9 @@ async function main() {
   const started = Date.now();
   await ensurePermissionCatalog();
   const permissions = await prisma.permission.count();
-  console.log(`production bootstrap: permission catalogue ready (${permissions} permissions) in ${Date.now() - started}ms`);
+  console.log(
+    `production bootstrap: permission catalogue ready (${permissions} permissions) in ${Date.now() - started}ms`,
+  );
 }
 
 main()

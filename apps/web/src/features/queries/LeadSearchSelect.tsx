@@ -211,9 +211,7 @@ export function LeadSearchSelect({
                       {leadDetail(lead)}
                     </span>
                   </span>
-                  {lead.id === value && (
-                    <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-                  )}
+                  {lead.id === value && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
                 </button>
               </li>
             ))}

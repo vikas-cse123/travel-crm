@@ -63,8 +63,8 @@ export function HotelsPage() {
 
   const cityOptions = useMemo(() => {
     const links = selectedDestination
-      ? destinationDetail.data?.cities ?? []
-      : destinations.data?.data.flatMap((destination) => destination.cities) ?? [];
+      ? (destinationDetail.data?.cities ?? [])
+      : (destinations.data?.data.flatMap((destination) => destination.cities) ?? []);
     return [...new Map(links.map((link) => [link.cityId, link])).values()].sort((a, b) =>
       a.city.name.localeCompare(b.city.name),
     );
@@ -111,18 +111,16 @@ export function HotelsPage() {
 
   return (
     <div className="space-y-5">
-      <MasterHeader
-        title="Hotel Master"
-        description="Organized by destinations"
-        current="Hotels"
-      />
+      <MasterHeader title="Hotel Master" description="Organized by destinations" current="Hotels" />
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>
           {canCreate && (
             <Link to={addHotelPath()}>
-              <Button size="sm"><Plus className="h-4 w-4" /> Add New Hotel</Button>
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> Add New Hotel
+              </Button>
             </Link>
           )}
         </div>
@@ -130,19 +128,52 @@ export function HotelsPage() {
           <label className="relative">
             <span className="sr-only">Search hotels</span>
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <input aria-label="Search hotels" placeholder="Search hotels, cities…" className="w-full rounded-md border py-2.5 pl-9 pr-3 text-sm" value={params.get('search') ?? ''} onChange={(event) => update('search', event.target.value)} />
+            <input
+              aria-label="Search hotels"
+              placeholder="Search hotels, cities…"
+              className="w-full rounded-md border py-2.5 pl-9 pr-3 text-sm"
+              value={params.get('search') ?? ''}
+              onChange={(event) => update('search', event.target.value)}
+            />
           </label>
-          <select aria-label="Hotel destination" className="rounded-md border px-3 py-2.5 text-sm" value={selectedDestination} onChange={(event) => update('destinationId', event.target.value)}>
+          <select
+            aria-label="Hotel destination"
+            className="rounded-md border px-3 py-2.5 text-sm"
+            value={selectedDestination}
+            onChange={(event) => update('destinationId', event.target.value)}
+          >
             <option value="">All Destinations</option>
-            {destinations.data?.data.map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
+            {destinations.data?.data.map((destination) => (
+              <option key={destination.id} value={destination.id}>
+                {destination.name}
+              </option>
+            ))}
           </select>
-          <select aria-label="Hotel city" className="rounded-md border px-3 py-2.5 text-sm" value={params.get('cityId') ?? ''} onChange={(event) => update('cityId', event.target.value)}>
+          <select
+            aria-label="Hotel city"
+            className="rounded-md border px-3 py-2.5 text-sm"
+            value={params.get('cityId') ?? ''}
+            onChange={(event) => update('cityId', event.target.value)}
+          >
             <option value="">All Cities</option>
-            {cityOptions.map((link) => <option key={link.cityId} value={link.cityId}>{link.city.name}</option>)}
+            {cityOptions.map((link) => (
+              <option key={link.cityId} value={link.cityId}>
+                {link.city.name}
+              </option>
+            ))}
           </select>
-          <select aria-label="Hotel star category" className="rounded-md border px-3 py-2.5 text-sm" value={params.get('starCategory') ?? ''} onChange={(event) => update('starCategory', event.target.value)}>
+          <select
+            aria-label="Hotel star category"
+            className="rounded-md border px-3 py-2.5 text-sm"
+            value={params.get('starCategory') ?? ''}
+            onChange={(event) => update('starCategory', event.target.value)}
+          >
             <option value="">All Star Categories</option>
-            {[5, 4, 3, 2, 1].map((star) => <option key={star} value={star}>{star} Star</option>)}
+            {[5, 4, 3, 2, 1].map((star) => (
+              <option key={star} value={star}>
+                {star} Star
+              </option>
+            ))}
           </select>
         </div>
       </section>
@@ -150,42 +181,77 @@ export function HotelsPage() {
       {hotels.isPending ? (
         <div className="h-72 animate-pulse rounded-xl bg-slate-100" />
       ) : hotels.isError ? (
-        <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">Hotels could not be loaded.</div>
+        <div role="alert" className="rounded-xl border bg-card p-8 text-center text-red-700">
+          Hotels could not be loaded.
+        </div>
       ) : !groups.length ? (
-        <div className="rounded-xl border bg-card p-12 text-center"><Building2 className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-semibold">No hotels found</h2><p className="text-sm text-slate-500">Adjust the filters or add the first hotel.</p></div>
+        <div className="rounded-xl border bg-card p-12 text-center">
+          <Building2 className="mx-auto h-10 w-10 text-slate-300" />
+          <h2 className="mt-3 font-semibold">No hotels found</h2>
+          <p className="text-sm text-slate-500">Adjust the filters or add the first hotel.</p>
+        </div>
       ) : (
         <>
           <div className="space-y-4">
             {groups.map((group) => {
-            const isOpen = openDestinations.has(group.id);
-            const cities = new Set(group.hotels.map((hotel) => hotel.city.id));
-            const defaults = group.hotels.filter((hotel) => hotel.isDefaultForCity).length;
-            return (
-              <section key={group.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
-                <div className="flex flex-wrap items-center gap-3 bg-slate-50 px-4 py-3">
-                  <button type="button" onClick={() => toggle(group.id)} aria-expanded={isOpen} className="flex min-w-0 items-center gap-2 text-left">
-                    {isOpen ? <ChevronDown className="h-5 w-5 text-slate-500" /> : <ChevronRight className="h-5 w-5 text-slate-500" />}
-                    <MapPin className="h-5 w-5 text-slate-500" />
-                    <span className="font-semibold text-brand-700">{group.name}</span>
-                  </button>
-                  <span className="text-sm text-slate-500">{group.hotels.length} {group.hotels.length === 1 ? 'hotel' : 'hotels'} ({cities.size} {cities.size === 1 ? 'city' : 'cities'})</span>
-                  {defaults > 0 && <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white">{defaults} default</span>}
-                  <div className="ml-auto flex gap-2">
-                    {canCreate && <Link to={addHotelPath(group.id)}><Button variant="secondary" size="sm"><Plus className="h-4 w-4" /> Add Hotel</Button></Link>}
-                    <Link to={`/masters/destinations/${group.id}`}><Button variant="secondary" size="sm">View Destination</Button></Link>
+              const isOpen = openDestinations.has(group.id);
+              const cities = new Set(group.hotels.map((hotel) => hotel.city.id));
+              const defaults = group.hotels.filter((hotel) => hotel.isDefaultForCity).length;
+              return (
+                <section
+                  key={group.id}
+                  className="overflow-hidden rounded-lg border bg-card shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-3 bg-slate-50 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggle(group.id)}
+                      aria-expanded={isOpen}
+                      className="flex min-w-0 items-center gap-2 text-left"
+                    >
+                      {isOpen ? (
+                        <ChevronDown className="h-5 w-5 text-slate-500" />
+                      ) : (
+                        <ChevronRight className="h-5 w-5 text-slate-500" />
+                      )}
+                      <MapPin className="h-5 w-5 text-slate-500" />
+                      <span className="font-semibold text-brand-700">{group.name}</span>
+                    </button>
+                    <span className="text-sm text-slate-500">
+                      {group.hotels.length} {group.hotels.length === 1 ? 'hotel' : 'hotels'} (
+                      {cities.size} {cities.size === 1 ? 'city' : 'cities'})
+                    </span>
+                    {defaults > 0 && (
+                      <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                        {defaults} default
+                      </span>
+                    )}
+                    <div className="ml-auto flex gap-2">
+                      {canCreate && (
+                        <Link to={addHotelPath(group.id)}>
+                          <Button variant="secondary" size="sm">
+                            <Plus className="h-4 w-4" /> Add Hotel
+                          </Button>
+                        </Link>
+                      )}
+                      <Link to={`/masters/destinations/${group.id}`}>
+                        <Button variant="secondary" size="sm">
+                          View Destination
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
-                </div>
-                {isOpen && (
-                  <HotelTable
-                    hotels={group.hotels}
-                    canUpdate={canUpdate}
-                    canArchive={canArchive}
-                    onArchive={archiveRow}
-                    onHide={hideRow}
-                  />
-                )}
-              </section>
-            );
+                  {isOpen && (
+                    <HotelTable
+                      hotels={group.hotels}
+                      canUpdate={canUpdate}
+                      canArchive={canArchive}
+                      onArchive={archiveRow}
+                      onHide={hideRow}
+                    />
+                  )}
+                </section>
+              );
             })}
           </div>
           <HotelStatisticsPanel statistics={hotels.data.statistics} />
@@ -198,14 +264,16 @@ export function HotelsPage() {
 function HotelStatisticsPanel({
   statistics,
 }: {
-  statistics: {
-    totalHotels: number;
-    destinations: number;
-    totalCities: number;
-    averageRating: number | null;
-    roomTypes: number;
-    mealPlans: number;
-  } | undefined;
+  statistics:
+    | {
+        totalHotels: number;
+        destinations: number;
+        totalCities: number;
+        averageRating: number | null;
+        roomTypes: number;
+        mealPlans: number;
+      }
+    | undefined;
 }) {
   if (!statistics) return null;
   const cards = [
@@ -225,7 +293,9 @@ function HotelStatisticsPanel({
       <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-6">
         {cards.map(([label, value, Icon, colour]) => (
           <div key={label} className="flex items-center gap-3 rounded-lg border p-3">
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded ${colour} text-white`}>
+            <div
+              className={`flex h-14 w-14 shrink-0 items-center justify-center rounded ${colour} text-white`}
+            >
               <Icon className="h-7 w-7" />
             </div>
             <div>
@@ -369,6 +439,17 @@ function HotelTable({
 }
 
 function HotelThumbnail({ hotel }: { hotel: HotelSummary }) {
-  const image = useQuery({ queryKey: ['masters', 'hotels', hotel.id, 'image'], queryFn: () => hotelImageUrl(hotel.id), enabled: hotel.hasImage, staleTime: 240_000 });
-  return hotel.hasImage && image.data?.url ? <img src={image.data.url} alt="" className="h-12 w-16 shrink-0 rounded object-cover" /> : <div className="flex h-12 w-16 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-400"><Building2 className="h-6 w-6" /></div>;
+  const image = useQuery({
+    queryKey: ['masters', 'hotels', hotel.id, 'image'],
+    queryFn: () => hotelImageUrl(hotel.id),
+    enabled: hotel.hasImage,
+    staleTime: 240_000,
+  });
+  return hotel.hasImage && image.data?.url ? (
+    <img src={image.data.url} alt="" className="h-12 w-16 shrink-0 rounded object-cover" />
+  ) : (
+    <div className="flex h-12 w-16 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-400">
+      <Building2 className="h-6 w-6" />
+    </div>
+  );
 }

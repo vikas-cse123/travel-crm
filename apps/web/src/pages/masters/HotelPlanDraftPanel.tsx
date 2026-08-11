@@ -33,7 +33,8 @@ export function HotelPlanDraftPanel({
     kind === 'room'
       ? 'Enter room type (e.g. Standard, Deluxe, Suite)'
       : 'Enter meal plan (e.g. Breakfast, Half Board, All Inclusive)';
-  const descPlaceholder = kind === 'room' ? 'Enter room description' : 'Enter meal plan description';
+  const descPlaceholder =
+    kind === 'room' ? 'Enter room description' : 'Enter meal plan description';
 
   const update = (index: number, patch: Partial<PlanDraft>) =>
     onChange(drafts.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)));
@@ -91,7 +92,9 @@ export function HotelPlanDraftPanel({
                 />
                 <span className="mt-3 block text-sm font-semibold text-slate-800">Price</span>
                 <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
-                  <span className="flex items-center bg-slate-100 px-3 text-sm text-slate-500">$</span>
+                  <span className="flex items-center bg-slate-100 px-3 text-sm text-slate-500">
+                    $
+                  </span>
                   <input
                     className="min-w-0 flex-1 bg-card px-3 py-2 text-sm text-slate-800 outline-none"
                     type="number"

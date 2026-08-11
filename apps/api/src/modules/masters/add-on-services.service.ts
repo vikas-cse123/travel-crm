@@ -85,7 +85,12 @@ async function canManage(auth: AuthContext) {
   return has(auth, PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE);
 }
 
-async function getService(auth: AuthContext, serviceId: string, scope: MasterScope, forManage = false) {
+async function getService(
+  auth: AuthContext,
+  serviceId: string,
+  scope: MasterScope,
+  forManage = false,
+) {
   const canManageRows = forManage ? true : await canManage(auth);
   const row = await prisma.addOnService.findFirst({
     where: {
@@ -180,7 +185,10 @@ export const addOnServicesService = {
 
   async details(auth: AuthContext, serviceId: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.ADD_ON_SERVICE);
-    return present((await getService(auth, serviceId, scope)) as unknown as Record<string, unknown>, scope);
+    return present(
+      (await getService(auth, serviceId, scope)) as unknown as Record<string, unknown>,
+      scope,
+    );
   },
 
   async create(auth: AuthContext, input: AddOnServiceInput, context: MastersRequestContext) {

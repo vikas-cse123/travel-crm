@@ -1,5 +1,12 @@
 import PDFDocument from 'pdfkit';
-import { cabinLuggageLabel, hotelStayNights, isPublicTaxNote, resolveItineraryActivityImage, resolveItineraryDayImage } from '@interscale/shared';
+import {
+  cabinLuggageLabel,
+  formatItineraryDayTitle,
+  hotelStayNights,
+  isPublicTaxNote,
+  resolveItineraryActivityImage,
+  resolveItineraryDayImage,
+} from '@interscale/shared';
 import { colorEmojiPng } from '../../services/pdf/color-emojis.js';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
 
@@ -76,7 +83,8 @@ export const FOOTER_COLUMNS = {
   achievements: { x: M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER, width: 115 },
   legal: {
     x: M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER + 115 + FOOTER_GUTTER,
-    width: PDF_PAGE_WIDTH - M - (M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER + 115 + FOOTER_GUTTER),
+    width:
+      PDF_PAGE_WIDTH - M - (M + 100 + FOOTER_GUTTER + 145 + FOOTER_GUTTER + 115 + FOOTER_GUTTER),
   },
 } as const;
 const LOGO_X = FOOTER_COLUMNS.logo.x;
@@ -152,15 +160,18 @@ const validPaymentUrl = (value: string | null | undefined): string | null => {
 export type PdfRichTextRun = { text: string; bold: boolean };
 export type PdfRichTextLine = PdfRichTextRun[];
 
-const decodeHtmlText = (value: string): string => value
-  .replace(/&nbsp;|&#160;/gi, ' ')
-  .replace(/&amp;/gi, '&')
-  .replace(/&lt;/gi, '<')
-  .replace(/&gt;/gi, '>')
-  .replace(/&#39;|&apos;/gi, "'")
-  .replace(/&quot;/gi, '"')
-  .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-  .replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+const decodeHtmlText = (value: string): string =>
+  value
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) =>
+      String.fromCodePoint(Number.parseInt(code, 16)),
+    );
 
 /** Convert sanitised editor HTML to PDF lines while retaining inline bold runs. */
 export const htmlToRichTextLines = (html: string | null | undefined): PdfRichTextLine[] => {
@@ -169,7 +180,9 @@ export const htmlToRichTextLines = (html: string | null | undefined): PdfRichTex
   let boldDepth = 0;
   const current = () => lines[lines.length - 1]!;
   const hasText = (line: PdfRichTextLine) => line.some((run) => run.text.trim().length > 0);
-  const newLine = () => { if (hasText(current())) lines.push([]); };
+  const newLine = () => {
+    if (hasText(current())) lines.push([]);
+  };
   const append = (text: string, bold = boldDepth > 0) => {
     if (!text) return;
     const previous = current().at(-1);
@@ -191,7 +204,11 @@ export const htmlToRichTextLines = (html: string | null | undefined): PdfRichTex
       newLine();
       append('• ', false);
     } else if (['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'li'].includes(tag)) {
-      const bulletOnly = current().map((run) => run.text).join('').trim() === '•';
+      const bulletOnly =
+        current()
+          .map((run) => run.text)
+          .join('')
+          .trim() === '•';
       if (closing || (hasText(current()) && !bulletOnly)) newLine();
     }
   }
@@ -312,6 +329,8 @@ export interface QuotationPdfInput {
     destinationSummary: string;
     /** Destination/Master-country names (e.g. "Malaysia"), joined with " → ". */
     destinations?: string;
+    /** Sum of nights from every destination row on the source lead. */
+    durationNights?: number | null;
     travelStartDate: Date | null;
     travelEndDate: Date | null;
     adults: number;
@@ -358,11 +377,16 @@ export interface QuotationPdfInput {
       category: string | null;
       roomType: string | null;
       mealPlan: string | null;
+      rooms?: number | null;
       nights: number;
       selected: boolean;
       notes: string | null;
       checkInDate?: Date | string | null;
       checkOutDate?: Date | string | null;
+      checkInTime?: string | null;
+      checkOutTime?: string | null;
+      showCheckInTime?: boolean;
+      showCheckOutTime?: boolean;
     }>;
     itinerary: Array<{
       dayNumber: number;
@@ -395,7 +419,11 @@ export interface QuotationPdfInput {
     sightseeing?: Record<string, Img>; // keyed by sightseeingId
     /** Keyed by the activity snapshot image URL (matches the public weblink). */
     itinerary?: Record<string, Img>;
+    /** Keyed by a quotation document id uploaded directly on an activity. */
+    itineraryDocuments?: Record<string, Img>;
     airlines?: Record<string, Img>; // keyed by flight-segment airlineId
+    flight?: Img;
+    flights?: Array<{ description?: string | null; image: Img; url?: string }>;
   };
 }
 
@@ -415,18 +443,41 @@ type FlightSegment = {
   checkInLuggage?: string | null;
   notes?: string | null;
 };
-type FlightJourney = { fromCity?: string | null; toCity?: string | null; segments?: FlightSegment[] };
+type FlightJourney = {
+  fromCity?: string | null;
+  toCity?: string | null;
+  segments?: FlightSegment[];
+};
+const formatClock12Hour = (value: string) => {
+  const match = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!match) return value;
+  const hour = Number(match[1]);
+  if (hour < 0 || hour > 23) return value;
+  return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? 'PM' : 'AM'}`;
+};
 type FlightDetails = {
   include?: boolean;
+  sectionTitle?: string | null;
+  entryMode?: 'MANUAL' | 'IMAGE';
+  imageDocumentId?: string | null;
+  imageFileName?: string | null;
+  images?: Array<{
+    documentId: string;
+    fileName?: string | null;
+    description?: string | null;
+    heading?: string | null;
+  }>;
   journeyType?: string;
   outbound?: FlightJourney;
   returnJourney?: FlightJourney;
 };
 type SightActivity = {
   sightseeingId?: string | null;
+  imageDocumentId?: string | null;
   name?: string | null;
   description?: string | null;
   startTime?: string | null;
+  showTime?: boolean;
   /** Snapshot image URL saved on the activity (may be a signed/private URL). */
   imageUrl?: string | null;
   /** Per-activity transfer; legacy rows fall back to the day-level value. */
@@ -582,7 +633,12 @@ function drawFooterTextLine(
   doc.font('Bold').fontSize(FOOTER_BODY_FONT).fillColor(DARK);
   doc.text(labelText, x, y, { width: labelW, height: 11, lineBreak: false });
   doc.font('Body').fontSize(valueFont).fillColor(MUTED);
-  doc.text(display, x + labelW, y, { width: available, height: 11, ellipsis: true, lineBreak: false });
+  doc.text(display, x + labelW, y, {
+    width: available,
+    height: 11,
+    ellipsis: true,
+    lineBreak: false,
+  });
 }
 
 /**
@@ -654,11 +710,7 @@ function drawPageFooter(
   const gridWidth = gridRight - gridLeft;
   // Original per-section widths (contact, achievements, legal) used when every
   // section is present; hidden sections donate their width to the visible ones.
-  const origWidths = [
-    145,
-    115,
-    gridWidth - 145 - FOOTER_GUTTER - 115 - FOOTER_GUTTER,
-  ] as const;
+  const origWidths = [145, 115, gridWidth - 145 - FOOTER_GUTTER - 115 - FOOTER_GUTTER] as const;
   const flags = [contactVisible, achievementsVisible, legalVisible] as const;
   const visibleIndices = flags
     .map((visible, index) => (visible ? index : -1))
@@ -691,21 +743,25 @@ function drawPageFooter(
     doc.text('OUR ACHIEVEMENTS', c.x, headingY, { width: c.w, lineBreak: false });
     let ay = line1Y;
     if (tripsVisible) {
-      doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
-        `${toText(company?.tripsSold)} Trips Sold`,
-        c.x,
-        ay,
-        { width: c.w, lineBreak: false },
-      );
+      doc
+        .font('Body')
+        .fontSize(FOOTER_BODY_FONT)
+        .fillColor(MUTED)
+        .text(`${toText(company?.tripsSold)} Trips Sold`, c.x, ay, {
+          width: c.w,
+          lineBreak: false,
+        });
       ay += FOOTER_LINE_GAP;
     }
     if (estVisible) {
-      doc.font('Body').fontSize(FOOTER_BODY_FONT).fillColor(MUTED).text(
-        `Est: ${toText(company?.operatingSinceYear)}`,
-        c.x,
-        ay,
-        { width: c.w, lineBreak: false },
-      );
+      doc
+        .font('Body')
+        .fontSize(FOOTER_BODY_FONT)
+        .fillColor(MUTED)
+        .text(`Est: ${toText(company?.operatingSinceYear)}`, c.x, ay, {
+          width: c.w,
+          lineBreak: false,
+        });
     }
   }
 
@@ -725,7 +781,9 @@ function drawPageFooter(
   const bx = PDF_PAGE_WIDTH - M - w;
   const by = pageHeight - PAGE_BADGE_H - PAGE_BADGE_BOTTOM_GAP;
   doc.save().roundedRect(bx, by, w, PAGE_BADGE_H, 5).fill(GREEN).restore();
-  doc.fillColor('#ffffff').text(label, bx, by + 6.5, { width: w, align: 'center', lineBreak: false });
+  doc
+    .fillColor('#ffffff')
+    .text(label, bx, by + 6.5, { width: w, align: 'center', lineBreak: false });
   doc.restore();
 }
 
@@ -773,7 +831,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   };
 
   // --- measurement primitives -------------------------------------------------
-  const hOf = (text: string, size: number, width: number, font: 'Body' | 'Bold' = 'Body'): number => {
+  const hOf = (
+    text: string,
+    size: number,
+    width: number,
+    font: 'Body' | 'Bold' = 'Body',
+  ): number => {
     doc.font(font).fontSize(size);
     return doc.heightOfString(text, { width });
   };
@@ -819,7 +882,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     color = '#333',
   ): PdfBlock => {
     type InlinePart = { value: string; width: number; bold: boolean; emoji?: Buffer };
-    type LineLayout = { rows: InlinePart[][]; lineHeight: number; emojiSize: number; height: number };
+    type LineLayout = {
+      rows: InlinePart[][];
+      lineHeight: number;
+      emojiSize: number;
+      height: number;
+    };
 
     doc.font('Body').fontSize(size);
     const lineHeight = doc.heightOfString('Ag', { width });
@@ -835,7 +903,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         for (const match of matches) {
           if (match.index === undefined) continue;
           if (match.index > cursor) {
-            run.text.slice(cursor, match.index).split(/(\s+)/).filter(Boolean)
+            run.text
+              .slice(cursor, match.index)
+              .split(/(\s+)/)
+              .filter(Boolean)
               .forEach((value) => parts.push({ value, bold: run.bold }));
           }
           const png = colorEmojiPng(match[0]);
@@ -843,7 +914,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           cursor = match.index + match[0].length;
         }
         if (cursor < run.text.length) {
-          run.text.slice(cursor).split(/(\s+)/).filter(Boolean)
+          run.text
+            .slice(cursor)
+            .split(/(\s+)/)
+            .filter(Boolean)
             .forEach((value) => parts.push({ value, bold: run.bold }));
         }
       }
@@ -852,7 +926,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         ...part,
         width: part.emoji
           ? emojiSize
-          : doc.font(part.bold ? 'Bold' : 'Body').fontSize(size).widthOfString(part.value),
+          : doc
+              .font(part.bold ? 'Bold' : 'Body')
+              .fontSize(size)
+              .widthOfString(part.value),
       }));
       const rows: InlinePart[][] = [];
       let row: InlinePart[] = [];
@@ -914,14 +991,22 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
               if (part.emoji) {
                 // Preserve the Unicode character for selection/accessibility,
                 // then cover the invisible glyph with its colour image.
-                doc.save().font(part.bold ? 'Bold' : 'Body').fontSize(size).fillOpacity(0)
-                  .text(part.value, xx, yy, { lineBreak: false }).restore();
+                doc
+                  .save()
+                  .font(part.bold ? 'Bold' : 'Body')
+                  .fontSize(size)
+                  .fillOpacity(0)
+                  .text(part.value, xx, yy, { lineBreak: false })
+                  .restore();
                 doc.image(part.emoji, xx, yy + (layout.lineHeight - layout.emojiSize) / 2, {
                   width: layout.emojiSize,
                   height: layout.emojiSize,
                 });
               } else {
-                doc.font(part.bold ? 'Bold' : 'Body').fontSize(size).fillColor(color)
+                doc
+                  .font(part.bold ? 'Bold' : 'Body')
+                  .fontSize(size)
+                  .fillColor(color)
                   .text(part.value, xx, yy, { lineBreak: false });
               }
               xx += part.width;
@@ -1086,7 +1171,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       keepWithNext: true,
       render: (y0) => {
         checkCircle(M + 15, y0 + 15, 15);
-        doc.fillColor(DARK).font('Bold').fontSize(21).text(title.toUpperCase(), M + 42, y0 + 4);
+        doc
+          .fillColor(DARK)
+          .font('Bold')
+          .fontSize(21)
+          .text(title.toUpperCase(), M + 42, y0 + 4);
         doc
           .save()
           .lineWidth(1)
@@ -1108,7 +1197,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   //          tax note, secure booking, services include (one measured page)
   // ==========================================================================
   const primaryDestination =
-    (q.destinationSummary || '').split(/[•(→>,/]/)[0]?.trim() || q.destinationSummary || 'Your Trip';
+    (q.destinationSummary || '').split(/[•(→>,/]/)[0]?.trim() ||
+    q.destinationSummary ||
+    'Your Trip';
 
   const coverParts: PdfBlock[] = [];
 
@@ -1189,10 +1280,17 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         const itemW = CONTENT_W / consultantItems.length;
         consultantItems.forEach(([label, value], i) => {
           const ix = M + itemW * i + 12;
-          doc.font('Bold').fontSize(9).fillColor(MUTED).text(`${label}: `, ix, y0 + 11, {
-            continued: true,
-          });
-          doc.font('Body').fillColor(DARK).text(value, { width: itemW - 24 });
+          doc
+            .font('Bold')
+            .fontSize(9)
+            .fillColor(MUTED)
+            .text(`${label}: `, ix, y0 + 11, {
+              continued: true,
+            });
+          doc
+            .font('Body')
+            .fillColor(DARK)
+            .text(value, { width: itemW - 24 });
         });
         doc.fillColor(DARK);
         return y0 + stripH + 12;
@@ -1216,18 +1314,17 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
   // 4. Two columns: summary (left) + pricing breakdown (right).
   const nights =
-    q.travelStartDate && q.travelEndDate
-      ? Math.max(
-          0,
-          Math.round(
-            (new Date(q.travelEndDate).getTime() - new Date(q.travelStartDate).getTime()) /
-              86_400_000,
-          ),
-        )
-      : v.hotels.reduce(
-          (sum, h) => sum + (hotelStayNights(h.checkInDate, h.checkOutDate) ?? h.nights ?? 0),
-          0,
-        );
+    q.durationNights && q.durationNights > 0
+      ? q.durationNights
+      : q.travelStartDate && q.travelEndDate
+        ? Math.max(
+            0,
+            Math.round(
+              (new Date(q.travelEndDate).getTime() - new Date(q.travelStartDate).getTime()) /
+                86_400_000,
+            ),
+          )
+        : 0;
   const duration = nights > 0 ? `${nights} Nights / ${nights + 1} Days` : '';
   const pax = [
     q.adults > 0 && `${q.adults} Adult${q.adults > 1 ? 's' : ''}`,
@@ -1246,7 +1343,6 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     ['Duration', duration],
     ['Travel Date', dateFmt(q.travelStartDate)],
     ['Pax', pax],
-    ['Rooms', q.rooms > 0 ? `${q.rooms} Room${q.rooms > 1 ? 's' : ''}` : ''],
     ['Quotation ID', q.quotationNumber],
   ].filter(([, val]) => Boolean(val)) as Array<[string, string]>;
 
@@ -1286,8 +1382,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   );
   const totalBoxH = 58;
   const taxH = isPublicTaxNote(v.taxNote) ? hOf(v.taxNote.trim(), 8.5, rightW, 'Body') : 0;
-  const rightColumnH =
-    priceRowHeights.reduce((sum, h) => sum + h, 0) + 4 + totalBoxH + 6 + taxH;
+  const rightColumnH = priceRowHeights.reduce((sum, h) => sum + h, 0) + 4 + totalBoxH + 6 + taxH;
   const columnsH = Math.max(leftColumnH, rightColumnH);
 
   coverParts.push({
@@ -1304,22 +1399,33 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       });
       let ry = y0;
       priceRows.forEach(([label, count, price]) => {
-        doc.font('Body').fontSize(10).fillColor(MUTED).text(`${label} (x${count})`, rightX, ry, {
-          width: rightW * 0.55,
-          continued: false,
-        });
-        doc.font('Bold').fillColor(DARK).text(money(num(price)), rightX, ry, {
-          width: rightW,
-          align: 'right',
-        });
+        doc
+          .font('Body')
+          .fontSize(10)
+          .fillColor(MUTED)
+          .text(`${label} (x${count})`, rightX, ry, {
+            width: rightW * 0.55,
+            continued: false,
+          });
+        doc
+          .font('Bold')
+          .fillColor(DARK)
+          .text(money(num(price)), rightX, ry, {
+            width: rightW,
+            align: 'right',
+          });
         ry = doc.y + 4;
       });
       ry += 4;
       // Yellow Total Cost box (amount right-aligned).
       doc.save().roundedRect(rightX, ry, rightW, totalBoxH, 8).fill(AMBER).restore();
-      doc.fillColor(DARK).font('Bold').fontSize(9.5).text('TOTAL COST', rightX + 14, ry + 11, {
-        width: rightW - 28,
-      });
+      doc
+        .fillColor(DARK)
+        .font('Bold')
+        .fontSize(9.5)
+        .text('TOTAL COST', rightX + 14, ry + 11, {
+          width: rightW - 28,
+        });
       doc.fontSize(22).text(money(finalTotal), rightX + 14, ry + 25, {
         width: rightW - 28,
         align: 'right',
@@ -1345,7 +1451,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       height: boxH + 16,
       render: (y0) => {
         doc.save().roundedRect(M, y0, CONTENT_W, boxH, 6).stroke(BORDER).restore();
-        doc.fillColor(DGREEN).font('Bold').fontSize(13).text('Secure Your Booking', M + 16, y0 + 12);
+        doc
+          .fillColor(DGREEN)
+          .font('Bold')
+          .fontSize(13)
+          .text('Secure Your Booking', M + 16, y0 + 12);
         doc
           .fillColor(DARK)
           .font('Body')
@@ -1381,15 +1491,18 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
   // 6. Services Include.
   const flightData = v.flightDetails as FlightDetails | null | undefined;
-  const sightData =
-    v.sightseeingDetails as { include?: boolean; days?: SightDay[] } | null | undefined;
+  const flightImageMode = flightData?.entryMode === 'IMAGE';
+  const sightData = v.sightseeingDetails as
+    { include?: boolean; days?: SightDay[] } | null | undefined;
   // Hotels only render when included in the quotation (hotelDetails.include).
   const hotelIncluded = v.hotelDetails?.include !== false && v.hotels.length > 0;
   const hasFlights =
     !!flightData?.include &&
-    ((flightData.outbound?.segments?.length ?? 0) > 0 ||
-      (flightData.returnJourney?.segments?.length ?? 0) > 0);
-  const sightDays = (sightData?.include !== false ? sightData?.days ?? [] : []).filter(
+    (flightImageMode
+      ? Boolean(flightData.imageDocumentId || flightData.images?.length)
+      : (flightData.outbound?.segments?.length ?? 0) > 0 ||
+        (flightData.returnJourney?.segments?.length ?? 0) > 0);
+  const sightDays = (sightData?.include !== false ? (sightData?.days ?? []) : []).filter(
     (d) => d.title || (d.activities ?? []).some((a) => a.name || a.description),
   );
   const vehicleServices = v.services.filter((s) => s.serviceType === 'VEHICLE_TRANSFER');
@@ -1434,10 +1547,14 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         serviceChips.forEach((chip, i) => {
           const cx = M + colW * i + colW / 2;
           checkCircle(cx, cy, 13);
-          doc.fillColor(DARK).font('Bold').fontSize(10).text(chip, M + colW * i, cy + 22, {
-            width: colW,
-            align: 'center',
-          });
+          doc
+            .fillColor(DARK)
+            .font('Bold')
+            .fontSize(10)
+            .text(chip, M + colW * i, cy + 22, {
+              width: colW,
+              align: 'center',
+            });
         });
         return y0 + 90;
       },
@@ -1461,7 +1578,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   // FLIGHTS — one journey, measured segment cards, continuation at boundaries
   // ==========================================================================
-  const segHasData = (s: FlightSegment) => Boolean(s.airlineName || s.from || s.to || s.flightNumber);
+  const segHasData = (s: FlightSegment) =>
+    Boolean(s.airlineName || s.from || s.to || s.flightNumber);
   const legs = hasFlights
     ? (
         [
@@ -1492,9 +1610,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     const baggageH = 14;
     const notesLabelH = noteLines.length ? 12 : 0;
     const notesWidth = CONTENT_W - padX * 2;
-    const notesH = noteLines.length
-      ? flowBlock(noteLines, M + padX, notesWidth, 10, 1).height
-      : 0;
+    const notesH = noteLines.length ? flowBlock(noteLines, M + padX, notesWidth, 10, 1).height : 0;
     const cardH =
       padTop +
       badgeRowH +
@@ -1504,7 +1620,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       1 + // divider
       FLIGHT_CARD_SECTION_GAP +
       baggageH +
-      (noteLines.length ? FLIGHT_CARD_SECTION_GAP + notesLabelH + notesH + FLIGHT_CARD_SECTION_GAP : 0) +
+      (noteLines.length
+        ? FLIGHT_CARD_SECTION_GAP + notesLabelH + notesH + FLIGHT_CARD_SECTION_GAP
+        : 0) +
       padBottom;
 
     return {
@@ -1521,38 +1639,84 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             .roundedRect(PDF_PAGE_WIDTH - M - 16 - w, top + padTop, w, 20, 4)
             .fill('#F2F3F5')
             .restore();
-          doc.fillColor(DARK).text(`${s.travelClass} Class`, PDF_PAGE_WIDTH - M - 16 - w + 10, top + padTop + 5.5);
+          doc
+            .fillColor(DARK)
+            .text(`${s.travelClass} Class`, PDF_PAGE_WIDTH - M - 16 - w + 10, top + padTop + 5.5);
         }
         const mainY = top + padTop + badgeRowH + FLIGHT_CARD_SECTION_GAP;
         // Airline logo / placeholder (contain-fit).
         const logo = s.airlineId ? images.airlines?.[s.airlineId] : undefined;
         drawImageFit(logo, M + padX, mainY, imageW, imageH, 'Airline');
-        doc.fillColor(DARK).font('Body').fontSize(11).text(s.airlineName || 'Airline', M + padX, mainY + imageH + 6, {
-          width: imageW + 4,
-        });
-        if (s.flightNumber) {
-          doc.fillColor(MUTED).fontSize(10).text(s.flightNumber, M + padX, doc.y + 2, {
+        doc
+          .fillColor(DARK)
+          .font('Body')
+          .fontSize(11)
+          .text(s.airlineName || 'Airline', M + padX, mainY + imageH + 6, {
             width: imageW + 4,
           });
+        if (s.flightNumber) {
+          doc
+            .fillColor(MUTED)
+            .fontSize(10)
+            .text(s.flightNumber, M + padX, doc.y + 2, {
+              width: imageW + 4,
+            });
         }
         // timeline
         const tlY = mainY;
         const depX = M + padX + imageW + 34;
         const arrX = PDF_PAGE_WIDTH - M - 90;
-        doc.fillColor(DARK).font('Bold').fontSize(16).text(s.departureTime || '--:--', depX, tlY, { width: 80 });
-        doc.font('Body').fontSize(9).fillColor(MUTED).text(dateFmt(s.departureDate), depX, tlY + 20, { width: 90 });
+        const departureTime = s.departureTime ? formatClock12Hour(s.departureTime) : '--:--';
+        const arrivalTime = s.arrivalTime ? formatClock12Hour(s.arrivalTime) : '--:--';
+        // AM/PM makes some values wider than the original 24-hour text. Use a
+        // shared fitted size so both ends stay aligned and never wrap into the
+        // date row (for example, "10:00 AM").
+        doc.font('Bold').fontSize(16);
+        const widestTime = Math.max(
+          doc.widthOfString(departureTime),
+          doc.widthOfString(arrivalTime),
+        );
+        const flightTimeSize = Math.max(12, Math.min(16, (16 * 80) / widestTime));
+        doc
+          .fillColor(DARK)
+          .fontSize(flightTimeSize)
+          .text(departureTime, depX, tlY, { width: 80, lineBreak: false });
+        doc
+          .font('Body')
+          .fontSize(9)
+          .fillColor(MUTED)
+          .text(dateFmt(s.departureDate), depX, tlY + 20, { width: 90 });
         doc.text((s.from || '').toUpperCase(), depX, tlY + 32, { width: 90 });
-        doc.fillColor(DARK).font('Bold').fontSize(16).text(s.arrivalTime || '--:--', arrX, tlY, { width: 80, align: 'right' });
-        doc.font('Body').fontSize(9).fillColor(MUTED).text(dateFmt(s.arrivalDate), arrX - 10, tlY + 20, { width: 90, align: 'right' });
+        doc
+          .fillColor(DARK)
+          .font('Bold')
+          .fontSize(flightTimeSize)
+          .text(arrivalTime, arrX, tlY, { width: 80, align: 'right', lineBreak: false });
+        doc
+          .font('Body')
+          .fontSize(9)
+          .fillColor(MUTED)
+          .text(dateFmt(s.arrivalDate), arrX - 10, tlY + 20, { width: 90, align: 'right' });
         doc.text((s.to || '').toUpperCase(), arrX - 10, tlY + 32, { width: 90, align: 'right' });
         const lineY = tlY + 10;
         const lx1 = depX + 92;
         const lx2 = arrX - 18;
-        doc.save().lineWidth(2).strokeColor(BORDER).moveTo(lx1, lineY).lineTo(lx2, lineY).stroke().restore();
+        doc
+          .save()
+          .lineWidth(2)
+          .strokeColor(BORDER)
+          .moveTo(lx1, lineY)
+          .lineTo(lx2, lineY)
+          .stroke()
+          .restore();
         doc.save().circle(lx1, lineY, 4).fill(GREEN).restore();
         doc.save().circle(lx2, lineY, 4).fill(GREEN).restore();
         if (s.duration)
-          doc.fillColor(MUTED).font('Body').fontSize(9).text(s.duration, lx1, lineY + 6, { width: lx2 - lx1, align: 'center' });
+          doc
+            .fillColor(MUTED)
+            .font('Body')
+            .fontSize(9)
+            .text(s.duration, lx1, lineY + 6, { width: lx2 - lx1, align: 'center' });
         // divider
         const dividerY = mainY + mainRowH + FLIGHT_CARD_SECTION_GAP;
         doc
@@ -1571,13 +1735,21 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         ]
           .filter(Boolean)
           .join('  •  ');
-        doc.fillColor(DARK).font('Body').fontSize(10).text(`Baggage: ${bag || '—'}`, M + padX, bagY, {
-          width: CONTENT_W - padX * 2,
-        });
+        doc
+          .fillColor(DARK)
+          .font('Body')
+          .fontSize(10)
+          .text(`Baggage: ${bag || '—'}`, M + padX, bagY, {
+            width: CONTENT_W - padX * 2,
+          });
         // notes
         if (noteLines.length) {
           const noteY = bagY + baggageH + FLIGHT_CARD_SECTION_GAP;
-          doc.fillColor(MUTED).font('Bold').fontSize(10).text('Note:', M + padX, noteY);
+          doc
+            .fillColor(MUTED)
+            .font('Bold')
+            .fontSize(10)
+            .text('Note:', M + padX, noteY);
           const noteBlock = flowBlock(noteLines, M + padX, notesWidth, 10, 1);
           noteBlock.render(noteY + notesLabelH);
         }
@@ -1587,24 +1759,104 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     };
   };
 
-  drawableLegs.forEach((leg, legIndex) => {
-    planner.pageBreak();
-    if (legIndex === 0) planner.add(sectionHeaderBlock('Flight Details'));
-    // Coloured journey bar.
-    planner.add({
-      height: 46 + 12,
-      render: (y0) => {
-        doc.save().roundedRect(M, y0, CONTENT_W, 46, 6).fill(leg.color).restore();
-        doc.fillColor('#ffffff').font('Bold').fontSize(16).text(leg.title, M + 16, y0 + 8);
-        const route = [leg.journey?.fromCity, leg.journey?.toCity].filter(Boolean).join(' > ');
-        if (route) doc.font('Body').fontSize(10).text(route, M + 16, y0 + 28);
-        doc.fillColor(DARK);
-        return y0 + 46 + 12;
-      },
+  if (hasFlights && flightImageMode) {
+    const flightImages = images.flights?.length
+      ? images.flights
+      : images.flight
+        ? [{ description: null, image: images.flight }]
+        : [];
+    flightImages.forEach((item, index) => {
+      const description = item.description?.trim() || '';
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock(flightData?.sectionTitle || 'Flight Details'));
+      if (description) {
+        doc.font('Body').fontSize(10);
+        const descriptionHeight = doc.heightOfString(description, { width: CONTENT_W });
+        planner.add({
+          height: descriptionHeight + 12,
+          render: (y0) => {
+            doc
+              .font('Body')
+              .fontSize(10)
+              .fillColor(DARK)
+              .text(description, M, y0, { width: CONTENT_W });
+            return y0 + descriptionHeight + 12;
+          },
+        });
+      }
+      if (item.url)
+        planner.add({
+          height: 38,
+          render: (y0) => {
+            const buttonW = 82;
+            const buttonH = 28;
+            const buttonX = M + CONTENT_W - buttonW;
+            doc.roundedRect(buttonX, y0, buttonW, buttonH, 6).fillAndStroke('#F8FAFC', BORDER);
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor(BLUE)
+              .text('Preview', buttonX + 12, y0 + 9, { width: 48 });
+            doc
+              .moveTo(buttonX + 63, y0 + 17)
+              .lineTo(buttonX + 71, y0 + 9)
+              .strokeColor(BLUE)
+              .lineWidth(1.2)
+              .stroke();
+            doc
+              .moveTo(buttonX + 66, y0 + 9)
+              .lineTo(buttonX + 71, y0 + 9)
+              .lineTo(buttonX + 71, y0 + 14)
+              .stroke();
+            doc.link(buttonX, y0, buttonW, buttonH, item.url!);
+            doc.fillColor(DARK);
+            return y0 + 38;
+          },
+        });
+      planner.add({
+        height: 500,
+        render: (y0) => {
+          drawImageFit(
+            item.image,
+            M,
+            y0,
+            CONTENT_W,
+            480,
+            description || `Flight itinerary ${index + 1}`,
+          );
+          return y0 + 500;
+        },
+      });
     });
-    const segs = (leg.journey?.segments ?? []).filter(segHasData);
-    segs.forEach((s, i) => planner.add(buildSegmentCard(s, i)));
-  });
+  }
+
+  if (!flightImageMode)
+    drawableLegs.forEach((leg, legIndex) => {
+      planner.pageBreak();
+      if (legIndex === 0) planner.add(sectionHeaderBlock('Flight Details'));
+      // Coloured journey bar.
+      planner.add({
+        height: 46 + 12,
+        render: (y0) => {
+          doc.save().roundedRect(M, y0, CONTENT_W, 46, 6).fill(leg.color).restore();
+          doc
+            .fillColor('#ffffff')
+            .font('Bold')
+            .fontSize(16)
+            .text(leg.title, M + 16, y0 + 8);
+          const route = [leg.journey?.fromCity, leg.journey?.toCity].filter(Boolean).join(' > ');
+          if (route)
+            doc
+              .font('Body')
+              .fontSize(10)
+              .text(route, M + 16, y0 + 28);
+          doc.fillColor(DARK);
+          return y0 + 46 + 12;
+        },
+      });
+      const segs = (leg.journey?.segments ?? []).filter(segHasData);
+      segs.forEach((s, i) => planner.add(buildSegmentCard(s, i)));
+    });
 
   // ==========================================================================
   // HOTELS — measured cards, continuation at card boundaries
@@ -1634,8 +1886,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         hotel.city && `City: ${hotel.city}`,
         hotel.roomType && `Room Type: ${hotel.roomType}`,
         hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
-        hotel.checkInDate && `Check-in: ${dateFmt(hotel.checkInDate)}`,
-        hotel.checkOutDate && `Check-out: ${dateFmt(hotel.checkOutDate)}`,
+        hotel.rooms != null && `Rooms: ${hotel.rooms}`,
+        hotel.checkInDate &&
+          `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
+        hotel.checkOutDate &&
+          `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
       ].filter(Boolean) as string[];
       doc.font('Body').fontSize(10);
       const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));
@@ -1653,13 +1908,28 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         render: (y0) => {
           const top = y0;
           doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
-          drawImage(images.hotels?.[i], M + cardPadX, top + cardPadTop, imageW, cardH - cardPadTop - cardPadBottom, 'Hotel');
+          drawImage(
+            images.hotels?.[i],
+            M + cardPadX,
+            top + cardPadTop,
+            imageW,
+            cardH - cardPadTop - cardPadBottom,
+            'Hotel',
+          );
           let yy = top + cardPadTop;
-          doc.fillColor(DARK).font('Bold').fontSize(15).text(hotel.hotelName, tx, yy, { width: tw });
+          doc
+            .fillColor(DARK)
+            .font('Bold')
+            .fontSize(15)
+            .text(hotel.hotelName, tx, yy, { width: tw });
           yy = doc.y;
           if (stars > 0) {
             yy += 4;
-            doc.fillColor(AMBER).font('Bold').fontSize(12).text('★'.repeat(Math.min(5, stars)), tx, yy);
+            doc
+              .fillColor(AMBER)
+              .font('Bold')
+              .fontSize(12)
+              .text('★'.repeat(Math.min(5, stars)), tx, yy);
             yy = doc.y + 4;
           }
           yy += 8;
@@ -1683,8 +1953,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   if (sightDays.length) {
     sightDays.forEach((day, i) => {
       const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
-      const title = (day.title || `Day ${day.dayNumber ?? i + 1}`).trim();
-      const dayTitle = /^day\s*\d/i.test(title) ? title : `DAY ${day.dayNumber ?? i + 1}: ${title}`;
+      const dayTitle = formatItineraryDayTitle(day.dayNumber ?? i + 1, day.title);
       const mealEntries = [
         ['breakfast', '(B) Breakfast'],
         ['lunch', '(L) Lunch'],
@@ -1700,6 +1969,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         .filter(Boolean) as string[];
 
       const dayImage = resolveItineraryDayImage(day.activities ?? [], {
+        document: (documentId) => images.itineraryDocuments?.[documentId],
         snapshot: (imageUrl) => images.itinerary?.[imageUrl],
         sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
         destination: images.cover,
@@ -1722,16 +1992,28 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           height: headingH + 10,
           keepWithNext: validActivities.length > 0,
           render: (y0) => {
-            doc.fillColor(DARK).font('Bold').fontSize(15).text(dayTitle, M, y0, { width: CONTENT_W });
+            doc
+              .fillColor(DARK)
+              .font('Bold')
+              .fontSize(15)
+              .text(dayTitle, M, y0, { width: CONTENT_W });
             let yy = doc.y;
             if (day.date) {
-              doc.font('Body').fontSize(10).fillColor(MUTED).text(dateFmt(day.date, true), M, yy + 2, {
-                width: CONTENT_W,
-              });
+              doc
+                .font('Body')
+                .fontSize(10)
+                .fillColor(MUTED)
+                .text(dateFmt(day.date, true), M, yy + 2, {
+                  width: CONTENT_W,
+                });
               yy = doc.y + 6;
             }
             if (meals.length) {
-              doc.fillColor(DARK).font('Bold').fontSize(12).text('Meals Included:', M, yy + 4);
+              doc
+                .fillColor(DARK)
+                .font('Bold')
+                .fontSize(12)
+                .text('Meals Included:', M, yy + 4);
               doc.font('Body').fontSize(10.5).fillColor('#333');
               meals.forEach((m) => doc.text(m, M + 10, doc.y + 3, { width: CONTENT_W - 10 }));
               doc.fillColor(DARK);
@@ -1753,14 +2035,17 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
 
         // Canonical activity image: snapshot imageUrl first, then the
         // sightseeing master image — exactly the weblink's per-activity source.
-        const aImg = validActivities.length === 1
-          ? dayImage
-          : resolveItineraryActivityImage(a, {
-              snapshot: (imageUrl) => images.itinerary?.[imageUrl],
-              sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
-            });
+        const aImg =
+          validActivities.length === 1
+            ? dayImage
+            : resolveItineraryActivityImage(a, {
+                document: (documentId) => images.itineraryDocuments?.[documentId],
+                snapshot: (imageUrl) => images.itinerary?.[imageUrl],
+                sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
+              });
         const aTransfer = pdfTransferLabel(a.dailyTransfer ?? day.dailyTransfer);
-        const aMeta = a.startTime ? `STARTS: ${a.startTime}` : '';
+        const aMeta =
+          a.showTime !== false && a.startTime ? `STARTS: ${formatClock12Hour(a.startTime)}` : '';
 
         let imgColH = imgW + 8;
         if (aMeta) imgColH += 22 + 8;
@@ -1782,17 +2067,27 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         const pricingCols = 2;
         const pricingBoxW = (contentW - pricingGap) / pricingCols;
         const pricingInnerW = pricingBoxW - pricingPadX * 2;
-        const pricingRows = Array.from({ length: Math.ceil(aPrices.length / pricingCols) }, (_, rowIndex) =>
-          aPrices.slice(rowIndex * pricingCols, rowIndex * pricingCols + pricingCols),
+        const pricingRows = Array.from(
+          { length: Math.ceil(aPrices.length / pricingCols) },
+          (_, rowIndex) =>
+            aPrices.slice(rowIndex * pricingCols, rowIndex * pricingCols + pricingCols),
         );
         const pricingRowHeights = pricingRows.map((row) => {
           doc.font('Body').fontSize(8.5);
-          const labelsH = row.map((price) => doc.heightOfString(price.label, { width: pricingInnerW }));
+          const labelsH = row.map((price) =>
+            doc.heightOfString(price.label, { width: pricingInnerW }),
+          );
           doc.font('Bold').fontSize(10);
-          const pricesH = row.map((price) => doc.heightOfString(money(price.price), { width: pricingInnerW }));
-          return Math.max(...row.map((_, index) => labelsH[index]! + 2 + pricesH[index]!), 0) + pricingPadY * 2;
+          const pricesH = row.map((price) =>
+            doc.heightOfString(money(price.price), { width: pricingInnerW }),
+          );
+          return (
+            Math.max(...row.map((_, index) => labelsH[index]! + 2 + pricesH[index]!), 0) +
+            pricingPadY * 2
+          );
         });
-        const pricingGridH = pricingRowHeights.reduce((sum, height) => sum + height, 0) +
+        const pricingGridH =
+          pricingRowHeights.reduce((sum, height) => sum + height, 0) +
           Math.max(0, pricingRowHeights.length - 1) * pricingGap;
         if (aPrices.length) textColH += 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH;
 
@@ -1806,15 +2101,23 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             let underY = top + imgW + 8;
             if (aMeta) {
               doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
-              doc.fillColor(DARK).font('Bold').fontSize(10).text(aMeta, imgX, underY + 6, {
-                width: imgW,
-                align: 'center',
-              });
+              doc
+                .fillColor(DARK)
+                .font('Bold')
+                .fontSize(10)
+                .text(aMeta, imgX, underY + 6, {
+                  width: imgW,
+                  align: 'center',
+                });
               underY += 30;
             }
             let yy = top;
             if (a.name) {
-              doc.font('Bold').fontSize(12).fillColor(DARK).text(a.name, contentX, yy, { width: contentW });
+              doc
+                .font('Bold')
+                .fontSize(12)
+                .fillColor(DARK)
+                .text(a.name, contentX, yy, { width: contentW });
               yy = doc.y + 3;
             }
             yy = descBlock.render(yy);
@@ -1835,14 +2138,27 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
                 const rowH = pricingRowHeights[rowIndex]!;
                 row.forEach((price, colIndex) => {
                   const x = contentX + colIndex * (pricingBoxW + pricingGap);
-                  doc.save().roundedRect(x, yy, pricingBoxW, rowH, 3).fill('#F7F8FA').stroke(BORDER).restore();
-                  doc.font('Body').fontSize(8.5).fillColor(MUTED).text(price.label, x + pricingPadX, yy + pricingPadY, {
-                    width: pricingInnerW,
-                  });
+                  doc
+                    .save()
+                    .roundedRect(x, yy, pricingBoxW, rowH, 3)
+                    .fill('#F7F8FA')
+                    .stroke(BORDER)
+                    .restore();
+                  doc
+                    .font('Body')
+                    .fontSize(8.5)
+                    .fillColor(MUTED)
+                    .text(price.label, x + pricingPadX, yy + pricingPadY, {
+                      width: pricingInnerW,
+                    });
                   const priceY = doc.y + 2;
-                  doc.font('Bold').fontSize(10).fillColor(DARK).text(money(price.price), x + pricingPadX, priceY, {
-                    width: pricingInnerW,
-                  });
+                  doc
+                    .font('Bold')
+                    .fontSize(10)
+                    .fillColor(DARK)
+                    .text(money(price.price), x + pricingPadX, priceY, {
+                      width: pricingInnerW,
+                    });
                 });
                 yy += rowH + pricingGap;
               });
@@ -1869,10 +2185,21 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       render: (y0) => {
         const top = y0;
         doc.save().roundedRect(M, top, CONTENT_W, baseH, 6).stroke(BORDER).restore();
-        drawImage(images.services?.[serviceIndex(row)], M + 14, top + 14, 150, baseH - 28, imgLabel);
+        drawImage(
+          images.services?.[serviceIndex(row)],
+          M + 14,
+          top + 14,
+          150,
+          baseH - 28,
+          imgLabel,
+        );
         const tx = M + 180;
         const tw = PDF_PAGE_WIDTH - M - 14 - tx;
-        doc.fillColor(DARK).font('Bold').fontSize(15).text(row.name, tx, top + 16, { width: tw });
+        doc
+          .fillColor(DARK)
+          .font('Bold')
+          .fontSize(15)
+          .text(row.name, tx, top + 16, { width: tw });
         doc.font('Body').fontSize(10).fillColor(MUTED);
         let fy = doc.y + 4;
         fields
@@ -1891,12 +2218,34 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   if (vehicleServices.length) {
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Vehicle Details'));
-    vehicleServices.forEach((row) => planner.add(buildServiceCard(row, [['Type', row.city], ['Usage', row.notes]], 'Vehicle')));
+    vehicleServices.forEach((row) =>
+      planner.add(
+        buildServiceCard(
+          row,
+          [
+            ['Type', row.city],
+            ['Usage', row.notes],
+          ],
+          'Vehicle',
+        ),
+      ),
+    );
   }
   if (cruiseServices.length) {
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Cruise Details'));
-    cruiseServices.forEach((row) => planner.add(buildServiceCard(row, [['Duration', row.notes], ['Cabin', row.city]], 'Cruise')));
+    cruiseServices.forEach((row) =>
+      planner.add(
+        buildServiceCard(
+          row,
+          [
+            ['Duration', row.notes],
+            ['Cabin', row.city],
+          ],
+          'Cruise',
+        ),
+      ),
+    );
   }
   const hasAddonSection = addonServices.length > 0 || hasVisa;
   if (hasAddonSection) {
@@ -1920,16 +2269,19 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         v.visaDestination && `Destination: ${v.visaDestination}`,
         num(v.visaAmount) > 0 && `Amount: ${money(v.visaAmount, 2)}`,
       ].filter(Boolean) as string[];
-      const visaTitleH = hOf(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), 12, CONTENT_W, 'Bold') + 3;
+      const visaTitleH =
+        hOf(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), 12, CONTENT_W, 'Bold') +
+        3;
       planner.add({
         height: visaTitleH,
         render: (y0) => {
-          doc.font('Bold').fontSize(12).fillColor(DARK).text(
-            v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(),
-            M,
-            y0,
-            { width: CONTENT_W },
-          );
+          doc
+            .font('Bold')
+            .fontSize(12)
+            .fillColor(DARK)
+            .text(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), M, y0, {
+              width: CONTENT_W,
+            });
           return y0 + visaTitleH;
         },
       });
@@ -1941,11 +2293,23 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // POLICIES — measured blocks split between list items
   // ==========================================================================
   const policyBlocks: Array<[string, string, string[]]> = [
-    ['Inclusions', GREEN, v.inclusionsHtml ? htmlToLines(v.inclusionsHtml) : v.inclusions.map((r) => `• ${r.content}`)],
-    ['Exclusions', RED, v.exclusionsHtml ? htmlToLines(v.exclusionsHtml) : v.exclusions.map((r) => `• ${r.content}`)],
+    [
+      'Inclusions',
+      GREEN,
+      v.inclusionsHtml ? htmlToLines(v.inclusionsHtml) : v.inclusions.map((r) => `• ${r.content}`),
+    ],
+    [
+      'Exclusions',
+      RED,
+      v.exclusionsHtml ? htmlToLines(v.exclusionsHtml) : v.exclusions.map((r) => `• ${r.content}`),
+    ],
     ['Payment Policies', AMBER, htmlToLines(v.paymentPolicies)],
     ['Cancellation Policies', RED, htmlToLines(v.cancellationPolicies)],
-    ['Booking Terms', BLUE, v.bookingTerms ? htmlToLines(v.bookingTerms) : v.terms.map((r) => `• ${r.content}`)],
+    [
+      'Booking Terms',
+      BLUE,
+      v.bookingTerms ? htmlToLines(v.bookingTerms) : v.terms.map((r) => `• ${r.content}`),
+    ],
   ].filter((block) => (block[2] ?? []).length) as Array<[string, string, string[]]>;
   if (policyBlocks.length) {
     planner.pageBreak();
@@ -1977,9 +2341,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       });
       // Measure every paragraph/bullet before drawing. The first item also
       // reserves the Policies title so neither heading can be orphaned.
-      const itemBudget = PDF_MAX_CONTENT_HEIGHT - headingHeight - (index === 0 ? policiesTitleHeight : 0);
+      const itemBudget =
+        PDF_MAX_CONTENT_HEIGHT - headingHeight - (index === 0 ? policiesTitleHeight : 0);
       lines.forEach((line) => {
-        flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) => planner.add(block));
+        flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) =>
+          planner.add(block),
+        );
       });
     });
   }
@@ -2035,7 +2402,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
   const pageCountAfterFooter = doc.bufferedPageRange().count;
   if (pageCountAfterFooter !== total) {
-    throw new Error(`Quotation PDF footer changed page count (${total} -> ${pageCountAfterFooter})`);
+    throw new Error(
+      `Quotation PDF footer changed page count (${total} -> ${pageCountAfterFooter})`,
+    );
   }
 
   doc.end();

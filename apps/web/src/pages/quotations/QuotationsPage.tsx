@@ -2,6 +2,7 @@ import { FilePlus2, Search } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { Pagination } from '@/components/ui/Pagination';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotations } from '@/features/quotations/quotations.api';
 
@@ -15,6 +16,12 @@ export function QuotationsPage() {
     if (value) next.set(key, value);
     else next.delete(key);
     next.delete('page');
+    setParams(next);
+  };
+  /** Page changes keep the active filters, so they bypass `update`'s reset. */
+  const setPage = (page: number) => {
+    const next = new URLSearchParams(params);
+    next.set('page', String(page));
     setParams(next);
   };
   return (
@@ -69,18 +76,13 @@ export function QuotationsPage() {
               <table className="min-w-[760px] w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    {[
-                      'Quotation',
-                      'Lead',
-                      'Destination',
-                      'Version',
-                      'Created by',
-                      'Created',
-                    ].map((value) => (
-                      <th key={value} className="px-4 py-3">
-                        {value}
-                      </th>
-                    ))}
+                    {['Quotation', 'Lead', 'Destination', 'Version', 'Created by', 'Created'].map(
+                      (value) => (
+                        <th key={value} className="px-4 py-3">
+                          {value}
+                        </th>
+                      ),
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -142,6 +144,13 @@ export function QuotationsPage() {
                 );
               })}
             </ul>
+            <Pagination
+              page={list.data.pagination.page}
+              pageSize={list.data.pagination.pageSize}
+              totalPages={list.data.pagination.totalPages}
+              total={list.data.pagination.total}
+              onPage={setPage}
+            />
           </>
         )}
       </section>

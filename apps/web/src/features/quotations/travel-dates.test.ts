@@ -13,7 +13,9 @@ describe('resolveTravelDates', () => {
       end: '2026-09-08',
       totalDays: 7,
     });
-    expect(r.label).toBe(`${new Date('2026-09-02').toLocaleDateString()} – ${new Date('2026-09-08').toLocaleDateString()}`);
+    expect(r.label).toBe(
+      `${new Date('2026-09-02').toLocaleDateString()} – ${new Date('2026-09-08').toLocaleDateString()}`,
+    );
   });
 
   it('derives the inclusive end date for a 7-day trip starting 02/09/2026 → 08/09/2026', () => {
@@ -80,18 +82,33 @@ describe('resolveTravelDates', () => {
 
   it('derives 22/08 + 6 nights → 22/08 – 28/08 even when the itinerary max day is 1', () => {
     // Quotation has a Day-1-only itinerary (maxDay 1) but a 6-night stay.
-    const r = resolveTravelDates({ start: '2026-08-22', end: '2026-08-22', totalDays: 1, nights: 6 });
+    const r = resolveTravelDates({
+      start: '2026-08-22',
+      end: '2026-08-22',
+      totalDays: 1,
+      nights: 6,
+    });
     expect(r.end!.toISOString().slice(0, 10)).toBe('2026-08-28');
     expect(r.label).toContain(new Date('2026-08-28').toLocaleDateString());
   });
 
   it('derives 04/09 + 6 nights → 04/09 – 10/09 even when the itinerary max day is 1', () => {
-    const r = resolveTravelDates({ start: '2026-09-04', end: '2026-09-04', totalDays: 1, nights: 6 });
+    const r = resolveTravelDates({
+      start: '2026-09-04',
+      end: '2026-09-04',
+      totalDays: 1,
+      nights: 6,
+    });
     expect(r.end!.toISOString().slice(0, 10)).toBe('2026-09-10');
   });
 
   it('never lets an itinerary max day of 1 suppress a real nights value', () => {
-    const withDay1 = resolveTravelDates({ start: '2026-08-22', end: null, totalDays: 1, nights: 6 });
+    const withDay1 = resolveTravelDates({
+      start: '2026-08-22',
+      end: null,
+      totalDays: 1,
+      nights: 6,
+    });
     const withoutDays = resolveTravelDates({ start: '2026-08-22', end: null, nights: 6 });
     expect(withDay1.end!.toISOString().slice(0, 10)).toBe('2026-08-28');
     expect(withDay1.end!.toISOString()).toBe(withoutDays.end!.toISOString());

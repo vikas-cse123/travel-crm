@@ -1,11 +1,11 @@
-import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
-import { Construct } from 'constructs';
+import { CfnOutput, Stack, type StackProps } from 'aws-cdk-lib';
+import { type Construct } from 'constructs';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import { DeployConfig } from '../config.js';
+import { type DeployConfig } from '../config.js';
 
 export interface FrontendStackProps extends StackProps {
   config: DeployConfig;

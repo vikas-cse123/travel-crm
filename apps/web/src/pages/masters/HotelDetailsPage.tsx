@@ -5,7 +5,14 @@ import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { hotelImageUrl, useHotel } from '@/features/masters/masters.api';
-import { formatMasterDate, LoadingCard, MasterHeader, SafeRichText, Stars, StatusBadge } from './MasterUi';
+import {
+  formatMasterDate,
+  LoadingCard,
+  MasterHeader,
+  SafeRichText,
+  Stars,
+  StatusBadge,
+} from './MasterUi';
 
 const tabs = [
   ['description', 'Description'],

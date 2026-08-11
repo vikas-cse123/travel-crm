@@ -9,12 +9,15 @@ import {
   type QuotationUpdate,
   type QuotationVersionInput,
   type QuotationVersionUpdate,
+  type QuotationWeblinkSettings,
+  type QuotationTrackInput,
 } from '@interscale/shared';
 import type { AuthContext } from '../../middleware/authenticate.js';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { generateSecureToken, hashToken } from '../../utils/crypto.js';
+import { geolocateIp, parseUserAgent } from './weblink-enrichment.js';
 import { resolvePagination } from '../../utils/pagination.js';
 import { permissionsService } from '../auth/permissions.service.js';
 import {
@@ -68,13 +71,56 @@ export function normalizeWeblinkIp(value: string | null | undefined): string {
   return raw;
 }
 
-/** One row in the weblink analytics response. */
+/** One aggregated visitor row in the weblink analytics response. */
 export interface WeblinkAnalyticsEntry {
   ipAddress: string;
   type: 'HOME' | 'EXTERNAL';
   views: number;
   firstViewedAt: string;
   lastViewedAt: string;
+  // Best-effort visitor snapshot (any may be null on older/limited views).
+  browser: string | null;
+  browserVersion: string | null;
+  os: string | null;
+  osVersion: string | null;
+  deviceType: string | null;
+  deviceVendor: string | null;
+  deviceModel: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  isp: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  clientTimezone: string | null;
+  language: string | null;
+  languages: string | null;
+  platform: string | null;
+  userAgent: string | null;
+  screenWidth: number | null;
+  screenHeight: number | null;
+  screenAvailWidth: number | null;
+  screenAvailHeight: number | null;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  pixelRatio: number | null;
+  colorDepth: number | null;
+  orientation: string | null;
+  cpuCores: number | null;
+  deviceMemory: number | null;
+  connectionType: string | null;
+  connectionDownlink: number | null;
+  connectionRtt: number | null;
+  online: boolean | null;
+  referrer: string | null;
+  landingUrl: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  visitorId: string | null;
+  maxScrollDepth: number | null;
+  timeOnPageSeconds: number | null;
+  ctaClicks: number | null;
 }
 
 export interface WeblinkAnalytics {
@@ -188,6 +234,17 @@ function resolveDestinationNames(
   if (names.length) return names;
   const fallback = (destinationSummary ?? '').trim();
   return fallback ? [fallback] : [];
+}
+
+/** Total package nights from every destination row on the source lead. */
+export function resolveItineraryNights(
+  itinerary: Array<{ nights?: number | null }> | null | undefined,
+): number | null {
+  const total = (itinerary ?? []).reduce(
+    (sum, row) => sum + Math.max(0, Number(row.nights ?? 0)),
+    0,
+  );
+  return total > 0 ? total : null;
 }
 
 /** Short-lived signed URL for the company branding logo, or null. */
@@ -392,6 +449,8 @@ function versionCreateData(
       markServiceChargesOutside: normalized.markServiceChargesOutside ?? false,
       hidePricing: normalized.hidePricing ?? false,
       showIndividualPricing: normalized.showIndividualPricing ?? false,
+      showQuickNav: normalized.showQuickNav ?? true,
+      quickNavSticky: normalized.quickNavSticky ?? false,
       // Reference "Inclusions & Exclusions" — rich-text blocks.
       inclusionsHtml: normalized.inclusionsHtml ?? null,
       exclusionsHtml: normalized.exclusionsHtml ?? null,
@@ -479,6 +538,8 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
     markServiceChargesOutside: source.markServiceChargesOutside,
     hidePricing: source.hidePricing,
     showIndividualPricing: source.showIndividualPricing,
+    showQuickNav: source.showQuickNav,
+    quickNavSticky: source.quickNavSticky,
     inclusionsHtml: source.inclusionsHtml,
     exclusionsHtml: source.exclusionsHtml,
     paymentPolicies: source.paymentPolicies,
@@ -516,9 +577,13 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         updatedAt: _updatedAt,
         internalCost,
         sellingPrice,
+        showCheckInTime,
+        showCheckOutTime,
         ...row
       }) => ({
         ...row,
+        ...(showCheckInTime == null ? {} : { showCheckInTime }),
+        ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
         internalCost: internalCost.toNumber(),
         sellingPrice: sellingPrice.toNumber(),
       }),
@@ -973,8 +1038,7 @@ async function createVersion(
       const isDeparture =
         normName.includes('departure') || /check\s*out\s+and\s+departure/i.test(normName);
       if (!isDeparture) {
-        const destName =
-          input.destinationSummary.split(/[•(→>,]/)[0]?.trim() || 'this destination';
+        const destName = input.destinationSummary.split(/[•(→>,]/)[0]?.trim() || 'this destination';
         throw new ValidationError(
           `A departure sightseeing activity is not configured for ${destName}. Add an active departure activity in Sightseeing Masters before creating the quotation.`,
         );
@@ -1178,9 +1242,13 @@ export const quotationsService = {
             updatedAt: _updatedAt,
             internalCost,
             sellingPrice,
+            showCheckInTime,
+            showCheckOutTime,
             ...row
           }) => ({
             ...row,
+            ...(showCheckInTime == null ? {} : { showCheckInTime }),
+            ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
             internalCost: internalCost?.toNumber(),
             sellingPrice: sellingPrice?.toNumber(),
           }),
@@ -1563,6 +1631,40 @@ export const quotationsService = {
     return presentVersion(result, costing);
   },
 
+  /**
+   * Update only the weblink display flags (Quick Navigation) for a version.
+   * Cosmetic and content-safe, so — unlike a full version edit — it is allowed
+   * on finalized versions too, and never touches child collections or pricing.
+   */
+  async updateWeblinkSettings(
+    auth: AuthContext,
+    id: string,
+    versionId: string,
+    input: QuotationWeblinkSettings,
+    context: RequestContext,
+  ) {
+    await getQuotation(auth, id);
+    await getVersion(auth, id, versionId);
+    const costing = await hasCosting(auth);
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.quotationVersion.update({
+        where: { id: versionId },
+        data: {
+          ...(input.showQuickNav !== undefined ? { showQuickNav: input.showQuickNav } : {}),
+          ...(input.quickNavSticky !== undefined ? { quickNavSticky: input.quickNavSticky } : {}),
+        },
+      });
+      await tx.activityLog.create({
+        data: quotationAudit(auth, 'QUOTATION_UPDATED', 'Quotation', id, context, { versionId }),
+      });
+      return tx.quotationVersion.findUniqueOrThrow({
+        where: { id: versionId },
+        include: versionInclude,
+      });
+    });
+    return presentVersion(result, costing);
+  },
+
   async finalize(auth: AuthContext, id: string, versionId: string, context: RequestContext) {
     const quotation = await getQuotation(auth, id);
     const version = await getVersion(auth, id, versionId);
@@ -1603,9 +1705,10 @@ export const quotationsService = {
     const version = await getVersion(auth, id, versionId);
     if (version.status === 'DRAFT')
       throw new ConflictError('Finalize the version before generating a PDF.');
-    const styleFileNameFilter = options.style === 'STYLISH'
-      ? { endsWith: '-stylish-quotation.pdf' }
-      : { endsWith: '-quotation.pdf', not: { contains: '-stylish-' } };
+    const styleFileNameFilter =
+      options.style === 'STYLISH'
+        ? { endsWith: '-stylish-quotation.pdf' }
+        : { endsWith: '-quotation.pdf', not: { contains: '-stylish-' } };
     const existing = !force
       ? await prisma.quotationDocument.findFirst({
           where: {
@@ -1695,7 +1798,12 @@ export const quotationsService = {
       const hotelImageMap = new Map<string, Buffer | null>();
       if (hotelIds.length) {
         const hotelMasters = await prisma.hotel.findMany({
-          where: { companyId: auth.companyId, id: { in: hotelIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          where: {
+            companyId: auth.companyId,
+            id: { in: hotelIds },
+            imageObjectKey: { not: null },
+            imageConfirmedAt: { not: null },
+          },
           select: { id: true, imageObjectKey: true },
         });
         for (const h of hotelMasters) {
@@ -1708,14 +1816,19 @@ export const quotationsService = {
 
       // Sightseeing activity images
       const sightseeingIds: string[] = [];
+      const itineraryDocumentIds: string[] = [];
       const itinerarySnapshotUrls: string[] = [];
       const ssData = version.sightseeingDetails as Record<string, unknown> | null;
       if (ssData?.days && Array.isArray(ssData.days)) {
         for (const day of ssData.days as Array<Record<string, unknown>>) {
-          const acts = Array.isArray(day.activities) ? (day.activities as Array<Record<string, unknown>>) : [];
+          const acts = Array.isArray(day.activities)
+            ? (day.activities as Array<Record<string, unknown>>)
+            : [];
           for (const act of acts) {
             const sid = act.sightseeingId;
             if (sid && typeof sid === 'string') sightseeingIds.push(sid);
+            const documentId = act.imageDocumentId;
+            if (documentId && typeof documentId === 'string') itineraryDocumentIds.push(documentId);
             const snapshotUrl = typeof act.imageUrl === 'string' ? act.imageUrl.trim() : '';
             if (snapshotUrl) itinerarySnapshotUrls.push(snapshotUrl);
           }
@@ -1725,7 +1838,12 @@ export const quotationsService = {
       if (sightseeingIds.length) {
         const uniqueIds = [...new Set(sightseeingIds)];
         const ssMasters = await prisma.sightseeing.findMany({
-          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          where: {
+            companyId: auth.companyId,
+            id: { in: uniqueIds },
+            imageObjectKey: { not: null },
+            imageConfirmedAt: { not: null },
+          },
           select: { id: true, imageObjectKey: true },
         });
         for (const s of ssMasters) {
@@ -1758,19 +1876,42 @@ export const quotationsService = {
         }),
       );
       const itineraryImages = Object.fromEntries(itineraryImageMap);
+      const itineraryDocumentMap = new Map<string, Buffer>();
+      const imageDocumentsById = new Map(
+        quotation.documents
+          .filter(
+            (document) =>
+              document.status === 'AVAILABLE' &&
+              document.deletedAt === null &&
+              document.mimeType.startsWith('image/'),
+          )
+          .map((document) => [document.id, document]),
+      );
+      await Promise.all(
+        [...new Set(itineraryDocumentIds)].map(async (documentId) => {
+          const document = imageDocumentsById.get(documentId);
+          if (!document) return;
+          const image = await fetchImage(document.objectKey);
+          if (image) itineraryDocumentMap.set(documentId, image);
+        }),
+      );
+      const itineraryDocumentImages = Object.fromEntries(itineraryDocumentMap);
 
       // Service images (vehicles, cruises)
       const serviceImageMap = new Map<string, Buffer | null>();
       const vehicleIds = version.services
         .filter((s) => s.vehicleId)
         .map((s) => s.vehicleId as string);
-      const cruiseIds = version.services
-        .filter((s) => s.cruiseId)
-        .map((s) => s.cruiseId as string);
+      const cruiseIds = version.services.filter((s) => s.cruiseId).map((s) => s.cruiseId as string);
       if (vehicleIds.length) {
         const uniqueIds = [...new Set(vehicleIds)];
         const vehicleMasters = await prisma.vehicle.findMany({
-          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          where: {
+            companyId: auth.companyId,
+            id: { in: uniqueIds },
+            imageObjectKey: { not: null },
+            imageConfirmedAt: { not: null },
+          },
           select: { id: true, imageObjectKey: true },
         });
         for (const v of vehicleMasters) {
@@ -1780,7 +1921,12 @@ export const quotationsService = {
       if (cruiseIds.length) {
         const uniqueIds = [...new Set(cruiseIds)];
         const cruiseMasters = await prisma.cruise.findMany({
-          where: { companyId: auth.companyId, id: { in: uniqueIds }, imageObjectKey: { not: null }, imageConfirmedAt: { not: null } },
+          where: {
+            companyId: auth.companyId,
+            id: { in: uniqueIds },
+            imageObjectKey: { not: null },
+            imageConfirmedAt: { not: null },
+          },
           select: { id: true, imageObjectKey: true },
         });
         for (const c of cruiseMasters) {
@@ -1796,19 +1942,32 @@ export const quotationsService = {
       // the quotation-version flight snapshot), fetched via the shared cache.
       const airlineImageMap = new Map<string, Buffer | null>();
       const fd = version.flightDetails as
-        | { include?: boolean; outbound?: { segments?: Array<{ airlineId?: string | null }> }; returnJourney?: { segments?: Array<{ airlineId?: string | null }> } }
+        | {
+            include?: boolean;
+            entryMode?: 'MANUAL' | 'IMAGE';
+            imageDocumentId?: string | null;
+            images?: Array<{
+              documentId: string;
+              description?: string | null;
+              heading?: string | null;
+            }>;
+            outbound?: { segments?: Array<{ airlineId?: string | null }> };
+            returnJourney?: { segments?: Array<{ airlineId?: string | null }> };
+          }
         | null
         | undefined;
-      const airlineIds = [
-        ...(fd?.outbound?.segments ?? []),
-        ...(fd?.returnJourney?.segments ?? []),
-      ]
+      const airlineIds = [...(fd?.outbound?.segments ?? []), ...(fd?.returnJourney?.segments ?? [])]
         .map((s) => s.airlineId)
         .filter((id): id is string => Boolean(id));
       const uniqueAirlineIds = [...new Set(airlineIds)];
       if (uniqueAirlineIds.length) {
         const airlineMasters = await prisma.airline.findMany({
-          where: { companyId: auth.companyId, id: { in: uniqueAirlineIds }, logoObjectKey: { not: null }, logoConfirmedAt: { not: null } },
+          where: {
+            companyId: auth.companyId,
+            id: { in: uniqueAirlineIds },
+            logoObjectKey: { not: null },
+            logoConfirmedAt: { not: null },
+          },
           select: { id: true, logoObjectKey: true },
         });
         for (const a of airlineMasters) {
@@ -1816,6 +1975,50 @@ export const quotationsService = {
         }
       }
       const airlineImages = Object.fromEntries(airlineImageMap);
+      let flightImage: Buffer | null = null;
+      const flightImages: Array<{ description?: string | null; image: Buffer; url?: string }> = [];
+      if (fd?.entryMode === 'IMAGE') {
+        const configuredImages = fd.images?.length
+          ? fd.images
+          : fd.imageDocumentId
+            ? [{ documentId: fd.imageDocumentId, description: null, heading: null }]
+            : [];
+        const flightDocuments = configuredImages.length
+          ? await prisma.quotationDocument.findMany({
+              where: {
+                id: { in: configuredImages.map((image) => image.documentId) },
+                companyId: auth.companyId,
+                quotationId: id,
+                // Revisions intentionally retain the original flight-image document
+                // IDs. The explicit document IDs plus company/quotation ownership
+                // are the security boundary; requiring the document's original
+                // version ID would make copied flight images disappear from PDFs.
+                status: 'AVAILABLE',
+                deletedAt: null,
+                mimeType: { startsWith: 'image/' },
+              },
+              select: { id: true, objectKey: true, fileName: true },
+            })
+          : [];
+        const documentsById = new Map(flightDocuments.map((document) => [document.id, document]));
+        for (const configuredImage of configuredImages) {
+          const document = documentsById.get(configuredImage.documentId);
+          const image = await fetchImage(document?.objectKey);
+          if (image) {
+            const url = document
+              ? await storageService
+                  .createDownloadUrl(document.objectKey, document.fileName, 604800, 'inline')
+                  .catch(() => undefined)
+              : undefined;
+            flightImages.push({
+              description: configuredImage.description ?? configuredImage.heading ?? null,
+              image,
+              ...(url ? { url } : {}),
+            });
+          }
+        }
+        flightImage = flightImages[0]?.image ?? null;
+      }
 
       images = {
         cover: coverImage,
@@ -1823,7 +2026,10 @@ export const quotationsService = {
         services: serviceImages,
         sightseeing: sightseeingImages,
         itinerary: itineraryImages,
+        itineraryDocuments: itineraryDocumentImages,
         airlines: airlineImages,
+        flight: flightImage,
+        flights: flightImages,
       };
     } catch {
       // Image resolution is best-effort; never block PDF generation.
@@ -1841,6 +2047,7 @@ export const quotationsService = {
       consultant,
       quotation: {
         ...quotation,
+        durationNights: resolveItineraryNights(quotation.query?.itinerary),
         destinations: resolveDestinationNames(
           quotation.query?.itinerary,
           quotation.destinationSummary,
@@ -1962,13 +2169,7 @@ export const quotationsService = {
         where: { companyId: auth.companyId, quotationId: id },
         orderBy: [{ lastViewedAt: 'desc' }, { ipAddress: 'asc' }],
         take: WEBLINK_ANALYTICS_ROW_LIMIT,
-        select: {
-          ipAddress: true,
-          type: true,
-          viewCount: true,
-          firstViewedAt: true,
-          lastViewedAt: true,
-        },
+        omit: { id: true, companyId: true, quotationId: true },
       }),
       prisma.quotationWeblinkView.aggregate({
         where: { companyId: auth.companyId, quotationId: id },
@@ -1988,13 +2189,16 @@ export const quotationsService = {
       externalViews: sumFor('EXTERNAL'),
       homeIpViews: sumFor('HOME'),
       uniqueIps: totals._count._all,
-      entries: rows.map((row) => ({
-        ipAddress: row.ipAddress,
-        type: row.type === 'HOME' ? 'HOME' : 'EXTERNAL',
-        views: row.viewCount,
-        firstViewedAt: row.firstViewedAt.toISOString(),
-        lastViewedAt: row.lastViewedAt.toISOString(),
-      })),
+      entries: rows.map((row) => {
+        const { type, viewCount, firstViewedAt, lastViewedAt, ...rest } = row;
+        return {
+          ...rest,
+          type: type === 'HOME' ? ('HOME' as const) : ('EXTERNAL' as const),
+          views: viewCount,
+          firstViewedAt: firstViewedAt.toISOString(),
+          lastViewedAt: lastViewedAt.toISOString(),
+        };
+      }),
     };
   },
 
@@ -2066,9 +2270,6 @@ export const quotationsService = {
       expiresInSeconds: env.AWS_S3_PRESIGNED_URL_EXPIRY_SECONDS,
       requiredHeaders: {
         'Content-Type': input.mimeType,
-        ...(storageService.provider === 'S3'
-          ? { 'x-amz-server-side-encryption': env.AWS_S3_SERVER_SIDE_ENCRYPTION }
-          : {}),
       },
     };
   },
@@ -2344,7 +2545,7 @@ export const quotationsService = {
   async publicView(
     token: string,
     options?: {
-      userAgent?: string;
+      userAgent?: string | null;
       ip?: string | null;
       authCompanyId?: string | null;
       customDomainCompanyId?: string | null;
@@ -2377,10 +2578,7 @@ export const quotationsService = {
     // When the request arrives through an ACTIVE custom domain, the quotation
     // must belong to that domain's company. A token is never exposed through
     // another tenant's custom domain — safe not-found behavior.
-    if (
-      options?.customDomainCompanyId &&
-      quotation.companyId !== options.customDomainCompanyId
-    ) {
+    if (options?.customDomainCompanyId && quotation.companyId !== options.customDomainCompanyId) {
       throw new NotFoundError('This quotation link is invalid or expired.');
     }
     // The public weblink always serves the CURRENT (latest) customer-facing
@@ -2480,10 +2678,82 @@ export const quotationsService = {
       quotation.companyId,
       version.flightDetails,
     );
+    const publicFlightDetails = version.flightDetails as {
+      entryMode?: 'MANUAL' | 'IMAGE';
+      imageDocumentId?: string | null;
+      images?: Array<{ documentId: string; description?: string | null; heading?: string | null }>;
+    } | null;
+    const configuredFlightImages = publicFlightDetails?.images?.length
+      ? publicFlightDetails.images
+      : publicFlightDetails?.imageDocumentId
+        ? [{ documentId: publicFlightDetails.imageDocumentId, description: null, heading: null }]
+        : [];
+    const imageDocumentsById = new Map(
+      quotation.documents
+        .filter(
+          (row) =>
+            row.status === 'AVAILABLE' &&
+            row.deletedAt === null &&
+            row.mimeType.startsWith('image/'),
+        )
+        .map((row) => [row.id, row]),
+    );
+    let flightImageUrl: string | null = null;
+    const flightImages: Array<{ description?: string | null; url: string }> = [];
+    if (publicFlightDetails?.entryMode === 'IMAGE') {
+      for (const configuredImage of configuredFlightImages) {
+        const document = imageDocumentsById.get(configuredImage.documentId);
+        if (!document) continue;
+        try {
+          const url = await storageService.createDownloadUrl(
+            document.objectKey,
+            document.fileName,
+            undefined,
+            'inline',
+          );
+          flightImages.push({
+            description: configuredImage.description ?? configuredImage.heading ?? null,
+            url,
+          });
+        } catch {
+          /* Image URLs are best-effort. */
+        }
+      }
+      flightImageUrl = flightImages[0]?.url ?? null;
+    }
     const sightseeingPresentations = await resolveSightseeingPresentations(
       quotation.companyId,
       version.sightseeingDetails,
     );
+    const sightseeingDocumentPresentations: Record<string, { imageUrl: string | null }> = {};
+    const parsedSightseeing = sightseeingDetailsSchema.safeParse(version.sightseeingDetails);
+    if (parsedSightseeing.success) {
+      const documentIds = [
+        ...new Set(
+          parsedSightseeing.data.days
+            .flatMap((day) => day.activities.map((activity) => activity.imageDocumentId))
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      await Promise.all(
+        documentIds.map(async (documentId) => {
+          const document = imageDocumentsById.get(documentId);
+          if (!document) return;
+          try {
+            sightseeingDocumentPresentations[documentId] = {
+              imageUrl: await storageService.createDownloadUrl(
+                document.objectKey,
+                document.fileName,
+                undefined,
+                'inline',
+              ),
+            };
+          } catch {
+            sightseeingDocumentPresentations[documentId] = { imageUrl: null };
+          }
+        }),
+      );
+    }
     const cruisePresentations = await resolveCruisePresentations(
       quotation.companyId,
       version.services
@@ -2512,7 +2782,10 @@ export const quotationsService = {
       hotelPresentations,
       vehiclePresentations,
       airlinePresentations,
+      flightImageUrl,
+      flightImages,
       sightseeingPresentations,
+      sightseeingDocumentPresentations,
       cruisePresentations,
       quotation: {
         quotationNumber: quotation.quotationNumber,
@@ -2524,6 +2797,7 @@ export const quotationsService = {
           quotation.query?.itinerary,
           quotation.destinationSummary,
         ).join(' → '),
+        durationNights: resolveItineraryNights(quotation.query?.itinerary),
         travelStartDate: quotation.travelStartDate,
         travelEndDate: quotation.travelEndDate,
         adults: quotation.adults,
@@ -2538,6 +2812,128 @@ export const quotationsService = {
       version: presentVersion(version, false, true),
       downloadUrl,
     };
+  },
+
+  /**
+   * Enrich the aggregated weblink-view row for a visitor with the telemetry the
+   * public page collects (device/screen/referrer/UTM + scroll/time), plus
+   * server-derived User-Agent parsing and approximate IP geolocation. Best
+   * effort: never throws to the caller, never increments the view count (the
+   * page-load in publicView owns that), and never wipes a previously captured
+   * value with a missing one.
+   */
+  async trackWeblinkVisit(
+    token: string,
+    input: QuotationTrackInput,
+    meta: {
+      userAgent?: string | null;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
+  ) {
+    const quotation = await prisma.quotation.findFirst({
+      where: { publicTokenHash: hashToken(token), deletedAt: null },
+      select: { id: true, companyId: true },
+    });
+    if (!quotation) return { ok: false };
+    if (meta.customDomainCompanyId && quotation.companyId !== meta.customDomainCompanyId)
+      return { ok: false };
+    const ua = meta.userAgent ?? '';
+    if (/bot|crawler|spider|preview|headless|health/i.test(ua)) return { ok: false };
+
+    // Visitor telemetry is collected for real (external) clients only. A HOME
+    // view — a signed-in team member of the same company opening the weblink —
+    // is not profiled (and we skip the geolocation lookup for it).
+    const type = meta.authCompanyId === quotation.companyId ? 'HOME' : 'EXTERNAL';
+    if (type === 'HOME') return { ok: false, skipped: 'home' as const };
+
+    const parsed = parseUserAgent(ua);
+    const geo = await geolocateIp(meta.ip);
+    const ipAddress = normalizeWeblinkIp(meta.ip);
+
+    // Engagement metrics keep the best value across a visitor's sessions, so a
+    // quick reopen never clobbers a longer earlier read.
+    const existing = await prisma.quotationWeblinkView.findUnique({
+      where: { quotationId_ipAddress: { quotationId: quotation.id, ipAddress } },
+      select: { maxScrollDepth: true, timeOnPageSeconds: true, ctaClicks: true },
+    });
+    const maxOf = (prev: number | null | undefined, next: number | undefined) =>
+      next === undefined ? undefined : Math.max(prev ?? 0, next);
+
+    // Only include fields we actually have, so a later beacon never clears an
+    // earlier value (e.g. a geo lookup that timed out on the second call).
+    const defined = <T>(value: T | undefined | null) => value !== undefined && value !== null;
+    const data = {
+      userAgent: ua || null,
+      browser: parsed.browser,
+      browserVersion: parsed.browserVersion,
+      os: parsed.os,
+      osVersion: parsed.osVersion,
+      deviceType: parsed.deviceType,
+      deviceVendor: parsed.deviceVendor,
+      deviceModel: parsed.deviceModel,
+      ...(geo
+        ? {
+            country: geo.country,
+            region: geo.region,
+            city: geo.city,
+            isp: geo.isp,
+            geoTimezone: geo.timezone,
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+          }
+        : {}),
+      ...(defined(input.platform) ? { platform: input.platform } : {}),
+      ...(defined(input.language) ? { language: input.language } : {}),
+      ...(defined(input.languages) ? { languages: input.languages } : {}),
+      ...(defined(input.clientTimezone) ? { clientTimezone: input.clientTimezone } : {}),
+      ...(defined(input.screenWidth) ? { screenWidth: input.screenWidth } : {}),
+      ...(defined(input.screenHeight) ? { screenHeight: input.screenHeight } : {}),
+      ...(defined(input.screenAvailWidth) ? { screenAvailWidth: input.screenAvailWidth } : {}),
+      ...(defined(input.screenAvailHeight) ? { screenAvailHeight: input.screenAvailHeight } : {}),
+      ...(defined(input.viewportWidth) ? { viewportWidth: input.viewportWidth } : {}),
+      ...(defined(input.viewportHeight) ? { viewportHeight: input.viewportHeight } : {}),
+      ...(defined(input.pixelRatio) ? { pixelRatio: input.pixelRatio } : {}),
+      ...(defined(input.colorDepth) ? { colorDepth: input.colorDepth } : {}),
+      ...(defined(input.orientation) ? { orientation: input.orientation } : {}),
+      ...(defined(input.cpuCores) ? { cpuCores: input.cpuCores } : {}),
+      ...(defined(input.deviceMemory) ? { deviceMemory: input.deviceMemory } : {}),
+      ...(defined(input.connectionType) ? { connectionType: input.connectionType } : {}),
+      ...(defined(input.connectionDownlink)
+        ? { connectionDownlink: input.connectionDownlink }
+        : {}),
+      ...(defined(input.connectionRtt) ? { connectionRtt: input.connectionRtt } : {}),
+      ...(defined(input.online) ? { online: input.online } : {}),
+      ...(defined(input.referrer) ? { referrer: input.referrer } : {}),
+      ...(defined(input.landingUrl) ? { landingUrl: input.landingUrl } : {}),
+      ...(defined(input.utmSource) ? { utmSource: input.utmSource } : {}),
+      ...(defined(input.utmMedium) ? { utmMedium: input.utmMedium } : {}),
+      ...(defined(input.utmCampaign) ? { utmCampaign: input.utmCampaign } : {}),
+      ...(defined(input.visitorId) ? { visitorId: input.visitorId } : {}),
+      ...(defined(input.maxScrollDepth)
+        ? { maxScrollDepth: maxOf(existing?.maxScrollDepth, input.maxScrollDepth) }
+        : {}),
+      ...(defined(input.timeOnPageSeconds)
+        ? { timeOnPageSeconds: maxOf(existing?.timeOnPageSeconds, input.timeOnPageSeconds) }
+        : {}),
+      ...(defined(input.ctaClicks)
+        ? { ctaClicks: maxOf(existing?.ctaClicks, input.ctaClicks) }
+        : {}),
+    } as Prisma.QuotationWeblinkViewUncheckedUpdateInput;
+
+    await prisma.quotationWeblinkView.upsert({
+      where: { quotationId_ipAddress: { quotationId: quotation.id, ipAddress } },
+      create: {
+        companyId: quotation.companyId,
+        quotationId: quotation.id,
+        ipAddress,
+        type,
+        ...data,
+      } as Prisma.QuotationWeblinkViewUncheckedCreateInput,
+      update: data,
+    });
+    return { ok: true };
   },
 
   async publicDecision(

@@ -68,8 +68,8 @@ export function NotificationSettingsPage() {
       <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
         <BellRing className="mt-0.5 h-5 w-5 shrink-0" />
         <p>
-          Reminders are manual only. When a reminder becomes due it appears in the CRM
-          notification inbox, and it shows as overdue if it passes its due time.
+          Reminders are manual only. When a reminder becomes due it appears in the CRM notification
+          inbox, and it shows as overdue if it passes its due time.
         </p>
       </div>
       <section className="rounded-xl border bg-card shadow-sm">
@@ -93,10 +93,7 @@ export function NotificationSettingsPage() {
             />
           </div>
           {alerts.map(([key, label, description]) => (
-            <div
-              key={key}
-              className="flex items-center justify-between rounded-lg border p-3"
-            >
+            <div key={key} className="flex items-center justify-between rounded-lg border p-3">
               <div>
                 <p className="text-sm font-medium">{label}</p>
                 <p className="text-xs text-slate-500">{description}</p>

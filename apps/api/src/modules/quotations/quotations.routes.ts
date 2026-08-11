@@ -6,6 +6,7 @@ import {
   quotationUpdateSchema,
   quotationVersionInputSchema,
   quotationVersionUpdateSchema,
+  quotationWeblinkSettingsSchema,
   quotationSendSchema,
   publicLinkSchema,
   uploadRequestSchema,
@@ -95,6 +96,12 @@ router.patch(
   validateRequest({ params: versionId, body: quotationVersionUpdateSchema }),
   asyncHandler(controller.updateVersion),
 );
+router.patch(
+  '/:quotationId/versions/:versionId/weblink-settings',
+  requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),
+  validateRequest({ params: versionId, body: quotationWeblinkSettingsSchema }),
+  asyncHandler(controller.updateWeblinkSettings),
+);
 router.post(
   '/:quotationId/versions/:versionId/finalize',
   requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),
@@ -106,16 +113,27 @@ router.post(
   requirePermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF),
   validateRequest({
     params: versionId,
-    body: z.object({
-      force: z.boolean().optional(),
-      style: z.enum(['CLASSIC', 'STYLISH']).optional(),
-      coverSource: z.enum(['DESTINATION', 'UPLOAD']).optional(),
-      coverImageDataUrl: z.string().max(7_000_000).optional(),
-    }).superRefine((value, ctx) => {
-      if (value.style === 'STYLISH' && value.coverSource === 'UPLOAD' && !value.coverImageDataUrl) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverImageDataUrl'], message: 'Choose a cover image.' });
-      }
-    }).default({}),
+    body: z
+      .object({
+        force: z.boolean().optional(),
+        style: z.enum(['CLASSIC', 'STYLISH']).optional(),
+        coverSource: z.enum(['DESTINATION', 'UPLOAD']).optional(),
+        coverImageDataUrl: z.string().max(7_000_000).optional(),
+      })
+      .superRefine((value, ctx) => {
+        if (
+          value.style === 'STYLISH' &&
+          value.coverSource === 'UPLOAD' &&
+          !value.coverImageDataUrl
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['coverImageDataUrl'],
+            message: 'Choose a cover image.',
+          });
+        }
+      })
+      .default({}),
   }),
   asyncHandler(controller.pdf),
 );

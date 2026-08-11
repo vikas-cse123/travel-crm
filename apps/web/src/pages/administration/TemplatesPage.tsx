@@ -65,66 +65,66 @@ export function TemplatesPage() {
             {/* Table from md up; stacked cards below it — six columns plus four
                 actions cannot be read at phone widths. */}
             <div className="hidden overflow-x-auto md:block">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th>Status</th>
-                  <th>Permissions</th>
-                  <th>Users</th>
-                  <th>Created by</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {q.data.data.map((t) => (
-                  <tr key={t.id}>
-                    <td className="p-3">
-                      <Link className="text-brand-700" to={`/permission-templates/${t.id}`}>
-                        {t.name}
-                      </Link>
-                    </td>
-                    <td>{t.status}</td>
-                    <td>{t.permissionCount}</td>
-                    <td>{t.assignedUserCount}</td>
-                    <td>{t.createdBy?.fullName ?? 'System'}</td>
-                    <td className="space-x-2">
-                      {hasPermission('permission_templates.update') && (
-                        <Link to={`/permission-templates/${t.id}/edit`}>Edit</Link>
-                      )}
-                      {hasPermission('permission_templates.duplicate') && (
-                        <button onClick={() => action.mutate({ id: t.id, action: 'duplicate' })}>
-                          Duplicate
-                        </button>
-                      )}
-                      {hasPermission('permission_templates.change_status') && (
-                        <button
-                          onClick={() =>
-                            action.mutate({
-                              id: t.id,
-                              action: t.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
-                            })
-                          }
-                        >
-                          {t.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-                        </button>
-                      )}
-                      {hasPermission('permission_templates.delete') && (
-                        <button
-                          className="text-red-600"
-                          onClick={() =>
-                            window.confirm(`Delete ${t.name}?`) &&
-                            action.mutate({ id: t.id, action: 'delete' })
-                          }
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="p-3">Name</th>
+                    <th>Status</th>
+                    <th>Permissions</th>
+                    <th>Users</th>
+                    <th>Created by</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y">
+                  {q.data.data.map((t) => (
+                    <tr key={t.id}>
+                      <td className="p-3">
+                        <Link className="text-brand-700" to={`/permission-templates/${t.id}`}>
+                          {t.name}
+                        </Link>
+                      </td>
+                      <td>{t.status}</td>
+                      <td>{t.permissionCount}</td>
+                      <td>{t.assignedUserCount}</td>
+                      <td>{t.createdBy?.fullName ?? 'System'}</td>
+                      <td className="space-x-2">
+                        {hasPermission('permission_templates.update') && (
+                          <Link to={`/permission-templates/${t.id}/edit`}>Edit</Link>
+                        )}
+                        {hasPermission('permission_templates.duplicate') && (
+                          <button onClick={() => action.mutate({ id: t.id, action: 'duplicate' })}>
+                            Duplicate
+                          </button>
+                        )}
+                        {hasPermission('permission_templates.change_status') && (
+                          <button
+                            onClick={() =>
+                              action.mutate({
+                                id: t.id,
+                                action: t.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                              })
+                            }
+                          >
+                            {t.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
+                        {hasPermission('permission_templates.delete') && (
+                          <button
+                            className="text-red-600"
+                            onClick={() =>
+                              window.confirm(`Delete ${t.name}?`) &&
+                              action.mutate({ id: t.id, action: 'delete' })
+                            }
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <ul className="divide-y md:hidden">
               {q.data.data.map((t) => (

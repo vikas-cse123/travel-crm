@@ -264,7 +264,12 @@ export async function matchOrCreateCustomerForBooking(
   const match = phoneMatch ?? (await matchByEmail());
 
   if (match)
-    return { customerId: match.id, created: false, customerNumber: null, displayName: match.displayName };
+    return {
+      customerId: match.id,
+      created: false,
+      customerNumber: null,
+      displayName: match.displayName,
+    };
 
   const customerNumber = await nextCustomerNumber(tx, auth.companyId);
   const customer = await tx.customer.create({
@@ -300,7 +305,12 @@ export async function matchOrCreateCustomerForBooking(
       },
     });
   }
-  return { customerId: customer.id, created: true, customerNumber, displayName: customer.displayName };
+  return {
+    customerId: customer.id,
+    created: true,
+    customerNumber,
+    displayName: customer.displayName,
+  };
 }
 
 function compact(value: Record<string, unknown>) {
