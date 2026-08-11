@@ -45,6 +45,13 @@ export const SHOW_ACTIVITY_LOGS_NAVIGATION = false;
 export const SHOW_REPORTS_NAVIGATION = false;
 
 /**
+ * Sister product: the Interscale WhatsApp CRM. Surfaced as a cross-app launcher
+ * pinned to the bottom of the sidebar (the Zomato → Blinkit pattern) and opened
+ * in a new tab, since it is a separate application on its own domain.
+ */
+export const WHATSAPP_CRM_URL = 'https://interscalechat.co.in/inbox';
+
+/**
  * Sidebar navigation sections. Items are grouped into these headings so the
  * rail stays scannable. Empty sections are never rendered.
  */

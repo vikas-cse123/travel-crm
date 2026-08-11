@@ -10,10 +10,7 @@ import {
   SIDEBAR_COLLAPSED_KEY,
 } from './sidebar-state';
 import { isNavPathActive } from '../navigation';
-import {
-  SHOW_BOOKINGS_NAVIGATION,
-  SHOW_QUOTATION_TEMPLATES_NAVIGATION,
-} from '../navigation';
+import { SHOW_BOOKINGS_NAVIGATION, SHOW_QUOTATION_TEMPLATES_NAVIGATION } from '../navigation';
 
 const auth = vi.hoisted(() => ({
   permissions: new Set<string>(),
@@ -224,10 +221,7 @@ describe('Collapse preference persistence', () => {
 describe('Active route detection', () => {
   it('sets aria-current="page" on the active flat item', () => {
     renderSidebar({ route: '/customers/123' });
-    expect(screen.getByRole('link', { name: 'Customers' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(screen.getByRole('link', { name: 'Customers' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('does not activate Quotations from a Quotation Templates route', () => {
@@ -357,6 +351,21 @@ describe('Mobile drawer', () => {
     renderSidebar({ mobileOpen: true, onCloseMobile });
     fireEvent.click(screen.getByTestId('sidebar-scrim'));
     expect(onCloseMobile).toHaveBeenCalled();
+  });
+});
+
+describe('WhatsApp CRM cross-app launcher', () => {
+  it('renders the sister-app launcher pinned in the sidebar', () => {
+    renderSidebar();
+    const link = screen.getByRole('link', { name: /whatsapp crm/i });
+    expect(link).toHaveAttribute('href', 'https://interscalechat.co.in/inbox');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('stays reachable on the collapsed rail and in the mobile drawer', () => {
+    renderSidebar({ collapsed: true, mobileOpen: true });
+    expect(screen.getByRole('link', { name: /whatsapp crm/i })).toBeInTheDocument();
   });
 });
 

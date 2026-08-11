@@ -15,6 +15,7 @@ import { SidebarNavItem } from './SidebarNavItem';
 import { SidebarCollapsibleGroup } from './SidebarCollapsibleGroup';
 import { SidebarSection } from './SidebarSection';
 import { SidebarTooltip, type SidebarTooltipData } from './SidebarTooltip';
+import { SidebarAppSwitcher } from './SidebarAppSwitcher';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -227,6 +228,9 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
             </SidebarSection>
           ))}
         </nav>
+
+        {/* Cross-app launcher to the sister product, pinned below the nav. */}
+        <SidebarAppSwitcher collapsed={collapsed} />
 
         <SidebarTooltip tip={tooltip} />
       </aside>
