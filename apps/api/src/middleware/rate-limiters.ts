@@ -39,12 +39,18 @@ function buildLimiter(
 }
 
 /**
- * The sign-in and sign-up endpoints are exempt from the GLOBAL baseline so a
- * user can never be blocked by the NUMBER of login or registration attempts.
- * This is deliberately scoped to the exact requests — OTP, password reset and
- * every other API route keep their global and per-endpoint protection.
+ * Read-only CRM traffic is exempt from the coarse IP-wide limiter. A single
+ * quotation screen legitimately fans out into hundreds of GETs (master data,
+ * image URLs, notifications, analytics), and every user behind the same NAT
+ * shares one IP budget. Per-endpoint limiters still protect sensitive/public
+ * reads, while state-changing requests retain this global baseline.
+ *
+ * Sign-in and sign-up are also exempt from the global baseline because their
+ * dedicated credential limiter is the correct protection for those routes.
  */
 export function shouldSkipGlobalLimiter(req: { method?: string; path?: string }): boolean {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return true;
+
   return (
     req.method === 'POST' &&
     (req.path === `${API_PREFIX}/auth/login` || req.path === `${API_PREFIX}/auth/register`)

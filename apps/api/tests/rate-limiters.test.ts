@@ -40,7 +40,7 @@ describe('rate limiters', () => {
     expect(defaultLimit).toBeGreaterThan(0);
   });
 
-  it('exempts only the exact login and register POSTs from the global limiter', () => {
+  it('exempts read-only traffic and exact login/register POSTs from the global limiter', () => {
     expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/login' })).toBe(true);
     expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/register' })).toBe(true);
     // The exemption is scoped to the sign-in/sign-up requests, not /api/auth/*.
@@ -54,11 +54,13 @@ describe('rate limiters', () => {
     expect(
       shouldSkipGlobalLimiter({ method: 'POST', path: '/api/auth/resend-verification-otp' }),
     ).toBe(false);
-    // GET on the login path is still protected.
-    expect(shouldSkipGlobalLimiter({ method: 'GET', path: '/api/auth/login' })).toBe(false);
-    // Every other API route stays behind the global limiter.
-    expect(shouldSkipGlobalLimiter({ method: 'GET', path: '/api/dashboard/summary' })).toBe(false);
+    // Read-only traffic cannot exhaust the shared NAT/IP mutation budget.
+    expect(shouldSkipGlobalLimiter({ method: 'GET', path: '/api/auth/login' })).toBe(true);
+    expect(shouldSkipGlobalLimiter({ method: 'GET', path: '/api/dashboard/summary' })).toBe(true);
+    expect(shouldSkipGlobalLimiter({ method: 'HEAD', path: '/api/health' })).toBe(true);
+    expect(shouldSkipGlobalLimiter({ method: 'OPTIONS', path: '/api/queries' })).toBe(true);
+    // State-changing CRM routes stay behind the global limiter.
     expect(shouldSkipGlobalLimiter({ method: 'POST', path: '/api/queries' })).toBe(false);
-    expect(shouldSkipGlobalLimiter({ method: 'GET', path: '/api/health' })).toBe(false);
+    expect(shouldSkipGlobalLimiter({ method: 'PATCH', path: '/api/quotations/123' })).toBe(false);
   });
 });
