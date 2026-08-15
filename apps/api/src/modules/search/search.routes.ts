@@ -12,6 +12,12 @@ import { searchController as c } from './search.controller.js';
 const router = Router();
 router.use(requireAuth, requireVerifiedEmail);
 
+// Live search endpoints.
+router.get(
+  '/hotels/autocomplete',
+  validateRequest({ query: hotelAutocompleteQuerySchema }),
+  asyncHandler(c.hotelsAutocomplete),
+);
 router.get(
   '/flights',
   validateRequest({ query: flightSearchQuerySchema }),
@@ -22,10 +28,11 @@ router.get(
   validateRequest({ query: hotelSearchQuerySchema }),
   asyncHandler(c.hotels),
 );
-router.get(
-  '/hotels/autocomplete',
-  validateRequest({ query: hotelAutocompleteQuerySchema }),
-  asyncHandler(c.hotelsAutocomplete),
-);
+
+// Per-user SearchAPI key management (isolated under /search/keys).
+router.get('/keys', asyncHandler(c.keyStatus));
+router.post('/keys', asyncHandler(c.saveKey));
+router.delete('/keys', asyncHandler(c.removeKey));
+router.post('/keys/test', asyncHandler(c.testKey));
 
 export { router as searchRoutes };

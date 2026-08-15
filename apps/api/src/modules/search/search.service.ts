@@ -10,10 +10,12 @@ import type {
 /**
  * Live hotel & flight search proxy for SearchApi (searchapi.io).
  *
- * The API key lives only in `env` — it is never forwarded to the browser.
- * Query params are validated upstream (validateRequest) and mapped onto the
- * SearchApi engine parameters, then the parsed response is returned verbatim
- * so the UI can render every field the provider sends back.
+ * The SearchAPI key never reaches the browser: the backend resolves the
+ * authenticated user's own saved key (falling back to the server-level
+ * SEARCHAPI_API_KEY when the user has not saved one) and uses it only when
+ * calling SearchAPI.io. A provider 429 (quota/rate-limit) is surfaced as a
+ * distinct, non-fatal error so one user's exhausted key cannot affect other
+ * users or unrelated CRM endpoints.
  */
 
 const ENGINE_FLIGHTS = 'google_flights';
@@ -31,16 +33,18 @@ async function readErrorBody(response: Response): Promise<string> {
   return response.statusText || `HTTP ${response.status}`;
 }
 
-/** Call SearchApi and return the parsed JSON body. */
-async function callSearchApi(params: Record<string, string | number | undefined>): Promise<unknown> {
-  if (!env.SEARCHAPI_API_KEY) {
-    throw new ServiceUnavailableError(
-      'Live search is not configured. Set SEARCHAPI_API_KEY to enable it.',
-    );
-  }
-
+/**
+ * Call SearchApi with the given API key and return the parsed JSON body.
+ *
+ * `apiKey` is always supplied by the caller (resolved per-user or the server
+ * fallback) — this function never reads the key from any other source.
+ */
+async function callSearchApi(
+  apiKey: string,
+  params: Record<string, string | number | undefined>,
+): Promise<unknown> {
   const url = new URL(env.SEARCHAPI_BASE_URL);
-  url.searchParams.set('api_key', env.SEARCHAPI_API_KEY);
+  url.searchParams.set('api_key', apiKey);
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === '') continue;
     url.searchParams.set(key, String(value));
@@ -71,8 +75,9 @@ async function callSearchApi(params: Record<string, string | number | undefined>
 
   if (!response.ok) {
     const providerError = await readErrorBody(response);
-    // The provider's explanation (e.g. "Unsupported value `ECONOMY` …") is
-    // logged for development; production users get a clean, generic message.
+    // The provider's explanation is logged for development; production users get
+    // a clean message. A 429 (monthly quota / rate limit) is surfaced distinctly
+    // so the UI can tell "your SearchAPI key is out of quota" from a bad key.
     logger.warn(
       {
         status: response.status,
@@ -83,6 +88,11 @@ async function callSearchApi(params: Record<string, string | number | undefined>
       },
       'SearchApi request failed',
     );
+    if (response.status === 429) {
+      throw new SearchApiQuotaExceededError(
+        'SearchAPI monthly quota exhausted. Add a new SearchAPI key or wait for the next cycle.',
+      );
+    }
     throw new ServiceUnavailableError(
       'The live search provider could not complete the request. Please try again.',
     );
@@ -99,6 +109,14 @@ async function callSearchApi(params: Record<string, string | number | undefined>
   }
 
   return body;
+}
+
+/** Raised when SearchAPI responds 429 (quota/rate-limit). Kept non-fatal and isolated. */
+export class SearchApiQuotaExceededError extends ServiceUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SearchApiQuotaExceededError';
+  }
 }
 
 /** Build the SearchApi parameter map for a flight search. */
@@ -245,19 +263,54 @@ function autocompleteParams(query: HotelAutocompleteQuery): Record<string, strin
 }
 
 export const searchService = {
-  flights(query: FlightSearchQuery): Promise<unknown> {
-    return callSearchApi(flightParams(query));
+  flights(apiKey: string, query: FlightSearchQuery): Promise<unknown> {
+    return callSearchApi(apiKey, flightParams(query));
   },
 
-  async hotels(query: HotelSearchQuery): Promise<unknown> {
-    const body = (await callSearchApi(hotelParams(query))) as {
+  async hotels(apiKey: string, query: HotelSearchQuery): Promise<unknown> {
+    const body = (await callSearchApi(apiKey, hotelParams(query))) as {
       properties?: Array<{ city?: string; country?: string }>;
     };
     logHotelLocationSanity(query, body);
     return body;
   },
 
-  hotelsAutocomplete(query: HotelAutocompleteQuery): Promise<unknown> {
-    return callSearchApi(autocompleteParams(query));
+  hotelsAutocomplete(apiKey: string, query: HotelAutocompleteQuery): Promise<unknown> {
+    return callSearchApi(apiKey, autocompleteParams(query));
+  },
+
+  /**
+   * Validate a SearchAPI key with the smallest reasonable request (a hotel
+   * autocomplete query). Returns a discriminated result so the caller can tell
+   * "connected", "invalid key" and "quota exhausted" apart without exposing the
+   * secret itself.
+   */
+  async testConnection(apiKey: string): Promise<{ ok: boolean; reason?: string }> {
+    const url = new URL(env.SEARCHAPI_BASE_URL);
+    url.searchParams.set('api_key', apiKey);
+    url.searchParams.set('engine', ENGINE_HOTELS_AUTOCOMPLETE);
+    url.searchParams.set('q', 'hotel');
+
+    const startedAt = Date.now();
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      logger.warn(
+        { elapsedMs, reason: error instanceof Error ? error.message : String(error), devOnly: !isProduction },
+        'SearchApi test connection could not be completed',
+      );
+      return { ok: false, reason: 'Could not reach SearchAPI.' };
+    }
+
+    if (response.ok) return { ok: true };
+    if (response.status === 429) {
+      return { ok: false, reason: 'quota' };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: false, reason: 'invalid' };
   },
 };

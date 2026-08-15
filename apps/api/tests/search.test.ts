@@ -261,3 +261,187 @@ describe('GET /api/search/hotels/autocomplete', () => {
     fetchMock.mockRestore();
   });
 });
+
+describe('GET/POST/DELETE /api/search/keys', () => {
+  it('requires authentication', async () => {
+    const client = createAuthClient(app);
+    expect((await client.get('/api/search/keys')).status).toBe(401);
+  });
+
+  it('returns no key status initially', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys1@test.in');
+    const response = await client.get('/api/search/keys');
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ hasKey: false, maskedKey: null });
+    expect(typeof response.body.data.serverFallbackAvailable).toBe('boolean');
+  });
+
+  it('saves a key and returns only a masked preview', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys2@test.in');
+    const response = await client.post('/api/search/keys', { apiKey: 'user-secret-key-ABCD' });
+    expect(response.status).toBe(200);
+    expect(response.body.data.hasKey).toBe(true);
+    expect(response.body.data.maskedKey).toContain('••••');
+    expect(response.body.data.maskedKey).toContain('ABCD');
+    expect(response.body.data.maskedKey).not.toContain('user-secret-key');
+  });
+
+  it('never returns the raw secret in status', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys3@test.in');
+    await client.post('/api/search/keys', { apiKey: 'raw-secret-value-12345' });
+    const response = await client.get('/api/search/keys');
+    expect(response.status).toBe(200);
+    const raw = JSON.stringify(response.body);
+    expect(raw).not.toContain('raw-secret-value-12345');
+    // Only a masked tail is ever exposed.
+    expect(response.body.data.maskedKey).toMatch(/^•+2345$/);
+  });
+
+  it('requires a non-empty key on save', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys4@test.in');
+    const response = await client.post('/api/search/keys', { apiKey: '   ' });
+    expect(response.status).toBe(400);
+  });
+
+  it('removes a saved key', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys5@test.in');
+    await client.post('/api/search/keys', { apiKey: 'some-key-to-remove' });
+    expect((await client.get('/api/search/keys')).body.data.hasKey).toBe(true);
+
+    const remove = await client.delete('/api/search/keys');
+    expect(remove.status).toBe(200);
+    expect(remove.body.data.hasKey).toBe(false);
+
+    const after = await client.get('/api/search/keys');
+    expect(after.body.data.hasKey).toBe(false);
+    expect(after.body.data.maskedKey).toBeNull();
+  });
+
+  it('keeps each user key isolated from other users', async () => {
+    const userA = createAuthClient(app);
+    const userB = createAuthClient(app);
+    await owner(userA, 'keysA@test.in');
+    await owner(userB, 'keysB@test.in');
+
+    await userA.post('/api/search/keys', { apiKey: 'user-A-only-secret' });
+    expect((await userA.get('/api/search/keys')).body.data.hasKey).toBe(true);
+    // User B sees no key.
+    expect((await userB.get('/api/search/keys')).body.data.hasKey).toBe(false);
+    const rawB = JSON.stringify((await userB.get('/api/search/keys')).body);
+    expect(rawB).not.toContain('user-A-only-secret');
+  });
+
+  it('uses the user saved key in preference to the server fallback for searches', async () => {
+    // Server fallback key is available in tests; a saved user key must win.
+    const client = createAuthClient(app);
+    await owner(client, 'keysprec@test.in');
+    await client.post('/api/search/keys', { apiKey: 'user-key-precedence' });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(hotelFixture), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const destination = encodeURIComponent(
+      JSON.stringify({ displayName: 'Delhi', searchQuery: 'Hotels in Delhi, India' }),
+    );
+    const response = await client.get(
+      `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05`,
+    );
+    expect(response.status).toBe(200);
+    const calledUrl = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(calledUrl.href).toContain('api_key=user-key-precedence');
+    fetchMock.mockRestore();
+  });
+
+  it('falls back to the server key when the user has no saved key', async () => {
+    // In the test environment a server fallback key is configured, so a user
+    // without a personal key should still search using the server key.
+    const client = createAuthClient(app);
+    await owner(client, 'keysfallback@test.in');
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(hotelFixture), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const destination = encodeURIComponent(
+      JSON.stringify({ displayName: 'Delhi', searchQuery: 'Hotels in Delhi, India' }),
+    );
+    const response = await client.get(
+      `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05`,
+    );
+    expect(response.status).toBe(200);
+    // A key is sent (the server fallback), never blank.
+    const calledUrl = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(calledUrl.href).toContain('api_key=');
+    expect(calledUrl.href).not.toContain('api_key=&');
+    fetchMock.mockRestore();
+  });
+
+  it('maps a SearchAPI 429 to an isolated quota error without affecting other endpoints', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys429@test.in');
+    await client.post('/api/search/keys', { apiKey: 'quota-user-key' });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'quota' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const destination = encodeURIComponent(
+      JSON.stringify({ displayName: 'Delhi', searchQuery: 'Hotels in Delhi, India' }),
+    );
+    const response = await client.get(
+      `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05`,
+    );
+    expect(response.status).toBe(503);
+    expect(response.body.error.message).toContain('quota');
+    fetchMock.mockRestore();
+
+    // Other CRM endpoints still work.
+    const me = await client.get('/api/auth/me');
+    expect(me.status).toBe(200);
+  });
+});
+
+describe('Live Search coexistence with quotation creation', () => {
+  it('quotation creation still works with the Search module mounted', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'coexist@test.in');
+
+    // Create a lead via the normal CRM flow.
+    const leadResponse = await client.post('/api/queries', {
+      customerName: 'Coexist Customer',
+      phone: '+91 90000 90000',
+      leadSource: 'REFERRAL',
+      leadType: 'WARM',
+      leadStage: 'NEW_LEAD',
+      priority: 'MEDIUM',
+      rooms: 1,
+      adults: 2,
+      childrenWithBed: 0,
+      childrenWithoutBed: 0,
+      infants: 0,
+      extraBeds: 0,
+      currency: 'INR',
+      services: ['HOTEL'],
+      itinerary: [{ country: 'India', destination: 'Goa', nights: 2, sequence: 1 }],
+    });
+    expect(leadResponse.status).toBe(201);
+    const leadId = leadResponse.body.data.id as string;
+
+    // Create a quotation from that lead — the same flow reported as broken.
+    const quotation = await client.post('/api/quotations', { queryId: leadId });
+    expect(quotation.status).toBe(201);
+    expect(quotation.body.data.quotationNumber).toBeTruthy();
+  });
+});

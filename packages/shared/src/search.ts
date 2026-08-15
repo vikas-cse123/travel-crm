@@ -300,3 +300,18 @@ export interface SearchApiMetadata {
   html_url?: string;
   json_url?: string;
 }
+
+/** Live Search key status for the current user (masked preview only). */
+export interface LiveSearchKeyStatus {
+  hasKey: boolean;
+  /** Masked preview, e.g. "••••••••••••••abcd". Never the full key. */
+  maskedKey: string | null;
+  /** Whether a server-level SEARCHAPI_API_KEY fallback is configured. */
+  serverFallbackAvailable: boolean;
+}
+
+/** Result of the Test connection action. */
+export interface LiveSearchTestResult {
+  connected: boolean;
+  reason?: 'invalid' | 'quota';
+}

@@ -1,8 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FlightSearchResponse,
   HotelAutocompleteResponse,
   HotelSearchResponse,
+  LiveSearchKeyStatus,
+  LiveSearchTestResult,
 } from '@interscale/shared';
 import { apiClient } from '@/api/client';
 
@@ -25,6 +27,7 @@ export const searchKeys = {
   hotels: (params: unknown) => ['search', 'hotels', params] as const,
   hotelPage: (params: unknown, page: number) => ['search', 'hotels', params, 'page', page] as const,
   hotelAutocomplete: (q: string) => ['search', 'hotels', 'autocomplete', q] as const,
+  keyStatus: ['search', 'keys', 'status'] as const,
 };
 
 export interface FlightSearchParams {
@@ -177,5 +180,49 @@ export function useHotelAutocomplete(q: string) {
     enabled,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Per-user SearchAPI key management
+// ---------------------------------------------------------------------------
+
+/** The current user's saved Live Search key status (masked preview). */
+export function useSearchApiKeyStatus() {
+  return useQuery({
+    queryKey: searchKeys.keyStatus,
+    queryFn: ({ signal }) => apiClient.get<LiveSearchKeyStatus>('/search/keys', signal),
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Save or replace the current user's SearchAPI key. */
+export function useSaveSearchApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (apiKey: string) =>
+      apiClient.post<LiveSearchKeyStatus>('/search/keys', { apiKey }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(searchKeys.keyStatus, result);
+    },
+  });
+}
+
+/** Remove the current user's SearchAPI key. */
+export function useRemoveSearchApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.delete<LiveSearchKeyStatus>('/search/keys'),
+    onSuccess: (result) => {
+      queryClient.setQueryData(searchKeys.keyStatus, result);
+    },
+  });
+}
+
+/** Test the provided (or saved) SearchAPI key without exposing it. */
+export function useTestSearchApiKey() {
+  return useMutation({
+    mutationFn: (apiKey: string | null) =>
+      apiClient.post<LiveSearchTestResult>('/search/keys/test', { apiKey: apiKey ?? undefined }),
   });
 }

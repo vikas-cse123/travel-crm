@@ -1171,6 +1171,12 @@ model User {
   /// Forces a password change on next sign-in (admin-created accounts).
   mustChangePassword Boolean @default(false)
 
+  /// Per-user SearchAPI.io key for Live Search, encrypted at rest with the
+  /// shared data-encryption key (AES-256-GCM). User-specific so each agent can
+  /// bring their own key; never returned to the client in plaintext.
+  searchApiKeyEncrypted String?  @db.Text
+  searchApiKeyKeyVersion String? @db.VarChar(30)
+
   /// Brute-force controls, reset on every successful login.
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?

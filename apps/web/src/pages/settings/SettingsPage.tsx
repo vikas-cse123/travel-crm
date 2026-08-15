@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Eye, EyeOff, X } from 'lucide-react';
 import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import { formatDateTime12Hour } from '@/utils/dateTime';
+import {
+  useRemoveSearchApiKey,
+  useSaveSearchApiKey,
+  useSearchApiKeyStatus,
+  useTestSearchApiKey,
+} from '@/features/search/search.api';
 import {
   useCheckCustomDomain,
   useCustomDomain,
@@ -46,6 +52,7 @@ const TABS = [
   ...(SHOW_DEFAULT_TERMS_SETTINGS ? ([['terms', 'Default Terms']] as const) : []),
   ['custom-domain', 'Custom Domain'],
   ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
+  ['live-search', 'Live Search'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -889,6 +896,147 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
   );
 }
 
+/** Live Search settings: the user's own SearchAPI key (masked, never returned). */
+function LiveSearchKeyTab() {
+  const status = useSearchApiKeyStatus();
+  const save = useSaveSearchApiKey();
+  const remove = useRemoveSearchApiKey();
+  const test = useTestSearchApiKey();
+  const [keyInput, setKeyInput] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null);
+
+  const applyMessage = (tone: 'ok' | 'error' | 'info', text: string) => setMessage({ tone, text });
+
+  const onSave = () => {
+    if (!keyInput.trim()) {
+      applyMessage('error', 'Enter a SearchAPI API key to save.');
+      return;
+    }
+    save.mutate(keyInput.trim(), {
+      onSuccess: () => {
+        setKeyInput('');
+        setShowKey(false);
+        applyMessage('ok', 'API key saved.');
+      },
+      onError: (error) =>
+        applyMessage('error', error instanceof Error ? error.message : 'Could not save the key.'),
+    });
+  };
+
+  const onRemove = () => {
+    remove.mutate(undefined, {
+      onSuccess: () => {
+        setKeyInput('');
+        setShowKey(false);
+        applyMessage('ok', 'API key removed.');
+      },
+      onError: () => applyMessage('error', 'Could not remove the key.'),
+    });
+  };
+
+  const onTest = () => {
+    // Test the typed key if present, otherwise the saved key.
+    test.mutate(keyInput.trim() || null, {
+      onSuccess: (result) => {
+        if (result.connected) applyMessage('ok', 'API key connected successfully');
+        else if (result.reason === 'quota') applyMessage('error', 'SearchAPI monthly quota exhausted');
+        else applyMessage('error', 'Invalid SearchAPI key');
+      },
+      onError: () => applyMessage('error', 'Could not test the key.'),
+    });
+  };
+
+  if (status.isLoading) return <div className="h-32 animate-pulse rounded-xl bg-card" />;
+
+  const masked = status.data?.maskedKey ?? null;
+  const hasKey = Boolean(masked);
+  const fallbackAvailable = status.data?.serverFallbackAvailable ?? false;
+
+  return (
+    <section className={card}>
+      <div>
+        <h2 className="font-semibold">Live Search</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Live hotel &amp; flight search uses SearchAPI. You can use your own SearchAPI API key
+          instead of the shared one. Keys are encrypted and never shown back to you.
+        </p>
+      </div>
+
+      {hasKey && (
+        <div className="rounded-lg bg-slate-50 p-3 text-sm">
+          <p className="font-medium">Saved key</p>
+          <p className="text-slate-600">{masked}</p>
+        </div>
+      )}
+
+      <div className="space-y-3 border-t pt-4">
+        <p className="text-sm font-medium">{hasKey ? 'Replace your key' : 'Add your SearchAPI API key'}</p>
+        <Field label="SearchAPI API Key">
+          <div className="relative">
+            <input
+              aria-label="SearchAPI API key"
+              type={showKey ? 'text' : 'password'}
+              className={`${input} pr-10`}
+              autoComplete="new-password"
+              placeholder="sk-…"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+            />
+            <button
+              type="button"
+              aria-label={showKey ? 'Hide key' : 'Show key'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setShowKey((v) => !v)}
+            >
+              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </Field>
+
+        {!hasKey && fallbackAvailable && (
+          <p className="text-xs text-slate-500">
+            No personal key saved — searches will use the shared server key until you add one.
+          </p>
+        )}
+        {!hasKey && !fallbackAvailable && (
+          <p className="text-xs text-amber-700">
+            Add your SearchAPI key to use Live Search.
+          </p>
+        )}
+
+        {message && (
+          <div
+            className={`rounded-lg px-3 py-2 text-sm ${
+              message.tone === 'ok'
+                ? 'bg-emerald-50 text-emerald-700'
+                : message.tone === 'error'
+                  ? 'bg-red-50 text-red-700'
+                  : 'bg-slate-50 text-slate-600'
+            }`}
+          >
+            {message.text}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={onSave} isLoading={save.isPending}>
+            Save
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onTest} isLoading={test.isPending}>
+            Test connection
+          </Button>
+          {hasKey && (
+            <Button size="sm" variant="danger" onClick={onRemove} isLoading={remove.isPending}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const settings = useSettings();
   const [tab, setTab] = useState<TabKey>('profile');
@@ -938,6 +1086,7 @@ export function SettingsPage() {
       {SHOW_BANK_ACCOUNT_SETTINGS && tab === 'bank' && (
         <BankTab data={data} canUpdate={canUpdate} />
       )}
+      {tab === 'live-search' && <LiveSearchKeyTab />}
     </div>
   );
 }

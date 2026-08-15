@@ -341,4 +341,98 @@ describe('Phase 18 settings page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Custom Domain' }));
     expect(await screen.findByRole('button', { name: 'Add Custom Domain' })).toBeInTheDocument();
   });
+
+  it('shows a masked saved key in the Live Search tab and saves a new one', async () => {
+    const calls: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      calls.push(url);
+      const method = options?.method ?? 'GET';
+      if (url.includes('/api/search/keys') && method === 'GET') {
+        return response({ hasKey: true, maskedKey: '••••••••abcd', serverFallbackAvailable: true });
+      }
+      if (url.includes('/api/search/keys') && method === 'POST') {
+        return response({ hasKey: true, maskedKey: '••••••••wxyz' });
+      }
+      if (url.includes('/api/search/keys') && method === 'DELETE') {
+        return response({ hasKey: false, maskedKey: null });
+      }
+      return response(settings());
+    });
+    vi.stubGlobal('fetch', mock);
+
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Live Search' }));
+
+    // Saved key is masked, full secret never shown.
+    expect(await screen.findByText('••••••••abcd')).toBeInTheDocument();
+    expect(screen.queryByText(/sk-[a-zA-Z0-9]{20,}/)).not.toBeInTheDocument();
+
+    // Input is a secret field with a show/hide toggle.
+    const keyInput = screen.getByLabelText('SearchAPI API key');
+    expect(keyInput).toHaveAttribute('type', 'password');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show key' }));
+    expect(keyInput).toHaveAttribute('type', 'text');
+    await userEvent.click(screen.getByRole('button', { name: 'Hide key' }));
+    expect(keyInput).toHaveAttribute('type', 'password');
+
+    // Save a new key.
+    await userEvent.type(keyInput, 'sk-new-secret-key');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByText('API key saved.')).toBeInTheDocument());
+
+    const saveCall = calls.find((u) => u.includes('/api/search/keys') && u.endsWith('/keys'));
+    expect(saveCall).toBeTruthy();
+    // The secret must be in the request body, never in the URL/query string.
+    expect(calls.some((u) => u.includes('sk-new-secret-key'))).toBe(false);
+  });
+
+  it('removes the saved key and shows the add prompt when no server fallback exists', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = options?.method ?? 'GET';
+      if (url.includes('/api/search/keys') && method === 'GET') {
+        return response({ hasKey: true, maskedKey: '••••••••abcd', serverFallbackAvailable: false });
+      }
+      if (url.includes('/api/search/keys') && method === 'DELETE') {
+        return response({ hasKey: false, maskedKey: null });
+      }
+      return response(settings());
+    });
+    vi.stubGlobal('fetch', mock);
+
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Live Search' }));
+    await screen.findByText('••••••••abcd');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(screen.getByText('API key removed.')).toBeInTheDocument());
+    expect(screen.getByText('Add your SearchAPI key to use Live Search.')).toBeInTheDocument();
+  });
+
+  it('surfaces test-connection outcomes without revealing the key', async () => {
+    const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = options?.method ?? 'GET';
+      if (url.includes('/api/search/keys/test')) {
+        return response({ connected: false, reason: 'invalid' });
+      }
+      if (url.includes('/api/search/keys') && method === 'GET') {
+        return response({ hasKey: false, maskedKey: null, serverFallbackAvailable: false });
+      }
+      return response(settings());
+    });
+    vi.stubGlobal('fetch', mock);
+
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Live Search' }));
+
+    await userEvent.type(screen.getByLabelText('SearchAPI API key'), 'sk-invalid');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(screen.getByText('Invalid SearchAPI key')).toBeInTheDocument());
+  });
 });
