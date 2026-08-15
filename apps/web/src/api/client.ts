@@ -94,7 +94,16 @@ function looksInternal(message: string): boolean {
 function safeApiMessage(message: string | undefined, status: number, code: string): string {
   const trimmed = message?.trim();
   if (!trimmed) return friendlyMessageForStatus(status);
-  if (code === ERROR_CODES.INTERNAL_ERROR || status >= 500 || looksInternal(trimmed)) {
+  // Internal errors and anything that smells like a stack trace, Prisma error
+  // or file path stay masked. Deliberate operational errors — e.g. a 503
+  // SERVICE_UNAVAILABLE explaining that live search is not configured — carry
+  // a safe, curated message from the server and should reach the user so they
+  // know what to fix instead of seeing the generic fallback.
+  if (
+    code === ERROR_CODES.INTERNAL_ERROR ||
+    (status >= 500 && code !== ERROR_CODES.SERVICE_UNAVAILABLE) ||
+    looksInternal(trimmed)
+  ) {
     return friendlyMessageForStatus(status);
   }
   return trimmed;

@@ -116,9 +116,9 @@ describe('SystemStatusPage', () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Something went wrong. Please try again.',
-      );
+      // A curated 503 SERVICE_UNAVAILABLE message reaches the user instead of
+      // being masked behind the generic server-error fallback.
+      expect(screen.getByRole('alert')).toHaveTextContent('Database is unreachable.');
     });
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });

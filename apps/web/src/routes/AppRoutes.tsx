@@ -92,6 +92,7 @@ import { TestimonialsPage } from '@/pages/masters/TestimonialsPage';
 import { TestimonialDetailsPage } from '@/pages/masters/TestimonialDetailsPage';
 import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
 import { HiddenGlobalRecordsPage } from '@/pages/masters/HiddenGlobalRecordsPage';
+import { TravelSearchPage } from '@/pages/search/TravelSearchPage';
 
 /**
  * Route table.
@@ -157,6 +158,7 @@ export function AppRoutes() {
           />
           {/* Retained from Phase 1 for infrastructure checks. */}
           <Route path="/system-status" element={<SystemStatusPage />} />
+          <Route path="/travel-search" element={<TravelSearchPage />} />
           <Route
             path="/queries"
             element={

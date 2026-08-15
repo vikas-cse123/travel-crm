@@ -145,6 +145,22 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: intWithDefault(300),
 
   /**
+   * Live hotel & flight search powered by SearchApi (searchapi.io). The key is
+   * only used server-side — the browser never sees it. Without a key the live
+   * search endpoints respond 503.
+   *
+   * `.env` carries an empty SEARCHAPI_API_KEY= by default; an empty string must
+   * be treated the same as "unset" so the API boots and auth keeps working even
+   * when live search is not configured.
+   */
+  SEARCHAPI_API_KEY: z
+    .preprocess((value) => (value === '' ? undefined : value), z.string().min(1).optional()),
+  SEARCHAPI_BASE_URL: z
+    .string()
+    .url()
+    .default('https://www.searchapi.io/api/v1/search'),
+
+  /**
    * System Global Masters bootstrap credentials. Read ONLY by the
    * `bootstrap:system-masters` command and never echoed to logs or responses.
    * Optional here because the running API must boot without them; the

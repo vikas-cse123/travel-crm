@@ -20,6 +20,7 @@ import {
   NotebookText,
   PackagePlus,
   Plane,
+  Search,
   Settings,
   Settings2,
   ShieldCheck,
@@ -178,6 +179,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
         section: NAV_SECTION.WORKSPACE,
       },
     ],
+  },
+  {
+    label: 'Live Search',
+    to: '/travel-search',
+    icon: Search,
+    available: true,
+    section: NAV_SECTION.WORKSPACE,
+    matchPaths: ['/travel-search'],
   },
 
   // -------------------------------------------------------------------------

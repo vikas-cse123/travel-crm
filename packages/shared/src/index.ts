@@ -31,3 +31,4 @@ export * from './dashboard.js';
 export * from './settings.js';
 export * from './reports.js';
 export * from './system-masters.js';
+export * from './search.js';
