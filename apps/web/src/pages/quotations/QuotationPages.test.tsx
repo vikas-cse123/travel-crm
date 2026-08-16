@@ -15291,8 +15291,8 @@ describe('Generate PDF button — real request, open, loading and error states',
     await screen.findByText('Version 1');
     await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
     expect(screen.getByRole('dialog', { name: 'Choose PDF style' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Stylish PDF/ })).toBeDisabled();
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Stylish PDF/ })).toBeEnabled();
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Classic PDF/ }));
     await waitFor(() =>
       expect(tab.location.replace).toHaveBeenCalledWith('https://files.example.test/quotation.pdf'),
@@ -15306,24 +15306,39 @@ describe('Generate PDF button — real request, open, loading and error states',
     expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank');
   });
 
-  it('shows Stylish PDF as coming soon and does not open its generation flow', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).endsWith('/weblink-analytics')
-        ? response({ totalViews: 0, externalViews: 0, homeIpViews: 0, uniqueIps: 0, entries: [] })
-        : response(detail),
-    );
+  it('opens the Stylish PDF cover flow and generates with the destination image', async () => {
+    const tab = pdfTab();
+    vi.spyOn(window, 'open').mockReturnValue(tab);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _options?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/generate-pdf'))
+        return response({ id: 'doc-stylish', fileName: 'stylish-quotation.pdf' });
+      if (url.includes('/download-url'))
+        return response({ url: 'https://files.example.test/stylish-quotation.pdf' });
+      if (url.endsWith('/weblink-analytics'))
+        return response({ totalViews: 0, externalViews: 0, homeIpViews: 0, uniqueIps: 0, entries: [] });
+      return response(detail);
+    });
     vi.stubGlobal('fetch', fetchMock);
     renderDetails();
     await screen.findByText('Version 1');
     await userEvent.click(screen.getByRole('button', { name: 'Generate PDF' }));
     const stylish = screen.getByRole('button', { name: /Stylish PDF/ });
-    expect(stylish).toBeDisabled();
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
     await userEvent.click(stylish);
-    expect(
-      screen.queryByRole('dialog', { name: 'Choose first-page image' }),
-    ).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/generate-pdf'))).toBe(false);
+    expect(screen.getByRole('dialog', { name: 'Choose first-page image' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Use destination image/ })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Generate Stylish PDF' }));
+    await waitFor(() =>
+      expect(tab.location.replace).toHaveBeenCalledWith(
+        'https://files.example.test/stylish-quotation.pdf',
+      ),
+    );
+    const genCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/generate-pdf'));
+    expect(JSON.parse(String(genCall![1]?.body))).toMatchObject({
+      force: true,
+      style: 'STYLISH',
+      coverSource: 'DESTINATION',
+    });
   });
 
   it('closes the temporary tab and shows an error when generation fails', async () => {

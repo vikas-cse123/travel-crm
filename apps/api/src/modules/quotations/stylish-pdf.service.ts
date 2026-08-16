@@ -1,4 +1,7 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
+import sharp from 'sharp';
 import { stripItineraryDayPrefixes } from '@interscale/shared';
 import { colorEmojiPng } from '../../services/pdf/color-emojis.js';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
@@ -26,6 +29,47 @@ const MUTED = '#687487';
 const LINE = '#d7e0ec';
 const PALE = '#f3f6fa';
 const PALE_BLUE = '#eaf0f8';
+
+const PAGE_HEADER_ASSET = [
+  resolve(process.cwd(), 'apps/api/src/assets/stylish-pdf-page-header.png'),
+  resolve(process.cwd(), 'src/assets/stylish-pdf-page-header.png'),
+].find((path) => existsSync(path));
+const PAGE_HEADER_IMAGE = PAGE_HEADER_ASSET ? readFileSync(PAGE_HEADER_ASSET) : null;
+
+const loadStylishServiceIcon = (name: string): Buffer | null => {
+  const path = [
+    resolve(process.cwd(), `apps/api/src/assets/stylish-services/${name}.png`),
+    resolve(process.cwd(), `src/assets/stylish-services/${name}.png`),
+  ].find((candidate) => existsSync(candidate));
+  return path ? readFileSync(path) : null;
+};
+
+const STYLISH_SERVICE_ICONS = {
+  Flights: loadStylishServiceIcon('flights'),
+  Hotels: loadStylishServiceIcon('hotels'),
+  Tours: loadStylishServiceIcon('tours'),
+  Transport: loadStylishServiceIcon('transport'),
+  Cruise: loadStylishServiceIcon('cruise'),
+  'Add-ons': loadStylishServiceIcon('add-ons'),
+} as const;
+
+const loadStylishOverviewIcon = (name: string): Buffer | null => {
+  const path = [
+    resolve(process.cwd(), `apps/api/src/assets/stylish-overview/${name}.png`),
+    resolve(process.cwd(), `src/assets/stylish-overview/${name}.png`),
+  ].find((candidate) => existsSync(candidate));
+  return path ? readFileSync(path) : null;
+};
+
+const STYLISH_OVERVIEW_ICONS = {
+  destination: loadStylishOverviewIcon('destination'),
+  guest: loadStylishOverviewIcon('guest'),
+  duration: loadStylishOverviewIcon('duration'),
+  travelDate: loadStylishOverviewIcon('travel-date'),
+  travelers: loadStylishOverviewIcon('travelers'),
+  pricePerson: loadStylishOverviewIcon('price-person'),
+  payment: loadStylishOverviewIcon('payment'),
+} as const;
 
 type FlightSegment = {
   airlineId?: string | null;
@@ -102,6 +146,40 @@ type SightDay = {
 
 type PdfImage = Buffer | null | undefined;
 
+const prepareStylishLogo = async (value: Buffer): Promise<Buffer> => {
+  try {
+    const { data, info } = await sharp(value)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const background = { r: data[0] ?? 0, g: data[1] ?? 0, b: data[2] ?? 0 };
+    const purpleBackground =
+      background.b > background.r &&
+      background.r > background.g * 1.35 &&
+      background.b > background.g * 1.7;
+    if (!purpleBackground || info.channels !== 4) return value;
+
+    for (let index = 0; index < data.length; index += 4) {
+      const distance = Math.hypot(
+        (data[index] ?? 0) - background.r,
+        (data[index + 1] ?? 0) - background.g,
+        (data[index + 2] ?? 0) - background.b,
+      );
+      if (distance < 48) data[index + 3] = 0;
+      else if (distance < 78) data[index + 3] = Math.round(((distance - 48) / 30) * 255);
+    }
+
+    return await sharp(data, {
+      raw: { width: info.width, height: info.height, channels: 4 },
+    })
+      .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 8 })
+      .png()
+      .toBuffer();
+  } catch {
+    return value;
+  }
+};
+
 const clean = (value: unknown): string => String(value ?? '').trim();
 
 const asNumber = (value: unknown): number => {
@@ -163,7 +241,8 @@ const serviceLabel = (value: string): string =>
     HOTEL: 'Hotels',
     SIGHTSEEING: 'Tours',
     TRANSFER: 'Transport',
-    VEHICLE: 'Vehicle',
+    VEHICLE: 'Transport',
+    VEHICLE_TRANSFER: 'Transport',
     CRUISE: 'Cruise',
     VISA: 'Visa',
     ADD_ON: 'Add-ons',
@@ -201,6 +280,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
 
   const company = input.company;
   const consultant = input.consultant;
+  const styledLogo = company?.logo ? await prepareStylishLogo(company.logo) : null;
   const numberedPages: number[] = [];
   let y = 0;
 
@@ -295,77 +375,18 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     drawDiamond(W - M, top, 5, color);
   };
 
-  const decorativeImages: Buffer[] = [
-    input.images?.cover,
-    ...(input.images?.hotels ?? []),
-    ...(input.images?.services ?? []),
-    ...Object.values(input.images?.itinerary ?? {}),
-    ...Object.values(input.images?.sightseeing ?? {}),
-  ].filter((value): value is Buffer => Buffer.isBuffer(value));
-
-  const drawPolaroid = (
-    value: PdfImage,
-    centerX: number,
-    centerY: number,
-    width: number,
-    height: number,
-    angle: number,
-    fallback: string,
-  ) => {
-    doc.save().translate(centerX, centerY).rotate(angle);
-    doc.rect(-width / 2, -height / 2, width, height).fill('#ffffff');
-    if (!drawImage(value, -width / 2 + 3, -height / 2 + 3, width - 6, height - 10, 'contain')) {
-      doc.rect(-width / 2 + 3, -height / 2 + 3, width - 6, height - 10).fill('#d5e4ee');
-      doc
-        .font('Bold')
-        .fontSize(12)
-        .fillColor(NAVY)
-        .text(fallback, -width / 2 + 3, -2, {
-          width: width - 6,
-          align: 'center',
-        });
-    }
-    doc.restore();
-  };
-
-  const drawSprig = (x: number, top: number, direction = 1) => {
-    doc.save().lineWidth(0.7).strokeColor('#caa52b');
-    doc
-      .moveTo(x, top + 24)
-      .lineTo(x + direction * 10, top)
-      .stroke();
-    for (let index = 0; index < 4; index += 1) {
-      const yy = top + 5 + index * 5;
-      const xx = x + direction * (8 - index * 1.6);
-      doc.circle(xx, yy, 1.8).fill('#e3b624');
-    }
-    doc.restore();
-  };
-
   const pageHeader = () => {
-    doc.rect(0, 0, W, 70).fill('#f7f1e7');
-    doc.save().fillColor('#76b1c1').fillOpacity(0.95);
-    doc.path('M0 28 C34 22 44 42 83 46 C115 50 140 57 177 70 L0 70 Z').fill();
+    if (!drawImage(PAGE_HEADER_IMAGE, 0, 0, W, 71.3, 'contain')) {
+      doc.rect(0, 0, W, 71.3).fill('#f7f1e7');
+    }
     doc
-      .path(
-        `M${W} 0 L${W} 70 L${W - 170} 70 C${W - 135} 50 ${W - 95} 51 ${W - 72} 29 C${W - 47} 6 ${W - 22} 12 ${W} 0 Z`,
-      )
-      .fill();
-    doc.restore();
-    drawSprig(30, 30, 1);
-    drawSprig(W - 30, 30, -1);
-    drawPolaroid(decorativeImages[1] ?? decorativeImages[0], 76, 32, 39, 48, -7, '✈');
-    drawPolaroid(decorativeImages[2] ?? decorativeImages[0], 112, 42, 36, 43, 4, '▣');
-    drawPolaroid(decorativeImages[3] ?? decorativeImages[0], W - 102, 40, 38, 44, -5, '◆');
-    drawPolaroid(decorativeImages[4] ?? decorativeImages[0], W - 65, 31, 39, 48, 6, '★');
-    doc
-      .font('Times-Roman')
+      .font('Times-BoldItalic')
       .fontSize(11)
       .fillColor('#1c58bc')
-      .text((company?.name ?? 'TRAVEL COMPANY').toUpperCase(), 155, 31, {
-        width: W - 310,
+      .text((company?.name ?? 'TRAVEL COMPANY').toUpperCase(), 165, 30, {
+        width: W - 330,
         align: 'center',
-        characterSpacing: 2.1,
+        characterSpacing: 2.3,
         lineBreak: false,
       });
   };
@@ -378,7 +399,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .lineWidth(0.7)
       .strokeColor('#8ebdff')
       .stroke();
-    if (company?.logo) drawImage(company.logo, 46, top + 12, 42, 38, 'contain');
+    if (styledLogo) drawImage(styledLogo, 46, top + 12, 42, 38, 'contain');
     else {
       doc
         .font('Bold')
@@ -421,7 +442,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     for (const column of columns) {
       doc
         .font('Body')
-        .fontSize(5.5)
+        .fontSize(7)
         .fillColor(TEAL)
         .text(column.title, column.x, top + 13, {
           width: 130,
@@ -429,7 +450,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         });
       doc
         .font('Body')
-        .fontSize(4.9)
+        .fontSize(6.5)
         .fillColor(INK)
         .text(column.rows.filter(Boolean).join('\n'), column.x, top + 26, {
           width: 135,
@@ -438,7 +459,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     }
     doc
       .font('Body')
-      .fontSize(4.8)
+      .fontSize(6.2)
       .fillColor(MUTED)
       .text(`Page ${pageIndex + 1} of ${pageCount}`, W - M - 70, 823, {
         width: 70,
@@ -481,6 +502,19 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   const drawEmoji = (emoji: string, x: number, top: number, size: number): boolean => {
     const png = colorEmojiPng(emoji);
     return png ? drawImage(png, x, top, size, size, 'contain') : false;
+  };
+
+  const drawCoverServiceIcon = (label: string, centerX: number, centerY: number) => {
+    const normalized =
+      label === 'Flights' ||
+      label === 'Hotels' ||
+      label === 'Tours' ||
+      label === 'Transport' ||
+      label === 'Cruise'
+        ? label
+        : 'Add-ons';
+    const icon = STYLISH_SERVICE_ICONS[normalized];
+    return drawImage(icon, centerX - 12.7, centerY - 12.7, 25.4, 25.4, 'contain');
   };
 
   const drawRichLines = (
@@ -547,7 +581,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   doc.addPage({ size: [W, H], margin: 0 });
   if (!drawImage(input.images?.cover, 0, 0, W, H)) doc.rect(0, 0, W, H).fill(NAVY_DARK);
   doc.save().rect(0, 0, W, H).fillOpacity(0.15).fill(NAVY_DARK).restore();
-  if (company?.logo) drawImage(company.logo, W / 2 - 45, 36, 90, 82, 'contain');
+  if (styledLogo) drawImage(styledLogo, W / 2 - 45, 36, 90, 82, 'contain');
   else {
     doc
       .font('Bold')
@@ -558,13 +592,13 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         align: 'center',
       });
   }
-  doc.font('Body').fontSize(15).fillColor('#ffffff').text(input.version.title, M, 319, {
+  doc.font('Helvetica').fontSize(24).fillColor('#ffffff').text(input.version.title, M, 319, {
     width: CONTENT_W,
     align: 'center',
   });
   doc
-    .font('Body')
-    .fontSize(7)
+    .font('Helvetica')
+    .fontSize(12)
     .fillColor('#ffffff')
     .text(
       (input.quotation.destinations || input.quotation.destinationSummary).toUpperCase(),
@@ -572,16 +606,22 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       356,
       { width: CONTENT_W, align: 'center', characterSpacing: 0.9 },
     );
+  const servicesHeading = 'SERVICES INCLUDE';
   doc
-    .moveTo(W / 2 - 112, 386)
-    .lineTo(W / 2 + 112, 386)
-    .lineWidth(0.7)
+    .save()
+    .moveTo(183.6, 487.4)
+    .lineTo(240.2, 487.4)
+    .moveTo(354.3, 487.4)
+    .lineTo(410.9, 487.4)
+    .lineWidth(0.85)
+    .strokeOpacity(0.4)
     .strokeColor('#ffffff')
-    .stroke();
-  doc.font('Bold').fontSize(5.2).fillColor('#ffffff').text('SERVICES INCLUDE', M, 407, {
+    .stroke()
+    .restore();
+  doc.font('Bold').fontSize(5).fillColor('#ffffff').text(servicesHeading, M, 483.5, {
     width: CONTENT_W,
     align: 'center',
-    characterSpacing: 2,
+    characterSpacing: 1.5,
   });
   const selectedServices = [
     ...new Set([
@@ -590,37 +630,45 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       ...(input.version.sightseeingDetails ? ['Tours'] : []),
       ...input.version.services.map((service) => serviceLabel(service.serviceType)),
     ]),
-  ].slice(0, 5);
-  const coverIcons = ['✈️', '🏨', '🌍', '🚌', '⭐'];
+  ]
+    .map((label) =>
+      label === 'Flights' ||
+      label === 'Hotels' ||
+      label === 'Tours' ||
+      label === 'Transport' ||
+      label === 'Cruise'
+        ? label
+        : 'Add-ons',
+    )
+    .filter((label, index, labels) => labels.indexOf(label) === index)
+    .sort(
+      (left, right) =>
+        ['Flights', 'Hotels', 'Tours', 'Transport', 'Cruise', 'Add-ons'].indexOf(left) -
+        ['Flights', 'Hotels', 'Tours', 'Transport', 'Cruise', 'Add-ons'].indexOf(right),
+    )
+    .slice(0, 6);
   const iconSpace = 68;
-  const iconStart = (W - selectedServices.length * iconSpace) / 2 + iconSpace / 2;
+  const iconStart = (W - (selectedServices.length - 1) * iconSpace) / 2;
   selectedServices.forEach((label, index) => {
     const center = iconStart + index * iconSpace;
     doc
       .save()
-      .circle(center, 455, 18)
-      .lineWidth(0.8)
-      .dash(2, { space: 2 })
+      .circle(center, 525.4, 22.7)
+      .lineWidth(1.13)
+      .dash(1.5, { space: 1.2 })
+      .strokeOpacity(0.8)
       .strokeColor('#ffffff')
       .stroke()
       .restore();
-    if (!drawEmoji(coverIcons[index] ?? '⭐', center - 9, 446, 18)) {
-      doc
-        .font('Bold')
-        .fontSize(12)
-        .fillColor(index % 2 ? '#45c7e8' : GOLD)
-        .text('◆', center - 12, 447, {
-          width: 24,
-          align: 'center',
-        });
-    }
+    drawCoverServiceIcon(label, center, 525.4);
     doc
-      .font('Body')
-      .fontSize(5.2)
+      .font('Bold')
+      .fontSize(5.5)
       .fillColor('#ffffff')
-      .text(label, center - 30, 481, {
-        width: 60,
+      .text(label, center - iconSpace / 2, 556.5, {
+        width: iconSpace,
         align: 'center',
+        lineBreak: false,
       });
   });
   doc
@@ -629,7 +677,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     .fillOpacity(0.86)
     .fill('#ffffff')
     .restore();
-  doc.font('Bold').fontSize(4.8).fillColor(INK);
+  doc.font('Bold').fontSize(7).fillColor(INK);
   doc.text(`Consultant: ${consultant?.name ?? company?.name ?? '-'}`, 18, H - 23, { width: 180 });
   doc.text(`Phone: ${consultant?.phone ?? company?.phone ?? '-'}`, 208, H - 23, {
     width: 175,
@@ -644,8 +692,8 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   // Overview ---------------------------------------------------------------
   addContentPage();
   doc
-    .font('Times-Roman')
-    .fontSize(11)
+    .font('Times-Italic')
+    .fontSize(14)
     .fillColor(NAVY)
     .text(
       `A personalized travel experience exclusively designed for ${input.quotation.customerName}`,
@@ -660,13 +708,13 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   doc.restore();
   doc
     .font('Body')
-    .fontSize(7.6)
+    .fontSize(10)
     .fillColor(INK)
     .text(
-      `Dear ${input.quotation.customerName},\n\nGreetings from ${company?.name ?? 'our travel team'}.\n\nOur sales team has prepared this quotation regarding your upcoming trip. Please go through it and let us know if you need any changes in the provided services. You can reach out to us using the contacts below.`,
+      `Dear ${input.quotation.customerName},\n\nGreetings from ${company?.name ?? 'our travel team'}.\n\nOur sales team has put up this quotation regarding your upcoming trip. Please go through it and let us know if you need any changes in the provided services. You can reach out to us using the provided contacts.`,
       25,
       129,
-      { width: W - 50, lineGap: 3.2 },
+      { width: W - 50, lineGap: 4.2 },
     );
 
   const overviewTop = 250;
@@ -674,9 +722,15 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   topRule(overviewTop, TEAL);
   doc
     .font('Body')
-    .fontSize(12)
+    .fontSize(14)
     .fillColor(INK)
     .text('Trip Overview', M + 31, overviewTop + 20);
+  doc
+    .moveTo(M + 29, overviewTop + 47)
+    .lineTo(W - M - 29, overviewTop + 47)
+    .lineWidth(0.55)
+    .strokeColor(LINE)
+    .stroke();
   pill(
     `#${input.quotation.quotationNumber.replace(/\D/g, '').slice(-5) || input.quotation.quotationNumber}`,
     W - M - 108,
@@ -690,10 +744,10 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     },
   );
   const overviewRows = [
-    ['🌍', 'DESTINATION', input.quotation.destinations || input.quotation.destinationSummary, TEAL],
-    ['👥', 'GUEST', input.quotation.customerName, GREEN],
+    [STYLISH_OVERVIEW_ICONS.destination, 'DESTINATION', input.quotation.destinations || input.quotation.destinationSummary, TEAL],
+    [STYLISH_OVERVIEW_ICONS.guest, 'GUEST', input.quotation.customerName, GREEN],
     [
-      '🕘',
+      STYLISH_OVERVIEW_ICONS.duration,
       'DURATION',
       durationLabel(
         input.quotation.durationNights,
@@ -702,9 +756,9 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       ),
       TEAL,
     ],
-    ['📅', 'TRAVEL DATE', date(input.quotation.travelStartDate), '#f29e2e'],
+    [STYLISH_OVERVIEW_ICONS.travelDate, 'TRAVEL DATE', date(input.quotation.travelStartDate), '#f29e2e'],
     [
-      '🧳',
+      STYLISH_OVERVIEW_ICONS.travelers,
       'TRAVELERS',
       [
         `${input.quotation.adults} Adults`,
@@ -717,84 +771,30 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       RED,
     ],
   ] as const;
-  const drawOverviewIcon = (kind: string, left: number, top: number, color: string) => {
-    const x = left + 10;
-    const yy = top + 10;
-    doc.save().lineWidth(1.15).strokeColor(color).fillColor(color);
-    if (kind === 'destination') {
-      doc.circle(x, yy, 9).stroke();
-      doc.ellipse(x, yy, 4.2, 9).stroke();
-      doc
-        .moveTo(x - 8, yy - 3)
-        .lineTo(x + 8, yy - 3)
-        .stroke();
-      doc
-        .moveTo(x - 8, yy + 3)
-        .lineTo(x + 8, yy + 3)
-        .stroke();
-    } else if (kind === 'guest') {
-      doc.circle(x, yy - 4, 3.2).fill();
-      doc.roundedRect(x - 6, yy + 1, 12, 7, 3).fill();
-    } else if (kind === 'duration') {
-      doc.circle(x, yy, 9).stroke();
-      doc
-        .moveTo(x, yy)
-        .lineTo(x, yy - 5)
-        .stroke();
-      doc
-        .moveTo(x, yy)
-        .lineTo(x + 4, yy + 2)
-        .stroke();
-    } else if (kind === 'date') {
-      doc.roundedRect(x - 9, yy - 7, 18, 16, 2).stroke();
-      doc.rect(x - 9, yy - 7, 18, 5).fill(color);
-      doc
-        .moveTo(x - 4, yy + 2)
-        .lineTo(x + 5, yy + 2)
-        .stroke();
-      doc
-        .moveTo(x - 4, yy + 5)
-        .lineTo(x + 3, yy + 5)
-        .stroke();
-    } else {
-      doc.roundedRect(x - 8, yy - 5, 16, 13, 2).stroke();
-      doc.roundedRect(x - 4, yy - 9, 8, 5, 2).stroke();
-      doc
-        .moveTo(x - 8, yy)
-        .lineTo(x + 8, yy)
-        .stroke();
-    }
-    doc.restore();
-  };
-  overviewRows.forEach(([, label, value, color], index) => {
+  overviewRows.forEach(([icon, label, value, color], index) => {
     const column = index % 3;
     const row = Math.floor(index / 3);
     const left = M + 31 + column * 160;
     const top = overviewTop + 63 + row * 57;
-    drawOverviewIcon(
-      ['destination', 'guest', 'duration', 'date', 'travelers'][index] ?? 'travelers',
-      left,
-      top,
-      color,
-    );
+    drawImage(icon, left, top, 20, 20, 'contain');
     doc
       .font('Body')
-      .fontSize(5.2)
+      .fontSize(6.7)
       .fillColor(color)
       .text(label, left + 32, top + 1, { width: 118 });
     doc
       .font('Body')
-      .fontSize(7.1)
+      .fontSize(9.3)
       .fillColor(INK)
       .text(value, left + 32, top + 17, { width: 118, height: 27 });
   });
 
-  const investmentTop = 435;
+  const investmentTop = 432;
   rounded(M, investmentTop, CONTENT_W, 194, '#ffffff', LINE, 10);
   topRule(investmentTop, TEAL);
   doc
     .font('Body')
-    .fontSize(12)
+    .fontSize(14)
     .fillColor(INK)
     .text('Investment Summary', M + 31, investmentTop + 21);
   pill(input.version.currency, W - M - 91, investmentTop + 15, {
@@ -806,7 +806,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   });
   doc
     .moveTo(M + 29, investmentTop + 54)
-    .lineTo(W - M - 195, investmentTop + 54)
+    .lineTo(W - M - 29, investmentTop + 54)
     .lineWidth(0.6)
     .strokeColor(LINE)
     .stroke();
@@ -818,15 +818,16 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   ].filter(([, count]) => asNumber(count) > 0);
   priceRows.forEach(([label, count, value], index) => {
     const rowTop = investmentTop + 65 + index * 25;
-    if (!drawEmoji('👥', M + 29, rowTop - 2, 14)) doc.circle(M + 35, rowTop + 5, 5).fill(TEAL);
+    if (!drawImage(STYLISH_OVERVIEW_ICONS.pricePerson, M + 29, rowTop - 2, 13, 13, 'contain'))
+      doc.circle(M + 35, rowTop + 5, 5).fill(TEAL);
     doc
       .font('Body')
-      .fontSize(7)
+      .fontSize(9)
       .fillColor(MUTED)
       .text(`${label} (x${count})`, M + 51, rowTop, { width: 175 });
     doc
       .font('Body')
-      .fontSize(7)
+      .fontSize(9.5)
       .fillColor(INK)
       .text(money(value, input.version.currency), M + 225, rowTop, { width: 70, align: 'right' });
     doc
@@ -836,46 +837,50 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .strokeColor(LINE)
       .stroke();
   });
-  rounded(W - M - 176, investmentTop + 56, 153, 121, TEAL, TEAL, 17);
+  const totalBoxX = W - M - 198;
+  rounded(totalBoxX, investmentTop + 50, 176, 121, TEAL, TEAL, 17);
   doc
     .font('Body')
-    .fontSize(5.5)
+    .fontSize(7.2)
     .fillColor('#b9dbe9')
-    .text('TOTAL PACKAGE', W - M - 166, investmentTop + 77, { width: 133, align: 'center' });
+    .text('TOTAL PACKAGE', totalBoxX + 10, investmentTop + 71, {
+      width: 156,
+      align: 'center',
+    });
   doc
     .font('Body')
-    .fontSize(15)
+    .fontSize(17)
     .fillColor('#ffffff')
     .text(
       money(input.version.finalAmount, input.version.currency),
-      W - M - 166,
-      investmentTop + 103,
-      { width: 133, align: 'center' },
+      totalBoxX + 10,
+      investmentTop + 97,
+      { width: 156, align: 'center' },
     );
   doc
     .font('Body')
-    .fontSize(4.8)
+    .fontSize(6.5)
     .fillColor('#b9dbe9')
     .text(
       input.version.taxNote || 'Inclusive of all taxes, excluding TCS',
-      W - M - 166,
-      investmentTop + 151,
-      { width: 133, align: 'center' },
+      totalBoxX + 10,
+      investmentTop + 145,
+      { width: 156, align: 'center' },
     );
 
   if (asNumber(input.version.initialPaymentAmount) > 0) {
-    const bookingTop = 654;
+    const bookingTop = 647;
     rounded(M, bookingTop, CONTENT_W, 64, '#ffffff', LINE, 10);
     topRule(bookingTop, GREEN);
-    drawEmoji('💳', M + 27, bookingTop + 18, 17);
+    drawImage(STYLISH_OVERVIEW_ICONS.payment, M + 27, bookingTop + 18, 17, 17, 'contain');
     doc
       .font('Body')
-      .fontSize(9.3)
+      .fontSize(12)
       .fillColor(INK)
       .text('Secure Your Booking', M + 53, bookingTop + 17);
     doc
       .font('Body')
-      .fontSize(6)
+      .fontSize(8.5)
       .fillColor(MUTED)
       .text(
         `Pay ${money(input.version.initialPaymentAmount, input.version.currency, 2)} to confirm your booking.`,
@@ -954,12 +959,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           doc.roundedRect(M, top, 80, 27, 4).fill(NAVY);
           doc
             .font('Bold')
-            .fontSize(5.8)
+            .fontSize(7)
             .fillColor('#ffffff')
             .text(label, M, top + 10, { width: 80, align: 'center' });
           doc
             .font('Body')
-            .fontSize(6.2)
+            .fontSize(8.2)
             .fillColor(NAVY)
             .text(
               `${journey.fromCity || segment.from || '-'}  >  ${journey.toCity || segment.to || '-'}`,
@@ -985,7 +990,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             doc.rect(M + 19, cardTop + 12, 64, 39).fill('#f7f7f7');
             doc
               .font('Bold')
-              .fontSize(7)
+              .fontSize(9)
               .fillColor(RED)
               .text(clean(segment.airlineName) || 'AIRLINE', M + 19, cardTop + 26, {
                 width: 64,
@@ -994,7 +999,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           }
           doc
             .font('Bold')
-            .fontSize(6)
+            .fontSize(8)
             .fillColor(INK)
             .text(clean(segment.airlineName) || 'Airline', M + 9, cardTop + 61, {
               width: sideWidth - 18,
@@ -1002,7 +1007,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             });
           doc
             .font('Body')
-            .fontSize(5)
+            .fontSize(7)
             .fillColor(MUTED)
             .text(clean(segment.flightNumber), M + 9, cardTop + 76, {
               width: sideWidth - 18,
@@ -1013,7 +1018,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             color: '#ffffff',
             minWidth: sideWidth - 22,
             height: 18,
-            size: 5,
+            size: 6.5,
           });
 
           const mainX = M + sideWidth;
@@ -1023,12 +1028,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           const arrivalX = mainX + mainW - 132;
           doc
             .font('Body')
-            .fontSize(5)
+            .fontSize(6.7)
             .fillColor(MUTED)
             .text('DEPARTURE', departureX, cardTop + 11, { width: 78, align: 'center' });
           doc
             .font('Bold')
-            .fontSize(7)
+            .fontSize(9)
             .fillColor(NAVY)
             .text(clean(segment.from) || clean(journey.fromCity) || '-', departureX, cardTop + 22, {
               width: 78,
@@ -1036,12 +1041,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             });
           doc
             .font('Body')
-            .fontSize(5)
+            .fontSize(6.7)
             .fillColor(MUTED)
             .text('ARRIVAL', arrivalX, cardTop + 11, { width: 78, align: 'center' });
           doc
             .font('Bold')
-            .fontSize(7)
+            .fontSize(9)
             .fillColor(NAVY)
             .text(clean(segment.to) || clean(journey.toCity) || '-', arrivalX, cardTop + 22, {
               width: 78,
@@ -1070,12 +1075,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             .fill(NAVY);
           doc
             .font('Body')
-            .fontSize(7)
+            .fontSize(9)
             .fillColor(NAVY)
             .text('✈', (arcLeft + arcRight) / 2 - 8, arcTop - 1, { width: 16, align: 'center' });
           doc
             .font('Bold')
-            .fontSize(4.5)
+            .fontSize(6.5)
             .fillColor(NAVY)
             .text(clean(segment.duration), (arcLeft + arcRight) / 2 - 30, arcTop + 15, {
               width: 60,
@@ -1108,12 +1113,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
                 .stroke();
             doc
               .font('Body')
-              .fontSize(4.7)
+              .fontSize(6.5)
               .fillColor(MUTED)
               .text(key, left, cardTop + 63, { width: 82, align: 'center' });
             doc
               .font(emphasized ? 'Bold' : 'Body')
-              .fontSize(emphasized ? 10 : 5.7)
+              .fontSize(emphasized ? 11 : 7.5)
               .fillColor(emphasized ? NAVY : INK)
               .text(value, left, cardTop + 76, { width: 82, align: 'center' });
           });
@@ -1121,26 +1126,26 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           if (segment.cabinLuggage) {
             doc
               .font('Body')
-              .fontSize(6)
+              .fontSize(7.5)
               .fillColor(MUTED)
               .text('▥', baggageX - 15, cardTop + 104);
             baggageX +=
               pill(`Cabin ${segment.cabinLuggage}`, baggageX, cardTop + 100, {
                 minWidth: 55,
                 height: 17,
-                size: 5.2,
+                size: 6.5,
               }) + 10;
           }
           if (segment.checkInLuggage)
             pill(`Check-in ${segment.checkInLuggage}`, baggageX, cardTop + 100, {
               minWidth: 67,
               height: 17,
-              size: 5.2,
+              size: 6.5,
             });
           if (segment.notes)
             doc
               .font('Body')
-              .fontSize(5.2)
+              .fontSize(7.5)
               .fillColor(MUTED)
               .text(`Note: ${clean(segment.notes)}`, mainX + 15, cardTop + 128, {
                 width: mainW - 30,
@@ -1176,7 +1181,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       const infoX = M + 136;
       doc
         .font('Bold')
-        .fontSize(8)
+        .fontSize(11)
         .fillColor(NAVY)
         .text(hotel.hotelName, infoX, top + 13, { width: 360 });
       pill(hotel.city || 'Destination', infoX, top + 32, {
@@ -1184,7 +1189,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         color: '#ffffff',
         minWidth: 58,
         height: 17,
-        size: 5,
+        size: 6.5,
       });
       const hotelFacts: Array<[string, string, string]> = [
         [
@@ -1222,17 +1227,17 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
         doc
           .font('Body')
-          .fontSize(4.5)
+          .fontSize(6.2)
           .fillColor(MUTED)
           .text(label, left + 8, top + 64, { width: 66 });
         doc
           .font('Bold')
-          .fontSize(5.7)
+          .fontSize(7.5)
           .fillColor(NAVY)
           .text(value, left + 8, top + 80, { width: 66, height: 14 });
         doc
           .font('Body')
-          .fontSize(4.7)
+          .fontSize(6.5)
           .fillColor(MUTED)
           .text(sub, left + 8, top + 98, { width: 66 });
       });
@@ -1278,7 +1283,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       const dayX = M + 195;
       doc
         .font('Body')
-        .fontSize(5)
+        .fontSize(6.7)
         .fillColor(MUTED)
         .text('DAY', dayX, top + 18);
       doc
@@ -1296,12 +1301,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         clean(activity.name) || stripItineraryDayPrefixes(day.title) || `Day ${day.dayNumber}`;
       doc
         .font('Bold')
-        .fontSize(8.5)
+        .fontSize(11)
         .fillColor(INK)
         .text(displayTitle, dayX + 66, top + 19, { width: 244, height: 35 });
       doc
         .font('Body')
-        .fontSize(5.7)
+        .fontSize(7.5)
         .fillColor(MUTED)
         .text(`${date(day.date, true)}${day.city ? `  ·  ${day.city}` : ''}`, dayX + 66, top + 52, {
           width: 244,
@@ -1314,10 +1319,10 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         .stroke();
       let metaTop = top + 88;
       if (activity.showTime !== false && activity.startTime) {
-        doc.font('Bold').fontSize(5.8).fillColor(NAVY).text('Time', dayX, metaTop);
+        doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Time', dayX, metaTop);
         doc
           .font('Body')
-          .fontSize(6)
+          .fontSize(8)
           .fillColor(INK)
           .text(
             `${formatClock12Hour(activity.startTime)}${activity.duration ? `  |  ${activity.duration}` : ''}`,
@@ -1334,25 +1339,25 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         (day.meals?.lunch ? 'Lunch' : null) ||
         (day.meals?.dinner ? 'Dinner' : null);
       if (mealText) {
-        doc.font('Bold').fontSize(5.8).fillColor(NAVY).text('Meals', dayX, metaTop);
+        doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Meals', dayX, metaTop);
         doc.circle(dayX + 42, metaTop + 4, 4).fill(GOLD);
         doc
           .font('Body')
-          .fontSize(5.8)
+          .fontSize(8)
           .fillColor(INK)
           .text(mealText, dayX + 54, metaTop, { width: 185 });
         metaTop += 20;
       }
       const transfer = transferLabel(activity.dailyTransfer ?? day.dailyTransfer);
-      if (transfer) pill(transfer, dayX, metaTop, { minWidth: 92, height: 18, size: 5.4 });
+      if (transfer) pill(transfer, dayX, metaTop, { minWidth: 92, height: 20, size: 6.5 });
 
       const descriptionTop = top + 190;
       const richDescription = htmlToRichTextLines(activity.description);
       const descriptionTitle = displayTitle;
       const availableHeight = BODY_BOTTOM - descriptionTop - 11;
-      let bodySize = 7.2;
+      let bodySize = 9;
       if (estimatedRichHeight(richDescription, CONTENT_W - 83, bodySize) + 48 > availableHeight)
-        bodySize = 6.3;
+        bodySize = 8.2;
       const bodyHeight = Math.min(
         availableHeight,
         Math.max(74, estimatedRichHeight(richDescription, CONTENT_W - 83, bodySize) + 47),
@@ -1370,7 +1375,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         .stroke();
       doc
         .font('Bold')
-        .fontSize(8)
+        .fontSize(10.5)
         .fillColor(INK)
         .text(descriptionTitle, M + 48, descriptionTop + 13, { width: CONTENT_W - 60 });
       drawRichLines(
@@ -1418,7 +1423,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       doc.roundedRect(tabX, top, tabWidth, 25, 4).fill(NAVY);
       doc
         .font('Bold')
-        .fontSize(4.8)
+        .fontSize(6.5)
         .fillColor('#ffffff')
         .text(serviceLabel(service.serviceType).toUpperCase(), tabX, top + 10, {
           width: tabWidth,
@@ -1428,23 +1433,23 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       const textW = CONTENT_W - 210;
       doc
         .font('Bold')
-        .fontSize(10)
+        .fontSize(12)
         .fillColor(NAVY)
         .text(service.name, textX, top + 31, { width: textW });
       let tagX = textX;
       if (service.city)
-        tagX += pill(service.city, tagX, top + 53, { minWidth: 64, height: 18, size: 5 }) + 8;
+        tagX += pill(service.city, tagX, top + 53, { minWidth: 64, height: 19, size: 6.5 }) + 8;
       if (asNumber(service.quantity) > 0)
         pill(`${clean(service.quantity)}`, tagX, top + 53, {
           fill: '#fff2d2',
           color: '#a16a00',
           minWidth: 40,
           height: 18,
-          size: 5,
+          size: 6.5,
         });
       doc
         .font('Body')
-        .fontSize(6.1)
+        .fontSize(8.5)
         .fillColor(MUTED)
         .text(clean(service.description) || clean(service.notes), textX, top + 92, {
           width: textW,
@@ -1491,21 +1496,21 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         doc.circle(M + 20, y + 17, 9).fill(NAVY);
         doc
           .font('Bold')
-          .fontSize(5.5)
+          .fontSize(7)
           .fillColor('#ffffff')
           .text(String(cardIndex + 1), M + 13, y + 13, { width: 14, align: 'center' });
         doc
           .font('Bold')
-          .fontSize(7)
+          .fontSize(9.5)
           .fillColor(NAVY)
           .text(card.name, M + 43, y + 13, { width: 340 });
         pill(money(card.amount, input.version.currency), W - M - 62, y + 8, {
           minWidth: 50,
           height: 18,
-          size: 5.2,
+          size: 6.5,
         });
         const lines = htmlToRichTextLines(card.description);
-        drawRichLines(lines, M + 43, y + 50, CONTENT_W - 72, 5.9, MUTED, 1.32);
+        drawRichLines(lines, M + 43, y + 50, CONTENT_W - 72, 8.2, MUTED, 1.32);
         y += 103;
       }
     }
@@ -1536,12 +1541,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           total + 46 + estimatedRichHeight(policy.lines, CONTENT_W - 64, size, lineFactor),
         0,
       );
-    let policySize = 5.65;
-    let policyLineFactor = 1.2;
+    let policySize = 8.5;
+    let policyLineFactor = 1.3;
     const availablePolicyHeight = BODY_BOTTOM - y;
     if (measuredPolicyHeight(policySize, policyLineFactor) > availablePolicyHeight) {
-      policySize = 5.05;
-      policyLineFactor = 1.13;
+      policySize = 8;
+      policyLineFactor = 1.25;
     }
     for (const [policyIndex, policy] of visiblePolicies.entries()) {
       const bodyHeight = estimatedRichHeight(
@@ -1562,12 +1567,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       doc.circle(M + 31, top + 17, 12).fill(policy.color);
       doc
         .font('Bold')
-        .fontSize(6.5)
+        .fontSize(8)
         .fillColor('#ffffff')
         .text(String(policyIndex + 1), M + 23, top + 13, { width: 16, align: 'center' });
       doc
         .font('Bold')
-        .fontSize(8.3)
+        .fontSize(11)
         .fillColor(policy.color)
         .text(policy.title, M + 53, top + 12, { width: CONTENT_W - 74 });
       doc
@@ -1619,7 +1624,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   drawDiamond(W / 2, 203, 7, GOLD);
   doc
     .font('Body')
-    .fontSize(7.1)
+    .fontSize(9)
     .fillColor('#aebbd1')
     .text(
       `Dear ${input.quotation.customerName}, we truly appreciate your trust in us. Our team is committed to crafting an unforgettable travel experience for you. Should you have any questions, feel free to reach out anytime.`,
@@ -1646,12 +1651,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .text(icon, left + 25, top + 16, { width: 18, align: 'center' });
     doc
       .font('Bold')
-      .fontSize(5.3)
+      .fontSize(7)
       .fillColor(color)
       .text(label, left + 51, top + 12);
     doc
       .font('Body')
-      .fontSize(6.5)
+      .fontSize(8.5)
       .fillColor('#d4deed')
       .text(value || '-', left + 51, top + 31, { width: width - 65, ellipsis: true });
   });
@@ -1659,7 +1664,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   if (company?.address)
     doc
       .font('Body')
-      .fontSize(6)
+      .fontSize(8)
       .fillColor('#aebbd1')
       .text(company.address, 220, 420, { width: 185, align: 'center' });
   doc
@@ -1693,13 +1698,13 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .text(String(value), left, 484, { width: 145, align: 'center' });
     doc
       .font('Body')
-      .fontSize(5.2)
+      .fontSize(7)
       .fillColor('#9fb0ce')
       .text(String(label), left, 512, { width: 145, align: 'center' });
   });
   doc
     .font('Body')
-    .fontSize(4.8)
+    .fontSize(6.5)
     .fillColor('#647799')
     .text(
       [
@@ -1715,7 +1720,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   doc.rect(127, 583, 341, 3).fill(GOLD);
   doc
     .font('Bold')
-    .fontSize(8.5)
+    .fontSize(11)
     .fillColor(GOLD)
     .text((company?.name ?? 'TRAVEL COMPANY').toUpperCase(), M, 604, {
       width: CONTENT_W,
@@ -1723,7 +1728,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     });
   doc
     .font('Body')
-    .fontSize(5.5)
+    .fontSize(7.5)
     .fillColor('#8192b1')
     .text('Your Trusted Travel Partner', M, 623, { width: CONTENT_W, align: 'center' });
 

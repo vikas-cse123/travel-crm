@@ -1439,9 +1439,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         hOf(money(num(price)), 10, rightW * 0.4, 'Bold'),
       ) + 4,
   );
-  const totalBoxH = 58;
+  const totalBoxH = 48;
   const taxH = isPublicTaxNote(v.taxNote) ? hOf(v.taxNote.trim(), 8.5, rightW, 'Body') : 0;
-  const rightColumnH = priceRowHeights.reduce((sum, h) => sum + h, 0) + 4 + totalBoxH + 6 + taxH;
+  const taxBottomGap = taxH > 0 ? 6 : 0;
+  const rightColumnH =
+    priceRowHeights.reduce((sum, h) => sum + h, 0) + 4 + totalBoxH + 6 + taxH + taxBottomGap;
   const columnsH = Math.max(leftColumnH, rightColumnH);
 
   coverParts.push({
@@ -1476,19 +1478,29 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         ry = doc.y + 4;
       });
       ry += 4;
-      // Yellow Total Cost box (amount right-aligned).
-      doc.save().roundedRect(rightX, ry, rightW, totalBoxH, 8).fill(AMBER).restore();
+      // Total Cost card: subtle amber treatment with a single-line layout.
       doc
-        .fillColor(DARK)
+        .save()
+        .lineWidth(1)
+        .roundedRect(rightX, ry, rightW, totalBoxH, 7)
+        .fillAndStroke('#FFF7DF', '#E6A300')
+        .restore();
+      doc
+        .fillColor('#6B4B00')
         .font('Bold')
         .fontSize(9.5)
-        .text('TOTAL COST', rightX + 14, ry + 11, {
-          width: rightW - 28,
+        .text('TOTAL COST', rightX + 22, ry + 18, {
+          width: 82,
+          lineBreak: false,
         });
-      doc.fontSize(22).text(money(finalTotal), rightX + 14, ry + 25, {
-        width: rightW - 28,
-        align: 'right',
-      });
+      doc
+        .fillColor(DARK)
+        .fontSize(20)
+        .text(money(finalTotal), rightX + 104, ry + 12, {
+          width: rightW - 118,
+          align: 'right',
+          lineBreak: false,
+        });
       doc.fillColor(DARK);
       ry += totalBoxH + 6;
       if (isPublicTaxNote(v.taxNote)) {

@@ -101,6 +101,31 @@ const footerEmptyCompanyForOverlap = () => ({
 });
 
 describe('Stylish quotation PDF', () => {
+  it('shows vehicle-transfer travel services as Transport on the cover', async () => {
+    const pdf = await renderStylishQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        services: [
+          {
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Airport transfer',
+            description: null,
+            city: 'Singapore',
+            quantity: 1,
+            unitSellingPrice: 100,
+          },
+        ],
+      },
+      images: { cover: PNG_1PX },
+    });
+
+    const coverText = pdfTextPage(pdf, 1);
+    expect(coverText).toContain('Transport');
+    expect(coverText).not.toContain('Add-ons');
+  });
+
   it('renders a fixed-A4 photo-led proposal while preserving rich text', async () => {
     const pdf = await renderStylishQuotationPdf({
       company: {

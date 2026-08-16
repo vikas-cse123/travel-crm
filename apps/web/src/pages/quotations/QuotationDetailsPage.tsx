@@ -587,8 +587,7 @@ export function QuotationDetailsPage() {
               </button>
               <button
                 type="button"
-                disabled
-                className="relative cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-5 text-left opacity-70"
+                className="rounded-xl border p-5 text-left transition hover:border-brand-400 hover:bg-brand-50"
                 onClick={() => {
                   setPdfChoiceOpen(false);
                   setCoverSource('DESTINATION');
@@ -596,9 +595,6 @@ export function QuotationDetailsPage() {
                   setStylishCoverOpen(true);
                 }}
               >
-                <span className="absolute right-4 top-4 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                  Coming soon
-                </span>
                 <Sparkles className="h-7 w-7 text-amber-500" />
                 <strong className="mt-4 block text-lg">Stylish PDF</strong>
                 <span className="mt-1 block text-sm text-slate-500">

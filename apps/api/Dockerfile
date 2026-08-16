@@ -60,6 +60,9 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 # Compiled server + reminder worker and the manifests.
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/src/assets/stylish-pdf-page-header.png ./apps/api/src/assets/stylish-pdf-page-header.png
+COPY --from=builder /app/apps/api/src/assets/stylish-services ./apps/api/src/assets/stylish-services
+COPY --from=builder /app/apps/api/src/assets/stylish-overview ./apps/api/src/assets/stylish-overview
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/package.json ./package.json
 
