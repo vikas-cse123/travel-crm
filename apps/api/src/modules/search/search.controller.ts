@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { sendSuccess } from '../../utils/api-response.js';
 import { UnauthorizedError, ValidationError } from '../../utils/errors.js';
 import { searchService } from './search.service.js';
+import { bookmarksService } from './bookmarks.service.js';
 import {
   hasServerFallbackKey,
   removeSearchApiKey,
@@ -107,5 +108,33 @@ export const searchController = {
       return;
     }
     sendSuccess(res, { connected: false, reason: 'invalid' });
+  },
+
+  /** List the current user's bookmarks (DB only; never calls SearchAPI). */
+  async listBookmarks(req: Request, res: Response) {
+    const type = (req.query.type as 'FLIGHT' | 'HOTEL' | undefined) ?? undefined;
+    sendSuccess(res, await bookmarksService.list(auth(req), type));
+  },
+
+  /** Create a bookmark from an already-cached result (no SearchAPI call). */
+  async createBookmark(req: Request, res: Response) {
+    const result = await bookmarksService.create(auth(req), req.body as never);
+    sendSuccess(res, result, result.created ? 'Bookmark saved.' : 'Already bookmarked.');
+  },
+
+  /** Fetch one bookmark (DB only). */
+  async getBookmark(req: Request, res: Response) {
+    sendSuccess(res, await bookmarksService.get(auth(req), req.params.id as string));
+  },
+
+  /** Look up a bookmark by its public code (DB only; company-scoped). */
+  async getBookmarkByCode(req: Request, res: Response) {
+    sendSuccess(res, await bookmarksService.getByCode(auth(req), req.params.bookmarkCode as string));
+  },
+
+  /** Delete the current user's bookmark (DB only). */
+  async deleteBookmark(req: Request, res: Response) {
+    await bookmarksService.remove(auth(req), req.params.id as string);
+    sendSuccess(res, { deleted: true });
   },
 };

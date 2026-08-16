@@ -1,6 +1,7 @@
 import {
   Bell,
   BellRing,
+  Bookmark,
   Building2,
   BusFront,
   CalendarClock,
@@ -187,6 +188,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     available: true,
     section: NAV_SECTION.WORKSPACE,
     matchPaths: ['/travel-search'],
+  },
+  {
+    label: 'Bookmarks',
+    to: '/travel-search/bookmarks',
+    icon: Bookmark,
+    available: true,
+    section: NAV_SECTION.WORKSPACE,
+    matchPaths: ['/travel-search/bookmarks'],
   },
 
   // -------------------------------------------------------------------------

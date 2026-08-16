@@ -1687,3 +1687,206 @@ describe('Phase 8 quotation activity pricing', () => {
     expect(priced.body.data.taxAmount).toBe(legacy.body.data.taxAmount);
   });
 });
+
+describe('Quotation independence from bookmarks', () => {
+  it('a quotation version retains imported bookmark data after the bookmark is deleted', async () => {
+    const client = await owner('owner-indep@alpha.test');
+
+    // Create a hotel bookmark (DB only, no SearchAPI).
+    const hotel = await client.post('/api/search/bookmarks', {
+      type: 'HOTEL',
+      searchParams: {
+        destination: 'Goa',
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-14',
+        rooms: 1,
+        currency: 'INR',
+      },
+      snapshot: {
+        hotel: {
+          name: 'Taj Exotica Goa',
+          propertyType: 'hotel',
+          city: 'Goa',
+          country: 'IN',
+          stars: 5,
+          pricePerNight: { price: '₹14,578', extracted_price: 14578 },
+          totalPrice: { price: '₹58,312', extracted_price: 58312 },
+          images: [{ thumbnail: 'https://img/a.jpg', original: 'https://img/a-orig.jpg' }],
+        },
+      },
+    });
+    expect(hotel.status).toBe(200);
+    const hotelCode = hotel.body.data.bookmark.bookmarkCode as string;
+
+    const lead = await client.post('/api/queries', leadPayload());
+    const quotation = await client.post('/api/quotations', { queryId: lead.body.data.id });
+    expect(quotation.status).toBe(201);
+    const versionId = quotation.body.data.versions[0].id as string;
+
+    // Save a quotation version carrying the imported hotel data (copied from the
+    // bookmark snapshot, exactly like the quotation UI does).
+    const saved = await client.patch(`/api/quotations/${quotation.body.data.id}/versions/${versionId}`, {
+      hotelDetails: {
+        include: true,
+        sectionTitle: 'Your Hotels',
+        amount: 58312,
+        description: 'Luxury beach resort.',
+        images: [{ url: 'https://img/a-orig.jpg', alt: 'Taj Exotica Goa' }],
+      },
+      hotels: [
+        {
+          city: 'Goa',
+          hotelName: 'Taj Exotica Goa',
+          category: '5 Star',
+          roomType: null,
+          mealPlan: null,
+          rooms: 1,
+          nights: 4,
+          checkInDate: new Date('2026-09-10T00:00:00'),
+          checkOutDate: new Date('2026-09-14T00:00:00'),
+          checkInTime: '14:00',
+          checkOutTime: '11:00',
+          showCheckInTime: true,
+          showCheckOutTime: true,
+          internalCost: 0,
+          sellingPrice: 58312,
+          selected: true,
+          notes: null,
+          sequence: 1,
+        },
+      ],
+    });
+    expect(saved.status).toBe(200);
+
+    // Look up the bookmark by code to confirm it exists, then delete it.
+    const lookup = await client.get(`/api/search/bookmarks/by-code/${hotelCode}`);
+    expect(lookup.status).toBe(200);
+    await client.delete(`/api/search/bookmarks/${lookup.body.data.id}`);
+    expect((await client.get(`/api/search/bookmarks/by-code/${hotelCode}`)).status).toBe(404);
+
+    // The quotation still holds its own copy of the data.
+    const after = await client.get(`/api/quotations/${quotation.body.data.id}`);
+    expect(after.status).toBe(200);
+    const version = after.body.data.versions[0];
+    expect(version.hotelDetails.amount).toBe(58312);
+    expect(version.hotelDetails.images[0].url).toBe('https://img/a-orig.jpg');
+    expect(version.hotels[0].hotelName).toBe('Taj Exotica Goa');
+    expect(version.hotels[0].sellingPrice).toBe('58312');
+  });
+
+  it('a quotation flight version retains imported flight data after the bookmark is deleted', async () => {
+    const client = await owner('owner-indep-flight@alpha.test');
+
+    const flight = await client.post('/api/search/bookmarks', {
+      type: 'FLIGHT',
+      searchParams: {
+        departure_id: 'DEL',
+        arrival_id: 'SIN',
+        outbound_date: '2026-09-10',
+        type: 2,
+        currency: 'INR',
+      },
+      snapshot: {
+        flight: {
+          airline: 'Air India',
+          flightNumbers: ['AI 2118'],
+          price: 59370,
+          currency: 'INR',
+          type: 'Round trip',
+          segments: [
+            {
+              departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-10', time: '00:55' },
+              arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-10', time: '09:20' },
+              duration: 355,
+              airline: 'Air India',
+              travel_class: 'Economy',
+              flight_number: 'AI 2118',
+            },
+            {
+              departure_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-14', time: '10:00' },
+              arrival_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-14', time: '12:00' },
+              duration: 120,
+              airline: 'Air India',
+              travel_class: 'Economy',
+              flight_number: 'AI 2119',
+            },
+          ],
+        },
+      },
+    });
+    expect(flight.status).toBe(200);
+    const flightCode = flight.body.data.bookmark.bookmarkCode as string;
+
+    const lead = await client.post('/api/queries', leadPayload());
+    const quotation = await client.post('/api/quotations', { queryId: lead.body.data.id });
+    const versionId = quotation.body.data.versions[0].id as string;
+
+    const saved = await client.patch(`/api/quotations/${quotation.body.data.id}/versions/${versionId}`, {
+      flightDetails: {
+        include: true,
+        sectionTitle: 'Flight Details',
+        amount: 59370,
+        entryMode: 'MANUAL',
+        journeyType: 'ROUND_TRIP',
+        outbound: {
+          fromCity: 'Delhi',
+          toCity: 'Singapore',
+          travelClass: 'Economy',
+          segments: [
+            {
+              airlineId: null,
+              airlineName: 'Air India',
+              flightNumber: 'AI 2118',
+              travelClass: 'Economy',
+              from: 'Delhi',
+              to: 'Singapore',
+              departureDate: '2026-09-10',
+              departureTime: '00:55',
+              arrivalDate: '2026-09-10',
+              arrivalTime: '09:20',
+              duration: '5h 55m',
+              cabinLuggage: null,
+              checkInLuggage: null,
+              notes: null,
+              connectionVia: null,
+            },
+          ],
+        },
+        returnJourney: {
+          fromCity: 'Singapore',
+          toCity: 'Delhi',
+          travelClass: 'Economy',
+          segments: [
+            {
+              airlineId: null,
+              airlineName: 'Air India',
+              flightNumber: 'AI 2119',
+              travelClass: 'Economy',
+              from: 'Singapore',
+              to: 'Delhi',
+              departureDate: '2026-09-14',
+              departureTime: '10:00',
+              arrivalDate: '2026-09-14',
+              arrivalTime: '12:00',
+              duration: '2h 0m',
+              cabinLuggage: null,
+              checkInLuggage: null,
+              notes: null,
+              connectionVia: null,
+            },
+          ],
+        },
+      },
+    });
+    expect(saved.status).toBe(200);
+
+    const lookup = await client.get(`/api/search/bookmarks/by-code/${flightCode}`);
+    await client.delete(`/api/search/bookmarks/${lookup.body.data.id}`);
+
+    const after = await client.get(`/api/quotations/${quotation.body.data.id}`);
+    const version = after.body.data.versions[0];
+    expect(version.flightDetails.amount).toBe(59370);
+    expect(version.flightDetails.outbound.segments[0].flightNumber).toBe('AI 2118');
+    expect(version.flightDetails.returnJourney.segments[0].flightNumber).toBe('AI 2119');
+  });
+});

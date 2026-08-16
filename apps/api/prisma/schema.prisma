@@ -1044,6 +1044,7 @@ model Company {
   bookingRefunds               BookingRefund[]
 
   customDomains CustomDomain[]
+  liveSearchBookmarks LiveSearchBookmark[]
 
   @@index([status])
   @@index([createdAt])
@@ -1272,6 +1273,7 @@ model User {
   testimonialsUpdated         Testimonial[]              @relation("TestimonialUpdatedBy")
 
   hiddenMasterRows CompanyHiddenMaster[]
+  liveSearchBookmarks LiveSearchBookmark[]
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1280,6 +1282,46 @@ model User {
   @@index([roleId])
   @@index([permissionTemplateId])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Live Search bookmarks
+// ---------------------------------------------------------------------------
+
+/// A user-saved Live Search flight or hotel result. Stores a complete snapshot
+/// of what the agent saw so the bookmark can be rendered later without calling
+/// SearchAPI again. Scoped to the owning user and tenant.
+model LiveSearchBookmark {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  userId      String   @db.Uuid
+  /// FLIGHT or HOTEL.
+  type        String   @db.VarChar(20)
+  /// Provider constant, e.g. SEARCHAPI.
+  provider    String   @db.VarChar(40)
+  /// Stable identity of the saved result within the owning user's scope.
+  fingerprint String   @db.VarChar(160)
+  /// Public, human-readable bookmark code, e.g. HTL-000123 or FLT-000456.
+  bookmarkCode String  @unique @db.VarChar(20)
+  /// Short human-readable title (e.g. "DEL → SIN" or the hotel name).
+  title       String   @db.VarChar(300)
+  currency    String   @db.VarChar(10)
+  /// The search parameters that produced this result.
+  searchParams Json
+  /// The normalized + original provider snapshot used to render the bookmark.
+  snapshot     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One bookmark per (user, result fingerprint). Repeated clicks are idempotent.
+  @@unique([userId, fingerprint])
+  @@index([companyId, type])
+  @@index([companyId, userId, createdAt])
+  @@index([userId, createdAt])
+  @@map("live_search_bookmarks")
 }
 
 // ---------------------------------------------------------------------------

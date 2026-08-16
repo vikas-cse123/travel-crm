@@ -27,6 +27,7 @@ import {
   labelForLookup,
   quotationVersionInputSchema,
   resolveTaxNoteChoice,
+  type LiveSearchBookmark,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -66,6 +67,7 @@ import {
   type HotelRowPatch,
   type ServiceRowPatch,
 } from '@/features/quotations/MasterFields';
+import { BookmarkLoadField, flightBookmarkToDetails, hotelBookmarkToDetails } from '@/features/quotations/BookmarkImport';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 
@@ -643,6 +645,8 @@ export function QuotationBuilderPage() {
   // Cruise starts excluded: the user explicitly enables it (auto-creating the
   // first entry). Saved quotations with Cruise rows re-enable it on load.
   const [excluded, setExcluded] = useState<Record<string, boolean>>({ cruise: true });
+  // Primary hotel image imported from a hotel bookmark (DB snapshot URL only).
+  const [importedHotelImage, setImportedHotelImage] = useState<string | null>(null);
   // Tracks whether the user has explicitly toggled a section's Include checkbox
   // so the init-time sync (from the lead's requested services) never re-enables
   // a section after a manual choice.
@@ -1393,6 +1397,18 @@ export function QuotationBuilderPage() {
 
   const suggestHotels = () => {
     hotels.fields.forEach((_, index) => suggestHotel(index));
+  };
+
+  /** Import a saved hotel bookmark into the quotation form (DB only). */
+  const importHotelBookmark = (bookmark: LiveSearchBookmark) => {
+    const { hotelRow, hotelDetails, primaryImageUrl } = hotelBookmarkToDetails(bookmark);
+    form.setValue('hotelDetails', hotelDetails, { shouldDirty: true });
+    if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
+    // Replace any existing rows with the bookmarked stay; the agent can still
+    // add/edit rows afterwards.
+    hotels.replace([hotelRow]);
+    setExcluded((prev) => ({ ...prev, hotel: false }));
+    if (primaryImageUrl) setImportedHotelImage(primaryImageUrl);
   };
 
   const estimate = useMemo(() => {
@@ -2412,6 +2428,12 @@ export function QuotationBuilderPage() {
     const airlineList = airlines.data?.data ?? [];
     const labelCls = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
 
+    /** Import a saved flight bookmark into the quotation form (DB only). */
+    const importFlightBookmark = (bookmark: LiveSearchBookmark) => {
+      form.setValue('flightDetails', flightBookmarkToDetails(bookmark), { shouldDirty: true });
+      if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
+    };
+
     const segmentCard = (
       leg: 'outbound' | 'returnJourney',
       arr: typeof outboundSegments | typeof returnSegments,
@@ -2647,6 +2669,11 @@ export function QuotationBuilderPage() {
 
     return (
       <div className="space-y-5">
+        <BookmarkLoadField
+          type="FLIGHT"
+          placeholder="FLT-000456"
+          onLoaded={importFlightBookmark}
+        />
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
           <input type="checkbox" {...form.register('flightDetails.include')} />
           Include Flight in Quotation
@@ -3282,6 +3309,22 @@ export function QuotationBuilderPage() {
                     <Sparkles className="h-4 w-4" /> Suggest Hotels
                   </Button>
                 </div>
+
+                <BookmarkLoadField
+                  type="HOTEL"
+                  placeholder="HTL-000123"
+                  onLoaded={importHotelBookmark}
+                />
+
+                {importedHotelImage ? (
+                  <div className="overflow-hidden rounded-lg border bg-card">
+                    <img
+                      src={importedHotelImage}
+                      alt="Imported hotel"
+                      className="h-36 w-full object-cover"
+                    />
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-semibold text-slate-800">

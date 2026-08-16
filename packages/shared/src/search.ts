@@ -26,6 +26,33 @@ export const FLIGHT_TRAVEL_CLASSES = [
 /** Values accepted by SearchApi's google_flights engine. */
 export const FLIGHT_STOPS = ['any', 'nonstop', 'one_stop_or_fewer', 'two_stops_or_fewer'] as const;
 
+/** Values accepted by SearchApi's google_flights sort_by parameter. */
+export const FLIGHT_SORT_BY = [
+  'top_flights',
+  'price',
+  'departure_time',
+  'arrival_time',
+  'duration',
+  'emissions',
+] as const;
+
+/**
+ * Time range used by outbound_times / return_times. Four comma-separated
+ * numbers: departure-start, departure-end, arrival-start, arrival-end (hours,
+ * 0–23). e.g. "4,18,2,18".
+ */
+const timeRange = z
+  .string()
+  .trim()
+  .regex(/^\d{1,2},\d{1,2},\d{1,2},\d{1,2}$/, 'Time range must be "start,end,start,end" hours.')
+  .refine(
+    (value) => value.split(',').every((part) => {
+      const n = Number(part);
+      return Number.isInteger(n) && n >= 0 && n <= 23;
+    }),
+    { message: 'Time range hours must be between 0 and 23.' },
+  );
+
 const iataCode = z
   .string()
   .trim()
@@ -39,27 +66,50 @@ const searchDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates must use YYYY-MM-DD.');
 
 /** Query schema for GET /api/search/flights. */
-export const flightSearchQuerySchema = z.object({
-  departure_id: iataCode,
-  arrival_id: iataCode,
-  outbound_date: searchDate,
-  return_date: searchDate.optional(),
-  /** 1 = one-way, 2 = round trip. Defaults to round trip. */
-  type: z.coerce.number().int().min(1).max(2).default(2),
-  currency: z.string().trim().length(3).toUpperCase().default('INR'),
-  hl: z.string().trim().min(2).max(10).default('en'),
-  gl: z.string().trim().min(2).max(5).default('us'),
-  adults: z.coerce.number().int().min(1).max(9).default(1),
-  children: z.coerce.number().int().min(0).max(9).default(0),
-  infants_in_seat: z.coerce.number().int().min(0).max(9).default(0),
-  infants_on_lap: z.coerce.number().int().min(0).max(9).default(0),
-  travel_class: z.enum(FLIGHT_TRAVEL_CLASSES).optional(),
-  stops: z.enum(FLIGHT_STOPS).optional(),
-  departure_token: z.string().trim().optional(),
-  max_price: z.coerce.number().int().min(1).optional(),
-  min_price: z.coerce.number().int().min(0).optional(),
-  airlines: z.string().trim().optional(),
-});
+export const flightSearchQuerySchema = z
+  .object({
+    departure_id: iataCode,
+    arrival_id: iataCode,
+    outbound_date: searchDate,
+    return_date: searchDate.optional(),
+    /** 1 = one-way, 2 = round trip. Defaults to round trip. */
+    type: z.coerce.number().int().min(1).max(2).default(2),
+    currency: z.string().trim().length(3).toUpperCase().default('INR'),
+    hl: z.string().trim().min(2).max(10).default('en'),
+    gl: z.string().trim().min(2).max(5).default('in'),
+    adults: z.coerce.number().int().min(1).max(9).default(1),
+    children: z.coerce.number().int().min(0).max(9).default(0),
+    infants_in_seat: z.coerce.number().int().min(0).max(9).default(0),
+    infants_on_lap: z.coerce.number().int().min(0).max(9).default(0),
+    travel_class: z.enum(FLIGHT_TRAVEL_CLASSES).optional(),
+    stops: z.enum(FLIGHT_STOPS).optional(),
+    departure_token: z.string().trim().optional(),
+    max_price: z.coerce.number().int().min(1).optional(),
+    min_price: z.coerce.number().int().min(0).optional(),
+    airlines: z.string().trim().optional(),
+    // Advanced filters (all optional; only supported SearchApi params exposed).
+    sort_by: z.enum(FLIGHT_SORT_BY).optional(),
+    included_airlines: z.string().trim().optional(),
+    excluded_airlines: z.string().trim().optional(),
+    carry_on_bags: z.coerce.number().int().min(0).max(9).optional(),
+    checked_bags: z.coerce.number().int().min(0).max(9).optional(),
+    outbound_times: timeRange.optional(),
+    return_times: timeRange.optional(),
+    max_flight_duration: z.coerce.number().int().min(60).max(2880).optional(),
+    layover_duration_min: z.coerce.number().int().min(30).max(1800).optional(),
+    layover_duration_max: z.coerce.number().int().min(30).max(1800).optional(),
+    included_connecting_airports: z.string().trim().optional(),
+    excluded_connecting_airports: z.string().trim().optional(),
+    /** 1 = only flights with lower-than-typical emissions. */
+    emissions: z.coerce.number().int().min(0).max(1).optional(),
+  })
+  .refine(
+    (data) => !data.return_date || data.return_date >= data.outbound_date,
+    {
+      path: ['return_date'],
+      message: 'Return date must be after the departure date.',
+    },
+  );
 
 export type FlightSearchQuery = z.infer<typeof flightSearchQuerySchema>;
 
@@ -144,6 +194,90 @@ export interface FlightSearchResponse {
 export const HOTEL_PROPERTY_TYPES = ['hotel', 'vacation_rental'] as const;
 
 /**
+ * Exact SearchAPI google_hotels `property_types` numeric values
+ * (comma-separated in the request). Grouped hotel vs vacation rental.
+ */
+export const HOTEL_PROPERTY_TYPE_IDS = {
+  hotels: [
+    { id: 12, label: 'Beach hotels' },
+    { id: 13, label: 'Boutique hotels' },
+    { id: 14, label: 'Hostels' },
+    { id: 15, label: 'Inns' },
+    { id: 16, label: 'Motels' },
+    { id: 17, label: 'Resorts' },
+    { id: 18, label: 'Spa hotels' },
+    { id: 19, label: 'Bed and breakfasts' },
+    { id: 20, label: 'Other' },
+    { id: 21, label: 'Apartment hotels' },
+  ],
+  vacationRentals: [
+    { id: 1, label: 'Apartments' },
+    { id: 2, label: 'Bungalows' },
+    { id: 3, label: 'Cabins' },
+    { id: 4, label: 'Chalets' },
+    { id: 5, label: 'Cottages' },
+    { id: 6, label: 'Gîtes' },
+    { id: 7, label: 'Holiday villages' },
+    { id: 8, label: 'Houses' },
+    { id: 9, label: 'Houseboats' },
+    { id: 10, label: 'Villas' },
+    { id: 11, label: 'Other' },
+    { id: 21, label: 'Apartment hotels' },
+  ],
+} as const;
+
+/**
+ * Exact SearchAPI google_hotels `amenities` numeric values
+ * (comma-separated in the request).
+ */
+export const HOTEL_AMENITY_IDS = [
+  { id: 1, label: 'Free parking' },
+  { id: 3, label: 'Parking' },
+  { id: 4, label: 'Indoor pool' },
+  { id: 5, label: 'Outdoor pool' },
+  { id: 6, label: 'Pool' },
+  { id: 7, label: 'Fitness centre' },
+  { id: 8, label: 'Restaurant' },
+  { id: 9, label: 'Free breakfast' },
+  { id: 10, label: 'Spa' },
+  { id: 11, label: 'Beach access' },
+  { id: 12, label: 'Kid-friendly' },
+  { id: 15, label: 'Bar' },
+  { id: 19, label: 'Pet-friendly' },
+  { id: 22, label: 'Room service' },
+  { id: 35, label: 'Free Wi-Fi' },
+  { id: 40, label: 'Air-conditioned' },
+  { id: 52, label: 'All-inclusive available' },
+  { id: 53, label: 'Wheelchair accessible' },
+  { id: 61, label: 'EV charger' },
+] as const;
+
+/** SearchAPI hotel sort_by values mapped to user-friendly labels. */
+export const HOTEL_SORT_OPTIONS = [
+  { value: 'relevance', label: 'Recommended' },
+  { value: 'lowest_price', label: 'Price low → high' },
+  { value: 'highest_rating', label: 'Highest rated' },
+  { value: 'most_reviewed', label: 'Most reviewed' },
+] as const;
+
+/** SearchAPI flight sort_by values mapped to user-friendly labels. Cheapest first (default). */
+export const FLIGHT_SORT_OPTIONS = [
+  { value: 'price', label: 'Cheapest' },
+  { value: 'top_flights', label: 'Recommended / Best' },
+  { value: 'departure_time', label: 'Departure time' },
+  { value: 'arrival_time', label: 'Arrival time' },
+  { value: 'duration', label: 'Shortest duration' },
+  { value: 'emissions', label: 'Lowest emissions' },
+] as const;
+
+/** Guest-rating options mapped to the exact SearchAPI `rating` values. */
+export const HOTEL_RATING_OPTIONS = [
+  { value: 7, label: '3.5+ stars' },
+  { value: 8, label: '4.0+ stars' },
+  { value: 9, label: '4.5+ stars' },
+] as const;
+
+/**
  * A canonical destination selected from autocomplete.
  *
  * `displayName` is what the user chose (e.g. "Delhi"); `searchQuery` is the
@@ -162,29 +296,48 @@ export interface HotelDestination {
 }
 
 /** Query schema for GET /api/search/hotels. */
-export const hotelSearchQuerySchema = z.object({
-  destination: z
-    .string()
-    .trim()
-    .min(1, 'A destination is required.')
-    .max(300),
-  check_in_date: searchDate,
-  check_out_date: searchDate,
-  adults: z.coerce.number().int().min(1).max(9).default(2),
-  children: z.coerce.number().int().min(0).max(9).default(0),
-  rooms: z.coerce.number().int().min(1).max(9).default(1),
-  currency: z.string().trim().length(3).toUpperCase().default('INR'),
-  hl: z.string().trim().min(2).max(10).default('en'),
-  /** Country context. Travel CRM defaults to India; the destination query is
-   * explicit so this is a hint rather than the only disambiguator. */
-  gl: z.string().trim().min(2).max(5).default('in'),
-  min_price: z.coerce.number().int().min(0).optional(),
-  max_price: z.coerce.number().int().min(1).optional(),
-  property_type: z.enum(HOTEL_PROPERTY_TYPES).optional(),
-  hotel_class: z.coerce.number().int().min(1).max(5).optional(),
-  /** Sequential token for the next result page. */
-  next_page_token: z.string().trim().optional(),
-});
+export const hotelSearchQuerySchema = z
+  .object({
+    destination: z
+      .string()
+      .trim()
+      .min(1, 'A destination is required.')
+      .max(300),
+    check_in_date: searchDate,
+    check_out_date: searchDate,
+    adults: z.coerce.number().int().min(1).max(9).default(2),
+    children: z.coerce.number().int().min(0).max(9).default(0),
+    rooms: z.coerce.number().int().min(1).max(9).default(1),
+    currency: z.string().trim().length(3).toUpperCase().default('INR'),
+    hl: z.string().trim().min(2).max(10).default('en'),
+    /** Country context. Travel CRM defaults to India; the destination query is
+     * explicit so this is a hint rather than the only disambiguator. */
+    gl: z.string().trim().min(2).max(5).default('in'),
+    min_price: z.coerce.number().int().min(0).optional(),
+    max_price: z.coerce.number().int().min(1).optional(),
+    property_type: z.enum(HOTEL_PROPERTY_TYPES).optional(),
+    hotel_class: z.coerce.number().int().min(1).max(5).optional(),
+    /** Sequential token for the next result page. */
+    next_page_token: z.string().trim().optional(),
+    // Advanced filters (all optional; only supported SearchApi params exposed).
+    sort_by: z
+      .enum(['relevance', 'lowest_price', 'highest_rating', 'most_reviewed'])
+      .optional(),
+    property_types: z.string().trim().optional(),
+    amenities: z.string().trim().optional(),
+    /** 7 = 3.5+, 8 = 4.0+, 9 = 4.5+ stars (guest rating). */
+    rating: z.coerce.number().int().min(7).max(9).optional(),
+    free_cancellation: z.enum(['true', 'false']).optional(),
+    special_offers: z.enum(['true', 'false']).optional(),
+    eco_certified: z.enum(['true', 'false']).optional(),
+    brands: z.string().trim().optional(),
+    bedrooms: z.coerce.number().int().min(0).max(20).optional(),
+    bathrooms: z.coerce.number().int().min(0).max(20).optional(),
+  })
+  .refine((data) => data.check_out_date > data.check_in_date, {
+    path: ['check_out_date'],
+    message: 'Check-out date must be after the check-in date.',
+  });
 
 export type HotelSearchQuery = z.infer<typeof hotelSearchQuerySchema>;
 
@@ -314,4 +467,166 @@ export interface LiveSearchKeyStatus {
 export interface LiveSearchTestResult {
   connected: boolean;
   reason?: 'invalid' | 'quota';
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks
+// ---------------------------------------------------------------------------
+
+export const LIVE_SEARCH_BOOKMARK_TYPES = ['FLIGHT', 'HOTEL'] as const;
+export type LiveSearchBookmarkType = (typeof LIVE_SEARCH_BOOKMARK_TYPES)[number];
+export const LIVE_SEARCH_BOOKMARK_PROVIDER = 'SEARCHAPI';
+
+/**
+ * Normalized display snapshot for a flight bookmark. Enough to render the
+ * result entirely from the DB — never requires another SearchAPI call.
+ */
+export interface FlightBookmarkSnapshot {
+  airline: string;
+  airlineLogo?: string | null;
+  flightNumbers: string[];
+  /** Optional: omit when the provider returned no price rather than defaulting to 0. */
+  price?: number;
+  currency: string;
+  totalDuration?: number;
+  type?: string; // "One way" | "Round trip"
+  segments: SearchApiFlightSegment[];
+  layovers?: SearchApiLayover[];
+  carbonEmissions?: SearchApiCarbonEmissions;
+  extensions?: string[];
+  departureToken?: string | null;
+  bookingToken?: string | null;
+  baggagePolicyUrl?: string | null;
+  passengerAssistanceUrl?: string | null;
+}
+
+/** Normalized display snapshot for a hotel bookmark. */
+export interface HotelBookmarkSnapshot {
+  name: string;
+  propertyType?: string;
+  propertyToken?: string | null;
+  dataId?: string | null;
+  images?: SearchApiImage[];
+  city?: string;
+  country?: string;
+  stars?: number;
+  rating?: number;
+  reviews?: number;
+  description?: string;
+  amenities?: string[];
+  excludedAmenities?: string[];
+  essentialInfo?: string[];
+  pricePerNight?: SearchApiPrice | null;
+  totalPrice?: SearchApiPrice | null;
+  deal?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  nearbyPlaces?: SearchApiNearbyPlace[];
+  locationRating?: number;
+  transitRating?: number;
+  thingsToDoRating?: number;
+  airportAccessRating?: number;
+  reviewsHistogram?: Record<string, number>;
+  reviewsBreakdown?: SearchApiReviewBreakdown[];
+  coordinates?: { latitude: number; longitude: number } | null;
+  providerLink?: string | null;
+}
+
+/** The full snapshot stored on a bookmark: normalized + original provider data. */
+export interface LiveSearchBookmarkSnapshot {
+  flight?: FlightBookmarkSnapshot | null;
+  hotel?: HotelBookmarkSnapshot | null;
+  /** The original provider result object, for debugging/inspection only. */
+  raw?: unknown;
+}
+
+/** Request body for creating a bookmark from an existing cached result. */
+export const createBookmarkSchema = z.object({
+  type: z.enum(LIVE_SEARCH_BOOKMARK_TYPES),
+  /** The search parameters that produced this result. */
+  searchParams: z.record(z.string(), z.unknown()),
+  /** Normalized + raw snapshot of the saved result. */
+  snapshot: z.custom<LiveSearchBookmarkSnapshot>((value) => typeof value === 'object' && value !== null),
+});
+
+export type CreateBookmarkInput = z.infer<typeof createBookmarkSchema>;
+
+/** Query schema for GET /api/search/bookmarks. */
+export const bookmarkListQuerySchema = z.object({
+  type: z.enum(LIVE_SEARCH_BOOKMARK_TYPES).optional(),
+});
+
+export type BookmarkListQuery = z.infer<typeof bookmarkListQuerySchema>;
+
+/** A bookmark as returned to the client (no secrets, DB-only). */
+export interface LiveSearchBookmark {
+  id: string;
+  type: LiveSearchBookmarkType;
+  provider: string;
+  /** Stable identity of the saved result, computed identically on web + API. */
+  fingerprint: string;
+  /** Public, human-readable bookmark code, e.g. HTL-000123 / FLT-000456. */
+  bookmarkCode: string;
+  title: string;
+  currency: string;
+  searchParams: Record<string, unknown>;
+  snapshot: LiveSearchBookmarkSnapshot;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Bookmark fingerprints (shared so web and API compute identical values)
+// ---------------------------------------------------------------------------
+
+function stableString(value: unknown): string {
+  if (value === undefined || value === null) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+/**
+ * Deterministic, environment-agnostic hash used for bookmark fingerprints.
+ * Purely JS (no node:crypto / SubtleCrypto) so it runs identically in the
+ * browser and on the API.
+ */
+export function hashFingerprint(...parts: unknown[]): string {
+  const str = parts.map((part) => stableString(part)).join('\u0000');
+  // FNV-1a 32-bit -> 8 hex chars.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Stable fingerprint for a flight itinerary. Includes the search context plus
+ * every segment's identity (airports, date, flight number) so two different
+ * flights from the same search (6E 1013 vs XJ 231) produce different values.
+ */
+export function flightFingerprint(
+  searchParams: Record<string, unknown>,
+  segments: SearchApiFlightSegment[],
+): string {
+  return hashFingerprint(
+    LIVE_SEARCH_BOOKMARK_PROVIDER,
+    'FLIGHT',
+    searchParams,
+    segments.map((s) => [
+      s.departure_airport?.id,
+      s.departure_airport?.date,
+      s.arrival_airport?.id,
+      s.arrival_airport?.date,
+      s.flight_number,
+    ]),
+  );
+}
+
+/** Stable fingerprint for a hotel, based on its provider token/name. */
+export function hotelFingerprint(
+  searchParams: Record<string, unknown>,
+  propertyTokenOrName: string,
+): string {
+  return hashFingerprint(LIVE_SEARCH_BOOKMARK_PROVIDER, 'HOTEL', searchParams, propertyTokenOrName);
 }

@@ -22,6 +22,26 @@ const ENGINE_FLIGHTS = 'google_flights';
 const ENGINE_HOTELS = 'google_hotels';
 const ENGINE_HOTELS_AUTOCOMPLETE = 'google_hotels_autocomplete';
 
+/**
+ * Development/test-only count of outgoing SearchAPI requests, broken down by
+ * engine. Lets tests (and a developer) prove exactly how many paid provider
+ * calls a single user action produces. No-op for real usage (the counter is
+ * purely in-memory and only read via the exported accessors).
+ */
+const searchApiRequestCounts: Record<string, number> = {};
+export function recordSearchApiRequest(engine: string): void {
+  searchApiRequestCounts[engine] = (searchApiRequestCounts[engine] ?? 0) + 1;
+}
+export function getSearchApiRequestCounts(): Record<string, number> {
+  return { ...searchApiRequestCounts };
+}
+export function resetSearchApiRequestCounts(): void {
+  for (const key of Object.keys(searchApiRequestCounts)) delete searchApiRequestCounts[key];
+}
+export function getSearchApiRequestTotal(): number {
+  return Object.values(searchApiRequestCounts).reduce((sum, n) => sum + n, 0);
+}
+
 /** Read a non-2xx SearchApi body so the real provider reason can be logged. */
 async function readErrorBody(response: Response): Promise<string> {
   try {
@@ -48,6 +68,26 @@ async function callSearchApi(
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === '') continue;
     url.searchParams.set(key, String(value));
+  }
+
+  const engine = String(params.engine ?? 'unknown');
+  recordSearchApiRequest(engine);
+
+  if (!isProduction && params.engine === ENGINE_FLIGHTS) {
+    // Sanitized outgoing flight parameters for development diagnosis. The API
+    // key and any internal token are never logged here.
+    logger.info(
+      {
+        flight_type: url.searchParams.get('flight_type'),
+        departure_id: url.searchParams.get('departure_id'),
+        arrival_id: url.searchParams.get('arrival_id'),
+        outbound_date: url.searchParams.get('outbound_date'),
+        return_date: url.searchParams.get('return_date') ?? 'ABSENT',
+        sort_by: url.searchParams.get('sort_by'),
+        devOnly: true,
+      },
+      'Flight search outgoing parameters',
+    );
   }
 
   const startedAt = Date.now();
@@ -126,7 +166,9 @@ function flightParams(query: FlightSearchQuery): Record<string, string | number 
     departure_id: query.departure_id,
     arrival_id: query.arrival_id,
     outbound_date: query.outbound_date,
-    type: query.type,
+    // SearchApi's google_flights engine expects flight_type, not `type`.
+    // 1 = one-way, 2 = round trip.
+    flight_type: query.type === 1 ? 'one_way' : 'round_trip',
     currency: query.currency,
     hl: query.hl,
     gl: query.gl,
@@ -139,13 +181,25 @@ function flightParams(query: FlightSearchQuery): Record<string, string | number 
     max_price: query.max_price,
     min_price: query.min_price,
     airlines: query.airlines,
+    sort_by: query.sort_by,
+    included_airlines: query.included_airlines,
+    excluded_airlines: query.excluded_airlines,
+    carry_on_bags: query.carry_on_bags,
+    checked_bags: query.checked_bags,
+    outbound_times: query.outbound_times,
+    return_times: query.return_times,
+    max_flight_duration: query.max_flight_duration,
+    layover_duration_min: query.layover_duration_min,
+    layover_duration_max: query.layover_duration_max,
+    included_connecting_airports: query.included_connecting_airports,
+    excluded_connecting_airports: query.excluded_connecting_airports,
+    emissions: query.emissions,
   };
 
-  // SearchApi's google_flights engine requires return_date on every request,
-  // including one-way searches. For a one-way (type=1) search without a return
-  // date, default it to the outbound date so the provider accepts the request.
+  // Only send return_date for round-trip searches. For one-way (flight_type
+  // one_way) the provider must NOT receive a return_date — it would turn the
+  // search into a same-day round trip and return round-trip fares.
   if (query.return_date) params.return_date = query.return_date;
-  else if (query.type === 1) params.return_date = query.outbound_date;
   if (query.departure_token) params.departure_token = query.departure_token;
 
   return params;
@@ -205,6 +259,16 @@ function hotelParams(query: HotelSearchQuery): Record<string, string | number | 
     property_type: query.property_type,
     hotel_class: query.hotel_class,
     next_page_token: query.next_page_token,
+    sort_by: query.sort_by,
+    property_types: query.property_types,
+    amenities: query.amenities,
+    rating: query.rating,
+    free_cancellation: query.free_cancellation,
+    special_offers: query.special_offers,
+    eco_certified: query.eco_certified,
+    brands: query.brands,
+    bedrooms: query.bedrooms,
+    bathrooms: query.bathrooms,
   };
 }
 

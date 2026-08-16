@@ -1,15 +1,19 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
+  Bookmark,
   Building2,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
+  ChevronUp,
   Clock,
+  Copy,
   Flame,
   Hotel,
+  Info,
   MapPin,
   Moon,
   Plane,
@@ -29,7 +33,16 @@ import type {
   SearchApiPrice,
   SearchApiReviewBreakdown,
 } from '@interscale/shared';
-import { SEARCH_DEFAULT_CURRENCY } from '@interscale/shared';
+import {
+  FLIGHT_SORT_OPTIONS,
+  HOTEL_AMENITY_IDS,
+  HOTEL_PROPERTY_TYPE_IDS,
+  HOTEL_RATING_OPTIONS,
+  HOTEL_SORT_OPTIONS,
+  SEARCH_DEFAULT_CURRENCY,
+  flightFingerprint,
+  hotelFingerprint,
+} from '@interscale/shared';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -38,9 +51,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/utils/cn';
+import { formatFlightDate, formatFlightTime } from './flight-format';
+import { resolveHotelPrice } from './hotel-price';
 import {
+  useBookmarks,
+  useCreateBookmark,
+  useFlightReturnSearch,
   useFlightSearch,
-  useHotelAutocomplete,
   destinationFromParam,
   destinationToParam,
   type FlightSearchParams,
@@ -74,7 +91,6 @@ function formatPrice(price: number | undefined, currency: string): string {
   }
 }
 
-/** Format a provider-supplied price string (already includes its symbol). */
 function formatPriceString(price: string | undefined): string {
   return price ?? '—';
 }
@@ -90,7 +106,6 @@ function Stars({ count }: { count: number | undefined }) {
   );
 }
 
-/** Small labelled value row used in detail grids. */
 function Field({ label, value }: { label: string; value: string | number | undefined }) {
   if (value === undefined || value === null || value === '') return null;
   return (
@@ -110,11 +125,109 @@ function Chip({ children }: { children: string }) {
 }
 
 /**
- * Development-only accordion showing the raw cached provider response.
- *
- * Rendered as a plain button + conditional block. Opening/closing is local
- * state only — it never triggers a SearchApi request.
+ * Bookmark a cached result. The snapshot is built from the already-rendered
+ * option/property object — clicking Bookmark never triggers a SearchAPI call.
  */
+function BookmarkButton({
+  type,
+  searchParams,
+  snapshot,
+  fingerprint,
+}: {
+  type: 'FLIGHT' | 'HOTEL';
+  searchParams: Record<string, unknown>;
+  snapshot: unknown;
+  fingerprint: string;
+}) {
+  const create = useCreateBookmark();
+  const { data: bookmarks } = useBookmarks();
+  const [pendingSaved, setPendingSaved] = useState<Set<string>>(() => new Set());
+  const [savedCode, setSavedCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bookmarkedFingerprints = useMemo(() => {
+    const set = new Set<string>(pendingSaved);
+    if (Array.isArray(bookmarks)) {
+      for (const bookmark of bookmarks) set.add(bookmark.fingerprint);
+    }
+    return set;
+  }, [bookmarks, pendingSaved]);
+
+  const saved = bookmarkedFingerprints.has(fingerprint);
+
+  const onSave = () => {
+    if (saved) return;
+    create.mutate(
+      {
+        type,
+        searchParams,
+        snapshot: { raw: snapshot },
+      },
+      {
+        onSuccess: (result) => {
+          setError(null);
+          setPendingSaved((prev) => new Set(prev).add(fingerprint));
+          setSavedCode(result.bookmark.bookmarkCode);
+        },
+        onError: (err) => {
+          setError(err instanceof Error ? err.message : 'Could not save bookmark.');
+        },
+      },
+    );
+  };
+
+  const copyCode = async () => {
+    if (!savedCode) return;
+    try {
+      await navigator.clipboard.writeText(savedCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable; ignore.
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={create.isPending}
+        aria-pressed={saved}
+        aria-label={saved ? 'Bookmarked' : 'Save bookmark'}
+        title={saved ? 'Bookmarked' : 'Save bookmark'}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
+          saved
+            ? 'border-primary bg-primary/10 text-primary'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+        )}
+      >
+        <Bookmark className={cn('h-3.5 w-3.5', saved && 'fill-current')} aria-hidden="true" />
+        {saved ? 'Saved' : 'Save'}
+      </button>
+      {savedCode ? (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">{savedCode}</span>
+          <button
+            type="button"
+            aria-label={`Copy bookmark ID ${savedCode}`}
+            title="Copy bookmark ID"
+            onClick={copyCode}
+            className="inline-flex items-center gap-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </span>
+      ) : null}
+      {error ? <span className="text-xs text-red-600">{error}</span> : null}
+    </div>
+  );
+}
+
+/** Development-only accordion showing the raw cached provider response. */
 function DevRawResponse({ label, data }: { label: string; data: unknown }) {
   const [open, setOpen] = useState(false);
   if (!import.meta.env.DEV) return null;
@@ -138,6 +251,54 @@ function DevRawResponse({ label, data }: { label: string; data: unknown }) {
   );
 }
 
+/** Floating "Back to top" button shown once the user scrolls down results. */
+function BackToTop() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 600);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  if (!visible) return null;
+  return (
+    <button
+      type="button"
+      aria-label="Back to top"
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-lg transition-colors hover:bg-muted"
+    >
+      <ChevronUp className="h-4 w-4" aria-hidden="true" />
+      Back to search
+    </button>
+  );
+}
+
+/** A collapsible "Advanced filters" section used by both forms. */
+function AdvancedFilters({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/40"
+      >
+        <span>Advanced filters</span>
+        <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+      </button>
+      {open ? <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div> : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Flights
 // ---------------------------------------------------------------------------
@@ -149,17 +310,47 @@ interface FlightForm {
   return_date: string;
   round_trip: boolean;
   adults: number;
+  children: number;
+  infants_in_seat: number;
+  infants_on_lap: number;
   travel_class: string;
   stops: string;
+  sort_by: string;
+  included_airlines: string;
+  excluded_airlines: string;
+  max_price: string;
+  carry_on_bags: string;
+  checked_bags: string;
+  outbound_dep_start: string;
+  outbound_dep_end: string;
+  outbound_arr_start: string;
+  outbound_arr_end: string;
+  return_dep_start: string;
+  return_dep_end: string;
+  return_arr_start: string;
+  return_arr_end: string;
+  max_duration: string;
+  layover_min: string;
+  layover_max: string;
+  included_connecting: string;
+  excluded_connecting: string;
+  low_emissions: boolean;
 }
 
 function FormGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+    <div className="space-y-1.5">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
       <div className="grid gap-3 sm:grid-cols-2">{children}</div>
     </div>
   );
+}
+
+/** Build "start,end,start,end" hour range string or undefined. */
+function timeRange(depStart: string, depEnd: string, arrStart: string, arrEnd: string): string | undefined {
+  const parts = [depStart, depEnd, arrStart, arrEnd];
+  if (parts.every((p) => p.trim() !== '')) return parts.map((p) => p.trim()).join(',');
+  return undefined;
 }
 
 function FlightFormFields({
@@ -169,6 +360,7 @@ function FlightFormFields({
   onChange,
   onSubmit,
   submitting,
+  error,
 }: {
   form: FlightForm;
   currency: string;
@@ -176,11 +368,13 @@ function FlightFormFields({
   onChange: (patch: Partial<FlightForm>) => void;
   onSubmit: () => void;
   submitting: boolean;
+  error?: string | null;
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <Card>
       <form
-        className="space-y-4 p-4"
+        className="space-y-3 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
@@ -192,7 +386,7 @@ function FlightFormFields({
             <input
               aria-label="Departure airport code"
               className={inputClass}
-              placeholder="e.g. DEL"
+              placeholder="e.g. DEL — Indira Gandhi Intl"
               value={form.departure_id}
               onChange={(event) => onChange({ departure_id: event.target.value.toUpperCase() })}
             />
@@ -202,10 +396,30 @@ function FlightFormFields({
             <input
               aria-label="Arrival airport code"
               className={inputClass}
-              placeholder="e.g. SIN"
+              placeholder="e.g. SIN — Singapore Changi"
               value={form.arrival_id}
               onChange={(event) => onChange({ arrival_id: event.target.value.toUpperCase() })}
             />
+          </label>
+        </FormGroup>
+
+        <FormGroup title="Trip">
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Trip type
+            <select
+              aria-label="Trip type"
+              className={inputClass}
+              value={form.round_trip ? 'round' : 'one'}
+              onChange={(event) => {
+                const round = event.target.value === 'round';
+                // Switching to one-way drops any stale return date so it never
+                // leaks into the submitted search or the cache key.
+                onChange(round ? { round_trip: true } : { round_trip: false, return_date: '' });
+              }}
+            >
+              <option value="one">One way</option>
+              <option value="round">Round trip</option>
+            </select>
           </label>
         </FormGroup>
 
@@ -220,28 +434,17 @@ function FlightFormFields({
               onChange={(event) => onChange({ outbound_date: event.target.value })}
             />
           </label>
-          <div className="flex flex-col justify-end gap-2">
-            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
-                checked={form.round_trip}
-                onChange={(event) => onChange({ round_trip: event.target.checked })}
-                className="h-4 w-4 rounded border-input text-primary focus:ring-ring/60"
-              />
-              Round trip
-            </label>
-            <label className="block space-y-1.5 text-sm font-medium text-foreground">
-              <span className="sr-only">Return date</span>
-              <input
-                aria-label="Return date"
-                type="date"
-                disabled={!form.round_trip}
-                className={inputClass}
-                value={form.return_date}
-                onChange={(event) => onChange({ return_date: event.target.value })}
-              />
-            </label>
-          </div>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Return
+            <input
+              aria-label="Return date"
+              type="date"
+              disabled={!form.round_trip}
+              className={inputClass}
+              value={form.return_date}
+              onChange={(event) => onChange({ return_date: event.target.value })}
+            />
+          </label>
         </FormGroup>
 
         <FormGroup title="Travellers">
@@ -258,7 +461,46 @@ function FlightFormFields({
             />
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-foreground">
-            Class
+            Children
+            <input
+              aria-label="Children"
+              type="number"
+              min={0}
+              max={9}
+              className={inputClass}
+              value={form.children}
+              onChange={(event) => onChange({ children: Number(event.target.value) || 0 })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Infants (in seat)
+            <input
+              aria-label="Infants in seat"
+              type="number"
+              min={0}
+              max={9}
+              className={inputClass}
+              value={form.infants_in_seat}
+              onChange={(event) => onChange({ infants_in_seat: Number(event.target.value) || 0 })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Infants (on lap)
+            <input
+              aria-label="Infants on lap"
+              type="number"
+              min={0}
+              max={9}
+              className={inputClass}
+              value={form.infants_on_lap}
+              onChange={(event) => onChange({ infants_on_lap: Number(event.target.value) || 0 })}
+            />
+          </label>
+        </FormGroup>
+
+        <FormGroup title="Cabin & currency">
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Cabin class
             <select
               aria-label="Travel class"
               className={inputClass}
@@ -268,24 +510,6 @@ function FlightFormFields({
               {TRAVEL_CLASSES.map((value) => (
                 <option key={value} value={value}>
                   {value.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </label>
-        </FormGroup>
-
-        <FormGroup title="Options">
-          <label className="block space-y-1.5 text-sm font-medium text-foreground">
-            Stops
-            <select
-              aria-label="Stops"
-              className={inputClass}
-              value={form.stops}
-              onChange={(event) => onChange({ stops: event.target.value })}
-            >
-              {STOPS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
                 </option>
               ))}
             </select>
@@ -306,6 +530,267 @@ function FlightFormFields({
             </select>
           </label>
         </FormGroup>
+
+        <AdvancedFilters open={advancedOpen} onToggle={() => setAdvancedOpen((v) => !v)}>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Stops
+            <select
+              aria-label="Stops"
+              className={inputClass}
+              value={form.stops}
+              onChange={(event) => onChange({ stops: event.target.value })}
+            >
+              {STOPS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Sort by
+            <select
+              aria-label="Sort by"
+              className={inputClass}
+              value={form.sort_by}
+              onChange={(event) => onChange({ sort_by: event.target.value })}
+            >
+              {FLIGHT_SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Included airlines (codes, comma-separated)
+            <input
+              aria-label="Included airlines"
+              className={inputClass}
+              placeholder="e.g. AI,6E"
+              value={form.included_airlines}
+              onChange={(event) => onChange({ included_airlines: event.target.value.toUpperCase() })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Excluded airlines (codes, comma-separated)
+            <input
+              aria-label="Excluded airlines"
+              className={inputClass}
+              placeholder="e.g. EK"
+              value={form.excluded_airlines}
+              onChange={(event) => onChange({ excluded_airlines: event.target.value.toUpperCase() })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Max price
+            <input
+              aria-label="Max price"
+              type="number"
+              min={1}
+              className={inputClass}
+              placeholder="e.g. 50000"
+              value={form.max_price}
+              onChange={(event) => onChange({ max_price: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Carry-on bags
+            <input
+              aria-label="Carry-on bags"
+              type="number"
+              min={0}
+              max={9}
+              className={inputClass}
+              value={form.carry_on_bags}
+              onChange={(event) => onChange({ carry_on_bags: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Checked bags
+            <input
+              aria-label="Checked bags"
+              type="number"
+              min={0}
+              max={9}
+              className={inputClass}
+              value={form.checked_bags}
+              onChange={(event) => onChange({ checked_bags: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Max total duration (min)
+            <input
+              aria-label="Max duration"
+              type="number"
+              min={60}
+              max={2880}
+              className={inputClass}
+              placeholder="e.g. 720"
+              value={form.max_duration}
+              onChange={(event) => onChange({ max_duration: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Min layover (min)
+            <input
+              aria-label="Min layover"
+              type="number"
+              min={30}
+              max={1800}
+              className={inputClass}
+              value={form.layover_min}
+              onChange={(event) => onChange({ layover_min: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Max layover (min)
+            <input
+              aria-label="Max layover"
+              type="number"
+              min={30}
+              max={1800}
+              className={inputClass}
+              value={form.layover_max}
+              onChange={(event) => onChange({ layover_max: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Include connecting airports (codes)
+            <input
+              aria-label="Included connecting airports"
+              className={inputClass}
+              placeholder="e.g. BOM"
+              value={form.included_connecting}
+              onChange={(event) => onChange({ included_connecting: event.target.value.toUpperCase() })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Exclude connecting airports (codes)
+            <input
+              aria-label="Excluded connecting airports"
+              className={inputClass}
+              placeholder="e.g. DXB"
+              value={form.excluded_connecting}
+              onChange={(event) => onChange({ excluded_connecting: event.target.value.toUpperCase() })}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block space-y-1.5 text-sm font-medium text-foreground">
+              Outbound dep. hour from
+              <input
+                aria-label="Outbound departure hour from"
+                type="number"
+                min={0}
+                max={23}
+                className={inputClass}
+                value={form.outbound_dep_start}
+                onChange={(event) => onChange({ outbound_dep_start: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-1.5 text-sm font-medium text-foreground">
+              to
+              <input
+                aria-label="Outbound departure hour to"
+                type="number"
+                min={0}
+                max={23}
+                className={inputClass}
+                value={form.outbound_dep_end}
+                onChange={(event) => onChange({ outbound_dep_end: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-1.5 text-sm font-medium text-foreground">
+              Outbound arr. hour from
+              <input
+                aria-label="Outbound arrival hour from"
+                type="number"
+                min={0}
+                max={23}
+                className={inputClass}
+                value={form.outbound_arr_start}
+                onChange={(event) => onChange({ outbound_arr_start: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-1.5 text-sm font-medium text-foreground">
+              to
+              <input
+                aria-label="Outbound arrival hour to"
+                type="number"
+                min={0}
+                max={23}
+                className={inputClass}
+                value={form.outbound_arr_end}
+                onChange={(event) => onChange({ outbound_arr_end: event.target.value })}
+              />
+            </label>
+          </div>
+          {form.round_trip ? (
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block space-y-1.5 text-sm font-medium text-foreground">
+                Return dep. hour from
+                <input
+                  aria-label="Return departure hour from"
+                  type="number"
+                  min={0}
+                  max={23}
+                  className={inputClass}
+                  value={form.return_dep_start}
+                  onChange={(event) => onChange({ return_dep_start: event.target.value })}
+                />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-foreground">
+                to
+                <input
+                  aria-label="Return departure hour to"
+                  type="number"
+                  min={0}
+                  max={23}
+                  className={inputClass}
+                  value={form.return_dep_end}
+                  onChange={(event) => onChange({ return_dep_end: event.target.value })}
+                />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-foreground">
+                Return arr. hour from
+                <input
+                  aria-label="Return arrival hour from"
+                  type="number"
+                  min={0}
+                  max={23}
+                  className={inputClass}
+                  value={form.return_arr_start}
+                  onChange={(event) => onChange({ return_arr_start: event.target.value })}
+                />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-foreground">
+                to
+                <input
+                  aria-label="Return arrival hour to"
+                  type="number"
+                  min={0}
+                  max={23}
+                  className={inputClass}
+                  value={form.return_arr_end}
+                  onChange={(event) => onChange({ return_arr_end: event.target.value })}
+                />
+              </label>
+            </div>
+          ) : null}
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={form.low_emissions}
+              onChange={(event) => onChange({ low_emissions: event.target.checked })}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-ring/60"
+            />
+            Only lower-emission flights
+          </label>
+        </AdvancedFilters>
+
+        {error ? (
+          <Alert tone="error">{error}</Alert>
+        ) : null}
 
         <div>
           <Button type="submit" isLoading={submitting}>
@@ -336,10 +821,17 @@ function splitItinerary(
 }
 
 /** Compact summary row for a flight option (shown when collapsed). */
-function FlightSummary({ option, currency }: { option: SearchApiFlightOption; currency: string }) {
+function FlightSummary({
+  option,
+  currency,
+  isRoundTrip,
+}: {
+  option: SearchApiFlightOption;
+  currency: string;
+  isRoundTrip: boolean;
+}) {
   const first = option.flights[0];
   const last = option.flights[option.flights.length - 1];
-  const isRoundTrip = option.type?.toLowerCase().includes('round');
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
@@ -352,17 +844,22 @@ function FlightSummary({ option, currency }: { option: SearchApiFlightOption; cu
           {first?.airline ?? '—'} · {first?.flight_number ?? '—'}
         </span>
         {first && last ? (
-          <p className="mt-1 text-sm text-foreground">
-            <span className="font-medium">
-              {first.departure_airport.id} {first.departure_airport.time}
-            </span>
-            <span className="mx-2 text-muted-foreground">→</span>
-            <span className="text-xs text-muted-foreground">{minutes(option.total_duration)}</span>
-            <span className="mx-2 text-muted-foreground">→</span>
-            <span className="font-medium">
-              {last.arrival_airport.id} {last.arrival_airport.time}
-            </span>
-          </p>
+          <div className="mt-1">
+            <p className="text-sm text-foreground">
+              <span className="font-medium">
+                {first.departure_airport.id} {formatFlightTime(first.departure_airport.time)}
+              </span>
+              <span className="mx-2 text-muted-foreground">→</span>
+              <span className="text-xs text-muted-foreground">{minutes(option.total_duration)}</span>
+              <span className="mx-2 text-muted-foreground">→</span>
+              <span className="font-medium">
+                {last.arrival_airport.id} {formatFlightTime(last.arrival_airport.time)}
+              </span>
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground/80">
+              {first.departure_airport.name} → {last.arrival_airport.name}
+            </p>
+          </div>
         ) : null}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary">{stopsLabel(option)}</Badge>
@@ -372,7 +869,19 @@ function FlightSummary({ option, currency }: { option: SearchApiFlightOption; cu
       </div>
       <div className="text-right">
         <p className="text-xl font-bold text-foreground">{formatPrice(option.price, currency)}</p>
-        <p className="text-xs text-muted-foreground">total</p>
+        <p className="text-xs text-muted-foreground">
+          {isRoundTrip ? (
+            <span
+              className="inline-flex items-center gap-1"
+              title="This fare includes an available return combination. Exact return flight depends on the selected return option."
+            >
+              Round-trip fare from
+              <Info className="h-3 w-3" aria-hidden="true" />
+            </span>
+          ) : (
+            'One-way fare'
+          )}
+        </p>
       </div>
     </div>
   );
@@ -405,9 +914,9 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
         <div>
-          <p className="text-lg font-semibold text-foreground">{dep.time}</p>
+          <p className="text-lg font-semibold text-foreground">{formatFlightTime(dep.time)}</p>
           <p className="text-xs text-muted-foreground">
-            {dep.id} · {dep.date}
+            {dep.id} · {formatFlightDate(dep.date)}
           </p>
           <p className="text-xs text-muted-foreground/80">{dep.name}</p>
         </div>
@@ -415,15 +924,15 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
           <span className="text-xs font-medium text-muted-foreground">{minutes(leg.duration)}</span>
           <span className="my-1 flex w-full items-center">
             <span className="h-px flex-1 bg-border" />
-            <PlaneTakeoff className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground" aria-hidden="true" />
+            <Plane className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground" aria-hidden="true" />
             <span className="h-px flex-1 bg-border" />
           </span>
           {leg.airplane && <span className="text-[11px] text-muted-foreground/80">{leg.airplane}</span>}
         </div>
         <div className="sm:text-right">
-          <p className="text-lg font-semibold text-foreground">{arr.time}</p>
+          <p className="text-lg font-semibold text-foreground">{formatFlightTime(arr.time)}</p>
           <p className="text-xs text-muted-foreground">
-            {arr.id} · {arr.date}
+            {arr.id} · {formatFlightDate(arr.date)}
           </p>
           <p className="text-xs text-muted-foreground/80">{arr.name}</p>
         </div>
@@ -438,9 +947,11 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
         ) : null}
         {amenities ? (
           <div className="flex flex-wrap gap-1.5">
-            {amenities.wifi ? <Chip>{`Wi-Fi ${String(amenities.wifi)}`}</Chip> : null}
+            {amenities.wifi ? <Chip>Wi-Fi</Chip> : null}
+            {amenities.usb_power ? <Chip>USB power</Chip> : null}
+            {amenities.video_on_demand ? <Chip>On-demand video</Chip> : null}
             {amenities.seat_type ? <Chip>{String(amenities.seat_type)}</Chip> : null}
-            {amenities.legroom_short ? <Chip>{`Legroom ${String(amenities.legroom_short)}`}</Chip> : null}
+            {amenities.legroom_short ? <Chip>{String(amenities.legroom_short)}</Chip> : null}
           </div>
         ) : null}
       </div>
@@ -449,11 +960,26 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
 }
 
 function LayoverRow({ layover }: { layover: SearchApiLayover }) {
+  const overnight = layover.is_overnight;
   return (
-    <div className="flex items-center gap-2 px-3 text-xs text-amber-700">
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs',
+        overnight
+          ? 'border-orange-200 bg-orange-50 text-orange-800'
+          : 'border-amber-200 bg-amber-50 text-amber-800',
+      )}
+    >
       <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      {minutes(layover.duration)} layover at {layover.name} ({layover.id})
-      {layover.is_overnight ? ' · overnight' : ''}
+      <span className="font-medium">{minutes(layover.duration)} layover</span>
+      <span>
+        at {layover.name} ({layover.id})
+      </span>
+      {overnight ? (
+        <span className="ml-auto inline-flex items-center gap-1 rounded bg-orange-200/60 px-1.5 py-0.5 font-medium">
+          <Moon className="h-3 w-3" aria-hidden="true" /> Overnight
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -488,7 +1014,7 @@ function FlightDetails({
       <section>
         <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
           <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
-          {isRoundTrip ? 'Outbound' : 'Itinerary'}
+          {isRoundTrip ? 'Outbound' : 'Flight details'}
         </h4>
         {renderLegs(outbound, 'out')}
       </section>
@@ -511,19 +1037,15 @@ function FlightDetails({
       ) : null}
 
       {emissions ? (
-        <div className="rounded-lg border border-border p-3">
-          <p className="mb-2 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-            <CircleDollarSign className="h-3 w-3" aria-hidden="true" /> Emissions
-          </p>
-          <div className="grid gap-3 sm:grid-cols-4">
-            <Field label="This flight" value={`${Math.round((emissions.this_flight ?? 0) / 1000)} kg`} />
-            <Field
-              label="Typical route"
-              value={`${Math.round((emissions.typical_for_this_route ?? 0) / 1000)} kg`}
-            />
-            <Field label="Lowest route" value={`${Math.round((emissions.lowest_route ?? 0) / 1000)} kg`} />
-            <Field label="Difference" value={`${emissions.difference_percent ?? 0}%`} />
-          </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            CO₂: {Math.round((emissions.this_flight ?? 0) / 1000)} kg
+          </span>
+          {emissions.difference_percent !== undefined ? (
+            <span>
+              {Math.abs(emissions.difference_percent)}% {emissions.difference_percent < 0 ? 'below' : 'above'} typical
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -536,7 +1058,9 @@ function FlightDetails({
       ) : null}
 
       <p className="text-xs text-muted-foreground">
-        Fare shown is {formatPrice(option.price, currency)} total for the selected itinerary.
+        {isRoundTrip
+          ? `Round-trip fare: ${formatPrice(option.price, currency)}. Includes an available return combination.`
+          : `One-way fare: ${formatPrice(option.price, currency)}.`}
       </p>
     </div>
   );
@@ -547,25 +1071,50 @@ function FlightOptionCard({
   option,
   currency,
   arrivalId,
+  isRoundTrip,
+  searchParams,
+  onChooseReturn,
 }: {
   option: SearchApiFlightOption;
   currency: string;
   arrivalId: string;
+  isRoundTrip: boolean;
+  searchParams?: Record<string, unknown>;
+  onChooseReturn?: (departureToken: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <FlightSummary option={option} currency={currency} />
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-        >
-          {open ? 'View less' : 'View details'}
-          <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
-        </button>
+        <FlightSummary option={option} currency={currency} isRoundTrip={isRoundTrip} />
+        <div className="flex flex-wrap items-center gap-2">
+          {searchParams ? (
+            <BookmarkButton
+              type="FLIGHT"
+              searchParams={searchParams}
+              snapshot={option}
+              fingerprint={flightFingerprint(searchParams, option.flights)}
+            />
+          ) : null}
+          {isRoundTrip && option.departure_token && onChooseReturn ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onChooseReturn(option.departure_token as string)}
+            >
+              Choose outbound
+            </Button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            {open ? 'View less' : 'View details'}
+            <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {open ? (
         <div className="border-t border-border p-4">
@@ -586,29 +1135,39 @@ function PriceInsightsStrip({ insights, currency }: { insights: NonNullable<Flig
   if (!lowest && !typical && !level) return null;
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
-        {level ? (
-          <span className="flex items-center gap-1.5 text-foreground">
-            <CircleDollarSign className="h-4 w-4 text-primary" aria-hidden="true" />
-            Price insight: <span className="font-medium">{level}</span>
-          </span>
-        ) : null}
+      <div className="grid gap-x-6 gap-y-1 px-4 py-2.5 sm:grid-cols-3">
         {lowest ? (
-          <span className="text-muted-foreground">
-            <span className="font-medium text-foreground">{lowest}</span> lowest
-          </span>
+          <div>
+            <p className="text-xs text-muted-foreground">Lowest fare</p>
+            <p className="text-sm font-semibold text-foreground">{lowest}</p>
+          </div>
         ) : null}
         {typical ? (
-          <span className="text-muted-foreground">
-            Typical {typical}
-          </span>
+          <div>
+            <p className="text-xs text-muted-foreground">Typical range</p>
+            <p className="text-sm font-semibold text-foreground">{typical}</p>
+          </div>
+        ) : null}
+        {level ? (
+          <div>
+            <p className="text-xs text-muted-foreground">Price level</p>
+            <p className="text-sm font-semibold text-foreground">{level}</p>
+          </div>
         ) : null}
       </div>
     </Card>
   );
 }
 
-function FlightResults({ data, currency }: { data: FlightSearchResponse; currency: string }) {
+function FlightResults({
+  data,
+  currency,
+  baseParams,
+}: {
+  data: FlightSearchResponse;
+  currency: string;
+  baseParams: FlightSearchParams | null;
+}) {
   const arrivalId = useMemo(() => {
     const sp = data.search_parameters;
     const id = (sp as Record<string, unknown> | undefined)?.arrival_id;
@@ -619,21 +1178,107 @@ function FlightResults({ data, currency }: { data: FlightSearchResponse; currenc
     [data],
   );
   const insights = data.price_insights;
+  // Trip type comes from the actual submitted search, not the provider label,
+  // so a one-way search never shows a "Round trip" badge.
+  const isRoundTrip = baseParams?.type === 2;
+
+  // Round-trip return flow: when an outbound is chosen, fetch its return options
+  // via departure_token, cached by (base params + departure_token).
+  const [chosenToken, setChosenToken] = useState<string | undefined>(undefined);
+  const [chosenPrice, setChosenPrice] = useState<number | undefined>(undefined);
+  const returnSearch = useFlightReturnSearch(baseParams ?? ({} as FlightSearchParams), chosenToken);
+  const returnOptions = useMemo(
+    () => [...(returnSearch.data?.best_flights ?? []), ...(returnSearch.data?.other_flights ?? [])],
+    [returnSearch.data],
+  );
 
   return (
     <div className="space-y-4">
       {insights ? <PriceInsightsStrip insights={insights} currency={currency} /> : null}
 
+      {chosenToken ? (
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <PlaneTakeoff className="h-4 w-4 rotate-180 text-primary" aria-hidden="true" />
+              Choose return flight
+            </h3>
+            {chosenPrice !== undefined ? (
+              <span className="text-sm text-muted-foreground">
+                Outbound selected · {formatPrice(chosenPrice, currency)}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setChosenToken(undefined);
+                setChosenPrice(undefined);
+              }}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {returnSearch.isFetching && !returnOptions.length ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading return flights…
+            </div>
+          ) : returnSearch.isError ? (
+            <Alert tone="error">We couldn&apos;t load return flights. Please try again.</Alert>
+          ) : returnOptions.length ? (
+            <div className="space-y-3">
+              {returnOptions.map((option, index) => (
+                <FlightOptionCard
+                  key={option.departure_token ?? option.booking_token ?? index}
+                  option={option}
+                  currency={currency}
+                  arrivalId={arrivalId}
+                  isRoundTrip={isRoundTrip}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={PlaneTakeoff}
+              title="No return flights found"
+              description="Try a different return date."
+            />
+          )}
+        </div>
+      ) : null}
+
       {all.length ? (
         <div className="space-y-3">
-          {all.map((option, index) => (
-            <FlightOptionCard
-              key={option.departure_token ?? option.booking_token ?? index}
-              option={option}
-              currency={currency}
-              arrivalId={arrivalId}
-            />
-          ))}
+          {all.map((option, index) => {
+            const cardProps: {
+              option: SearchApiFlightOption;
+              currency: string;
+              arrivalId: string;
+              isRoundTrip: boolean;
+              searchParams: Record<string, unknown>;
+              onChooseReturn?: (token: string) => void;
+            } = {
+              option,
+              currency,
+              arrivalId,
+              isRoundTrip,
+              searchParams: (baseParams ?? {}) as Record<string, unknown>,
+            };
+            if (baseParams && baseParams.type === 2 && option.departure_token) {
+              cardProps.onChooseReturn = (token) => {
+                setChosenToken(token);
+                setChosenPrice(option.price);
+              };
+            }
+            return (
+              <FlightOptionCard
+                key={option.departure_token ?? option.booking_token ?? index}
+                {...cardProps}
+              />
+            );
+          })}
         </div>
       ) : (
         <EmptyState
@@ -643,7 +1288,8 @@ function FlightResults({ data, currency }: { data: FlightSearchResponse; currenc
         />
       )}
 
-      <DevRawResponse label="Full flight API response (dev)" data={data} />
+      <DevRawResponse label="Developer data — flight" data={data} />
+      <BackToTop />
     </div>
   );
 }
@@ -659,141 +1305,48 @@ interface HotelForm {
   check_out_date: string;
   adults: number;
   rooms: number;
+  sort_by: string;
+  property_types: string[];
+  amenities: string[];
+  rating: string;
+  min_price: string;
+  max_price: string;
+  free_cancellation: boolean;
+  special_offers: boolean;
+  eco_certified: boolean;
+  bedrooms: string;
+  bathrooms: string;
 }
 
-/** Derive a canonical destination from an autocomplete location suggestion. */
-function destinationFromSuggestion(
-  title: string,
-  subtitle: string | undefined,
-  kgmid: string | undefined,
-): HotelDestination {
-  const displayName = title.trim();
-  let country: string | undefined;
-  let region: string | undefined;
-  const lower = (subtitle ?? '').toLowerCase();
-
-  if (lower.startsWith('country in ')) {
-    // e.g. "Country in Asia" -> the place itself is a country (Singapore)
-    country = displayName;
-  } else {
-    // e.g. "City in India", "Capital of India", "City in the United Arab Emirates"
-    const match = /in (.+)$/.exec(subtitle ?? '');
-    const remainder = match?.[1]?.trim();
-    const continent = /^(asia|europe|africa|north america|south america|australia|oceania|antarctica)$/i;
-    if (remainder && !continent.test(remainder)) {
-      country = remainder;
-    } else if (remainder && continent.test(remainder)) {
-      // e.g. "Country in Asia" handled above; treat region-only subtitle as no country
-      region = remainder;
-    }
-  }
-
-  const searchQuery = country ? `Hotels in ${displayName}, ${country}` : `Hotels in ${displayName}`;
-  const destination: HotelDestination = {
-    displayName,
-    searchQuery,
-    city: displayName,
-  };
-  if (region) destination.region = region;
-  if (country) destination.country = country;
-  if (kgmid) destination.kgmid = kgmid;
-  return destination;
-}
-
-/** Destination input with autocomplete suggestions. */
+/** Plain destination text input. Typing never calls SearchAPI — the only
+ *  provider request happens when the user clicks Search hotels. */
 function HotelDestinationInput({
   value,
-  onSelect,
   onText,
 }: {
   value: HotelDestination | null;
-  onSelect: (destination: HotelDestination) => void;
   onText: (text: string) => void;
 }) {
   const [text, setText] = useState(value?.displayName ?? '');
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  const auto = useHotelAutocomplete(text);
-
-  const suggestions = useMemo(() => {
-    const items = auto.data?.suggestions ?? [];
-    // Location matches: the provider labels places as `airport` with a kgmid.
-    return items
-      .filter((s) => s.type === 'airport' && s.kgmid && s.title)
-      .map((s) => ({
-        title: s.title as string,
-        subtitle: s.subtitle,
-        kgmid: s.kgmid as string,
-      }))
-      .slice(0, 6);
-  }, [auto.data]);
-
-  const select = (destination: HotelDestination) => {
-    setText(destination.displayName);
-    setOpen(false);
-    onSelect(destination);
-  };
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div>
       <label className="block space-y-1.5 text-sm font-medium text-foreground">
-        Where
+        Destination
         <input
           aria-label="Destination"
           className={inputClass}
           placeholder="e.g. Delhi, Mumbai, Singapore"
           value={text}
           autoComplete="off"
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
           onChange={(event) => {
             const next = event.target.value;
             setText(next);
-            // Any edit invalidates the previously selected canonical destination.
             onText(next);
-            setOpen(true);
           }}
         />
       </label>
-
-      {open && text.trim().length >= 2 && (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-popover">
-          {auto.isFetching ? (
-            <div className="px-3 py-2 text-sm text-muted-foreground">Searching destinations…</div>
-          ) : suggestions.length ? (
-            <ul role="listbox">
-              {suggestions.map((s) => (
-                <li key={s.kgmid}>
-                  <button
-                    type="button"
-                    role="option"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      select(destinationFromSuggestion(s.title, s.subtitle, s.kgmid));
-                    }}
-                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted"
-                  >
-                    <span className="font-medium text-foreground">{s.title}</span>
-                    {s.subtitle ? (
-                      <span className="text-xs text-muted-foreground">{s.subtitle}</span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : auto.isError ? (
-            <div className="px-3 py-2 text-sm text-muted-foreground">No suggestions.</div>
-          ) : (
-            <div className="px-3 py-2 text-sm text-muted-foreground">
-              Keep typing or press Search to use &quot;{text}&quot;.
-            </div>
-          )}
-        </div>
-      )}
-
-      {value ? (
-        <p className="mt-1 text-xs text-muted-foreground">{value.searchQuery}</p>
-      ) : null}
+      {value ? <p className="mt-1 text-xs text-muted-foreground">{value.searchQuery}</p> : null}
     </div>
   );
 }
@@ -804,19 +1357,27 @@ function HotelFormFields({
   onCurrency,
   onChange,
   onSubmit,
-  submitting,
+  error,
 }: {
   form: HotelForm;
   currency: string;
   onCurrency: (currency: string) => void;
   onChange: (patch: Partial<HotelForm>) => void;
   onSubmit: () => void;
-  submitting: boolean;
+  error?: string | null;
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const toggleList = (key: 'property_types' | 'amenities', id: string) => {
+    const current = form[key];
+    onChange({
+      [key]: current.includes(id) ? current.filter((v) => v !== id) : [...current, id],
+    } as Partial<HotelForm>);
+  };
+
   return (
     <Card>
       <form
-        className="space-y-4 p-4"
+        className="space-y-3 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
@@ -826,7 +1387,6 @@ function HotelFormFields({
           <div className="sm:col-span-2">
             <HotelDestinationInput
               value={form.destination}
-              onSelect={(destination) => onChange({ destination, destinationText: destination.displayName })}
               onText={(text) => onChange({ destination: null, destinationText: text })}
             />
           </div>
@@ -898,11 +1458,199 @@ function HotelFormFields({
               ))}
             </select>
           </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Sort by
+            <select
+              aria-label="Hotel sort by"
+              className={inputClass}
+              value={form.sort_by}
+              onChange={(event) => onChange({ sort_by: event.target.value })}
+            >
+              <option value="">Recommended</option>
+              {HOTEL_SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </FormGroup>
 
+        <AdvancedFilters open={advancedOpen} onToggle={() => setAdvancedOpen((v) => !v)}>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Price min
+            <input
+              aria-label="Hotel price min"
+              type="number"
+              min={0}
+              className={inputClass}
+              value={form.min_price}
+              onChange={(event) => onChange({ min_price: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Price max
+            <input
+              aria-label="Hotel price max"
+              type="number"
+              min={1}
+              className={inputClass}
+              value={form.max_price}
+              onChange={(event) => onChange({ max_price: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Hotel class
+            <select
+              aria-label="Hotel class"
+              className={inputClass}
+              value={form.rating}
+              onChange={(event) => onChange({ rating: event.target.value })}
+            >
+              <option value="">Any</option>
+              <option value="5">5 star</option>
+              <option value="4">4 star</option>
+              <option value="3">3 star</option>
+              <option value="2">2 star</option>
+            </select>
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Guest rating
+            <select
+              aria-label="Guest rating"
+              className={inputClass}
+              value={form.rating}
+              onChange={(event) => onChange({ rating: event.target.value })}
+            >
+              <option value="">Any</option>
+              {HOTEL_RATING_OPTIONS.map((opt) => (
+                <option key={opt.value} value={String(opt.value)}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Property type</p>
+            <div className="flex flex-wrap gap-1.5">
+              {HOTEL_PROPERTY_TYPE_IDS.hotels.map((pt) => (
+                <button
+                  key={pt.id}
+                  type="button"
+                  aria-pressed={form.property_types.includes(String(pt.id))}
+                  onClick={() => toggleList('property_types', String(pt.id))}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                    form.property_types.includes(String(pt.id))
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {pt.label}
+                </button>
+              ))}
+              {HOTEL_PROPERTY_TYPE_IDS.vacationRentals.map((pt) => (
+                <button
+                  key={pt.id}
+                  type="button"
+                  aria-pressed={form.property_types.includes(String(pt.id))}
+                  onClick={() => toggleList('property_types', String(pt.id))}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                    form.property_types.includes(String(pt.id))
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {pt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Amenities</p>
+            <div className="flex flex-wrap gap-1.5">
+              {HOTEL_AMENITY_IDS.map((amenity) => (
+                <button
+                  key={amenity.id}
+                  type="button"
+                  aria-pressed={form.amenities.includes(String(amenity.id))}
+                  onClick={() => toggleList('amenities', String(amenity.id))}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                    form.amenities.includes(String(amenity.id))
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {amenity.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input
+              type="checkbox"
+              checked={form.free_cancellation}
+              onChange={(event) => onChange({ free_cancellation: event.target.checked })}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-ring/60"
+            />
+            Free cancellation
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input
+              type="checkbox"
+              checked={form.special_offers}
+              onChange={(event) => onChange({ special_offers: event.target.checked })}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-ring/60"
+            />
+            Special offers
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input
+              type="checkbox"
+              checked={form.eco_certified}
+              onChange={(event) => onChange({ eco_certified: event.target.checked })}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-ring/60"
+            />
+            Eco certified
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Min bedrooms
+            <input
+              aria-label="Min bedrooms"
+              type="number"
+              min={0}
+              max={20}
+              className={inputClass}
+              value={form.bedrooms}
+              onChange={(event) => onChange({ bedrooms: event.target.value })}
+            />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            Min bathrooms
+            <input
+              aria-label="Min bathrooms"
+              type="number"
+              min={0}
+              max={20}
+              className={inputClass}
+              value={form.bathrooms}
+              onChange={(event) => onChange({ bathrooms: event.target.value })}
+            />
+          </label>
+        </AdvancedFilters>
+
+        {error ? (
+          <Alert tone="error">{error}</Alert>
+        ) : null}
+
         <div>
-          <Button type="submit" isLoading={submitting}>
-            {!submitting && <Search className="h-4 w-4" aria-hidden="true" />}
+          <Button type="submit">
+            <Search className="h-4 w-4" aria-hidden="true" />
             Search hotels
           </Button>
         </div>
@@ -921,14 +1669,10 @@ function propertyTypeLabel(type: string | undefined): string {
 }
 
 /**
- * Image carousel.
- *
- * For each image, prefer `original`, fall back to `thumbnail`, then move to the
- * next image. Only shows "No images available" once every candidate has failed
- * or the property genuinely has no images. Navigation is local state only.
+ * Image carousel. For each image, prefer `original`, fall back to `thumbnail`,
+ * then move to the next image. Local state only — never triggers a request.
  */
 function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
-  // Each image object -> ordered candidate URLs (original first, then thumbnail).
   const images = useMemo(() => {
     const list: string[][] = [];
     for (const image of property.images ?? []) {
@@ -950,7 +1694,6 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
     setFailed(new Set());
   }
 
-  // Images that still have at least one non-failed candidate.
   const validImages = useMemo(
     () =>
       images
@@ -971,10 +1714,7 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
 
   const onError = () => {
     if (!currentUrl) return;
-    const nextFailed = new Set(failed).add(currentUrl);
-    setFailed(nextFailed);
-    // If the current image still has another candidate, keep it; otherwise the
-    // next valid image is shown automatically on the next render.
+    setFailed((prev) => new Set(prev).add(currentUrl));
   };
 
   const single = validImages.length <= 1;
@@ -1037,26 +1777,22 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
   );
 }
 
-function PriceBlock({
-  label,
-  price,
-}: {
-  label: string;
-  price: SearchApiPrice | undefined;
-}) {
+function PriceBlock({ label, price }: { label: string; price: SearchApiPrice | undefined }) {
   if (!price) return null;
-  const hasDeal = price.price_before_taxes && price.price_before_taxes !== price.price;
+  const resolved = resolveHotelPrice(price);
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-base font-semibold text-foreground">
-        {formatPriceString(price.price)}
-        {hasDeal ? (
-          <span className="ml-1.5 text-sm font-normal text-muted-foreground line-through">
-            {formatPriceString(price.price_before_taxes)}
-          </span>
-        ) : null}
-      </p>
+      {resolved.main ? (
+        <p className="text-base font-semibold text-foreground">
+          {formatPriceString(resolved.main)}
+          {resolved.beforeTaxes ? (
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">Before taxes</span>
+          ) : null}
+        </p>
+      ) : (
+        <p className="text-base font-semibold text-foreground">Price unavailable</p>
+      )}
     </div>
   );
 }
@@ -1107,6 +1843,10 @@ function ReviewBreakdown({ items }: { items: SearchApiReviewBreakdown[] }) {
 function HotelDetails({ property }: { property: SearchApiHotelProperty }) {
   return (
     <div className="grid gap-4 border-t border-border p-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="flex flex-wrap gap-x-8 gap-y-2 md:col-span-2 lg:col-span-3">
+        <PriceBlock label="Per night" price={property.price_per_night} />
+        <PriceBlock label="Total stay" price={property.total_price} />
+      </div>
       <div className="space-y-1.5">
         <Field label="Accommodation" value={propertyTypeLabel(property.type)} />
         <Field label="Check-in" value={property.check_in_time} />
@@ -1208,9 +1948,7 @@ function HotelDetails({ property }: { property: SearchApiHotelProperty }) {
                       <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted">
                         <div
                           className="h-full rounded bg-amber-400"
-                          style={{
-                            width: `${Math.max(0, Math.min(100, (count / total) * 100))}%`,
-                          }}
+                          style={{ width: `${Math.max(0, Math.min(100, (count / total) * 100))}%` }}
                         />
                       </div>
                       <span className="w-10 shrink-0 text-right text-muted-foreground">
@@ -1229,7 +1967,13 @@ function HotelDetails({ property }: { property: SearchApiHotelProperty }) {
 }
 
 /** Compact hotel card: image left, key info centre, price right. */
-function HotelPropertyCard({ property }: { property: SearchApiHotelProperty }) {
+function HotelPropertyCard({
+  property,
+  searchParams,
+}: {
+  property: SearchApiHotelProperty;
+  searchParams?: Record<string, unknown>;
+}) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const primaryAmenities = (property.amenities ?? []).slice(0, 6);
 
@@ -1243,6 +1987,7 @@ function HotelPropertyCard({ property }: { property: SearchApiHotelProperty }) {
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-semibold text-foreground">{property.name}</h3>
                 <Stars count={property.extracted_hotel_class} />
+                {property.type ? <Badge variant="outline">{propertyTypeLabel(property.type)}</Badge> : null}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 {property.rating ? (
@@ -1263,7 +2008,6 @@ function HotelPropertyCard({ property }: { property: SearchApiHotelProperty }) {
                     {property.country ? `, ${property.country}` : ''}
                   </span>
                 ) : null}
-                <Badge variant="secondary">{propertyTypeLabel(property.type)}</Badge>
               </div>
             </div>
             {property.deal ? (
@@ -1303,7 +2047,18 @@ function HotelPropertyCard({ property }: { property: SearchApiHotelProperty }) {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              {searchParams ? (
+                <BookmarkButton
+                  type="HOTEL"
+                  searchParams={searchParams}
+                  snapshot={property}
+                  fingerprint={hotelFingerprint(
+                    searchParams,
+                    property.property_token ?? property.data_id ?? property.name ?? '',
+                  )}
+                />
+              ) : null}
               {property.link ? (
                 <a
                   href={property.link}
@@ -1435,6 +2190,7 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
               <HotelPropertyCard
                 key={property.property_token ?? property.data_id ?? property.name}
                 property={property}
+                searchParams={baseParams as unknown as Record<string, unknown>}
               />
             ))}
           </div>
@@ -1463,7 +2219,8 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
         />
       )}
 
-      {pageData ? <DevRawResponse label="Full hotel API response (dev)" data={pageData} /> : null}
+      {pageData ? <DevRawResponse label="Developer data — hotel" data={pageData} /> : null}
+      <BackToTop />
     </div>
   );
 }
@@ -1481,8 +2238,31 @@ const initialFlightForm: FlightForm = {
   return_date: '',
   round_trip: true,
   adults: 1,
+  children: 0,
+  infants_in_seat: 0,
+  infants_on_lap: 0,
   travel_class: 'economy',
   stops: 'any',
+  sort_by: 'price',
+  included_airlines: '',
+  excluded_airlines: '',
+  max_price: '',
+  carry_on_bags: '',
+  checked_bags: '',
+  outbound_dep_start: '',
+  outbound_dep_end: '',
+  outbound_arr_start: '',
+  outbound_arr_end: '',
+  return_dep_start: '',
+  return_dep_end: '',
+  return_arr_start: '',
+  return_arr_end: '',
+  max_duration: '',
+  layover_min: '',
+  layover_max: '',
+  included_connecting: '',
+  excluded_connecting: '',
+  low_emissions: false,
 };
 
 const initialHotelForm: HotelForm = {
@@ -1492,6 +2272,17 @@ const initialHotelForm: HotelForm = {
   check_out_date: '',
   adults: 2,
   rooms: 1,
+  sort_by: '',
+  property_types: [],
+  amenities: [],
+  rating: '',
+  min_price: '',
+  max_price: '',
+  free_cancellation: false,
+  special_offers: false,
+  eco_certified: false,
+  bedrooms: '',
+  bathrooms: '',
 };
 
 function formatDateRange(from: string, to: string | undefined): string {
@@ -1521,7 +2312,8 @@ function SearchSummary({
           {flightQuery.departure_id} → {flightQuery.arrival_id}
         </span>
         <span className="mx-2">·</span>
-        {formatDateRange(flightQuery.outbound_date, flightQuery.return_date)}
+        {formatFlightDate(flightQuery.outbound_date)}
+        {flightQuery.return_date ? ` → ${formatFlightDate(flightQuery.return_date)}` : ''}
         <span className="mx-2">·</span>
         {flightQuery.adults ?? 1} {flightQuery.adults === 1 ? 'adult' : 'adults'}
         <span className="mx-2">·</span>
@@ -1553,6 +2345,8 @@ export function TravelSearchPage() {
   const [hotelForm, setHotelForm] = useState<HotelForm>(initialHotelForm);
   const [flightQuery, setFlightQuery] = useState<FlightSearchParams | null>(null);
   const [hotelQuery, setHotelQuery] = useState<HotelSearchParams | null>(null);
+  const [flightError, setFlightError] = useState<string | null>(null);
+  const [hotelError, setHotelError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const flights = useFlightSearch(
@@ -1560,16 +2354,62 @@ export function TravelSearchPage() {
   );
 
   const submitFlights = () => {
+    setFlightError(null);
+    // Local validation BEFORE any provider request.
+    if (!flightForm.departure_id.trim() || !flightForm.arrival_id.trim()) {
+      setFlightError('Enter both the departure and arrival airport codes.');
+      return;
+    }
+    if (!flightForm.outbound_date) {
+      setFlightError('Choose a departure date.');
+      return;
+    }
+    if (flightForm.round_trip && flightForm.return_date && flightForm.return_date < flightForm.outbound_date) {
+      setFlightError('Return date must be after the departure date.');
+      return;
+    }
+
     const query: FlightSearchParams = {
       departure_id: flightForm.departure_id.trim().toUpperCase(),
       arrival_id: flightForm.arrival_id.trim().toUpperCase(),
       outbound_date: flightForm.outbound_date,
       type: flightForm.round_trip ? 2 : 1,
       adults: flightForm.adults,
+      children: flightForm.children,
+      infants_in_seat: flightForm.infants_in_seat,
+      infants_on_lap: flightForm.infants_on_lap,
       travel_class: flightForm.travel_class,
       stops: flightForm.stops,
       currency,
     };
+    if (flightForm.sort_by) query.sort_by = flightForm.sort_by;
+    if (flightForm.included_airlines) query.included_airlines = flightForm.included_airlines;
+    if (flightForm.excluded_airlines) query.excluded_airlines = flightForm.excluded_airlines;
+    if (flightForm.max_price) query.max_price = Number(flightForm.max_price);
+    if (flightForm.carry_on_bags !== '') query.carry_on_bags = Number(flightForm.carry_on_bags);
+    if (flightForm.checked_bags !== '') query.checked_bags = Number(flightForm.checked_bags);
+    const outboundTimes = timeRange(
+      flightForm.outbound_dep_start,
+      flightForm.outbound_dep_end,
+      flightForm.outbound_arr_start,
+      flightForm.outbound_arr_end,
+    );
+    if (outboundTimes) query.outbound_times = outboundTimes;
+    if (flightForm.round_trip) {
+      const returnTimes = timeRange(
+        flightForm.return_dep_start,
+        flightForm.return_dep_end,
+        flightForm.return_arr_start,
+        flightForm.return_arr_end,
+      );
+      if (returnTimes) query.return_times = returnTimes;
+    }
+    if (flightForm.max_duration) query.max_flight_duration = Number(flightForm.max_duration);
+    if (flightForm.layover_min) query.layover_duration_min = Number(flightForm.layover_min);
+    if (flightForm.layover_max) query.layover_duration_max = Number(flightForm.layover_max);
+    if (flightForm.included_connecting) query.included_connecting_airports = flightForm.included_connecting;
+    if (flightForm.excluded_connecting) query.excluded_connecting_airports = flightForm.excluded_connecting;
+    if (flightForm.low_emissions) query.emissions = 1;
     if (flightForm.round_trip && flightForm.return_date) {
       query.return_date = flightForm.return_date;
     }
@@ -1577,28 +2417,51 @@ export function TravelSearchPage() {
   };
 
   const submitHotels = () => {
-    // Destination is the canonical selection; fall back to the typed text if no
-    // autocomplete choice was made (backend still builds an explicit query).
+    setHotelError(null);
     const typed = hotelForm.destinationText.trim();
+    if (!typed) {
+      setHotelError('Enter a destination.');
+      return;
+    }
+    if (!hotelForm.check_in_date || !hotelForm.check_out_date) {
+      setHotelError('Choose check-in and check-out dates.');
+      return;
+    }
+    if (hotelForm.check_out_date <= hotelForm.check_in_date) {
+      setHotelError('Check-out date must be after the check-in date.');
+      return;
+    }
     const destination =
       hotelForm.destination ?? {
         displayName: typed || 'Destination',
         searchQuery: `Hotels in ${typed || 'Destination'}`,
       };
-    setHotelQuery({
+    const query: HotelSearchParams = {
       destination: destinationToParam(destination),
       check_in_date: hotelForm.check_in_date,
       check_out_date: hotelForm.check_out_date,
       adults: hotelForm.adults,
       rooms: hotelForm.rooms,
       currency,
-    });
+    };
+    if (hotelForm.sort_by) query.sort_by = hotelForm.sort_by;
+    if (hotelForm.property_types.length) query.property_types = hotelForm.property_types.join(',');
+    if (hotelForm.amenities.length) query.amenities = hotelForm.amenities.join(',');
+    if (hotelForm.rating) query.rating = Number(hotelForm.rating);
+    if (hotelForm.free_cancellation) query.free_cancellation = 'true';
+    if (hotelForm.special_offers) query.special_offers = 'true';
+    if (hotelForm.eco_certified) query.eco_certified = 'true';
+    if (hotelForm.bedrooms !== '') query.bedrooms = Number(hotelForm.bedrooms);
+    if (hotelForm.bathrooms !== '') query.bathrooms = Number(hotelForm.bathrooms);
+    if (hotelForm.min_price !== '') query.min_price = Number(hotelForm.min_price);
+    if (hotelForm.max_price !== '') query.max_price = Number(hotelForm.max_price);
+    setHotelQuery(query);
   };
 
   const searching = tab === 'flights' ? flights.isFetching : Boolean(hotelQuery && !hotelQuery.destination);
   const results = tab === 'flights' ? (flights.data ?? null) : null;
   const isError = tab === 'flights' ? flights.isError : false;
-  const searchLabel = tab === 'flights' ? 'flights' : 'hotels';
+  const errorMessage = tab === 'flights' ? flightError : hotelError;
 
   const refresh = () => {
     if (tab === 'flights') {
@@ -1611,8 +2474,8 @@ export function TravelSearchPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Live travel search"
-        description="Search live flights and hotels and see every field the provider returns."
+        title="Live Search"
+        description="Search live flights and hotels."
         actions={
           <Button size="sm" variant="secondary" onClick={refresh} disabled={!canRefresh}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -1654,6 +2517,7 @@ export function TravelSearchPage() {
           onChange={(patch) => setFlightForm((current) => ({ ...current, ...patch }))}
           onSubmit={submitFlights}
           submitting={searching}
+          error={errorMessage}
         />
       ) : (
         <HotelFormFields
@@ -1662,7 +2526,7 @@ export function TravelSearchPage() {
           onCurrency={setCurrency}
           onChange={(patch) => setHotelForm((current) => ({ ...current, ...patch }))}
           onSubmit={submitHotels}
-          submitting={false}
+          error={errorMessage}
         />
       )}
 
@@ -1673,15 +2537,15 @@ export function TravelSearchPage() {
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Searching {searchLabel}…
+              Searching {tab === 'flights' ? 'flights' : 'hotels'}…
             </div>
             <Skeleton className="h-32 w-full" />
             <Skeleton className="h-32 w-full" />
           </div>
         ) : isError ? (
-          <Alert tone="error">We couldn&apos;t load {searchLabel}. Please try again.</Alert>
+          <Alert tone="error">We couldn&apos;t load flights. Please try again.</Alert>
         ) : results ? (
-          <FlightResults data={results as FlightSearchResponse} currency={currency} />
+          <FlightResults data={results as FlightSearchResponse} currency={currency} baseParams={flightQuery} />
         ) : (
           <EmptyState
             icon={Search}

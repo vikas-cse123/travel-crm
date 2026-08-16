@@ -574,6 +574,20 @@ export const hotelDetailsSchema = z.object({
   sectionTitle: optionalText(200).default('Your Hotels'),
   amount: optionalMoney,
   description: optionalText(8000),
+  /**
+   * Images copied from a Live Search bookmark snapshot when a hotel was
+   * imported via a bookmark code. Stored as plain URLs (thumbnail/original)
+   * and never fetched from SearchAPI.
+   */
+  images: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        alt: optionalText(500),
+      }),
+    )
+    .max(12)
+    .optional(),
 });
 
 /** Top-level Add-on Services section state (individual add-ons are service rows). */

@@ -2,18 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient } from '@tanstack/react-query';
+import { flightFingerprint, type SearchApiFlightOption } from '@interscale/shared';
 import { QueryProvider } from '@/providers/QueryProvider';
 import { TravelSearchPage } from './TravelSearchPage';
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const ui = (
+    <QueryProvider client={client}>
+      <TravelSearchPage />
+    </QueryProvider>
+  );
   return {
+    client,
     user: userEvent.setup(),
-    ...render(
-      <QueryProvider client={client}>
-        <TravelSearchPage />
-      </QueryProvider>,
-    ),
+    ...render(ui),
   };
 }
 
@@ -48,6 +51,50 @@ const flightResponse = {
   ],
   other_flights: [],
   price_insights: { lowest_price: 4850, price_level: 'low' },
+};
+
+/** A round-trip flight fixture used across test groups. */
+const roundTripFlightResponse = {
+  search_metadata: { id: 'f2' },
+  search_parameters: { engine: 'google_flights', departure_id: 'DEL', arrival_id: 'SIN' },
+  best_flights: [
+    {
+      flights: [
+        {
+          departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-11-14', time: '00:55' },
+          arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-11-14', time: '09:20' },
+          duration: 355,
+          airplane: 'A321',
+          airline: 'Air India',
+          flight_number: 'AI 2118',
+          travel_class: 'Economy',
+        },
+      ],
+      layovers: [],
+      total_duration: 355,
+      price: 98576,
+      type: 'Round trip',
+    },
+    {
+      flights: [
+        {
+          departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-11-14', time: '13:25' },
+          arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-11-14', time: '21:55' },
+          duration: 360,
+          airplane: 'A321',
+          airline: 'Air India',
+          flight_number: 'AI 2382',
+          travel_class: 'Economy',
+        },
+      ],
+      layovers: [],
+      total_duration: 360,
+      price: 98576,
+      type: 'Round trip',
+    },
+  ],
+  other_flights: [],
+  price_insights: { lowest_price: 97592, price_level: 'high' },
 };
 
 function hotelProperty(overrides: Record<string, unknown> = {}, index = 0) {
@@ -123,6 +170,7 @@ function hotelSearchCalls(calls: string[]): number {
 async function runHotelSearch(
   user: ReturnType<typeof userEvent.setup>,
   destination: string,
+  hotelName = 'Hotel 0',
 ) {
   await user.click(screen.getByRole('tab', { name: 'Hotels' }));
   const dest = screen.getByLabelText('Destination');
@@ -132,7 +180,7 @@ async function runHotelSearch(
   await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
   await user.click(screen.getByRole('button', { name: 'Search hotels' }));
   await waitFor(() => {
-    expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    expect(screen.getByText(hotelName)).toBeInTheDocument();
   });
 }
 
@@ -550,49 +598,6 @@ describe('TravelSearchPage', () => {
   // Flight card expand / collapse
   // -------------------------------------------------------------------------
 
-  const roundTripFlightResponse = {
-    search_metadata: { id: 'f2' },
-    search_parameters: { engine: 'google_flights', departure_id: 'DEL', arrival_id: 'SIN' },
-    best_flights: [
-      {
-        flights: [
-          {
-            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-11-14', time: '00:55' },
-            arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-11-14', time: '09:20' },
-            duration: 355,
-            airplane: 'A321',
-            airline: 'Air India',
-            flight_number: 'AI 2118',
-            travel_class: 'Economy',
-          },
-        ],
-        layovers: [],
-        total_duration: 355,
-        price: 98576,
-        type: 'Round trip',
-      },
-      {
-        flights: [
-          {
-            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-11-14', time: '13:25' },
-            arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-11-14', time: '21:55' },
-            duration: 360,
-            airplane: 'A321',
-            airline: 'Air India',
-            flight_number: 'AI 2382',
-            travel_class: 'Economy',
-          },
-        ],
-        layovers: [],
-        total_duration: 360,
-        price: 98576,
-        type: 'Round trip',
-      },
-    ],
-    other_flights: [],
-    price_insights: { lowest_price: 97592, price_level: 'high' },
-  };
-
   async function runFlightSearch(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
     await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
@@ -660,9 +665,11 @@ describe('TravelSearchPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Outbound')).toBeInTheDocument();
     });
-    expect(screen.getByText('Return')).toBeInTheDocument();
-    expect(screen.getByText('00:55')).toBeInTheDocument();
-    expect(screen.getByText('09:20')).toBeInTheDocument();
+    // The expanded section header "Return" (the form also has a "Return" label,
+    // so scope to the section heading).
+    expect(screen.getByRole('heading', { name: 'Return' })).toBeInTheDocument();
+    expect(screen.getByText('12:55 AM')).toBeInTheDocument();
+    expect(screen.getByText('09:20 AM')).toBeInTheDocument();
     expect(screen.getByText(/Return flight included in this round-trip fare/)).toBeInTheDocument();
   });
 
@@ -683,6 +690,41 @@ describe('TravelSearchPage', () => {
     });
   });
 
+  it('expanded one-way flight details show the new formatting', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'LKO');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-15');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await waitFor(() => {
+      // Section renamed from "Itinerary".
+      expect(screen.getByText('Flight details')).toBeInTheDocument();
+      expect(screen.queryByText('Itinerary')).not.toBeInTheDocument();
+      // Dates shown as DD/MM/YYYY.
+      expect(screen.getByText(/LKO · 15\/09\/2026/)).toBeInTheDocument();
+      expect(screen.getByText(/DEL · 15\/09\/2026/)).toBeInTheDocument();
+      // Times shown in 12-hour AM/PM.
+      expect(screen.getByText('09:00 AM')).toBeInTheDocument();
+      expect(screen.getByText('10:00 AM')).toBeInTheDocument();
+      // Duration unchanged.
+      expect(screen.getAllByText('1h 0m').length).toBeGreaterThan(0);
+    });
+
+    // The segment still renders the Plane icon between the duration and aircraft.
+    const planes = document.querySelectorAll('svg.lucide-plane');
+    expect(planes.length).toBeGreaterThan(0);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // Dev raw response accordions
   // -------------------------------------------------------------------------
@@ -693,7 +735,7 @@ describe('TravelSearchPage', () => {
     const { user } = renderPage();
     await runFlightSearch(user);
 
-    const toggle = screen.getByRole('button', { name: /Full flight API response/ });
+    const toggle = screen.getByRole('button', { name: /Developer data — flight/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -714,7 +756,7 @@ describe('TravelSearchPage', () => {
     const { user } = renderPage();
     await runHotelSearch(user, 'Lucknow');
 
-    const toggle = screen.getByRole('button', { name: /Full hotel API response/ });
+    const toggle = screen.getByRole('button', { name: /Developer data — hotel/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -736,8 +778,8 @@ describe('TravelSearchPage', () => {
     await runHotelSearch(user, 'Lucknow');
     const before = hotelSearchCalls(calls);
 
-    await user.click(screen.getByRole('button', { name: /Full hotel API response/ }));
-    await user.click(screen.getByRole('button', { name: /Full hotel API response/ }));
+    await user.click(screen.getByRole('button', { name: /Developer data — hotel/ }));
+    await user.click(screen.getByRole('button', { name: /Developer data — hotel/ }));
 
     expect(hotelSearchCalls(calls)).toBe(before);
   });
@@ -750,6 +792,842 @@ describe('TravelSearchPage', () => {
 
     expect(screen.getByText('DEL → SIN')).toBeInTheDocument();
     expect(screen.getByText(/adult/)).toBeInTheDocument();
+    // The submitted flight date renders in DD/MM/YYYY, not the raw YYYY-MM-DD.
+    expect(screen.getByText(/14\/11\/2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-11-14/)).not.toBeInTheDocument();
+  });
+
+  it('shows the round-trip flight summary with both dates in DD/MM/YYYY', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(roundTripFlightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-11-14');
+    await user.type(screen.getByLabelText('Return date'), '2026-11-20');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('Air India · AI 2118')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/14\/11\/2026 → 20\/11\/2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-11-14/)).not.toBeInTheDocument();
+  });
+
+  it('shows the one-way flight summary with a single DD/MM/YYYY date', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'LKO');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-15');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/15\/09\/2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-09-15/)).not.toBeInTheDocument();
+  });
+});
+
+describe('TravelSearchPage validation & filters', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('blocks a flight search when the return date is before the departure date', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.type(screen.getByLabelText('Return date'), '2026-08-26');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Return date must be after the departure date.')).toBeInTheDocument();
+    });
+    // No provider request is made for an invalid form.
+    expect(calls.filter((url) => url.includes('/api/search/flights'))).toHaveLength(0);
+  });
+
+  it('one-way flight search omits the return date and shows a One way badge', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const flightCall = calls.find((url) => url.includes('/api/search/flights'));
+    expect(flightCall).toContain('type=1');
+    expect(flightCall).not.toContain('return_date');
+    // The badge reflects the submitted one-way trip type. The badge is a <span>;
+    // the trip-type dropdown "One way" is an <option>, so scope by selector.
+    expect(screen.getByText('One way', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByText('Round trip', { selector: 'span' })).not.toBeInTheDocument();
+  });
+
+  it('switching round trip to one way clears the stale return date', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    // Default is round trip; set a return date, then switch to one way.
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.type(screen.getByLabelText('Return date'), '2026-09-26');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+
+    // Return input is hidden/disabled for one-way; search now.
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const flightCall = calls.find((url) => url.includes('/api/search/flights'));
+    expect(flightCall).toContain('type=1');
+    expect(flightCall).not.toContain('return_date');
+    expect(flightCall).not.toContain('return_date=2026-09-26');
+  });
+
+  it('round-trip search sends the return date and shows a Round trip badge', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      { '/api/search/flights': success(roundTripFlightResponse) },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.type(screen.getByLabelText('Return date'), '2026-09-26');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Air India · AI 2118').length).toBeGreaterThan(0);
+    });
+    const flightCall = calls.find((url) => url.includes('/api/search/flights'));
+    expect(flightCall).toContain('type=2');
+    expect(flightCall).toContain('return_date=2026-09-26');
+    // Badge reflects the submitted round-trip type.
+    expect(screen.getAllByText('Round trip').length).toBeGreaterThan(0);
+  });
+
+  it('one-way and round-trip searches use distinct cache keys', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    // One way first.
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const oneWayCalls = calls.filter((url) => url.includes('/api/search/flights')).length;
+    expect(oneWayCalls).toBe(1);
+
+    // Switch to round trip with a return date and search again.
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'round');
+    await user.type(screen.getByLabelText('Return date'), '2026-09-26');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('IndiGo · 6E 101').length).toBeGreaterThan(0);
+    });
+    // Different cache key (round trip) -> a new provider request.
+    const roundTripCalls = calls.filter((url) => url.includes('/api/search/flights')).length;
+    expect(roundTripCalls).toBe(2);
+
+    // Back to one way: the earlier one-way response is reused from cache.
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const afterBack = calls.filter((url) => url.includes('/api/search/flights')).length;
+    expect(afterBack).toBe(2);
+  });
+
+  it('default flight sort is Cheapest', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    // The Sort by control lives in the Advanced filters panel.
+    await user.click(screen.getByRole('button', { name: 'Advanced filters' }));
+    const sortSelect = screen.getByLabelText('Sort by') as HTMLSelectElement;
+    expect(sortSelect.value).toBe('price');
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const flightCall = calls.find((url) => url.includes('/api/search/flights'));
+    expect(flightCall).toContain('sort_by=price');
+  });
+
+  it('blocks a hotel search when check-out is before check-in', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/hotels?': success(hotelResponse(2)) }, calls);
+    const { user } = renderPage();
+
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    const dest = screen.getByLabelText('Destination');
+    await user.type(dest, 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-12');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-10');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Check-out date must be after the check-in date.')).toBeInTheDocument();
+    });
+    expect(calls.filter((url) => url.includes('/search/hotels?'))).toHaveLength(0);
+  });
+
+  it('applies advanced flight filters to the request', async () => {
+    const calls: string[] = [];
+    stubFetch({ '/api/search/flights': success(flightResponse) }, calls);
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+
+    await user.click(screen.getByRole('button', { name: 'Advanced filters' }));
+    await user.selectOptions(screen.getByLabelText('Stops'), 'nonstop');
+    await user.type(screen.getByLabelText('Included airlines'), 'AI');
+    await user.type(screen.getByLabelText('Max price'), '50000');
+    await user.selectOptions(screen.getByLabelText('Sort by'), 'price');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+    const flightCall = calls.find((url) => url.includes('/api/search/flights'));
+    expect(flightCall).toContain('stops=nonstop');
+    expect(flightCall).toContain('included_airlines=AI');
+    expect(flightCall).toContain('max_price=50000');
+    expect(flightCall).toContain('sort_by=price');
+  });
+
+  it('round trip lets the user choose an outbound and loads return options from cache', async () => {
+    const roundTripWithToken = {
+      search_metadata: { id: 'f3' },
+      search_parameters: { engine: 'google_flights', departure_id: 'DEL', arrival_id: 'SIN' },
+      best_flights: [
+        {
+          flights: [
+            {
+              departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-20', time: '00:55' },
+              arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-20', time: '09:20' },
+              duration: 355,
+              airplane: 'A321',
+              airline: 'Air India',
+              flight_number: 'AI 2118',
+              travel_class: 'Economy',
+            },
+          ],
+          layovers: [],
+          total_duration: 355,
+          price: 59370,
+          type: 'Round trip',
+          departure_token: 'OUTBOUND_TOKEN_1',
+        },
+      ],
+      other_flights: [],
+      price_insights: { lowest_price: 59370, price_level: 'low' },
+    };
+    const returnResponse = {
+      search_metadata: { id: 'f4' },
+      search_parameters: { engine: 'google_flights', departure_id: 'DEL', arrival_id: 'SIN' },
+      best_flights: [
+        {
+          flights: [
+            {
+              departure_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-26', time: '10:00' },
+              arrival_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-26', time: '12:00' },
+              duration: 120,
+              airplane: 'A320',
+              airline: 'Air India',
+              flight_number: 'AI 2119',
+              travel_class: 'Economy',
+            },
+          ],
+          layovers: [],
+          total_duration: 120,
+          price: 59370,
+          type: 'Round trip',
+        },
+      ],
+      other_flights: [],
+    };
+
+    const calls: string[] = [];
+    stubFetch(
+      {
+        'departure_token=OUTBOUND_TOKEN_1': success(returnResponse),
+        '/api/search/flights': success(roundTripWithToken),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-20');
+    await user.type(screen.getByLabelText('Return date'), '2026-09-26');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Air India · AI 2118')).toBeInTheDocument();
+    });
+    const outboundCalls = calls.filter((url) => url.includes('/api/search/flights'));
+    expect(outboundCalls.length).toBe(1);
+
+    // Choose outbound -> fetches return options using the departure_token.
+    await user.click(screen.getByRole('button', { name: 'Choose outbound' }));
+    await waitFor(() => {
+      expect(screen.getByText('Choose return flight')).toBeInTheDocument();
+      expect(screen.getByText('Air India · AI 2119')).toBeInTheDocument();
+    });
+    const returnCalls = calls.filter((url) => url.includes('departure_token=OUTBOUND_TOKEN_1'));
+    expect(returnCalls.length).toBe(1);
+
+    // Cancel, then re-choose the same outbound: return options come from cache (zero new calls).
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Choose return flight')).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Choose outbound' }));
+    await waitFor(() => {
+      expect(screen.getByText('Choose return flight')).toBeInTheDocument();
+    });
+    const returnCallsAfter = calls.filter((url) => url.includes('departure_token=OUTBOUND_TOKEN_1'));
+    expect(returnCallsAfter.length).toBe(1);
+  });
+});
+
+describe('Bookmark button on search results', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Like stubFetchRecording but dispatches on HTTP method too. */
+  function stubFetchMethodAware(
+    handlers: {
+      get?: Record<string, ReturnType<typeof success>>;
+      post?: Record<string, ReturnType<typeof success>>;
+    },
+    calls: { url: string; method: string; body: unknown }[],
+  ) {
+    const { get = {}, post = {} } = handlers;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const method = init?.method ?? 'GET';
+        let body: unknown = null;
+        if (init?.body) {
+          try {
+            body = JSON.parse(String(init.body));
+          } catch {
+            body = String(init.body);
+          }
+        }
+        calls.push({ url, method, body });
+        const table = method === 'POST' ? post : get;
+        const match = Object.entries(table).find(([path]) => url.includes(path));
+        if (!match) {
+          return { ok: true, status: 200, statusText: 'OK', json: async () => ({ success: true, data: {} }) };
+        }
+        return match[1];
+      }),
+    );
+  }
+
+  const bookmarkCreate = (type: 'FLIGHT' | 'HOTEL') =>
+    success({
+      created: true,
+      bookmark: {
+        id: `bm-${type.toLowerCase()}`,
+        type,
+        fingerprint: `fp-${type.toLowerCase()}`,
+        bookmarkCode: type === 'FLIGHT' ? 'FLT-000001' : 'HTL-000001',
+        title: type === 'FLIGHT' ? 'DEL → SIN' : 'Hotel 0',
+        currency: 'INR',
+        searchParams: {},
+        snapshot: {},
+        createdAt: '2026-08-16T10:00:00.000Z',
+      },
+    });
+
+  it('appears on flight cards and saves the current result without SearchAPI', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stubFetchMethodAware(
+      {
+        get: {
+          '/api/search/bookmarks': success([]),
+          '/api/search/flights': success(flightResponse),
+        },
+        post: { '/api/search/bookmarks': bookmarkCreate('FLIGHT') },
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.type(screen.getByLabelText('Departure airport code'), 'LKO');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-15');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 101')).toBeInTheDocument();
+    });
+
+    const saveButton = screen.getByRole('button', { name: 'Save bookmark' });
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Bookmarked' })).toBeInTheDocument();
+    });
+
+    const createCall = calls.find((c) => c.method === 'POST' && c.url.includes('/api/search/bookmarks'));
+    expect(createCall).toBeDefined();
+    const payload = createCall!.body as {
+      type: string;
+      snapshot: { raw: { flights: { airline: string }[] } };
+      searchParams: Record<string, unknown>;
+    };
+    expect(payload.type).toBe('FLIGHT');
+    expect(payload.snapshot.raw.flights[0]!.airline).toBe('IndiGo');
+    expect(payload.searchParams).toBeDefined();
+    // Zero SearchAPI requests.
+    expect(calls.some((c) => c.url.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('appears on hotel cards and saves the current result without SearchAPI', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stubFetchMethodAware(
+      {
+        get: {
+          '/api/search/bookmarks': success([]),
+          '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+          '/api/search/hotels?': success(hotelResponse(1)),
+        },
+        post: { '/api/search/bookmarks': bookmarkCreate('HOTEL') },
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    const dest = screen.getByLabelText('Destination');
+    await user.clear(dest);
+    await user.type(dest, 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+
+    const saveButton = screen.getByRole('button', { name: 'Save bookmark' });
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Bookmarked' })).toBeInTheDocument();
+    });
+
+    const createCall = calls.find((c) => c.method === 'POST' && c.url.includes('/api/search/bookmarks'));
+    expect(createCall).toBeDefined();
+    const payload = createCall!.body as { type: string; snapshot: { raw: { name: string } } };
+    expect(payload.type).toBe('HOTEL');
+    expect(payload.snapshot.raw.name).toBe('Hotel 0');
+    expect(calls.some((c) => c.url.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('keeps the saved state without making a second request on re-click', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stubFetchMethodAware(
+      {
+        get: {
+          '/api/search/bookmarks': success([]),
+          '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+          '/api/search/hotels?': success(hotelResponse(1)),
+        },
+        post: { '/api/search/bookmarks': bookmarkCreate('HOTEL') },
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    const dest = screen.getByLabelText('Destination');
+    await user.clear(dest);
+    await user.type(dest, 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+
+    const saveButton = screen.getByRole('button', { name: 'Save bookmark' });
+    await user.click(saveButton);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Bookmarked' })).toBeInTheDocument();
+    });
+
+    // The button is now in saved state; clicking it again must not POST again.
+    const savedButton = screen.getByRole('button', { name: 'Bookmarked' });
+    await user.click(savedButton);
+    await waitFor(() => {
+      expect(calls.filter((c) => c.method === 'POST' && c.url.includes('/api/search/bookmarks'))).toHaveLength(1);
+    });
+    expect(calls.some((c) => c.url.includes('searchapi.io'))).toBe(false);
+  });
+
+  /** Four distinct flights from the same DEL → SIN search. */
+  const fourFlightResponse = {
+    search_metadata: { id: 'f4' },
+    search_parameters: { engine: 'google_flights', departure_id: 'DEL', arrival_id: 'SIN' },
+    best_flights: [
+      {
+        flights: [
+          {
+            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '09:05' },
+            arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '17:45' },
+            duration: 370,
+            airplane: 'A320neo',
+            airline: 'IndiGo',
+            flight_number: '6E 1013',
+            travel_class: 'Economy',
+          },
+        ],
+        layovers: [],
+        total_duration: 370,
+        price: 18777,
+        type: 'One way',
+      },
+      {
+        flights: [
+          {
+            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '08:15' },
+            arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '16:40' },
+            duration: 375,
+            airplane: 'A330',
+            airline: 'Thai AirAsia X',
+            flight_number: 'XJ 231',
+            travel_class: 'Economy',
+          },
+        ],
+        layovers: [],
+        total_duration: 375,
+        price: 24810,
+        type: 'One way',
+      },
+      {
+        flights: [
+          {
+            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '00:55' },
+            arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '09:20' },
+            duration: 355,
+            airplane: 'A321',
+            airline: 'Air India',
+            flight_number: 'AI 2115',
+            travel_class: 'Economy',
+          },
+        ],
+        layovers: [],
+        total_duration: 355,
+        price: 26967,
+        type: 'One way',
+      },
+      {
+        flights: [
+          {
+            departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '10:10' },
+            arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '18:35' },
+            duration: 365,
+            airplane: 'B787',
+            airline: 'THAI',
+            flight_number: 'TG 324',
+            travel_class: 'Economy',
+          },
+        ],
+        layovers: [],
+        total_duration: 365,
+        price: 29690,
+        type: 'One way',
+      },
+    ],
+    other_flights: [],
+    price_insights: { lowest_price: 18777, price_level: 'low' },
+  };
+
+  async function runFourFlightSearch(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText('Departure airport code'), 'DEL');
+    await user.type(screen.getByLabelText('Arrival airport code'), 'SIN');
+    await user.type(screen.getByLabelText('Outbound date'), '2026-09-15');
+    await user.selectOptions(screen.getByLabelText('Trip type'), 'one');
+    await user.click(screen.getByRole('button', { name: 'Search flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('IndiGo · 6E 1013')).toBeInTheDocument();
+    });
+  }
+
+  it('bookmarking one flight does not mark the other flights bookmarked', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stubFetchMethodAware(
+      {
+        get: {
+          '/api/search/bookmarks': success([]),
+          '/api/search/flights': success(fourFlightResponse),
+        },
+        post: { '/api/search/bookmarks': bookmarkCreate('FLIGHT') },
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runFourFlightSearch(user);
+
+    // Only the first flight is bookmarked.
+    const firstSave = screen.getAllByRole('button', { name: 'Save bookmark' })[0]!;
+    await user.click(firstSave);
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Bookmarked' }).length).toBe(1);
+    });
+    expect(screen.getAllByRole('button', { name: 'Save bookmark' }).length).toBe(3);
+    expect(calls.some((c) => c.url.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('four flights from the same search have distinct fingerprints', () => {
+    const searchParams = { departure_id: 'DEL', arrival_id: 'SIN', outbound_date: '2026-09-15', type: 1 };
+    const options = fourFlightResponse.best_flights as SearchApiFlightOption[];
+    const fingerprints = options.map((option) => flightFingerprint(searchParams, option.flights));
+    expect(new Set(fingerprints).size).toBe(4);
+    expect(fingerprints[0]).not.toBe(fingerprints[1]);
+    expect(fingerprints[1]).not.toBe(fingerprints[2]);
+    expect(fingerprints[2]).not.toBe(fingerprints[3]);
+  });
+
+  it('bookmarked state survives a rerender', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    stubFetchMethodAware(
+      {
+        get: {
+          '/api/search/bookmarks': success([]),
+          '/api/search/flights': success(fourFlightResponse),
+        },
+        post: { '/api/search/bookmarks': bookmarkCreate('FLIGHT') },
+      },
+      calls,
+    );
+    const { user, client, rerender } = renderPage();
+    await runFourFlightSearch(user);
+
+    const firstSave = screen.getAllByRole('button', { name: 'Save bookmark' })[0]!;
+    await user.click(firstSave);
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Bookmarked' }).length).toBe(1);
+    });
+
+    // Force a full rerender: the saved state must persist.
+    rerender(
+      <QueryProvider client={client}>
+        <TravelSearchPage />
+      </QueryProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Bookmarked' }).length).toBe(1);
+      expect(screen.getAllByRole('button', { name: 'Save bookmark' }).length).toBe(3);
+    });
+    expect(calls.some((c) => c.url.includes('searchapi.io'))).toBe(false);
+  });
+});
+
+describe('Hotel price rendering', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A hotel whose SearchApi response only carries price_before_taxes. */
+  const beforeTaxesOnlyProperty = {
+    name: 'Furama RiverFront',
+    price_per_night: { price_before_taxes: '₹14,578', extracted_price_before_taxes: 14578 },
+    total_price: { price_before_taxes: '₹1,02,045', extracted_price_before_taxes: 102045 },
+  };
+
+  it('renders price_before_taxes as the main per-night price when no current price exists', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1, beforeTaxesOnlyProperty)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    expect(screen.getByText('Furama RiverFront')).toBeInTheDocument();
+    expect(screen.getByText('₹14,578')).toBeInTheDocument();
+    // No dash is shown for the current price.
+    expect(screen.queryByText(/—\s*₹14,578/)).not.toBeInTheDocument();
+  });
+
+  it('renders total_price.price_before_taxes as the main total', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1, beforeTaxesOnlyProperty)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    expect(screen.getByText('₹1,02,045')).toBeInTheDocument();
+  });
+
+  it('does not strike through price_before_taxes', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1, beforeTaxesOnlyProperty)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    const priceNode = screen.getByText('₹14,578');
+    expect(priceNode.className).not.toContain('line-through');
+    const totalNode = screen.getByText('₹1,02,045');
+    expect(totalNode.className).not.toContain('line-through');
+  });
+
+  it('shows a "Before taxes" caption for prices sourced from price_before_taxes', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1, beforeTaxesOnlyProperty)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    expect(screen.getAllByText('Before taxes').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the provider deal label separate from the price', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, { ...beforeTaxesOnlyProperty, deal: '16% less than usual' }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    expect(screen.getByText('16% less than usual')).toBeInTheDocument();
+    // The deal is NOT used to fabricate a crossed-out "usual" price.
+    expect(screen.queryByText(/₹1,02,045/)).toBeInTheDocument();
+    const crossed = Array.from(document.querySelectorAll('.line-through')).map((el) => el.textContent);
+    expect(crossed.some((t) => t?.includes('₹14,578') || t?.includes('₹1,02,045'))).toBe(false);
+  });
+
+  it('renders a hotel without a deal normally', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow');
+
+    expect(screen.getByText('₹4,883')).toBeInTheDocument();
+    expect(screen.getByText('₹9,765')).toBeInTheDocument();
+    expect(screen.getByText('₹4,883').className).not.toContain('line-through');
+  });
+
+  it('formats Marina Bay Sands large prices correctly', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Singapore')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, {
+            name: 'Marina Bay Sands Singapore',
+            price_per_night: { price_before_taxes: '₹1,09,242', extracted_price_before_taxes: 109242 },
+            total_price: { price_before_taxes: '₹7,64,697', extracted_price_before_taxes: 764697 },
+          }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Singapore', 'Marina Bay Sands Singapore');
+
+    expect(screen.getByText('Marina Bay Sands Singapore')).toBeInTheDocument();
+    expect(screen.getByText('₹1,09,242')).toBeInTheDocument();
+    expect(screen.getByText('₹7,64,697')).toBeInTheDocument();
+    expect(screen.getByText('₹1,09,242').className).not.toContain('line-through');
+  });
+
+  it('uses the same price rule inside View details', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, { ...beforeTaxesOnlyProperty, gps_coordinates: { latitude: 1.29, longitude: 103.85 } }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Furama RiverFront');
+
+    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await waitFor(() => {
+      // Price appears both on the card and in the expanded details.
+      expect(screen.getAllByText('₹14,578').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('₹1,02,045').length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('Before taxes').length).toBeGreaterThanOrEqual(2);
+    });
+    // Still zero extra provider requests after opening details.
+    expect(hotelSearchCalls(calls)).toBe(1);
   });
 });
 
@@ -757,3 +1635,223 @@ describe('TravelSearchPage', () => {
 function fireEventError(element: Element) {
   element.dispatchEvent(new Event('error', { bubbles: true, cancelable: true }));
 }
+
+describe('Hotel search request behaviour', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Count autocomplete requests — must always be zero. */
+  const autocompleteCalls = (calls: string[]) =>
+    calls.filter((url) => url.includes('/search/hotels/autocomplete')).length;
+
+  it('typing a destination makes ZERO provider requests', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    const dest = screen.getByLabelText('Destination');
+    await user.type(dest, 'L');
+    await user.type(dest, 'Lu');
+    await user.type(dest, 'Luc');
+    await user.type(dest, 'Luck');
+    await user.type(dest, 'Lucknow');
+    // Editing the destination repeatedly must never cost a credit.
+    await user.clear(dest);
+    await user.type(dest, 'Mumbai');
+
+    expect(autocompleteCalls(calls)).toBe(0);
+    expect(hotelSearchCalls(calls)).toBe(0);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('changing dates, adults, rooms, currency and filters makes ZERO requests', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.type(screen.getByLabelText('Adults'), '2');
+    await user.type(screen.getByLabelText('Rooms'), '2');
+    await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+    await user.selectOptions(screen.getByLabelText('Hotel sort by'), 'lowest_price');
+    // Open Advanced filters and change a filter before submitting.
+    await user.click(screen.getByRole('button', { name: 'Advanced filters' }));
+    await user.type(screen.getByLabelText('Hotel price max'), '5000');
+
+    expect(hotelSearchCalls(calls)).toBe(0);
+    expect(autocompleteCalls(calls)).toBe(0);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('clicking Search hotels fires exactly ONE provider request', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+    expect(hotelSearchCalls(calls)).toBe(1);
+    expect(autocompleteCalls(calls)).toBe(0);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('rerender and window focus make ZERO additional requests', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user, rerender, client } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+    expect(hotelSearchCalls(calls)).toBe(1);
+
+    // Force a full rerender.
+    rerender(
+      <QueryProvider client={client}>
+        <TravelSearchPage />
+      </QueryProvider>,
+    );
+    // Simulate window focus.
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(hotelSearchCalls(calls)).toBe(1);
+    expect(autocompleteCalls(calls)).toBe(0);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('View details, image navigation and bookmarking make ZERO additional requests', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(1)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+    expect(hotelSearchCalls(calls)).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await waitFor(() => {
+      expect(screen.getByText(/All amenities/)).toBeInTheDocument();
+    });
+    // Image navigation (next arrow).
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+
+    expect(hotelSearchCalls(calls)).toBe(1);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('no automatic next-page request and explicit Next makes exactly one', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(20, {}, { next_page_token: 'TOKEN1' })),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('20')).toBeInTheDocument();
+    });
+    // Next is shown but NOT automatically fetched.
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument();
+    expect(hotelSearchCalls(calls)).toBe(1);
+  });
+
+  it('explicit uncached Next makes exactly one request; revisiting cached pages makes zero', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        'next_page_token=TOKEN1': success(
+          hotelResponse(20, { name: 'Page2Hotel' }, { next_page_token: 'TOKEN2' }),
+        ),
+        '/api/search/hotels?': success(hotelResponse(20, {}, { next_page_token: 'TOKEN1' })),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await user.type(screen.getByLabelText('Destination'), 'Lucknow');
+    await user.type(screen.getByLabelText('Check-in date'), '2026-09-10');
+    await user.type(screen.getByLabelText('Check-out date'), '2026-09-12');
+    await user.click(screen.getByRole('button', { name: 'Search hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+    expect(hotelSearchCalls(calls)).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('Page2Hotel').length).toBeGreaterThan(0);
+    });
+    expect(hotelSearchCalls(calls)).toBe(2);
+
+    // Back to page 1 and forward again — both cached, zero new requests.
+    await user.click(screen.getByRole('button', { name: 'Previous' }));
+    await waitFor(() => {
+      expect(screen.getByText('Hotel 0')).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('Page2Hotel').length).toBeGreaterThan(0);
+    });
+    expect(hotelSearchCalls(calls)).toBe(2);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+});

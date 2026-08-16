@@ -93,6 +93,7 @@ import { TestimonialDetailsPage } from '@/pages/masters/TestimonialDetailsPage';
 import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
 import { HiddenGlobalRecordsPage } from '@/pages/masters/HiddenGlobalRecordsPage';
 import { TravelSearchPage } from '@/pages/search/TravelSearchPage';
+import { BookmarksPage } from '@/pages/search/BookmarksPage';
 
 /**
  * Route table.
@@ -159,6 +160,7 @@ export function AppRoutes() {
           {/* Retained from Phase 1 for infrastructure checks. */}
           <Route path="/system-status" element={<SystemStatusPage />} />
           <Route path="/travel-search" element={<TravelSearchPage />} />
+          <Route path="/travel-search/bookmarks" element={<BookmarksPage />} />
           <Route
             path="/queries"
             element={

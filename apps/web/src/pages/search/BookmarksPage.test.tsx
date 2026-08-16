@@ -1,0 +1,387 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient } from '@tanstack/react-query';
+import { QueryProvider } from '@/providers/QueryProvider';
+import { BookmarksPage } from './BookmarksPage';
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return {
+    user: userEvent.setup(),
+    ...render(
+      <QueryProvider client={client}>
+        <BookmarksPage />
+      </QueryProvider>,
+    ),
+  };
+}
+
+const success = (data: unknown) => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  json: async () => ({ success: true, data }),
+});
+
+const flightBookmark = {
+  id: 'bm-1',
+  type: 'FLIGHT',
+  provider: 'SEARCHAPI',
+  fingerprint: 'fp-1',
+  bookmarkCode: 'FLT-000456',
+  title: 'DEL → SIN',
+  currency: 'INR',
+  createdAt: '2026-08-16T10:00:00.000Z',
+  searchParams: { departure_id: 'DEL', arrival_id: 'SIN', outbound_date: '2026-09-05', currency: 'INR' },
+  snapshot: {
+    flight: {
+      airline: 'Air India',
+      airlineLogo: 'https://logo/AI.png',
+      flightNumbers: ['AI 2115'],
+      price: 16792,
+      currency: 'INR',
+      type: 'One way',
+      segments: [
+        {
+          departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-05', time: '00:55' },
+          arrival_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-05', time: '09:20' },
+          duration: 355,
+          airline: 'Air India',
+          flight_number: 'AI 2115',
+          travel_class: 'Economy',
+        },
+      ],
+    },
+  },
+};
+
+const hotelBookmark = {
+  id: 'bm-2',
+  type: 'HOTEL',
+  provider: 'SEARCHAPI',
+  fingerprint: 'fp-2',
+  bookmarkCode: 'HTL-000123',
+  title: 'Taj Exotica Goa',
+  currency: 'INR',
+  createdAt: '2026-08-16T11:00:00.000Z',
+  searchParams: { destination: 'Goa', currency: 'INR' },
+  snapshot: {
+    hotel: {
+      name: 'Taj Exotica Goa',
+      propertyType: 'hotel',
+      city: 'Goa',
+      country: 'IN',
+      rating: 4.8,
+      reviews: 3200,
+      pricePerNight: { price: '₹25,000', extracted_price: 25000 },
+      totalPrice: { price: '₹50,000', extracted_price: 50000 },
+      images: [
+        { thumbnail: 'https://img.example.com/a.jpg', original: 'https://img.example.com/a-orig.jpg' },
+        { thumbnail: 'https://img.example.com/b.jpg' },
+      ],
+      checkInTime: '2:00 PM',
+      checkOutTime: '11:00 AM',
+    },
+  },
+};
+
+function stubFetch(handlers: Record<string, ReturnType<typeof success>>, calls: string[]) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      calls.push(url);
+      const match = Object.entries(handlers).find(([path]) => url.includes(path));
+      if (!match) {
+        return { ok: true, status: 200, statusText: 'OK', json: async () => ({ success: true, data: {} }) };
+      }
+      return match[1];
+    }),
+  );
+}
+
+/** Stub that mimics the backend's ?type= filtering for the bookmark list. */
+function stubBookmarkFetch(bookmarks: unknown[], calls: string[]) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      calls.push(url);
+      if (url.includes('/api/search/bookmarks/') && url.includes('/api/search/bookmarks')) {
+        // delete / detail paths handled by caller-specific handlers via override
+      }
+      if (url.includes('/api/search/bookmarks?type=FLIGHT')) {
+        return success(bookmarks.filter((b) => (b as { type: string }).type === 'FLIGHT'));
+      }
+      if (url.includes('/api/search/bookmarks?type=HOTEL')) {
+        return success(bookmarks.filter((b) => (b as { type: string }).type === 'HOTEL'));
+      }
+      if (url.includes('/api/search/bookmarks')) {
+        return success(bookmarks);
+      }
+      return { ok: true, status: 200, statusText: 'OK', json: async () => ({ success: true, data: {} }) };
+    }),
+  );
+}
+
+describe('BookmarksPage', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shows saved flights and hotels loaded only from the DB', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([flightBookmark, hotelBookmark], calls);
+    renderPage();
+
+    expect(await screen.findByText('DEL → SIN')).toBeInTheDocument();
+    expect(await screen.findByText('Taj Exotica Goa')).toBeInTheDocument();
+
+    // No SearchAPI request was made.
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+    expect(calls.every((u) => u.includes('/api/search/bookmarks'))).toBe(true);
+  });
+
+  it('shows a public Bookmark ID with a copy button on every card', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([flightBookmark, hotelBookmark], calls);
+    const { user } = renderPage();
+
+    expect(await screen.findByText('DEL → SIN')).toBeInTheDocument();
+    expect(await screen.findByText('Taj Exotica Goa')).toBeInTheDocument();
+
+    // Flight and hotel cards each expose their human-readable bookmark code.
+    expect(screen.getByText('FLT-000456')).toBeInTheDocument();
+    expect(screen.getByText('HTL-000123')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy bookmark ID FLT-000456' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy bookmark ID HTL-000123' })).toBeInTheDocument();
+
+    // Copying is local-only — zero network/API requests.
+    const callsBefore = calls.length;
+    await user.click(screen.getByRole('button', { name: 'Copy bookmark ID HTL-000123' }));
+    expect(screen.getByText('Copied')).toBeInTheDocument();
+    expect(calls.length).toBe(callsBefore);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('labels saved prices as historical, not current', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([flightBookmark, hotelBookmark], calls);
+    renderPage();
+
+    await screen.findByText('DEL → SIN');
+    // "Saved price" labels appear for both cards.
+    expect(screen.getAllByText('Saved price').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Saved .* Aug 2026/).length).toBeGreaterThan(0);
+    // It must NOT be labelled "Current price".
+    expect(screen.queryByText(/Current price/i)).not.toBeInTheDocument();
+  });
+
+  it('opens saved flight View details using the DB snapshot', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([flightBookmark], calls);
+    const { user } = renderPage();
+
+    await screen.findByText('DEL → SIN');
+    await user.click(screen.getByRole('button', { name: 'View details' }));
+    await waitFor(() => {
+      // Section renamed from "Itinerary".
+      expect(screen.getByText('Flight details')).toBeInTheDocument();
+      expect(screen.queryByText('Itinerary')).not.toBeInTheDocument();
+      // Segment detail (departure time) is only rendered when expanded.
+      expect(screen.getByText('12:55 AM')).toBeInTheDocument();
+      expect(screen.getByText('09:20 AM')).toBeInTheDocument();
+      // Dates shown as DD/MM/YYYY.
+      expect(screen.getByText(/DEL · 05\/09\/2026/)).toBeInTheDocument();
+      expect(screen.getByText(/SIN · 05\/09\/2026/)).toBeInTheDocument();
+      expect(screen.getByText(/Singapore/)).toBeInTheDocument();
+    });
+    expect(calls.every((u) => u.includes('/api/search/bookmarks'))).toBe(true);
+  });
+
+  it('navigates saved hotel images locally without any API call', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([hotelBookmark], calls);
+    const { user } = renderPage();
+
+    await screen.findByText('Taj Exotica Goa');
+    const img = document.querySelector('img') as HTMLImageElement;
+    expect(img.src).toContain('a-orig.jpg');
+
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    await waitFor(() => {
+      expect((document.querySelector('img') as HTMLImageElement).src).toContain('b.jpg');
+    });
+    // Image navigation must not trigger any request beyond the bookmark list.
+    const bookmarkCalls = calls.filter((u) => u.includes('/api/search/bookmarks')).length;
+    expect(bookmarkCalls).toBe(1);
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('filters by Flights and Hotels', async () => {
+    const calls: string[] = [];
+    stubBookmarkFetch([flightBookmark, hotelBookmark], calls);
+    const { user } = renderPage();
+
+    await screen.findByText('DEL → SIN');
+    await user.click(screen.getByRole('tab', { name: 'Flights' }));
+    await waitFor(() => {
+      expect(screen.getByText('DEL → SIN')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Taj Exotica Goa')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+    await waitFor(() => {
+      expect(screen.getByText('Taj Exotica Goa')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('DEL → SIN')).not.toBeInTheDocument();
+  });
+
+  it('deletes a bookmark', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/bookmarks/bm-1': success({ deleted: true }),
+        '/api/search/bookmarks': success([flightBookmark]),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+
+    await screen.findByText('DEL → SIN');
+    await user.click(screen.getAllByRole('button', { name: /Remove bookmark/i })[0]!);
+    await waitFor(() => {
+      expect(calls.some((u) => u.includes('/api/search/bookmarks/bm-1'))).toBe(true);
+    });
+    // Deletion is DB-only; no SearchAPI call.
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('renders a bookmarked hotel price from price_before_taxes like the live card', async () => {
+    const beforeTaxesBookmark = {
+      ...hotelBookmark,
+      snapshot: {
+        hotel: {
+          ...hotelBookmark.snapshot.hotel,
+          name: 'Furama RiverFront',
+          pricePerNight: { price_before_taxes: '₹14,578', extracted_price_before_taxes: 14578 },
+          totalPrice: { price_before_taxes: '₹1,02,045', extracted_price_before_taxes: 102045 },
+          deal: '16% less than usual',
+        },
+      },
+    };
+    const calls: string[] = [];
+    stubBookmarkFetch([beforeTaxesBookmark], calls);
+    renderPage();
+
+    await screen.findByText('Furama RiverFront');
+    // price_before_taxes is the main price, not struck through and no dash.
+    const perNight = screen.getByText('₹14,578');
+    expect(perNight.className).not.toContain('line-through');
+    expect(screen.getByText('₹1,02,045').className).not.toContain('line-through');
+    expect(screen.getAllByText('Before taxes').length).toBeGreaterThan(0);
+    // Deal stays separate.
+    expect(screen.getByText('16% less than usual')).toBeInTheDocument();
+    // It is labelled as a saved price.
+    expect(screen.getAllByText(/saved/i).length).toBeGreaterThan(0);
+    // Zero SearchAPI requests.
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+    expect(calls.every((u) => u.includes('/api/search/bookmarks'))).toBe(true);
+  });
+
+  it('renders a bookmarked flight entirely from the DB snapshot', async () => {
+    const indigoBookmark = {
+      ...flightBookmark,
+      id: 'bm-indigo',
+      title: 'DEL → SIN',
+      snapshot: {
+        flight: {
+          airline: 'IndiGo',
+          airlineLogo: 'https://logo/6E.png',
+          flightNumbers: ['6E 1013'],
+          price: 18777,
+          currency: 'INR',
+          type: 'One way',
+          totalDuration: 370,
+          segments: [
+            {
+              departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '09:05' },
+              arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '17:45' },
+              duration: 370,
+              airplane: 'A320neo',
+              airline: 'IndiGo',
+              flight_number: '6E 1013',
+              travel_class: 'Economy',
+            },
+          ],
+        },
+      },
+    };
+    const calls: string[] = [];
+    stubBookmarkFetch([indigoBookmark], calls);
+    renderPage();
+
+    await screen.findByText('DEL → SIN');
+    expect(screen.getByText(/IndiGo · 6E 1013/)).toBeInTheDocument();
+    expect(screen.getByText(/DEL 09:05 AM/)).toBeInTheDocument();
+    expect(screen.getByText(/SIN 05:45 PM/)).toBeInTheDocument();
+    expect(screen.getByText('Non-stop')).toBeInTheDocument();
+    expect(screen.getByText('Economy')).toBeInTheDocument();
+    expect(screen.getByText('One way')).toBeInTheDocument();
+    expect(screen.getByText(/₹18,777/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Saved price/).length).toBeGreaterThan(0);
+    // Zero SearchAPI requests.
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+    expect(calls.every((u) => u.includes('/api/search/bookmarks'))).toBe(true);
+  });
+
+  it('shows Price unavailable instead of ₹0.00 when a saved flight has no price', async () => {
+    const noPriceBookmark = {
+      ...flightBookmark,
+      id: 'bm-noprice',
+      snapshot: {
+        flight: {
+          ...flightBookmark.snapshot.flight,
+          price: undefined,
+        },
+      },
+    };
+    const calls: string[] = [];
+    stubBookmarkFetch([noPriceBookmark], calls);
+    renderPage();
+
+    await screen.findByText('DEL → SIN');
+    expect(screen.getByText('Price unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(/₹0/)).not.toBeInTheDocument();
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  it('handles a legacy/incomplete flight bookmark without fabricating values', async () => {
+    const legacyBookmark = {
+      ...flightBookmark,
+      id: 'bm-legacy',
+      title: 'Flight',
+      snapshot: {
+        flight: {
+          airline: '—',
+          flightNumbers: [],
+          price: 0,
+          currency: 'INR',
+          type: 'One way',
+          segments: [],
+        },
+      },
+    };
+    const calls: string[] = [];
+    stubBookmarkFetch([legacyBookmark], calls);
+    renderPage();
+
+    await screen.findByText('Flight');
+    expect(screen.getByText('Incomplete saved data')).toBeInTheDocument();
+    // A legacy ₹0 price must never be presented as a real fare.
+    expect(screen.getByText('Price unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(/₹0/)).not.toBeInTheDocument();
+    expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+});
