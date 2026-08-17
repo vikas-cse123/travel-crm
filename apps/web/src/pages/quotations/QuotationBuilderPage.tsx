@@ -2401,7 +2401,13 @@ export function QuotationBuilderPage() {
      * automatically when missing, so the Airline dropdown is never left blank.
      */
     const importFlightBookmark = async (bookmark: LiveSearchBookmark) => {
-      form.setValue('flightDetails', flightBookmarkToDetails(bookmark), { shouldDirty: true });
+      const details = flightBookmarkToDetails(bookmark);
+      form.setValue('flightDetails', details, { shouldDirty: true });
+      // `setValue` on the parent path does not re-sync the segment field
+      // arrays, so replace them with every imported segment. Otherwise only the
+      // default single segment would render until the next "Add Connection".
+      outboundSegments.replace(details.outbound.segments);
+      returnSegments.replace(details.returnJourney.segments);
       if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
 
       const refs = flightBookmarkSegmentAirlines(bookmark);
@@ -2447,7 +2453,12 @@ export function QuotationBuilderPage() {
       id: string,
     ) => {
       const base = `flightDetails.${leg}.segments.${index}`;
-      const via = form.watch(fp(`flightDetails.${leg}.fromCity`)) as string | null;
+      const via =
+        index > 0
+          ? ((form.watch(fp(`${base}.from`)) as string) ||
+              (form.watch(fp(`flightDetails.${leg}.segments.${index - 1}.to`)) as string) ||
+              '')
+          : '';
       const departureDate = form.watch(fp(`${base}.departureDate`)) as string | null;
       const departureTime = form.watch(fp(`${base}.departureTime`)) as string | null;
       const arrivalDate = form.watch(fp(`${base}.arrivalDate`)) as string | null;

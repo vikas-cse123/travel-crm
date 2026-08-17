@@ -2061,6 +2061,7 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
     setFailed(new Set());
   }
 
+  // Only image entries with at least one URL that has not failed are usable.
   const validImages = useMemo(
     () =>
       images
@@ -2069,9 +2070,20 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
     [images, failed],
   );
 
+  // Keep the active index inside the usable range whenever images are removed,
+  // so the counter, dots and previous/next navigation never point at a gap.
+  useEffect(() => {
+    if (!validImages.length) {
+      setIndex(0);
+      return;
+    }
+    setIndex((current) => Math.min(current, validImages.length - 1));
+  }, [validImages.length]);
+
   const shownIndex = validImages.length ? Math.min(index, validImages.length - 1) : -1;
   const shown = shownIndex >= 0 ? validImages[shownIndex] : undefined;
-  const currentUrl = shown?.candidates.find((url) => !failed.has(url)) ?? shown?.candidates[0];
+  // Prefer original, then thumbnail, always skipping URLs that already failed.
+  const currentUrl = shown?.candidates.find((url) => !failed.has(url)) ?? null;
 
   const goTo = (next: number) => {
     if (!validImages.length) return;

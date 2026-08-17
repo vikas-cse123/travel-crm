@@ -8555,6 +8555,232 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByLabelText('Sightseeing master')).not.toBeInTheDocument();
   });
 
+  it('renders every imported multi-segment flight journey immediately', async () => {
+    const segment = (flightNumber: string, from: string, to: string) => ({
+      airlineId: null,
+      airlineName: 'IndiGo',
+      flightNumber,
+      travelClass: 'Economy',
+      from,
+      to,
+      departureDate: '2026-09-10',
+      departureTime: '06:00',
+      arrivalDate: '2026-09-10',
+      arrivalTime: '12:00',
+      duration: null,
+      cabinLuggage: null,
+      checkInLuggage: null,
+      notes: null,
+      connectionVia: null,
+    });
+    const quotation = builderQuotation({
+      flightDetails: {
+        include: true,
+        sectionTitle: 'Flight Details',
+        amount: 0,
+        entryMode: 'MANUAL',
+        journeyType: 'ROUND_TRIP',
+        outbound: {
+          fromCity: 'LKO',
+          toCity: 'SIN',
+          travelClass: 'Economy',
+          segments: [segment('6E101', 'LKO', 'BLR'), segment('6E102', 'BLR', 'SIN')],
+        },
+        returnJourney: {
+          fromCity: 'SIN',
+          toCity: 'LKO',
+          travelClass: 'Economy',
+          segments: [segment('6E103', 'SIN', 'BLR'), segment('6E104', 'BLR', 'LKO')],
+        },
+      },
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Flight');
+
+    // Both outbound and return journeys render every imported segment
+    // immediately — no "Add Connection" click.
+    await screen.findByDisplayValue('6E101');
+    // Two journeys (outbound + return) each have Segment 1 and Segment 2.
+    expect(screen.getAllByText('Segment 1').length).toBe(2);
+    expect(screen.getAllByText('Segment 2').length).toBe(2);
+    expect(screen.queryByText('Segment 3')).not.toBeInTheDocument();
+    // Flight numbers of the imported segments are present without any action.
+    expect(screen.getByDisplayValue('6E101')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('6E102')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('6E103')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('6E104')).toBeInTheDocument();
+  });
+
+  it('shows the connection airport from the segment pair, not the journey origin', async () => {
+    const segment = (flightNumber: string, from: string, to: string) => ({
+      airlineId: null,
+      airlineName: 'IndiGo',
+      flightNumber,
+      travelClass: 'Economy',
+      from,
+      to,
+      departureDate: '2026-09-10',
+      departureTime: '06:00',
+      arrivalDate: '2026-09-10',
+      arrivalTime: '12:00',
+      duration: null,
+      cabinLuggage: null,
+      checkInLuggage: null,
+      notes: null,
+      connectionVia: null,
+    });
+    const quotation = builderQuotation({
+      flightDetails: {
+        include: true,
+        sectionTitle: 'Flight Details',
+        amount: 0,
+        entryMode: 'MANUAL',
+        journeyType: 'ROUND_TRIP',
+        outbound: {
+          fromCity: 'LKO',
+          toCity: 'SIN',
+          travelClass: 'Economy',
+          segments: [segment('6E101', 'LKO', 'BLR'), segment('6E102', 'BLR', 'SIN')],
+        },
+        returnJourney: {
+          fromCity: 'SIN',
+          toCity: 'LKO',
+          travelClass: 'Economy',
+          segments: [segment('6E103', 'SIN', 'LKO')],
+        },
+      },
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Flight');
+
+    // The connection banner between segment 1 and segment 2 uses BLR, not LKO.
+    expect(await screen.findByText(/Connected via BLR/)).toBeInTheDocument();
+    expect(screen.queryByText(/Connected via LKO/)).not.toBeInTheDocument();
+  });
+
+  it('Add Connection appends one blank segment without duplicating existing ones', async () => {
+    const segment = (flightNumber: string, from: string, to: string) => ({
+      airlineId: null,
+      airlineName: 'IndiGo',
+      flightNumber,
+      travelClass: 'Economy',
+      from,
+      to,
+      departureDate: '2026-09-10',
+      departureTime: '06:00',
+      arrivalDate: '2026-09-10',
+      arrivalTime: '12:00',
+      duration: null,
+      cabinLuggage: null,
+      checkInLuggage: null,
+      notes: null,
+      connectionVia: null,
+    });
+    const quotation = builderQuotation({
+      flightDetails: {
+        include: true,
+        sectionTitle: 'Flight Details',
+        amount: 0,
+        entryMode: 'MANUAL',
+        journeyType: 'ROUND_TRIP',
+        outbound: {
+          fromCity: 'LKO',
+          toCity: 'SIN',
+          travelClass: 'Economy',
+          segments: [segment('6E101', 'LKO', 'BLR'), segment('6E102', 'BLR', 'SIN')],
+        },
+        returnJourney: {
+          fromCity: 'SIN',
+          toCity: 'LKO',
+          travelClass: 'Economy',
+          segments: [segment('6E103', 'SIN', 'LKO')],
+        },
+      },
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Flight');
+
+    expect(await screen.findByText('Segment 2')).toBeInTheDocument();
+    expect(screen.queryByText('Segment 3')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole('button', { name: /Add Connection/i })[0]!);
+
+    // Existing segments unchanged, exactly one blank Segment 3 added.
+    expect(screen.getByDisplayValue('6E101')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('6E102')).toBeInTheDocument();
+    expect(screen.getByText('Segment 3')).toBeInTheDocument();
+    expect(screen.queryByText('Segment 4')).not.toBeInTheDocument();
+  });
+
+  it('importing a multi-segment flight bookmark renders every segment immediately', async () => {
+    const seg = (flightNumber: string, from: string, to: string, date: string) => ({
+      departure_airport: { name: from, id: from, date, time: '06:00' },
+      arrival_airport: { name: to, id: to, date, time: '12:00' },
+      duration: 120,
+      airline: 'Air India',
+      flight_number: flightNumber,
+      travel_class: 'Economy',
+    });
+    const bookmark = {
+      id: 'bm-ms',
+      type: 'FLIGHT',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-ms',
+      bookmarkCode: 'FLT-000123',
+      title: 'LKO → SIN',
+      currency: 'INR',
+      createdAt: '2026-08-16T10:00:00.000Z',
+      searchParams: {
+        departure_id: 'LKO',
+        arrival_id: 'SIN',
+        outbound_date: '2026-09-10',
+        return_date: '2026-09-14',
+        type: 2,
+        currency: 'INR',
+      },
+      snapshot: {
+        flight: {
+          airline: 'Air India',
+          flightNumbers: ['AI101', 'AI102', 'AI103', 'AI104'],
+          price: 12345,
+          currency: 'INR',
+          type: 'Round trip',
+          segments: [
+            seg('AI101', 'LKO', 'BLR', '2026-09-10'),
+            seg('AI102', 'BLR', 'SIN', '2026-09-10'),
+            seg('AI103', 'SIN', 'BLR', '2026-09-14'),
+            seg('AI104', 'BLR', 'LKO', '2026-09-14'),
+          ],
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/': bookmark,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Flight');
+
+    const idField = screen.getByLabelText('Bookmark ID');
+    await userEvent.type(idField, 'FLT-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+
+    // Outbound (2 segments) + return (2 segments) all render immediately.
+    expect(await screen.findByDisplayValue('AI101')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('AI102')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('AI103')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('AI104')).toBeInTheDocument();
+    expect(screen.getAllByText('Segment 1').length).toBe(2);
+    expect(screen.getAllByText('Segment 2').length).toBe(2);
+    expect(screen.queryByText('Segment 3')).not.toBeInTheDocument();
+    // No duplicate segments from the import.
+    expect(screen.getAllByDisplayValue('AI101').length).toBe(1);
+    expect(screen.getAllByDisplayValue('AI102').length).toBe(1);
+  });
+
   it('uploads a flight image as an alternative to structured flight details', async () => {
     const fallback = masterFetch(builderQuotation());
     let uploadCount = 0;

@@ -412,6 +412,167 @@ describe('TravelSearchPage', () => {
     expect(screen.queryByRole('button', { name: 'Previous image' })).not.toBeInTheDocument();
   });
 
+  it('removes a fully failed image so the carousel becomes 2 / 2, never blank', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, {
+            images: [
+              {
+                original: 'https://img.example.com/a-orig.jpg',
+                thumbnail: 'https://img.example.com/a.jpg',
+              },
+              {
+                original: 'https://img.example.com/b-orig.jpg',
+                thumbnail: 'https://img.example.com/b.jpg',
+              },
+              {
+                original: 'https://img.example.com/c-orig.jpg',
+                thumbnail: 'https://img.example.com/c.jpg',
+              },
+            ],
+          }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow');
+
+    // Navigate to the third image.
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    expect(screen.getByText('3 / 3')).toBeInTheDocument();
+    let img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+    expect(img.src).toContain('c-orig.jpg');
+
+    // Both candidates of the third image fail.
+    fireEventError(img);
+    await waitFor(() => {
+      img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+      expect(img.src).toContain('c.jpg');
+    });
+    fireEventError(img);
+
+    // The third image is removed; counter and slide now reflect 2 / 2.
+    await waitFor(() => {
+      expect(screen.getByText('2 / 2')).toBeInTheDocument();
+      expect(screen.queryByText('3 / 3')).not.toBeInTheDocument();
+      const current = screen.getByAltText('Hotel 0') as HTMLImageElement;
+      expect(current.src).toContain('b-orig.jpg');
+    });
+  });
+
+  it('keeps the index valid and navigation working after an image is removed', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, {
+            images: [
+              {
+                original: 'https://img.example.com/a-orig.jpg',
+                thumbnail: 'https://img.example.com/a.jpg',
+              },
+              {
+                original: 'https://img.example.com/b-orig.jpg',
+                thumbnail: 'https://img.example.com/b.jpg',
+              },
+              {
+                original: 'https://img.example.com/c-orig.jpg',
+                thumbnail: 'https://img.example.com/c.jpg',
+              },
+            ],
+          }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow');
+
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    let img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+    fireEventError(img);
+    await waitFor(() => {
+      img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+      expect(img.src).toContain('c.jpg');
+    });
+    fireEventError(img);
+    await waitFor(() => expect(screen.getByText('2 / 2')).toBeInTheDocument());
+
+    // Navigation still works after the removal, with no gap or blank slide.
+    await user.click(screen.getByRole('button', { name: 'Previous image' }));
+    await waitFor(() => {
+      const current = screen.getByAltText('Hotel 0') as HTMLImageElement;
+      expect(current.src).toContain('a-orig.jpg');
+      expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Next image' }));
+    await waitFor(() => {
+      const current = screen.getByAltText('Hotel 0') as HTMLImageElement;
+      expect(current.src).toContain('b-orig.jpg');
+      expect(screen.getByText('2 / 2')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps each hotel carousel position independent', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(hotelResponse(2)),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow', 'Hotel 0');
+
+    const images = screen.getAllByAltText(/Hotel \d/);
+    expect(images).toHaveLength(2);
+    // Advance only the first hotel's carousel.
+    await user.click(screen.getAllByRole('button', { name: 'Next image' })[0]!);
+    await waitFor(() => {
+      expect((screen.getAllByAltText(/Hotel \d/)[0] as HTMLImageElement).src).toContain(
+        'hotel-0-b-orig.jpg',
+      );
+    });
+    // The second hotel's carousel is unaffected.
+    expect((screen.getAllByAltText(/Hotel \d/)[1] as HTMLImageElement).src).toContain(
+      'hotel-1-a-orig.jpg',
+    );
+  });
+
+  it('shows the placeholder when every image fails and hides carousel controls', async () => {
+    const calls: string[] = [];
+    stubFetch(
+      {
+        '/api/search/hotels/autocomplete': success(autoSuggestions('Lucknow')),
+        '/api/search/hotels?': success(
+          hotelResponse(1, {
+            images: [{ original: 'https://img.example.com/broken.jpg' }],
+          }),
+        ),
+      },
+      calls,
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Lucknow');
+
+    let img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+    fireEventError(img);
+    await waitFor(() => {
+      expect(screen.getByText('No images available')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Next image' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Previous image' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/\/\s*1$/)).not.toBeInTheDocument();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Hotel token pagination
   // -------------------------------------------------------------------------
