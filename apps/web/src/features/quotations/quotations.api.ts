@@ -155,6 +155,10 @@ export interface HotelDetails {
   sectionTitle?: string | null;
   amount?: number | null;
   description?: string | null;
+  /** Snapshot images copied from a hotel bookmark (plain URLs). */
+  images?: Array<{ url: string; alt?: string | null }>;
+  /** The image chosen as the single PDF photo; falls back to the first. */
+  pdfImageUrl?: string | null;
 }
 export interface SightseeingActivity {
   sightseeingId?: string | null;

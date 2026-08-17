@@ -648,6 +648,22 @@ export function destinationImageCandidates(
 }
 
 /**
+ * Pick the hotel snapshot image the PDF should render for a bookmarked hotel:
+ * the image marked "Use in PDF" (`pdfImageUrl`), falling back to the first
+ * image in the saved order. Returns null when there are no snapshot images.
+ */
+export function resolvePdfHotelImageUrl(
+  images: Array<{ url?: string }> | undefined | null,
+  pdfImageUrl: string | null | undefined,
+): string | null {
+  const urls = (images ?? [])
+    .map((image) => image.url)
+    .filter((url): url is string => Boolean(url));
+  if (!urls.length) return null;
+  return urls.find((url) => url === pdfImageUrl) ?? urls[0] ?? null;
+}
+
+/**
  * Finds a Destination master (with a confirmed image) that matches the quote's
  * Destination/Master country. In this data model the lead itinerary's `country`
  * field holds the Destination Master name (e.g. "Malaysia") while `destination`
@@ -1791,7 +1807,11 @@ export const quotationsService = {
         coverImage = await fetchImage(destRecord.imageObjectKey);
       }
 
-      // Hotel images
+      // Hotel images: the Hotel Master image when a master is linked; otherwise
+      // the quotation's own saved snapshot image (the one chosen for the PDF,
+      // falling back to the first image in the saved order) for bookmarked
+      // hotels. Snapshot URLs are fetched server-side exactly like itinerary
+      // images — they may be presigned/private and can be WebP.
       const hotelIds = version.hotels
         .map((h) => h.hotelId)
         .filter((id): id is string => Boolean(id));
@@ -1810,9 +1830,58 @@ export const quotationsService = {
           hotelImageMap.set(h.id, await fetchImage(h.imageObjectKey));
         }
       }
-      const hotelImages = version.hotels.map((h) =>
-        h.hotelId ? (hotelImageMap.get(h.hotelId) ?? null) : null,
+      const hotelDetailsRaw = version.hotelDetails as
+        | {
+            images?: Array<{ url?: string; thumbnailUrl?: string | null }> | null;
+            pdfImageUrl?: string | null;
+          }
+        | null
+        | undefined;
+      const snapshotUrls = [
+        ...new Set(
+          (hotelDetailsRaw?.images ?? [])
+            .flatMap((image) => [image.url, image.thumbnailUrl])
+            .filter((url): url is string => Boolean(url)),
+        ),
+      ];
+      const snapshotImageMap = new Map<string, Buffer | null>();
+      await Promise.all(
+        snapshotUrls.map(async (url) => {
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) return;
+            const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+            if (contentType && !contentType.startsWith('image/')) return;
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (buf.length < 12) return;
+            const png = await webpToPng(buf);
+            snapshotImageMap.set(url, png ?? buf);
+          } catch {
+            // Individual snapshot failures fall back to the placeholder.
+          }
+        }),
       );
+      const hotelImages = version.hotels.map((h) => {
+        const masterImage = h.hotelId ? (hotelImageMap.get(h.hotelId) ?? null) : null;
+        if (masterImage) return masterImage;
+        const selected = resolvePdfHotelImageUrl(
+          hotelDetailsRaw?.images,
+          hotelDetailsRaw?.pdfImageUrl,
+        );
+        if (selected) {
+          const selectedBytes = snapshotImageMap.get(selected);
+          if (selectedBytes) return selectedBytes;
+        }
+        // The selected/"Use in PDF" URL failed to render — fall back to the
+        // first image (or its thumbnail candidate) that actually fetched, the
+        // same candidate order the bookmark carousel uses.
+        for (const image of hotelDetailsRaw?.images ?? []) {
+          if (image.url && snapshotImageMap.has(image.url)) return snapshotImageMap.get(image.url)!;
+          if (image.thumbnailUrl && snapshotImageMap.has(image.thumbnailUrl))
+            return snapshotImageMap.get(image.thumbnailUrl)!;
+        }
+        return null;
+      });
 
       // Sightseeing activity images
       const sightseeingIds: string[] = [];

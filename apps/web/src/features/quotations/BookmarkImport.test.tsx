@@ -768,10 +768,53 @@ describe('hotelBookmarkToDetails', () => {
     expect(hotelRow.checkOutTime).toBe('11:00');
     expect(hotelRow.notes).toBe('Luxury beach resort.');
     expect(hotelDetails.amount).toBe(29156);
-    // Images copied from the saved snapshot (no SearchAPI).
+    // Images copied from the saved snapshot (no SearchAPI). The bookmark's
+    // preferred URL is preserved verbatim and its thumbnail candidate is kept
+    // as the fallback for the same image.
     expect(hotelDetails.images).toHaveLength(2);
     expect(hotelDetails.images![0]!.url).toBe('https://img/a-orig.jpg');
+    expect(hotelDetails.images![0]!.thumbnailUrl).toBe('https://img/a.jpg');
+    expect(hotelDetails.images![1]!.url).toBe('https://img/b.jpg');
+    expect(hotelDetails.images![1]!.thumbnailUrl).toBeNull();
     expect(primaryImageUrl).toBe('https://img/a-orig.jpg');
+  });
+
+  it('keeps every valid bookmark image in order, dropping only unusable values and exact duplicates', () => {
+    const { hotelDetails } = hotelBookmarkToDetails(
+      hotelBookmark({
+        snapshot: {
+          hotel: {
+            name: 'Taj Exotica Goa',
+            city: 'Goa',
+            images: [
+              { thumbnail: 'https://img/1-thumb.jpg', original: 'https://img/1.jpg' },
+              // Same URL twice (thumbnail === original): kept once.
+              { thumbnail: 'https://img/1-thumb.jpg', original: 'https://img/1.jpg' },
+              // No usable URL at all: dropped.
+              {},
+              { thumbnail: '', original: '' },
+              // Thumbnail-only image: still imported.
+              { thumbnail: 'https://img/2-thumb.jpg' },
+              // Duplicate of an already-imported URL: dropped.
+              { original: 'https://img/1.jpg' },
+              // A different CDN/domain is a legitimate image, not a duplicate.
+              { original: 'https://other-cdn.example/hotel-3.jpg' },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(hotelDetails.images).toEqual([
+      { url: 'https://img/1.jpg', thumbnailUrl: 'https://img/1-thumb.jpg', alt: 'Taj Exotica Goa' },
+      { url: 'https://img/2-thumb.jpg', thumbnailUrl: null, alt: 'Taj Exotica Goa' },
+      {
+        url: 'https://other-cdn.example/hotel-3.jpg',
+        thumbnailUrl: null,
+        alt: 'Taj Exotica Goa',
+      },
+    ]);
+    expect(hotelDetails.pdfImageUrl).toBe('https://img/1.jpg');
   });
 
   it('falls back to per-night price when no total price is saved', () => {

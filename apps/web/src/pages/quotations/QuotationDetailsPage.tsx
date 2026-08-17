@@ -14,7 +14,7 @@ import {
   TicketCheck,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { labelForLookup, PERMISSIONS, hotelStayNights } from '@interscale/shared';
+import { labelForLookup, PERMISSIONS, hotelStayNights, joinNonEmpty } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -56,6 +56,7 @@ export function QuotationDetailsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [pdfError, setPdfError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [pdfChoiceOpen, setPdfChoiceOpen] = useState(false);
   const [stylishCoverOpen, setStylishCoverOpen] = useState(false);
   const [coverSource, setCoverSource] = useState<'DESTINATION' | 'UPLOAD'>('DESTINATION');
@@ -104,8 +105,22 @@ export function QuotationDetailsPage() {
   const current = q.versions.find((version) => version.id === q.currentVersionId) ?? q.versions[0];
   const money = (value: string, currency: string) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value));
-  const createRevision = () =>
-    current && action.mutate({ path: 'versions', body: { sourceVersionId: current.id } });
+  const createRevision = () => {
+    if (!current) return;
+    setActionError('');
+    action.mutate(
+      { path: 'versions', body: { sourceVersionId: current.id } },
+      {
+        onSuccess: () => setActionError(''),
+        onError: (error) =>
+          setActionError(
+            error instanceof Error && error.message
+              ? error.message
+              : 'Unable to create a revision. Please try again.',
+          ),
+      },
+    );
+  };
   /** Provision the public weblink for the current version; stores the URL for
    *  both Copy public link and Open Weblink. Returns the cached URL only when
    *  it still belongs to the current version. */
@@ -242,7 +257,7 @@ export function QuotationDetailsPage() {
             </Link>
           )}
           {current?.status !== 'DRAFT' && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
-            <Button variant="secondary" onClick={createRevision}>
+            <Button variant="secondary" disabled={action.isPending} onClick={createRevision}>
               <Plus className="h-4 w-4" />
               Create revision
             </Button>
@@ -260,6 +275,14 @@ export function QuotationDetailsPage() {
           )}
         </div>
       </header>
+      {actionError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {actionError}
+        </div>
+      )}
       <section className="grid gap-3 sm:grid-cols-2">
         {[
           ['Current version', current ? `v${current.versionNumber}` : '—'],
@@ -449,10 +472,12 @@ export function QuotationDetailsPage() {
                   <article key={hotel.id} className="rounded-lg bg-slate-50 p-3">
                     <strong>{hotel.hotelName}</strong>
                     <p className="text-sm text-slate-600">
-                      {hotel.city} ·{' '}
-                      {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights}{' '}
-                      nights · {hotel.roomType || 'Room open'} ·{' '}
-                      {hotel.mealPlan || 'Meal plan open'}
+                      {joinNonEmpty([
+                        hotel.city,
+                        `${hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights} nights`,
+                        hotel.roomType,
+                        hotel.mealPlan,
+                      ])}
                     </p>
                   </article>
                 ))}

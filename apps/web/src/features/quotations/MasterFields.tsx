@@ -25,6 +25,30 @@ import {
 
 const ACTIVE = () => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' });
 
+/**
+ * Rendered as a component, so it must stay at module scope: an inline function
+ * would remount every child (resetting a picker's typed text) on each parent
+ * re-render, which now happens on every keystroke of an editable combobox.
+ */
+const FieldShell = ({
+  label,
+  showLabels,
+  children,
+}: {
+  label: string;
+  showLabels: boolean;
+  children: ReactNode;
+}) =>
+  showLabels ? (
+    <label className="text-sm font-semibold text-slate-800">
+      {label}
+      <span className="ml-0.5 text-red-500">*</span>
+      <span className="mt-1 block">{children}</span>
+    </label>
+  ) : (
+    <>{children}</>
+  );
+
 // ---------------------------------------------------------------------------
 // Hotels
 // ---------------------------------------------------------------------------
@@ -52,6 +76,12 @@ interface HotelMasterFieldsProps {
   canCost: boolean;
   preferredCity?: string | undefined;
   showLabels?: boolean;
+  /** Saved snapshot text, shown when no master is linked (typed custom value). */
+  roomTypeText?: string | null | undefined;
+  mealPlanText?: string | null | undefined;
+  /** Saved snapshot hotel name (e.g. imported from a hotel bookmark), shown
+   * when no Hotel Master is linked. */
+  hotelNameText?: string | null | undefined;
   onChange: (patch: HotelRowPatch) => void;
 }
 
@@ -60,6 +90,9 @@ export function HotelMasterFields({
   canCost,
   preferredCity,
   showLabels = false,
+  roomTypeText,
+  mealPlanText,
+  hotelNameText,
   onChange,
 }: HotelMasterFieldsProps) {
   const hotels = useHotels(ACTIVE());
@@ -104,27 +137,23 @@ export function HotelMasterFields({
     };
   };
 
-  const FieldShell = ({ label, children }: { label: string; children: ReactNode }) =>
-    showLabels ? (
-      <label className="text-sm font-semibold text-slate-800">
-        {label}
-        <span className="ml-0.5 text-red-500">*</span>
-        <span className="mt-1 block">{children}</span>
-      </label>
-    ) : (
-      <>{children}</>
-    );
-
   return (
     <>
-      <FieldShell label="Hotel Name">
+      <FieldShell label="Hotel Name" showLabels={showLabels}>
         <MasterSelect
           ariaLabel="Hotel master"
           placeholder="Link a hotel"
           options={hotelOptions}
           value={value.hotelId}
           loading={hotels.isPending}
-          fallbackLabel={detail.data?.name}
+          fallbackLabel={detail.data?.name ?? hotelNameText ?? undefined}
+          onText={(text) =>
+            onChange({
+              // Free-typed names stay in the row snapshot (e.g. a bookmarked
+              // hotel that has no Master record).
+              hotelName: text.trim() ? text : '',
+            })
+          }
           onSelect={(option) => {
             const selected = (hotels.data?.data ?? []).find((hotel) => hotel.id === option?.id);
             onChange({
@@ -132,6 +161,8 @@ export function HotelMasterFields({
               // The child selections belong to the previous hotel.
               hotelRoomTypeId: null,
               hotelMealPlanId: null,
+              roomType: null,
+              mealPlan: null,
               ...(option
                 ? {
                     hotelName: option.label,
@@ -143,14 +174,20 @@ export function HotelMasterFields({
           }}
         />
       </FieldShell>
-      <FieldShell label="Room Type">
+      <FieldShell label="Room Type" showLabels={showLabels}>
         <MasterSelect
           ariaLabel="Room type master"
-          placeholder={value.hotelId ? 'Link a room type' : 'Select a hotel first'}
+          placeholder={value.hotelId ? 'Link a room type' : 'Type room type'}
           options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
           value={value.hotelRoomTypeId}
-          disabled={!value.hotelId}
           loading={Boolean(value.hotelId) && detail.isPending}
+          fallbackLabel={roomTypeText ?? undefined}
+          onText={(text) =>
+            onChange({
+              hotelRoomTypeId: null,
+              roomType: text.trim() ? text : null,
+            })
+          }
           onSelect={(option) =>
             onChange({
               hotelRoomTypeId: option?.id ?? null,
@@ -160,14 +197,20 @@ export function HotelMasterFields({
           }
         />
       </FieldShell>
-      <FieldShell label="Meal Plan">
+      <FieldShell label="Meal Plan" showLabels={showLabels}>
         <MasterSelect
           ariaLabel="Meal plan master"
-          placeholder={value.hotelId ? 'Link a meal plan' : 'Select a hotel first'}
+          placeholder={value.hotelId ? 'Link a meal plan' : 'Type meal plan'}
           options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
           value={value.hotelMealPlanId}
-          disabled={!value.hotelId}
           loading={Boolean(value.hotelId) && detail.isPending}
+          fallbackLabel={mealPlanText ?? undefined}
+          onText={(text) =>
+            onChange({
+              hotelMealPlanId: null,
+              mealPlan: text.trim() ? text : null,
+            })
+          }
           onSelect={(option) =>
             onChange({
               hotelMealPlanId: option?.id ?? null,

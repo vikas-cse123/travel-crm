@@ -372,6 +372,58 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByRole('link', { name: 'Use template' })).toBeInTheDocument();
   });
 
+  it('hides empty hotel Room Type and Meal Plan on the template preview without dangling separators', async () => {
+    const hotel = (overrides: Record<string, unknown>) => ({
+      id: `h-${String(overrides.id ?? 'x')}`,
+      city: 'Calangute',
+      hotelName: 'Coastal Bay Resort',
+      category: '4 star',
+      roomType: null,
+      mealPlan: null,
+      rooms: 1,
+      nights: 4,
+      checkInDate: null,
+      checkOutDate: null,
+      sellingPrice: '12500',
+      selected: true,
+      notes: null,
+      sequence: 1,
+      ...overrides,
+    });
+    const preview = {
+      ...template,
+      hotels: [
+        hotel({ id: 'both', roomType: 'Deluxe', mealPlan: 'Breakfast' }),
+        hotel({ id: 'room', roomType: 'Superior' }),
+        hotel({ id: 'meal', mealPlan: 'Half Board' }),
+        hotel({ id: 'none' }),
+      ],
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => response(preview)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotation-templates/:templateId" element={<QuotationTemplateDetailsPage />} />
+      </Routes>,
+      { route: `/quotation-templates/${template.id}` },
+    );
+    await screen.findByRole('heading', { name: 'Goa family escape', level: 1 });
+
+    // Both populated: category + room type + meal plan joined cleanly.
+    expect(
+      screen.getByText('Calangute · 4 star · Deluxe · Breakfast · 4 nights'),
+    ).toBeInTheDocument();
+    // Only room type: meal plan omitted.
+    expect(screen.getByText('Calangute · 4 star · Superior · 4 nights')).toBeInTheDocument();
+    // Only meal plan: room type omitted.
+    expect(screen.getByText('Calangute · 4 star · Half Board · 4 nights')).toBeInTheDocument();
+    // Neither: category + nights only, no placeholders and no trailing separator.
+    expect(screen.getByText('Calangute · 4 star · 4 nights')).toBeInTheDocument();
+    expect(screen.queryByText(/Room open/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Meal plan open/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/· ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/·\s*$/)).not.toBeInTheDocument();
+  });
+
   it('uses React Hook Form dynamic hotel, itinerary and service rows', async () => {
     vi.stubGlobal(
       'fetch',
@@ -882,6 +934,75 @@ describe('Phase 8 quotation pages', () => {
     );
   });
 
+  it('surfaces a clear error when creating a revision fails instead of failing silently', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (input, options) => {
+        const url = String(input);
+        if (!options || options.method === 'GET') return response(copyQuotationDetail);
+        if (url.endsWith('/versions')) {
+          return {
+            ok: false,
+            status: 404,
+            json: async () => ({
+              success: false,
+              error: {
+                code: 'NOT_FOUND',
+                message: 'The requested information could not be found.',
+              },
+            }),
+          } as Response;
+        }
+        return response({});
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    expect(await screen.findByText('Version 1')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create revision' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/could not be found/i);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/versions')),
+    ).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Edit quotation/ })).not.toBeInTheDocument();
+  });
+
+  it('disables create revision while the request is pending so repeated clicks fire one request', async () => {
+    let resolveVersions!: (value: Response) => void;
+    const versionsCall = new Promise<Response>((resolve) => (resolveVersions = resolve));
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      (input, options) => {
+        const url = String(input);
+        if (!options || options.method === 'GET') return Promise.resolve(response(copyQuotationDetail));
+        if (url.endsWith('/versions')) return versionsCall;
+        return Promise.resolve(response({}));
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    expect(await screen.findByText('Version 1')).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: 'Create revision' });
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/versions')),
+      ).toHaveLength(1),
+    );
+    resolveVersions(response({ id: 'version-2', versionNumber: 2 }));
+  });
+
   it('shows inclusive travel dates and no lifecycle status on the detail page', async () => {
     const detail = {
       ...copyQuotationDetail,
@@ -954,6 +1075,67 @@ describe('Phase 8 quotation pages', () => {
         element?.className?.includes('uppercase'),
     );
     expect(statusLabel).toBeNull();
+  });
+
+  it('hides empty hotel Room Type and Meal Plan on the detail page without dangling separators', async () => {
+    const hotel = (overrides: Record<string, unknown>) => ({
+      id: `h-${String(overrides.id ?? 'x')}`,
+      city: 'Goa',
+      hotelName: 'Beach Resort',
+      category: '5 Star',
+      roomType: null,
+      mealPlan: null,
+      rooms: 1,
+      nights: 3,
+      checkInDate: null,
+      checkOutDate: null,
+      sellingPrice: '0',
+      selected: true,
+      notes: null,
+      sequence: 1,
+      ...overrides,
+    });
+    const detail = {
+      ...copyQuotationDetail,
+      versions: [
+        {
+          ...copyFinalizedVersion,
+          hotels: [
+            hotel({ id: 'both', roomType: 'Deluxe', mealPlan: 'Breakfast' }),
+            hotel({ id: 'room', roomType: 'Superior' }),
+            hotel({ id: 'meal', mealPlan: 'Half Board' }),
+            hotel({ id: 'none' }),
+          ],
+        },
+      ],
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async (_input, options) => {
+        if (!options || options.method === 'GET') return response(detail);
+        return response({});
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+    await screen.findByText('Version 1');
+
+    // Both populated: joined with a clean separator.
+    expect(screen.getByText('Goa · 3 nights · Deluxe · Breakfast')).toBeInTheDocument();
+    // Only room type: meal plan omitted.
+    expect(screen.getByText('Goa · 3 nights · Superior')).toBeInTheDocument();
+    // Only meal plan: room type omitted.
+    expect(screen.getByText('Goa · 3 nights · Half Board')).toBeInTheDocument();
+    // Neither: city + nights only, no placeholders and no trailing separator.
+    expect(screen.getByText('Goa · 3 nights')).toBeInTheDocument();
+    expect(screen.queryByText(/Room open/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Meal plan open/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/· ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/·\s*$/)).not.toBeInTheDocument();
   });
 
   it('copy public link shows a Copy icon, a Copied! tooltip on success, and resets', async () => {
@@ -1529,6 +1711,344 @@ describe('Phase 8 quotation pages', () => {
     const footer = document.querySelector('footer');
     expect(footer).toBeInTheDocument();
     expect(footer).toHaveTextContent('Alpha Travel. All rights reserved.');
+  });
+
+  it('shows all saved hotel images in a navigable carousel on the public weblink', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: 'https://storage.example.test/alpha-logo.png',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000001',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        hotelDetails: {
+          sectionTitle: 'Your Hotels',
+          amount: 0,
+          description: null,
+          images: [
+            { url: 'https://cdn.example/img-1.jpg', alt: 'Gallery 1' },
+            { url: 'https://cdn.example/img-2.jpg', alt: 'Gallery 2' },
+            { url: 'https://cdn.example/img-3.jpg', alt: 'Gallery 3' },
+            { url: 'https://cdn.example/img-4.jpg', alt: 'Gallery 4' },
+            { url: 'https://cdn.example/img-5.jpg', alt: 'Gallery 5' },
+            { url: 'https://cdn.example/img-6.jpg', alt: 'Gallery 6' },
+            { url: 'https://cdn.example/img-7.jpg', alt: 'Gallery 7' },
+            { url: 'https://cdn.example/img-8.jpg', alt: 'Gallery 8' },
+            { url: 'https://cdn.example/img-9.jpg', alt: 'Gallery 9' },
+          ],
+          pdfImageUrl: 'https://cdn.example/img-2.jpg',
+        },
+        hotels: [
+          {
+            id: 'quote-hotel-1',
+            hotelName: 'Grand Bay Resort',
+            city: 'Puri',
+            category: '5 Star',
+            roomType: 'Deluxe Room',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: '2026-09-10T00:00:00.000Z',
+            checkOutDate: '2026-09-12T00:00:00.000Z',
+            checkInTime: null,
+            checkOutTime: null,
+            sellingPrice: '12000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      hotelPresentations: {},
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
+      async () => response(publicData),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+
+    // The first ordered image is shown initially; only one image at a time.
+    expect(screen.getByAltText('Gallery 1')).toHaveAttribute('src', 'https://cdn.example/img-1.jpg');
+    expect(screen.queryByAltText('Gallery 2')).not.toBeInTheDocument();
+    expect(screen.getByText('1 / 9')).toBeInTheDocument();
+
+    // Next cycles forward through every imported image (1 → 9), no reload.
+    await userEvent.click(screen.getByRole('button', { name: 'Next hotel image' }));
+    expect(screen.getByAltText('Gallery 2')).toHaveAttribute('src', 'https://cdn.example/img-2.jpg');
+    expect(screen.queryByAltText('Gallery 1')).not.toBeInTheDocument();
+    expect(screen.getByText('2 / 9')).toBeInTheDocument();
+    for (let step = 3; step <= 9; step += 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Next hotel image' }));
+    }
+    expect(screen.getByAltText('Gallery 9')).toHaveAttribute(
+      'src',
+      'https://cdn.example/img-9.jpg',
+    );
+    expect(screen.getByText('9 / 9')).toBeInTheDocument();
+
+    // Previous cycles back (9 → 8) and back to the first (8 → 1).
+    await userEvent.click(screen.getByRole('button', { name: 'Previous hotel image' }));
+    expect(screen.getByAltText('Gallery 8')).toBeInTheDocument();
+    expect(screen.getByText('8 / 9')).toBeInTheDocument();
+    for (let step = 0; step < 7; step += 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Previous hotel image' }));
+    }
+    expect(screen.getByAltText('Gallery 1')).toBeInTheDocument();
+    expect(screen.getByText('1 / 9')).toBeInTheDocument();
+
+    // The gallery lives INSIDE the hotel card — no separate large gallery above
+    // it, and no duplicated images on the page.
+    const carouselImage = screen.getByAltText('Gallery 1');
+    expect(carouselImage.closest('article')).not.toBeNull();
+    expect(document.querySelectorAll('img[src="https://cdn.example/img-1.jpg"]')).toHaveLength(1);
+    expect(screen.queryByText('Hotel image unavailable')).not.toBeInTheDocument();
+
+    // The card shows the saved Room Type and Meal Plan for the imported hotel.
+    expect(screen.getByText('Deluxe Room')).toBeInTheDocument();
+    expect(screen.getByText('Breakfast')).toBeInTheDocument();
+
+    // No live-search/SearchAPI request is made by the public page.
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url.includes('/search/'))).toBe(false);
+  });
+
+  it('shows a single saved hotel image plainly without carousel navigation', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: 'https://storage.example.test/alpha-logo.png',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000001',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        hotelDetails: {
+          sectionTitle: 'Your Hotels',
+          amount: 0,
+          description: null,
+          images: [{ url: 'https://cdn.example/pool.jpg', alt: 'Pool view' }],
+        },
+        hotels: [
+          {
+            id: 'quote-hotel-1',
+            hotelName: 'Grand Bay Resort',
+            city: 'Puri',
+            category: '5 Star',
+            roomType: 'Deluxe Room',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: '2026-09-10T00:00:00.000Z',
+            checkOutDate: '2026-09-12T00:00:00.000Z',
+            checkInTime: null,
+            checkOutTime: null,
+            sellingPrice: '12000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      hotelPresentations: {},
+      downloadUrl: null,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => response(publicData)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+
+    expect(screen.getByAltText('Pool view')).toHaveAttribute('src', 'https://cdn.example/pool.jpg');
+    expect(screen.queryByRole('button', { name: 'Next hotel image' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Previous hotel image' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/ 1$/)).not.toBeInTheDocument();
+
+    // The single-image gallery lives inside the hotel card — one image only,
+    // no placeholder and no duplicated large gallery.
+    const cardImage = screen.getByAltText('Pool view');
+    expect(cardImage.closest('article')).not.toBeNull();
+    expect(document.querySelectorAll('img[src="https://cdn.example/pool.jpg"]')).toHaveLength(1);
+    expect(screen.queryByText('Hotel image unavailable')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the bookmark thumbnail candidate when a weblink carousel image fails', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+        operatingSince: 2015,
+        tripsSold: 4200,
+        tan: 'ABCD12345E',
+        taxRegistrationNumber: '29ABCDE1234F1Z5',
+        logoUrl: 'https://storage.example.test/alpha-logo.png',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000001',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Goa',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Goa proposal',
+        introduction: null,
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        hotelDetails: {
+          sectionTitle: 'Your Hotels',
+          amount: 0,
+          description: null,
+          images: [
+            {
+              url: 'https://cdn.example/room.jpg',
+              thumbnailUrl: 'https://cdn.example/room-thumb.jpg',
+              alt: 'Room view',
+            },
+            {
+              url: 'https://cdn.example/pool.jpg',
+              thumbnailUrl: 'https://cdn.example/pool-thumb.jpg',
+              alt: 'Pool view',
+            },
+          ],
+        },
+        hotels: [
+          {
+            id: 'quote-hotel-1',
+            hotelName: 'Grand Bay Resort',
+            city: 'Puri',
+            category: '5 Star',
+            roomType: 'Deluxe Room',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            checkInDate: '2026-09-10T00:00:00.000Z',
+            checkOutDate: '2026-09-12T00:00:00.000Z',
+            checkInTime: null,
+            checkOutTime: null,
+            sellingPrice: '12000',
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      hotelPresentations: {},
+      downloadUrl: null,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => response(publicData)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Goa proposal');
+
+    const firstImage = screen.getByAltText('Room view');
+    expect(firstImage).toHaveAttribute('src', 'https://cdn.example/room.jpg');
+    fireEvent.error(firstImage);
+    // The primary URL failed, so the card falls back to the bookmark's
+    // thumbnail candidate for the same image — no broken image card.
+    expect(screen.getByAltText('Room view')).toHaveAttribute(
+      'src',
+      'https://cdn.example/room-thumb.jpg',
+    );
+
+    // The second image keeps its own working primary URL.
+    await userEvent.click(screen.getByRole('button', { name: 'Next hotel image' }));
+    expect(screen.getByAltText('Pool view')).toHaveAttribute('src', 'https://cdn.example/pool.jpg');
   });
 
   it('hides an excluded service (hotelDetails.include=false) from the public weblink', async () => {
@@ -7778,14 +8298,20 @@ describe('Phase 14 master selectors', () => {
     ]);
   });
 
-  it('keeps room type and meal plan disabled until a hotel is linked', async () => {
+  it('allows manual room type and meal plan entry without a linked hotel', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     expect(screen.getByLabelText('Hotel master')).toBeEnabled();
-    expect(screen.getByLabelText('Room type master')).toBeDisabled();
-    expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
+    // Unlinked hotels (e.g. bookmark imports) support manual text entry —
+    // no Hotel Master selection is required.
+    expect(screen.getByLabelText('Room type master')).toBeEnabled();
+    expect(screen.getByLabelText('Meal plan master')).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Included');
+    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
+    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Included');
   });
 
   it('hides the Hotel Autofill (Suggest Hotels) control from the hotel section', async () => {
@@ -7799,13 +8325,489 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByText(/Choose hotels from your master/)).not.toBeInTheDocument();
   });
 
-  it('removes the manual Bookmark ID control from the Hotel section', async () => {
+  it('keeps the manual Bookmark ID control in the Hotel section', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
-    expect(screen.queryByText('Bookmark ID (optional)')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Load' })).not.toBeInTheDocument();
+    expect(screen.getByText('Bookmark ID (optional)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load' })).toBeInTheDocument();
+  });
+
+  it('imports a hotel bookmark into the Hotel section with zero SearchAPI calls', async () => {
+    const hotelBookmark = {
+      id: 'bm-htl',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-htl',
+      bookmarkCode: 'HTL-000123',
+      title: 'Lalit Srinagar',
+      currency: 'INR',
+      createdAt: '2026-08-16T10:00:00.000Z',
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-12',
+        rooms: 1,
+        currency: 'INR',
+      },
+      snapshot: {
+        hotel: {
+          name: 'The Lalit Grand Palace Srinagar',
+          city: 'Srinagar',
+          stars: 5,
+          description: 'A heritage hotel on the banks of Dal Lake.',
+          pricePerNight: { extracted_price: 8500, raw_price: 'INR 8500' },
+          totalPrice: { extracted_price: 17000, raw_price: 'INR 17000' },
+          checkInTime: '14:00',
+          checkOutTime: '11:00',
+          images: [
+            {
+              original: 'https://cdn.example/hotel-1.jpg',
+              thumbnail: 'https://cdn.example/hotel-1-thumb.jpg',
+            },
+          ],
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/': hotelBookmark,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+
+    // 1. The Hotel Bookmark ID field is visible.
+    expect(screen.getByText('Bookmark ID (optional)')).toBeInTheDocument();
+    const idField = screen.getByLabelText('Bookmark ID');
+    await userEvent.type(idField, 'HTL-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+
+    // 2 + 3. The HTL bookmark loads through the existing logic and the saved
+    // snapshot populates the hotel form (name, city, nights, dates, times, rooms).
+    expect(await screen.findByText('✓ Loaded from HTL-000123')).toBeInTheDocument();
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('The Lalit Grand Palace Srinagar');
+    expect(screen.getByLabelText('Hotel city')).toHaveValue('Srinagar');
+    expect(screen.getByLabelText('Hotel nights')).toHaveValue('2');
+    expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
+    expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-12');
+    expect(screen.getByLabelText('Hotel check-in time')).toHaveValue('14:00');
+    expect(screen.getByLabelText('Hotel check-out time')).toHaveValue('11:00');
+    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(1);
+    expect(screen.getByLabelText('Hotel remark')).toHaveValue(
+      'A heritage hotel on the banks of Dal Lake.',
+    );
+    expect(screen.getByLabelText('Hotel section title')).toHaveValue('Your Hotels');
+    // The provider summary lives ONLY in the stay Remark, not the section
+    // Description (which stays empty after a bookmark import).
+    expect(screen.getByLabelText('Hotel description')).toHaveTextContent('');
+
+    // Exactly ONE hotel stay is created from one bookmarked hotel.
+    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+
+    // 4. The existing bookmarked hotel image populates from the snapshot, and
+    // the first image is the default "Use in PDF" photo.
+    expect(screen.getByText(/Hotel Images/)).toBeInTheDocument();
+    expect(screen.getByAltText('The Lalit Grand Palace Srinagar')).toHaveAttribute(
+      'src',
+      'https://cdn.example/hotel-1.jpg',
+    );
+    expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // 5. Imported fields remain editable (rooms / remark inputs are enabled).
+    expect(screen.getByLabelText('Hotel number of rooms')).not.toBeDisabled();
+    expect(screen.getByLabelText('Hotel remark')).not.toBeDisabled();
+
+    // 6. Loading the bookmark made ZERO SearchAPI (live search) requests — the
+    // import reads only the saved DB bookmark snapshot.
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      urls.some((url) => url.includes('/search/flights') || url.includes('/search/hotels')),
+    ).toBe(false);
+
+    // 7. Manual hotel entry still works after the import.
+    expect(screen.getByRole('button', { name: 'Add hotel stay after stay 1' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add hotel stay after stay 1' }));
+    expect(screen.getAllByText('Hotel Stay').length).toBe(2);
+  });
+
+  it('imports the exact Holiday Inn Lucknow Airport bookmark and persists it after save + refresh', async () => {
+    const hotelBookmark = {
+      id: 'bm-htl-holiday-inn',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-htl-holiday-inn',
+      bookmarkCode: 'HTL-000777',
+      title: 'Holiday Inn Lucknow Airport',
+      currency: 'INR',
+      createdAt: '2026-08-17T10:00:00.000Z',
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-14',
+        rooms: 2,
+        currency: 'INR',
+      },
+      snapshot: {
+        hotel: {
+          name: 'Holiday Inn Lucknow Airport by IHG',
+          city: 'Lucknow',
+          stars: 4,
+          description: 'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
+          pricePerNight: { extracted_price: 6200, raw_price: 'INR 6200' },
+          totalPrice: { extracted_price: 24800, raw_price: 'INR 24800' },
+          checkInTime: '14:00',
+          checkOutTime: '12:00',
+          images: [
+            {
+              original: 'https://cdn.example/holiday-inn-1.jpg',
+              thumbnail: 'https://cdn.example/holiday-inn-1-thumb.jpg',
+            },
+            {
+              original: 'https://cdn.example/holiday-inn-2.jpg',
+              thumbnail: 'https://cdn.example/holiday-inn-2-thumb.jpg',
+            },
+          ],
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/': hotelBookmark,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+
+    await userEvent.type(screen.getByLabelText('Bookmark ID'), 'HTL-000777');
+    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+    await screen.findByText('✓ Loaded from HTL-000777');
+
+    // 1. Exactly ONE hotel stay is created from the one bookmarked hotel.
+    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+
+    // 2. Every bookmark field populates the normal hotel stay row.
+    expect(screen.getByLabelText('Hotel master')).toHaveValue(
+      'Holiday Inn Lucknow Airport by IHG',
+    );
+    expect(screen.getByLabelText('Hotel city')).toHaveValue('Lucknow');
+    expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
+    expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
+    expect(screen.getByLabelText('Hotel nights')).toHaveValue('4');
+    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Hotel remark')).toHaveValue(
+      'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
+    );
+    // The provider summary stays ONLY in the Remark — the section Description
+    // must remain empty after the bookmark import.
+    expect(screen.getByLabelText('Hotel description')).toHaveTextContent('');
+
+    // 3. Room Type and Meal Plan are manually editable without a Hotel Master
+    // link (bookmark-imported hotels have no master).
+    const roomTypeField = screen.getByLabelText('Room type master');
+    const mealPlanField = screen.getByLabelText('Meal plan master');
+    expect(roomTypeField).toBeEnabled();
+    expect(mealPlanField).toBeEnabled();
+    await userEvent.clear(roomTypeField);
+    await userEvent.type(roomTypeField, 'Deluxe Room');
+    await userEvent.clear(mealPlanField);
+    await userEvent.type(mealPlanField, 'Breakfast Included');
+    expect(roomTypeField).toHaveValue('Deluxe Room');
+    expect(mealPlanField).toHaveValue('Breakfast Included');
+
+    // 4. Both bookmark images populate the shared hotel gallery and the first
+    // image is the default PDF photo.
+    const imageSrcs = () =>
+      screen
+        .getAllByAltText('Holiday Inn Lucknow Airport by IHG')
+        .map((img) => img.getAttribute('src'));
+    expect(imageSrcs()).toEqual([
+      'https://cdn.example/holiday-inn-1.jpg',
+      'https://cdn.example/holiday-inn-2.jpg',
+    ]);
+    expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // 5. Saving persists the name, stay data, room type / meal plan and images.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.hotels).toHaveLength(1);
+    expect(body.hotels[0].hotelName).toBe('Holiday Inn Lucknow Airport by IHG');
+    expect(body.hotels[0].city).toBe('Lucknow');
+    expect(body.hotels[0].rooms).toBe(2);
+    expect(body.hotels[0].roomType).toBe('Deluxe Room');
+    expect(body.hotels[0].mealPlan).toBe('Breakfast Included');
+    expect(body.hotels[0].notes).toBe(
+      'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
+    );
+    expect(body.hotelDetails.description).toBeNull();
+    expect(body.hotelDetails.images).toEqual([
+      {
+        url: 'https://cdn.example/holiday-inn-1.jpg',
+        thumbnailUrl: 'https://cdn.example/holiday-inn-1-thumb.jpg',
+        alt: 'Holiday Inn Lucknow Airport by IHG',
+      },
+      {
+        url: 'https://cdn.example/holiday-inn-2.jpg',
+        thumbnailUrl: 'https://cdn.example/holiday-inn-2-thumb.jpg',
+        alt: 'Holiday Inn Lucknow Airport by IHG',
+      },
+    ]);
+
+    // 6. After a refresh the imported data (name, dates, rooms, room type /
+    // meal plan, images) is still populated — nothing is cleared.
+    const saved = builderQuotation({
+      hotelDetails: {
+        include: true,
+        sectionTitle: 'Your Hotels',
+        amount: 24800,
+        description: null,
+        images: [
+          {
+            url: 'https://cdn.example/holiday-inn-1.jpg',
+            thumbnailUrl: 'https://cdn.example/holiday-inn-1-thumb.jpg',
+            alt: 'Holiday Inn Lucknow Airport by IHG',
+          },
+          {
+            url: 'https://cdn.example/holiday-inn-2.jpg',
+            thumbnailUrl: 'https://cdn.example/holiday-inn-2-thumb.jpg',
+            alt: 'Holiday Inn Lucknow Airport by IHG',
+          },
+        ],
+        pdfImageUrl: 'https://cdn.example/holiday-inn-1.jpg',
+      },
+      hotels: [
+        {
+          hotelId: null,
+          hotelRoomTypeId: null,
+          hotelMealPlanId: null,
+          city: 'Lucknow',
+          hotelName: 'Holiday Inn Lucknow Airport by IHG',
+          category: '4 Star',
+          roomType: 'Deluxe Room',
+          mealPlan: 'Breakfast Included',
+          rooms: 2,
+          nights: 4,
+          checkInDate: '2026-09-10T00:00:00.000Z',
+          checkOutDate: '2026-09-14T00:00:00.000Z',
+          checkInTime: '14:00',
+          checkOutTime: '12:00',
+          showCheckInTime: true,
+          showCheckOutTime: true,
+          internalCost: 0,
+          sellingPrice: 24800,
+          selected: true,
+          notes: 'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', masterFetch(saved));
+    renderBuilderPage();
+    await openTab('Hotel');
+    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+    expect(screen.getByLabelText('Hotel master')).toHaveValue(
+      'Holiday Inn Lucknow Airport by IHG',
+    );
+    expect(screen.getByLabelText('Hotel city')).toHaveValue('Lucknow');
+    expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
+    expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
+    expect(screen.getByLabelText('Hotel nights')).toHaveValue('4');
+    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
+    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Included');
+    // The Remark survives save + refresh; the Description stays empty.
+    expect(screen.getByLabelText('Hotel remark')).toHaveValue(
+      'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
+    );
+    expect(screen.getByLabelText('Hotel description')).toHaveTextContent('');
+    expect(screen.getAllByAltText('Holiday Inn Lucknow Airport by IHG')[0]).toHaveAttribute(
+      'src',
+      'https://cdn.example/holiday-inn-1.jpg',
+    );
+    expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // 7. The import made ZERO SearchAPI requests.
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      urls.some((url) => url.includes('/search/flights') || url.includes('/search/hotels')),
+    ).toBe(false);
+  });
+
+  it('maps every bookmark image, reorders, removes and saves the PDF selection without SearchAPI', async () => {
+    const images = [
+      {
+        original: 'https://cdn.example/hotel-1.jpg',
+        thumbnail: 'https://cdn.example/hotel-1-thumb.jpg',
+      },
+      {
+        original: 'https://cdn.example/hotel-2.jpg',
+        thumbnail: 'https://cdn.example/hotel-2-thumb.jpg',
+      },
+      {
+        original: 'https://cdn.example/hotel-3.jpg',
+        thumbnail: 'https://cdn.example/hotel-3-thumb.jpg',
+      },
+    ];
+    const hotelBookmark = {
+      id: 'bm-htl-multi',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-htl-multi',
+      bookmarkCode: 'HTL-000456',
+      title: 'Multi Image Hotel',
+      currency: 'INR',
+      createdAt: '2026-08-16T10:00:00.000Z',
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-12',
+        rooms: 1,
+        currency: 'INR',
+      },
+      snapshot: {
+        hotel: {
+          name: 'Grand Bay Resort',
+          city: 'Puri',
+          stars: 5,
+          description: null,
+          totalPrice: { extracted_price: 12000, raw_price: 'INR 12000' },
+          images,
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/': hotelBookmark,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+
+    await userEvent.type(screen.getByLabelText('Bookmark ID'), 'HTL-000456');
+    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+    await screen.findByText('✓ Loaded from HTL-000456');
+
+    // 1. ALL bookmark images load, in saved order.
+    const imageSrcs = () =>
+      screen.getAllByAltText('Grand Bay Resort').map((img) => img.getAttribute('src'));
+    expect(imageSrcs()).toEqual([
+      'https://cdn.example/hotel-1.jpg',
+      'https://cdn.example/hotel-2.jpg',
+      'https://cdn.example/hotel-3.jpg',
+    ]);
+    // 2. The first image is the default PDF photo.
+    expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // 3. Move the first image right → order becomes [2, 1, 3]; the PDF
+    // selection follows the image (still hotel-1), not its position.
+    await userEvent.click(screen.getByRole('button', { name: 'Move hotel image 1 right' }));
+    expect(imageSrcs()).toEqual([
+      'https://cdn.example/hotel-2.jpg',
+      'https://cdn.example/hotel-1.jpg',
+      'https://cdn.example/hotel-3.jpg',
+    ]);
+    expect(screen.getByLabelText('Use hotel image 2 in PDF')).toBeChecked();
+
+    // 4. Removing the PDF-selected image (hotel-1, now 2nd) falls back to the
+    // first remaining image.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove hotel image 2' }));
+    expect(imageSrcs()).toEqual([
+      'https://cdn.example/hotel-2.jpg',
+      'https://cdn.example/hotel-3.jpg',
+    ]);
+    expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // 5. The user can pick another image for the PDF.
+    await userEvent.click(screen.getByLabelText('Use hotel image 2 in PDF'));
+    expect(screen.getByLabelText('Use hotel image 2 in PDF')).toBeChecked();
+
+    // 6. Save: image order and the PDF selection persist in the quotation.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.hotelDetails.images).toEqual([
+      {
+        url: 'https://cdn.example/hotel-2.jpg',
+        thumbnailUrl: 'https://cdn.example/hotel-2-thumb.jpg',
+        alt: 'Grand Bay Resort',
+      },
+      {
+        url: 'https://cdn.example/hotel-3.jpg',
+        thumbnailUrl: 'https://cdn.example/hotel-3-thumb.jpg',
+        alt: 'Grand Bay Resort',
+      },
+    ]);
+    expect(body.hotelDetails.pdfImageUrl).toBe('https://cdn.example/hotel-3.jpg');
+    // No hotel master was created and ZERO SearchAPI requests were made.
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, options]) =>
+          options?.method === 'POST' && String(url).includes('/masters/hotels'),
+      ),
+    ).toBe(false);
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      urls.some((url) => url.includes('/search/flights') || url.includes('/search/hotels')),
+    ).toBe(false);
+  });
+
+  it('preserves the saved hotel image order and PDF selection when the quotation is reopened', async () => {
+    const quotation = builderQuotation({
+      hotelDetails: {
+        include: true,
+        sectionTitle: 'Your Hotels',
+        amount: 0,
+        description: null,
+        images: [
+          { url: 'https://cdn.example/second.jpg', alt: 'Second photo' },
+          { url: 'https://cdn.example/first.jpg', alt: 'First photo' },
+        ],
+        pdfImageUrl: 'https://cdn.example/first.jpg',
+      },
+      hotels: [
+        {
+          hotelId: null,
+          hotelRoomTypeId: null,
+          hotelMealPlanId: null,
+          city: 'Puri',
+          hotelName: 'Grand Bay Resort',
+          category: '5 Star',
+          roomType: null,
+          mealPlan: null,
+          rooms: 1,
+          nights: 2,
+          checkInDate: '2026-09-10',
+          checkOutDate: '2026-09-12',
+          checkInTime: null,
+          checkOutTime: null,
+          internalCost: '0',
+          sellingPrice: '12000',
+          selected: true,
+          notes: null,
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation));
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    // Order is preserved: the second photo renders before the first.
+    const srcs = () =>
+      screen
+        .getAllByAltText(/Second photo|First photo/)
+        .map((img) => img.getAttribute('src'));
+    expect(srcs()).toEqual([
+      'https://cdn.example/second.jpg',
+      'https://cdn.example/first.jpg',
+    ]);
+    // The saved PDF selection (first.jpg, now the 2nd image) stays checked.
+    expect(screen.getByLabelText('Use hotel image 2 in PDF')).toBeChecked();
   });
 
   it('keeps the manual Bookmark ID control in the Flight section', async () => {
@@ -8518,6 +9520,114 @@ describe('Phase 14 master selectors', () => {
     );
     expect(screen.queryByLabelText('Hotel selling price')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
+  });
+
+  it('saves custom Room Type and Meal Plan text typed into the comboboxes without creating masters', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+
+    const roomType = screen.getByLabelText('Room type master');
+    const mealPlan = screen.getByLabelText('Meal plan master');
+    await userEvent.type(roomType, 'Super Deluxe Valley View');
+    await userEvent.type(mealPlan, 'Breakfast + Dinner');
+    fireEvent.blur(roomType);
+    fireEvent.blur(mealPlan);
+
+    // The typed text must survive blur.
+    expect(roomType).toHaveValue('Super Deluxe Valley View');
+    expect(mealPlan).toHaveValue('Breakfast + Dinner');
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const hotels = JSON.parse(String(patch![1]!.body)).hotels;
+    expect(hotels[0].roomType).toBe('Super Deluxe Valley View');
+    expect(hotels[0].mealPlan).toBe('Breakfast + Dinner');
+    // Custom text is free text, never a master link.
+    expect(hotels[0].hotelRoomTypeId).toBeNull();
+    expect(hotels[0].hotelMealPlanId).toBeNull();
+    // No master value may be created from custom text.
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, options]) =>
+          options?.method === 'POST' && String(url).includes('/masters/hotels/'),
+      ),
+    ).toBe(false);
+  });
+
+  it('still links the room type and meal plan master when the typed text matches an option', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Only');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room'),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Only'),
+    );
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const hotels = JSON.parse(String(patch![1]!.body)).hotels;
+    expect(hotels[0].hotelRoomTypeId).toBe('aaaaaaa2-1111-4111-8111-111111111111');
+    expect(hotels[0].hotelMealPlanId).toBe('aaaaaaa3-1111-4111-8111-111111111111');
+    expect(hotels[0].roomType).toBe('Deluxe Room');
+    expect(hotels[0].mealPlan).toBe('Breakfast Only');
+  });
+
+  it('shows saved custom Room Type and Meal Plan values when a quotation is reopened', async () => {
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({
+          hotels: [
+            {
+              hotelId: 'aaaaaaa1-1111-4111-8111-111111111111',
+              hotelRoomTypeId: null,
+              hotelMealPlanId: null,
+              city: 'Baku',
+              hotelName: 'Shah Palace Hotel',
+              category: '4 Star',
+              roomType: 'Super Deluxe Valley View',
+              mealPlan: 'Breakfast + Dinner',
+              rooms: 1,
+              nights: 2,
+              checkInDate: null,
+              checkOutDate: null,
+              checkInTime: null,
+              checkOutTime: null,
+              internalCost: '0',
+              sellingPrice: '0',
+              selected: true,
+              notes: null,
+              sequence: 1,
+            },
+          ],
+        }),
+      ),
+    );
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    expect(screen.getByLabelText('Room type master')).toHaveValue('Super Deluxe Valley View');
+    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast + Dinner');
   });
 
   it('keeps the simplified hotel card free of costing fields for every permission level', async () => {
@@ -11192,7 +12302,7 @@ describe('Phase 14 master selectors', () => {
     });
   });
 
-  it('unlinks a hotel master and disables its dependent selectors', async () => {
+  it('keeps room type and meal plan editable as free text after unlinking a hotel master', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
     await openTab('Hotel');
@@ -11202,9 +12312,12 @@ describe('Phase 14 master selectors', () => {
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
     );
 
+    // Unlinking the master keeps manual Room Type / Meal Plan entry available.
     await userEvent.click(screen.getByRole('button', { name: 'Clear Hotel master' }));
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeDisabled());
-    expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
+    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+    expect(screen.getByLabelText('Meal plan master')).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
   });
 
   it('derives hotel nights from check-in/check-out dates in the editor and on save', async () => {
@@ -12277,7 +13390,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Add service' }));
     expect(screen.getByLabelText('Hotel master')).toBeInTheDocument();
-    expect(screen.getByLabelText('Room type master')).toBeDisabled();
+    expect(screen.getByLabelText('Room type master')).toBeEnabled();
     expect(screen.getByLabelText('Sightseeing master')).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');

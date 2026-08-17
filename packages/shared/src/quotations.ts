@@ -202,8 +202,8 @@ export const quotationHotelSchema = z
     hotelId: optionalMasterId,
     hotelRoomTypeId: optionalMasterId,
     hotelMealPlanId: optionalMasterId,
-    city: z.string().trim().min(1).max(120),
-    hotelName: z.string().trim().min(1).max(200),
+    city: z.string().trim().max(120).nullable().optional(),
+    hotelName: z.string().trim().max(200).nullable().optional(),
     category: optionalText(40),
     roomType: optionalText(100),
     mealPlan: optionalText(100),
@@ -211,7 +211,10 @@ export const quotationHotelSchema = z
       (value) => (value === '' ? null : value),
       z.coerce.number().int().min(1).max(100).nullable().optional(),
     ),
-    nights: z.coerce.number().int().min(1).max(365),
+    nights: z.preprocess(
+      (value) => (value === '' || value === null || value === undefined ? null : value),
+      z.coerce.number().int().min(1).max(365).nullable().optional(),
+    ),
     checkInDate: optionalDate,
     checkOutDate: optionalDate,
     // Optional per-stay wall-clock times (HH:mm). Left blank shows no time.
@@ -224,6 +227,20 @@ export const quotationHotelSchema = z
     selected: z.boolean().default(true),
     notes: optionalText(2000),
     sequence,
+    // Per-stay images for bookmark snapshots. When a hotel is bookmarked,
+    // its images are stored here instead of in the section-level hotelDetails.
+    // This allows multiple stays to have independent images.
+    images: z
+      .array(
+        z.object({
+          url: z.string().url(),
+          thumbnailUrl: optionalText(1000),
+          alt: optionalText(500),
+        }),
+      )
+      .max(12)
+      .optional()
+      .default([]),
   })
   .refine((v) => !v.checkInDate || !v.checkOutDate || v.checkInDate <= v.checkOutDate, {
     message: 'Check-out must be on or after check-in.',
@@ -333,6 +350,22 @@ export function hotelStayNights(
   const day = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   const diff = Math.round((day(to) - day(from)) / 86_400_000);
   return diff > 0 ? diff : null;
+}
+
+/**
+ * Join only the non-empty parts of a display string. Empty/whitespace-only
+ * values are dropped entirely so optional fields (e.g. hotel room type or meal
+ * plan) never render empty placeholders or dangling separators such as
+ * "Deluxe ·" or "· Breakfast".
+ */
+export function joinNonEmpty(
+  parts: Array<string | null | undefined>,
+  separator = ' · ',
+): string {
+  return parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter((part) => part.length > 0)
+    .join(separator);
 }
 
 /** Reference "Flight" tab — one segment (leg/connection) of a journey. */
@@ -583,11 +616,23 @@ export const hotelDetailsSchema = z.object({
     .array(
       z.object({
         url: z.string().url(),
+        /**
+         * The bookmark card's fallback URL for the same provider image (the
+         * `thumbnail` candidate). Kept verbatim from the bookmark so renderers
+         * can fall back exactly like the carousel when `url` fails to load.
+         */
+        thumbnailUrl: optionalText(1000),
         alt: optionalText(500),
       }),
     )
     .max(12)
     .optional(),
+  /**
+   * The image (a URL from `images`) chosen as the single hotel photo for the
+   * PDF via "Use in PDF". Absent, or pointing at a removed image, the PDF falls
+   * back to the first image in the saved order.
+   */
+  pdfImageUrl: optionalText(1000),
 });
 
 /** Top-level Add-on Services section state (individual add-ons are service rows). */

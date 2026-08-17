@@ -6,7 +6,8 @@ import { createTestPrismaClient, truncateAll } from './helpers/test-database.js'
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
-import { resolveItineraryNights } from '../src/modules/quotations/quotations.service.js';
+import { resolveItineraryNights, resolvePdfHotelImageUrl } from '../src/modules/quotations/quotations.service.js';
+import { PERMISSIONS } from '@interscale/shared';
 
 let app: Express;
 let db: PrismaClient;
@@ -112,6 +113,37 @@ describe('quotation duration', () => {
   it('sums every destination night and ignores empty values', () => {
     expect(resolveItineraryNights([{ nights: 6 }, { nights: 5 }])).toBe(11);
     expect(resolveItineraryNights([{ nights: 0 }, { nights: null }])).toBeNull();
+  });
+});
+
+describe('pdf hotel image selection', () => {
+  const images = [
+    { url: 'https://cdn.example/a.jpg' },
+    { url: 'https://cdn.example/b.jpg' },
+    { url: 'https://cdn.example/c.jpg' },
+  ];
+
+  it('uses the "Use in PDF" selection when present', () => {
+    expect(resolvePdfHotelImageUrl(images, 'https://cdn.example/b.jpg')).toBe(
+      'https://cdn.example/b.jpg',
+    );
+  });
+
+  it('falls back to the first saved image for legacy bookmarks', () => {
+    expect(resolvePdfHotelImageUrl(images, null)).toBe('https://cdn.example/a.jpg');
+    expect(resolvePdfHotelImageUrl(images, undefined)).toBe('https://cdn.example/a.jpg');
+  });
+
+  it('falls back to the first image when the selection was removed', () => {
+    expect(resolvePdfHotelImageUrl(images, 'https://cdn.example/missing.jpg')).toBe(
+      'https://cdn.example/a.jpg',
+    );
+  });
+
+  it('returns null when there are no snapshot images', () => {
+    expect(resolvePdfHotelImageUrl([], null)).toBeNull();
+    expect(resolvePdfHotelImageUrl(null, 'https://cdn.example/a.jpg')).toBeNull();
+    expect(resolvePdfHotelImageUrl([{ url: '' }], null)).toBeNull();
   });
 });
 
@@ -317,6 +349,177 @@ describe('Phase 8 customer quotations', () => {
       'Revised package',
       'Goa family escape',
     ]);
+  });
+
+  it('keeps quotation access lead-scoped for revisions: assignment (not permission) grants it', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const first = quotation.versions[0];
+    expect(
+      (await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`)).status,
+    ).toBe(200);
+
+    const consultantRole = (
+      await client.post('/api/roles', {
+        name: 'Travel Consultant',
+        description: 'Custom role, not Owner/Manager',
+        hierarchyLevel: 30,
+        permissions: [
+          PERMISSIONS.QUOTATIONS_VIEW,
+          PERMISSIONS.QUOTATIONS_UPDATE,
+          PERMISSIONS.QUOTATIONS_VIEW_COSTING,
+        ],
+      })
+    ).body.data;
+    const ownerRow = await db.user.findFirstOrThrow({
+      where: { normalizedEmail: 'owner@alpha.test' },
+    });
+    async function addConsultant(username: string, email: string) {
+      await db.user.create({
+        data: {
+          companyId: ownerRow.companyId,
+          roleId: consultantRole.id,
+          username,
+          fullName: 'Travel Consultant',
+          email,
+          normalizedEmail: email,
+          passwordHash: ownerRow.passwordHash,
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date(),
+        },
+      });
+      const client = createAuthClient(app);
+      await client.post('/api/auth/login', { email, password: 'Interscale@2026' });
+      return client;
+    }
+
+    // Unassigned consultant: holds quotations.view/update but is neither the
+    // linked lead's creator nor assignee → lead-scoped access keeps the
+    // quotation (and its revision) hidden from them.
+    const unassigned = await addConsultant('consultant-unassigned', 'consultant-unassigned@alpha.test');
+    expect((await unassigned.get(`/api/quotations/${quotation.id}`)).status).toBe(404);
+    expect(
+      (
+        await unassigned.post(`/api/quotations/${quotation.id}/versions`, {
+          sourceVersionId: first.id,
+        })
+      ).status,
+    ).toBe(404);
+
+    // Assigned consultant: the linked lead is assigned to them → the intended
+    // lead-scoped rule grants read + revision access.
+    const assigned = await addConsultant('consultant-assigned', 'consultant-assigned@alpha.test');
+    const assignedRow = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'consultant-assigned@alpha.test' },
+    });
+    await db.query.update({ where: { id: lead.id }, data: { assignedToId: assignedRow.id } });
+    expect((await assigned.get(`/api/quotations/${quotation.id}`)).status).toBe(200);
+    const revision = await assigned.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(revision.status).toBe(201);
+    expect(revision.body.data.versionNumber).toBe(2);
+
+    // Tenant isolation is preserved: another company cannot touch the quotation.
+    const beta = await owner('owner@alpha-beta.test', 'Beta Rev Travel');
+    expect(
+      (
+        await beta.post(`/api/quotations/${quotation.id}/versions`, {
+          sourceVersionId: first.id,
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it('lets the Owner create a revision on their own quotation, advancing currentVersionId to v2', async () => {
+    // Exact production case: Owner is the linked lead's creator AND assignee and
+    // the quotation's creator. Access is never the problem here.
+    const { client, lead, template } = await setup();
+    const ownerRow = await db.user.findFirstOrThrow({
+      where: { normalizedEmail: 'owner@alpha.test' },
+    });
+    await db.query.update({ where: { id: lead.id }, data: { assignedToId: ownerRow.id } });
+
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const first = quotation.versions[0];
+    expect(first.versionNumber).toBe(1);
+    expect(quotation.currentVersionId).toBe(first.id);
+
+    const revision = await client.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(revision.status).toBe(201);
+    expect(revision.body.data.versionNumber).toBe(2);
+
+    const refreshed = (await client.get(`/api/quotations/${quotation.id}`)).body.data;
+    expect(refreshed.currentVersionId).toBe(revision.body.data.id);
+    expect(refreshed.status).toBe('DRAFT');
+  });
+
+  it('returns 400 with a clear message when Create Revision copies sightseeing without a departure day', async () => {
+    // A legacy/production quotation whose final sightseeing day is not a
+    // departure day fails Create Revision in the version snapshot validation.
+    // The frontend previously swallowed this 400, which looked like "nothing
+    // happened" on the Create revision button.
+    const { client, lead } = await setup();
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const first = quotation.versions[0];
+    await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
+      sightseeingDetails: {
+        include: true,
+        sectionTitle: 'Sightseeing & Experiences',
+        amount: 0,
+        description: null,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Day 1: Srinagar highlights',
+            city: 'Srinagar',
+            meals: { breakfast: false, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'SHARED',
+            activities: [{ name: 'Dal Lake Shikara Ride', dailyTransfer: 'SHARED' }],
+          },
+        ],
+      },
+    });
+    await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`);
+
+    const revision = await client.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(revision.status).toBe(400);
+    expect(revision.body.error.message).toMatch(/departure sightseeing activity/i);
+  });
+
+  it('reproduces the production 404: archiving the linked lead makes the quotation invisible', async () => {
+    // Production case: Owner + quotation creator + lead creator/assignee, yet
+    // POST /versions returns 404 "Quotation not found." getQuotation joins the
+    // linked lead with deletedAt: null, so a soft-deleted (archived) lead makes
+    // the quotation unreachable — even for its Owner/creator. Lead archive has
+    // no guard against open quotations.
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const first = quotation.versions[0];
+
+    expect((await client.get(`/api/quotations/${quotation.id}`)).status).toBe(200);
+    expect((await client.delete(`/api/queries/${lead.id}`)).status).toBe(200);
+
+    const get404 = await client.get(`/api/quotations/${quotation.id}`);
+    expect(get404.status).toBe(404);
+    expect(get404.body.error.message).toBe('Quotation not found.');
+
+    const post404 = await client.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(post404.status).toBe(404);
+    expect(post404.body.error.message).toBe('Quotation not found.');
   });
 
   it('accepts hotels: [] and rejects empty hotel rows when hotels are supplied', async () => {

@@ -530,4 +530,197 @@ describe('BookmarksPage', () => {
       ).toBeInTheDocument();
     });
   });
+
+  describe('Local bookmark search', () => {
+    const makeHotel = (
+      id: string,
+      name: string,
+      city: string,
+      bookmarkCode: string,
+      createdAt = '2026-08-31T10:00:00.000Z',
+    ) => ({
+      ...hotelBookmark,
+      id,
+      bookmarkCode,
+      title: name,
+      createdAt,
+      snapshot: {
+        hotel: { ...hotelBookmark.snapshot.hotel, name, city },
+      },
+    });
+
+    const lemon = makeHotel('bm-lemon', 'Lemon Tree Hotel Lucknow', 'Lucknow', 'HTL-000201');
+    const piccadily = makeHotel(
+      'bm-picc',
+      'The Piccadily Lucknow',
+      'Lucknow',
+      'HTL-000202',
+      '2026-09-01T10:00:00.000Z',
+    );
+    const manglam = makeHotel('bm-mang', 'Manglam Inn', 'Srinagar', 'HTL-000203');
+
+    it('filters loaded hotel bookmarks locally, case-insensitively, with zero API calls', async () => {
+      const calls: string[] = [];
+      stubBookmarkFetch([lemon, piccadily, manglam], calls);
+      const { user } = renderPage();
+
+      await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+      await screen.findByText('Lemon Tree Hotel Lucknow');
+      expect(screen.getByPlaceholderText('Search saved hotels...')).toBeInTheDocument();
+
+      const search = screen.getByLabelText('Search saved bookmarks');
+      const callsBefore = calls.length;
+
+      // "lemon" → only Lemon Tree.
+      await user.type(search, 'lemon');
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.queryByText('The Piccadily Lucknow')).not.toBeInTheDocument();
+      expect(screen.queryByText('Manglam Inn')).not.toBeInTheDocument();
+
+      // Case-insensitive: "LUCKNOW" → both Lucknow hotels.
+      await user.clear(search);
+      await user.type(search, 'LUCKNOW');
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.getByText('The Piccadily Lucknow')).toBeInTheDocument();
+      expect(screen.queryByText('Manglam Inn')).not.toBeInTheDocument();
+
+      // Search matches the bookmark ID too.
+      await user.clear(search);
+      await user.type(search, 'HTL-000201');
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.queryByText('The Piccadily Lucknow')).not.toBeInTheDocument();
+
+      // "manglam" → only Manglam Inn.
+      await user.clear(search);
+      await user.type(search, 'manglam');
+      expect(screen.getByText('Manglam Inn')).toBeInTheDocument();
+      expect(screen.queryByText('Lemon Tree Hotel Lucknow')).not.toBeInTheDocument();
+
+      // Typing must never trigger a network/API request — filtering is local.
+      expect(calls.length).toBe(callsBefore);
+      expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+    });
+
+    it('shows a clean "No saved hotels found" state and clearing restores all hotels', async () => {
+      const calls: string[] = [];
+      stubBookmarkFetch([lemon, piccadily, manglam], calls);
+      const { user } = renderPage();
+
+      await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+      await screen.findByText('Lemon Tree Hotel Lucknow');
+
+      const search = screen.getByLabelText('Search saved bookmarks');
+      const callsBefore = calls.length;
+      await user.type(search, 'zzz-no-match');
+      expect(await screen.findByText('No saved hotels found')).toBeInTheDocument();
+      expect(screen.queryByText('Lemon Tree Hotel Lucknow')).not.toBeInTheDocument();
+      expect(calls.length).toBe(callsBefore);
+
+      await user.clear(search);
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.getByText('The Piccadily Lucknow')).toBeInTheDocument();
+      expect(screen.getByText('Manglam Inn')).toBeInTheDocument();
+    });
+
+    it('keeps the saved-date filter working together with search', async () => {
+      stubBookmarkFetch([lemon, piccadily, manglam], []);
+      const { user } = renderPage();
+
+      await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+      await screen.findByText('Lemon Tree Hotel Lucknow');
+
+      // Date range that excludes The Piccadily Lucknow (saved 1 Sep 2026).
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-30');
+      await user.type(screen.getByLabelText('Saved date to'), '2026-08-31');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => {
+        expect(screen.queryByText('The Piccadily Lucknow')).not.toBeInTheDocument();
+      });
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.getByText('Manglam Inn')).toBeInTheDocument();
+
+      // Search narrows the already date-filtered list.
+      await user.type(screen.getByLabelText('Search saved bookmarks'), 'lucknow');
+      expect(screen.getByText('Lemon Tree Hotel Lucknow')).toBeInTheDocument();
+      expect(screen.queryByText('Manglam Inn')).not.toBeInTheDocument();
+      expect(screen.queryByText('The Piccadily Lucknow')).not.toBeInTheDocument();
+    });
+
+    it('searches saved flights locally by airline, flight number and airport', async () => {
+      const calls: string[] = [];
+      stubBookmarkFetch([flightBookmark, hotelBookmark], calls);
+      const { user } = renderPage();
+
+      await screen.findByText('DEL → SIN');
+      await screen.findByText('Taj Exotica Goa');
+
+      const search = screen.getByLabelText('Search saved bookmarks');
+      const callsBefore = calls.length;
+
+      // Origin / destination match.
+      await user.type(search, 'SIN');
+      expect(screen.getByText('DEL → SIN')).toBeInTheDocument();
+      expect(screen.queryByText('Taj Exotica Goa')).not.toBeInTheDocument();
+
+      // Airline + flight number match, case-insensitively.
+      await user.clear(search);
+      await user.type(search, 'ai 2115');
+      expect(screen.getByText('DEL → SIN')).toBeInTheDocument();
+
+      // Invalid query → shared empty state.
+      await user.clear(search);
+      await user.type(search, 'zzz');
+      expect(await screen.findByText('No saved items found')).toBeInTheDocument();
+
+      expect(calls.length).toBe(callsBefore);
+      expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+    });
+  });
+
+  describe('Saved timestamp', () => {
+    const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' } as const;
+    const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true } as const;
+    const expected = (createdAt: string) => {
+      const d = new Date(createdAt);
+      const date = d.toLocaleDateString('en-IN', dateOptions);
+      const time = d.toLocaleTimeString('en-US', timeOptions);
+      return `Saved ${date} • ${time}`;
+    };
+
+    it('shows the exact bookmark creation date AND time on hotel and flight cards', async () => {
+      stubBookmarkFetch([flightBookmark, hotelBookmark], []);
+      renderPage();
+
+      await screen.findByText('DEL → SIN');
+      await screen.findByText('Taj Exotica Goa');
+
+      // Both values come from the bookmarks' actual createdAt timestamps.
+      expect(screen.getByText(expected(flightBookmark.createdAt))).toBeInTheDocument();
+      expect(screen.getByText(expected(hotelBookmark.createdAt))).toBeInTheDocument();
+
+      // No raw ISO timestamp is shown anywhere.
+      expect(screen.queryByText(/2026-08-16T10:00:00/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/2026-08-17T15:12:34/)).not.toBeInTheDocument();
+
+      // The saved time is the creation timestamp, NOT the hotel check-in time
+      // (hotel check-in here is 2:00 PM; the saved hotel time ends in :12).
+      expect(screen.getByText('2:00 PM / 11:00 AM')).toBeInTheDocument();
+      const hotelDate = new Date(hotelBookmark.createdAt).toLocaleDateString('en-IN', dateOptions);
+      expect(screen.queryByText(`Saved ${hotelDate} • 2:00 PM`)).not.toBeInTheDocument();
+    });
+
+    it('keeps the same saved timestamp after a page reload', async () => {
+      stubBookmarkFetch([hotelBookmark], []);
+      renderPage();
+      await screen.findByText('Taj Exotica Goa');
+      const first = expected(hotelBookmark.createdAt);
+      expect(screen.getByText(first)).toBeInTheDocument();
+
+      // Re-render (simulating a reload from the same saved data).
+      stubBookmarkFetch([hotelBookmark], []);
+      renderPage();
+      await screen.findByText('Taj Exotica Goa');
+      expect(screen.getByText(first)).toBeInTheDocument();
+    });
+  });
 });

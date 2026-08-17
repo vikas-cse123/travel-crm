@@ -31,6 +31,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/utils/cn';
 import { useBookmarks, useDeleteBookmark } from '@/features/search/search.api';
+import { resolveHotelImageCandidates } from '@/features/search/hotel-images';
 import { formatFlightDate, formatFlightTime } from './flight-format';
 import { resolveHotelPrice } from './hotel-price';
 
@@ -41,6 +42,25 @@ function formatSavedDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Readable "17 Aug 2026 • 8:42 PM" timestamp in the app's local timezone. */
+function formatSavedDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = formatSavedDate(iso);
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${date} • ${time}`;
+}
+
+/** Subtle metadata row showing exactly when a bookmark was saved. */
+function SavedTimestamp({ createdAt, className }: { createdAt: string; className?: string }) {
+  return (
+    <p className={cn('flex items-center gap-1.5 text-xs text-muted-foreground', className)}>
+      <Bookmark className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>Saved {formatSavedDateTime(createdAt)}</span>
+    </p>
+  );
 }
 
 /** Public bookmark code with a copy button. Copying is local-only. */
@@ -75,16 +95,10 @@ function BookmarkCode({ code }: { code: string }) {
 
 /** Image carousel driven entirely by the saved snapshot (no SearchAPI). */
 function BookmarkImages({ images }: { images: { thumbnail?: string; original?: string }[] | undefined }) {
-  const urls = useMemo(() => {
-    const list: string[][] = [];
-    for (const image of images ?? []) {
-      const candidates: string[] = [];
-      if (image.original) candidates.push(image.original);
-      if (image.thumbnail && image.thumbnail !== image.original) candidates.push(image.thumbnail);
-      if (candidates.length) list.push(candidates);
-    }
-    return list;
-  }, [images]);
+  const urls = useMemo(
+    () => images?.map((image) => resolveHotelImageCandidates(image)).filter((list) => list.length) ?? [],
+    [images],
+  );
 
   const [index, setIndex] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -252,7 +266,7 @@ function FlightBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
               : 'Price unavailable'}
           </p>
           <p className="text-xs text-muted-foreground">Saved price</p>
-          <p className="text-xs text-muted-foreground">Saved {formatSavedDate(bookmark.createdAt)}</p>
+          <SavedTimestamp createdAt={bookmark.createdAt} />
         </div>
         <button
           type="button"
@@ -469,7 +483,7 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
               </span>
             </div>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Saved {formatSavedDate(bookmark.createdAt)}</p>
+          <SavedTimestamp createdAt={bookmark.createdAt} className="mt-2" />
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-4">
@@ -650,6 +664,7 @@ function savedDateKey(iso: string): string | null {
 
 export function BookmarksPage() {
   const [filter, setFilter] = useState<BookmarkFilter>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   const [savedFrom, setSavedFrom] = useState('');
   const [savedTo, setSavedTo] = useState('');
   const [appliedFrom, setAppliedFrom] = useState('');
@@ -659,6 +674,7 @@ export function BookmarksPage() {
   const remove = useDeleteBookmark();
 
   const dateFilterApplied = Boolean(appliedFrom || appliedTo);
+  const searchActive = searchQuery.trim().length > 0;
 
   const withinDateRange = (createdAt: string) => {
     if (!dateFilterApplied) return true;
@@ -669,7 +685,39 @@ export function BookmarksPage() {
     return true;
   };
 
-  const list = (bookmarks.data ?? []).filter((bookmark) => withinDateRange(bookmark.createdAt));
+  // Client-side, in-memory search over the already-loaded bookmarks only.
+  // Typing never triggers any network/API request.
+  const matchesSearch = (bookmark: LiveSearchBookmark) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    if (bookmark.type === 'HOTEL') {
+      const hotel = bookmark.snapshot.hotel;
+      return [hotel?.name, hotel?.city, hotel?.country, bookmark.bookmarkCode, bookmark.title]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(q));
+    }
+    const flight = bookmark.snapshot.flight;
+    const haystack = [
+      flight?.airline,
+      ...(flight?.flightNumbers ?? []),
+      bookmark.title,
+      bookmark.bookmarkCode,
+      ...(flight?.segments ?? []).flatMap((segment) => [
+        segment.departure_airport?.id,
+        segment.departure_airport?.name,
+        segment.arrival_airport?.id,
+        segment.arrival_airport?.name,
+      ]),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  };
+
+  const list = (bookmarks.data ?? [])
+    .filter((bookmark) => withinDateRange(bookmark.createdAt))
+    .filter(matchesSearch);
 
   const applyDateRange = () => {
     if (savedFrom && savedTo && savedFrom > savedTo) {
@@ -725,7 +773,21 @@ export function BookmarksPage() {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-3">
-        <div className="flex flex-wrap items-end gap-3">
+        <input
+          aria-label="Search saved bookmarks"
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={
+            filter === 'HOTEL'
+              ? 'Search saved hotels...'
+              : filter === 'FLIGHT'
+                ? 'Search saved flights...'
+                : 'Search saved hotels & flights...'
+          }
+          className={`${dateInputClass} w-full sm:max-w-md`}
+        />
+        <div className="mt-3 flex flex-wrap items-end gap-3">
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">Saved date</p>
             <div className="flex flex-wrap items-end gap-2">
@@ -794,6 +856,18 @@ export function BookmarksPage() {
             </div>
           ))}
         </div>
+      ) : searchActive ? (
+        <EmptyState
+          icon={Bookmark}
+          title={
+            filter === 'FLIGHT'
+              ? 'No saved flights found'
+              : filter === 'HOTEL'
+                ? 'No saved hotels found'
+                : 'No saved items found'
+          }
+          description="Try a different search or clear the search box to see all saved items."
+        />
       ) : dateFilterApplied ? (
         <EmptyState
           icon={Bookmark}

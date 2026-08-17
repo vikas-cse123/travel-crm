@@ -7,6 +7,8 @@ import {
   CarFront,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Compass,
   CreditCard,
@@ -1101,6 +1103,83 @@ function SightseeingItineraryView({
   );
 }
 
+/**
+ * Hotel snapshot images carousel (from a hotel bookmark), rendered inside the
+ * hotel's own card. Shows one image at a time in saved order with Previous/Next
+ * navigation and a "1 / N" counter; a single image is shown plainly. Never
+ * reloads the page. This is the ONLY place hotel images render on the weblink.
+ */
+function HotelImageCarousel({
+  images,
+}: {
+  images: Array<{ url: string; thumbnailUrl?: string | null; alt?: string | null }>;
+}) {
+  const [active, setActive] = useState(0);
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const count = images.length;
+  if (count === 0) return null;
+  const current = images[Math.min(active, count - 1)]!;
+  const previous = () => setActive((index) => (index - 1 + count) % count);
+  const next = () => setActive((index) => (index + 1) % count);
+  const alt = current.alt?.trim() || 'Hotel image';
+  // Fall back to the same image's thumbnail candidate when the primary URL
+  // fails, mirroring how the bookmark carousel resolves provider images.
+  const currentUrl =
+    failed.has(current.url) && current.thumbnailUrl ? current.thumbnailUrl : current.url;
+  const onError = () => {
+    if (!failed.has(current.url)) setFailed((prev) => new Set(prev).add(current.url));
+  };
+
+  if (count === 1) {
+    return (
+      <div className="h-full w-full bg-slate-100">
+        <img
+          src={currentUrl}
+          alt={alt}
+          loading="lazy"
+          onError={onError}
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-slate-100">
+      <img
+        src={currentUrl}
+        alt={alt}
+        loading="lazy"
+        onError={onError}
+        className="h-full w-full object-cover"
+      />
+      <div className="absolute inset-y-0 left-0 flex items-center">
+        <button
+          type="button"
+          aria-label="Previous hotel image"
+          onClick={previous}
+          className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+      <div className="absolute inset-y-0 right-0 flex items-center">
+        <button
+          type="button"
+          aria-label="Next hotel image"
+          onClick={next}
+          className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
+        >
+          <ChevronRight className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+      <p className="absolute bottom-2 right-3 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white">
+        {active + 1} / {count}
+      </p>
+    </div>
+  );
+}
+
 export function PublicQuotationPage() {
   const { token = '' } = useParams();
   const [data, setData] = useState<PublicQuotation | null>(null);
@@ -1292,8 +1371,11 @@ export function PublicQuotationPage() {
   const fmtExact = (value: number) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: v.currency }).format(value);
 
-  const selectedHotels = v.hotels.filter((hotel) => hotel.selected);
-  const visibleHotels = selectedHotels.length > 0 ? selectedHotels : v.hotels;
+  // Draft Hotel Stays added but never named have no valid hotel name — a stay
+  // without a name must never render as a hotel card on the weblink.
+  const namedHotels = v.hotels.filter((hotel) => (hotel.hotelName ?? '').trim().length > 0);
+  const selectedHotels = namedHotels.filter((hotel) => hotel.selected);
+  const visibleHotels = selectedHotels.length > 0 ? selectedHotels : namedHotels;
   // Hotels only appear when included in the quotation (hotelDetails.include).
   const hotelIncluded = v.hotelDetails?.include !== false && visibleHotels.length > 0;
   const nights =
@@ -1635,6 +1717,12 @@ export function PublicQuotationPage() {
               <div className="grid gap-5">
                 {visibleHotels.map((hotel, hotelIndex) => {
                   const presentation = data.hotelPresentations?.[hotel.id];
+                  // One image source: the stored quotation hotel gallery
+                  // (bookmark snapshots), rendered inside each hotel card — no
+                  // separate large gallery above the cards.
+                  const snapshotImages = hotel.images ?? [];
+                  const snapshotImageUrl = snapshotImages[0]?.url ?? null;
+                  const cardImageUrl = presentation?.imageUrl ?? snapshotImageUrl;
                   // Star rating comes from Hotel Master only (0–5). Never fall back
                   // to the free-text category snapshot, which can say "5 Star" even
                   // when the true rating is 0 or missing.
@@ -1651,9 +1739,11 @@ export function PublicQuotationPage() {
                       className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
                     >
                       <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
-                        {presentation?.imageUrl ? (
+                        {snapshotImages.length > 0 ? (
+                          <HotelImageCarousel images={snapshotImages} />
+                        ) : cardImageUrl ? (
                           <img
-                            src={presentation.imageUrl}
+                            src={cardImageUrl}
                             alt={hotel.hotelName}
                             className="h-full w-full object-cover object-center"
                           />
@@ -1707,12 +1797,16 @@ export function PublicQuotationPage() {
                           </p>
                         )}
                         <div className="mt-5 space-y-1.5 text-sm text-slate-700">
-                          <p>
-                            <strong>Room Type:</strong> {hotel.roomType || 'As selected'}
-                          </p>
-                          <p>
-                            <strong>Meal Plan:</strong> {hotel.mealPlan || 'As selected'}
-                          </p>
+                          {hotel.roomType?.trim() ? (
+                            <p>
+                              <strong>Room Type:</strong> {hotel.roomType}
+                            </p>
+                          ) : null}
+                          {hotel.mealPlan?.trim() ? (
+                            <p>
+                              <strong>Meal Plan:</strong> {hotel.mealPlan}
+                            </p>
+                          ) : null}
                           {hotel.rooms != null && (
                             <p>
                               <strong>Rooms:</strong> {hotel.rooms}

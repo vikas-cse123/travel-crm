@@ -1198,13 +1198,22 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             ? formatClock12Hour(hotel.checkOutTime)
             : '',
         ],
-        [
-          'ROOM TYPE',
-          hotel.roomType || 'Room open',
-          hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
-        ],
-        ['MEAL PLAN', hotel.mealPlan || 'Meal plan open', `${hotel.nights} Nights`],
       ];
+      // Room type / meal plan are optional: an empty value renders no fact
+      // box at all (no "-", "N/A" or other placeholder). Remaining boxes
+      // reflow into the vacated columns.
+      const roomType = hotel.roomType?.trim();
+      if (roomType) {
+        hotelFacts.push([
+          'ROOM TYPE',
+          roomType,
+          hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
+        ]);
+      }
+      const mealPlan = hotel.mealPlan?.trim();
+      if (mealPlan) {
+        hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
+      }
       hotelFacts.forEach(([label, value, sub], factIndex) => {
         const left = infoX + factIndex * 88;
         rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);

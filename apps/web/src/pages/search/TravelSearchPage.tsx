@@ -49,6 +49,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/utils/cn';
+import { resolveHotelImageCandidates } from '@/features/search/hotel-images';
 import { formatFlightDate, formatFlightTime } from './flight-format';
 import { resolveHotelPrice } from './hotel-price';
 import {
@@ -2040,16 +2041,13 @@ function propertyTypeLabel(type: string | undefined): string {
  * then move to the next image. Local state only — never triggers a request.
  */
 function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
-  const images = useMemo(() => {
-    const list: string[][] = [];
-    for (const image of property.images ?? []) {
-      const candidates: string[] = [];
-      if (image.original) candidates.push(image.original);
-      if (image.thumbnail && image.thumbnail !== image.original) candidates.push(image.thumbnail);
-      if (candidates.length) list.push(candidates);
-    }
-    return list;
-  }, [property.images]);
+  const images = useMemo(
+    () =>
+      (property.images ?? [])
+        .map((image) => resolveHotelImageCandidates(image))
+        .filter((list) => list.length),
+    [property.images],
+  );
 
   const [index, setIndex] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());

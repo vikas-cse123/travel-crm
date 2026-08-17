@@ -10,6 +10,7 @@ import {
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useBookmarkByCode } from '@/features/search/search.api';
+import { normalizeHotelImages } from '@/features/search/hotel-images';
 import { importAirlineLogoFromUrl, type Airline } from '@/features/masters/masters.api';
 
 /**
@@ -317,15 +318,6 @@ export async function resolveFlightSegmentAirlines(
   return result;
 }
 
-/** Extract the first valid image URL from a saved hotel snapshot. */
-function hotelImageUrl(hotel: HotelBookmarkSnapshot | undefined): string | null {
-  for (const image of hotel?.images ?? []) {
-    const url = image.original || image.thumbnail;
-    if (url) return url;
-  }
-  return null;
-}
-
 /**
  * Build the quotation hotel section from a saved hotel bookmark: one hotel stay
  * row plus `hotelDetails` (title, amount, description, bookmarked images).
@@ -352,11 +344,11 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
   const perNight = hotel?.pricePerNight?.extracted_price;
   const savedPrice = typeof totalPrice === 'number' ? totalPrice : (perNight ?? 0);
 
-  const images = (hotel?.images ?? [])
-    .map((image) => image.original || image.thumbnail)
-    .filter((url): url is string => Boolean(url))
-    .slice(0, 12)
-    .map((url) => ({ url, alt: hotel?.name ?? null }));
+  const images = normalizeHotelImages(hotel?.images).map((image) => ({
+    url: image.url,
+    thumbnailUrl: image.thumbnailUrl,
+    alt: hotel?.name ?? null,
+  }));
 
   return {
     hotelRow: {
@@ -381,15 +373,22 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       selected: true,
       notes: hotel?.description ?? null,
       sequence: 1,
+      // Store per-stay images instead of section-level images
+      images: images.length ? images : [],
     },
     hotelDetails: {
       include: true,
       sectionTitle: 'Your Hotels',
       amount: savedPrice,
-      description: hotel?.description ?? null,
-      images: images.length ? images : undefined,
+      // The provider's hotel summary belongs in the per-stay Remark (see
+      // `notes` on the row), never duplicated into the section Description —
+      // that field stays empty unless the user types a custom section note.
+      description: null,
+      // Clear section-level images when importing to per-stay storage
+      images: undefined,
+      pdfImageUrl: null,
     },
-    primaryImageUrl: hotelImageUrl(hotel),
+    primaryImageUrl: images[0]?.url ?? null,
   };
 }
 

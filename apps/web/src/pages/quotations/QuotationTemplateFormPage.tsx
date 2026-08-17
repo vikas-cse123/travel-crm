@@ -346,6 +346,9 @@ export function QuotationTemplateFormPage() {
                     hotelRoomTypeId: watchedHotels?.[index]?.hotelRoomTypeId,
                     hotelMealPlanId: watchedHotels?.[index]?.hotelMealPlanId,
                   }}
+                  roomTypeText={watchedHotels?.[index]?.roomType}
+                  mealPlanText={watchedHotels?.[index]?.mealPlan}
+                  hotelNameText={watchedHotels?.[index]?.hotelName}
                   onChange={(patch) => applyHotel(index, patch)}
                 />
                 <input

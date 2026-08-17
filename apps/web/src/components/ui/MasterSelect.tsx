@@ -31,6 +31,13 @@ interface MasterSelectProps {
   disabled?: boolean | undefined;
   /** Shown when `value` is set but absent from `options` (archived master). */
   fallbackLabel?: string | undefined;
+  /**
+   * Called with the free text the user typed whenever it does not resolve to a
+   * master option, so the caller can keep its own snapshot text in sync.
+   * Called with `''` when the selection is cleared. Never called when a master
+   * option is chosen — the snapshot is then the option label from `onSelect`.
+   */
+  onText?: (text: string) => void;
 }
 
 export function MasterSelect({
@@ -42,6 +49,7 @@ export function MasterSelect({
   loading = false,
   disabled = false,
   fallbackLabel,
+  onText,
 }: MasterSelectProps) {
   const listId = useId();
   const selected = useMemo(
@@ -52,7 +60,7 @@ export function MasterSelect({
   // so an externally changed value (clearing a hotel resets its room type) is
   // reflected without the caller having to reset this component.
   const [typed, setTyped] = useState<string | null>(null);
-  const display = typed ?? selected?.label ?? (value ? (fallbackLabel ?? '') : '');
+  const display = typed ?? selected?.label ?? fallbackLabel ?? '';
 
   const commit = (text: string) => {
     setTyped(text);
@@ -62,11 +70,14 @@ export function MasterSelect({
     if (match) {
       setTyped(null);
       onSelect(match);
-    } else if (value) {
+      return;
+    }
+    if (value) {
       // Editing away from a selection unlinks it; the typed text is kept by the
-      // caller's own snapshot field, which this component never writes.
+      // caller's own snapshot field.
       onSelect(null);
     }
+    onText?.(text);
   };
 
   return (
@@ -94,6 +105,7 @@ export function MasterSelect({
           onClick={() => {
             setTyped(null);
             onSelect(null);
+            onText?.('');
           }}
           className="absolute right-1.5 top-1.5 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
         >

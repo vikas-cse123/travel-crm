@@ -5,6 +5,7 @@ import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-for
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Building2,
   ImageIcon,
   Plus,
@@ -73,6 +74,7 @@ import {
   BookmarkLoadField,
   flightBookmarkSegmentAirlines,
   flightBookmarkToDetails,
+  hotelBookmarkToDetails,
   normalizeAirlineName,
   resolveFlightSegmentAirlines,
 } from '@/features/quotations/BookmarkImport';
@@ -367,7 +369,7 @@ const emptyHotel = (
   hotelRoomTypeId: null,
   hotelMealPlanId: null,
   rooms: null,
-  nights: 1,
+  nights: 0,
   checkInDate: null,
   checkOutDate: null,
   checkInTime: null,
@@ -379,8 +381,17 @@ const emptyHotel = (
   selected,
   notes: null,
   sequence,
+  images: [],
   ...seed,
 });
+
+/**
+ * A brand-new, fully independent blank Hotel Stay. Never clones the current or
+ * previous stay — no hotel, no city, no dates, no rooms, no master links and no
+ * image references. Used by "Add Stay Before" / "Add Stay After".
+ */
+const createEmptyHotelStay = (sequence: number, selected = true): HotelInputRow =>
+  emptyHotel(sequence, selected);
 
 /** True when a quotation hotel row's city matches a Hotel Master's city or destination. */
 type DefaultHotelMaster = {
@@ -564,7 +575,17 @@ const buildDestinationPolicyPrefill = (
   return result;
 };
 
-function HotelPreview({ hotelId }: { hotelId?: string | null | undefined }) {
+function HotelPreview({
+  hotelId,
+  snapshotImageUrl,
+  snapshotThumbnailUrl,
+}: {
+  hotelId?: string | null | undefined;
+  /** First saved snapshot image, shown when the hotel has no Master link. */
+  snapshotImageUrl?: string | null | undefined;
+  /** Fallback candidate for the same image, used if the primary fails. */
+  snapshotThumbnailUrl?: string | null | undefined;
+}) {
   const hotel = useHotel(hotelId ?? undefined);
   const image = useQuery({
     queryKey: ['masters', 'hotels', hotelId ?? '', 'quotation-preview'],
@@ -572,6 +593,9 @@ function HotelPreview({ hotelId }: { hotelId?: string | null | undefined }) {
     enabled: Boolean(hotelId && hotel.data?.hasImage),
     staleTime: 4 * 60 * 1000,
   });
+  const [previewFallback, setPreviewFallback] = useState(false);
+  const snapshotSrc =
+    previewFallback && snapshotThumbnailUrl ? snapshotThumbnailUrl : snapshotImageUrl;
 
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
@@ -581,6 +605,15 @@ function HotelPreview({ hotelId }: { hotelId?: string | null | undefined }) {
             src={image.data.url}
             alt={hotel.data?.name ?? 'Hotel preview'}
             className="h-full w-full object-cover"
+          />
+        ) : snapshotSrc ? (
+          <img
+            src={snapshotSrc}
+            alt={hotel.data?.name ?? 'Hotel preview'}
+            className="h-full w-full object-cover"
+            onError={() => {
+              if (!previewFallback) setPreviewFallback(true);
+            }}
           />
         ) : (
           <div className="text-center text-slate-400">
@@ -612,6 +645,32 @@ function HotelPreview({ hotelId }: { hotelId?: string | null | undefined }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A hotel snapshot image thumbnail in the builder's image manager. Renders the
+ * bookmark-preferred URL and falls back to the same image's thumbnail candidate
+ * (mirroring the bookmark carousel) when the primary fails to load.
+ */
+function HotelImageThumb({
+  image,
+  alt,
+}: {
+  image: { url: string; thumbnailUrl?: string | null | undefined };
+  alt: string;
+}) {
+  const [useThumbnail, setUseThumbnail] = useState(false);
+  const src = useThumbnail && image.thumbnailUrl ? image.thumbnailUrl : image.url;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-16 w-24 shrink-0 rounded-md object-cover"
+      onError={() => {
+        if (!useThumbnail && image.thumbnailUrl) setUseThumbnail(true);
+      }}
+    />
   );
 }
 
@@ -691,6 +750,24 @@ export function QuotationBuilderPage() {
   });
   const itinerary = useFieldArray({ control: form.control, name: 'itinerary' });
   const hotels = useFieldArray({ control: form.control, name: 'hotels' });
+  /** Import a saved hotel bookmark into the quotation form (DB only). */
+  const importHotelBookmark = (bookmark: LiveSearchBookmark) => {
+    const { hotelRow, hotelDetails } = hotelBookmarkToDetails(bookmark);
+    // The bookmark never writes the section Description (the provider summary
+    // goes only into the stay Remark). Keep an existing manually entered
+    // Description so a re-import never wipes it.
+    const existingDescription = form.getValues('hotelDetails')?.description ?? null;
+    form.setValue(
+      'hotelDetails',
+      { ...hotelDetails, description: existingDescription },
+      { shouldDirty: true },
+    );
+    if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
+    // Replace any existing rows with the bookmarked stay; the agent can still
+    // add/edit rows afterwards.
+    hotels.replace([hotelRow]);
+    setExcluded((prev) => ({ ...prev, hotel: false }));
+  };
   const services = useFieldArray({ control: form.control, name: 'services' });
   const outboundSegments = useFieldArray({
     control: form.control,
@@ -1265,6 +1342,8 @@ export function QuotationBuilderPage() {
   }, [vehicleDraft.vehicleId, vehicleMasters.data]);
   const watchedHotels = useWatch({ control: form.control, name: 'hotels' });
   const watchedServices = useWatch({ control: form.control, name: 'services' });
+  const hotelImages = useWatch({ control: form.control, name: 'hotelDetails.images' }) ?? [];
+  const hotelPdfImageUrl = useWatch({ control: form.control, name: 'hotelDetails.pdfImageUrl' }) ?? null;
   const markupMode = useWatch({ control: form.control, name: 'markupMode' });
   const markupValue = useWatch({ control: form.control, name: 'markupValue' }) ?? 0;
   const taxRate = useWatch({ control: form.control, name: 'taxRate' }) ?? 0;
@@ -1279,6 +1358,27 @@ export function QuotationBuilderPage() {
   const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
   const applyService = (index: number, patch: ServiceRowPatch) =>
     applyPatch('services', index, patch);
+
+  // Hotel section snapshot images (from a hotel bookmark). Reordering and
+  // removal only edit this quotation's saved copy — the bookmark itself is
+  // never touched. Removing the PDF-selected image moves the selection to the
+  // first remaining image, matching the PDF's fallback rule.
+  const moveHotelImage = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= hotelImages.length) return;
+    const next = [...hotelImages];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    form.setValue('hotelDetails.images', next, { shouldDirty: true, shouldValidate: true });
+  };
+  const removeHotelImage = (index: number) => {
+    const removed = hotelImages[index];
+    const next = hotelImages.filter((_, imageIndex) => imageIndex !== index);
+    form.setValue('hotelDetails.images', next, { shouldDirty: true, shouldValidate: true });
+    if (removed && hotelPdfImageUrl === removed.url)
+      form.setValue('hotelDetails.pdfImageUrl', next[0]?.url ?? null, { shouldDirty: true });
+  };
+  const setHotelPdfImage = (url: string) =>
+    form.setValue('hotelDetails.pdfImageUrl', url, { shouldDirty: true });
 
   // Prefill default hotels for untouched hotel rows that appear after
   // initialization (e.g. "Add Hotel"), without ever touching a row the user
@@ -1357,25 +1457,11 @@ export function QuotationBuilderPage() {
   };
 
   const insertHotelAfter = (index: number) => {
-    const current = watchedHotels?.[index];
-    hotels.insert(
-      index + 1,
-      createHotelRow(index + 2, current?.selected !== false, {
-        ...(current?.city ? { city: current.city } : {}),
-        rooms: Math.max(1, current?.rooms ?? quotation.data?.rooms ?? 1),
-      }),
-    );
+    hotels.insert(index + 1, createEmptyHotelStay(index + 2));
   };
 
   const insertHotelBefore = (index: number) => {
-    const current = watchedHotels?.[index];
-    hotels.insert(
-      index,
-      createHotelRow(index + 1, current?.selected !== false, {
-        ...(current?.city ? { city: current.city } : {}),
-        rooms: current?.rooms ?? quotation.data?.rooms ?? null,
-      }),
-    );
+    hotels.insert(index, createEmptyHotelStay(index + 1));
   };
 
   const estimate = useMemo(() => {
@@ -1571,6 +1657,10 @@ export function QuotationBuilderPage() {
             amount: value.hotelDetails?.amount ?? 0,
             description: value.hotelDetails?.description ?? null,
             include: !excludedRef.current.hotel,
+            // Persist the bookmark image order and the "Use in PDF" selection
+            // so the weblink carousel and the generated PDF survive re-saves.
+            images: value.hotelDetails?.images ?? [],
+            pdfImageUrl: value.hotelDetails?.pdfImageUrl ?? null,
           },
           addOnDetails: {
             include: value.addOnDetails?.include !== false,
@@ -1591,12 +1681,17 @@ export function QuotationBuilderPage() {
               }
             : value.sightseeingDetails,
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
-          hotels: seq(value.hotels).map((hotel) => ({
-            ...hotel,
-            // Persist the calendar-date-derived nights whenever valid dates
-            // exist, so re-saving repairs historical incorrect night counts.
-            nights: hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights,
-          })),
+          hotels: seq(value.hotels)
+            .map((hotel) => ({
+              ...hotel,
+              // Persist the calendar-date-derived nights whenever valid dates
+              // exist, so re-saving repairs historical incorrect night counts.
+              nights: hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights,
+            }))
+            // Draft Hotel Stays added via "Add Stay Before/After" but never
+            // named have no hotel name — they must not be persisted (the API
+            // also rejects empty hotel rows).
+            .filter((hotel) => (hotel.hotelName ?? '').trim().length > 0),
           services: seq(persistedServices),
           inclusions: seq(value.inclusions),
           exclusions: seq(value.exclusions),
@@ -2043,6 +2138,9 @@ export function QuotationBuilderPage() {
                   hotelRoomTypeId: hotel?.hotelRoomTypeId,
                   hotelMealPlanId: hotel?.hotelMealPlanId,
                 }}
+                roomTypeText={hotel?.roomType}
+                mealPlanText={hotel?.mealPlan}
+                hotelNameText={hotel?.hotelName}
                 onChange={(patch) => applyHotel(index, patch)}
               />
             </div>
@@ -2185,7 +2283,11 @@ export function QuotationBuilderPage() {
             </div>
           </div>
 
-          <HotelPreview hotelId={hotel?.hotelId} />
+          <HotelPreview
+            hotelId={hotel?.hotelId}
+            snapshotImageUrl={hotel?.hotelName ? hotel?.images?.[0]?.url : undefined}
+            snapshotThumbnailUrl={hotel?.hotelName ? hotel?.images?.[0]?.thumbnailUrl : undefined}
+          />
         </div>
       </article>
     );
@@ -3308,6 +3410,74 @@ export function QuotationBuilderPage() {
             <IncludeBar tabKey="hotel" label="Hotel" />
             {isIncluded('hotel') && (
               <>
+                <BookmarkLoadField
+                  type="HOTEL"
+                  placeholder="HTL-000123"
+                  onLoaded={importHotelBookmark}
+                />
+                {hotelImages.length > 0 && (
+                  <div className="space-y-2.5">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      Hotel Images{' '}
+                      <span className="font-normal text-slate-400">
+                        ({hotelImages.length}) · order saved with the quotation
+                      </span>
+                    </h3>
+                    {hotelImages.map((image, index) => (
+                      <div
+                        key={image.url}
+                        className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5"
+                      >
+                        <HotelImageThumb
+                          image={image}
+                          alt={image.alt ?? `Hotel image ${index + 1}`}
+                        />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={index === 0}
+                            aria-label={`Move hotel image ${index + 1} left`}
+                            onClick={() => moveHotelImage(index, -1)}
+                          >
+                            <ArrowLeft className="h-4 w-4" /> Move Left
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={index === hotelImages.length - 1}
+                            aria-label={`Move hotel image ${index + 1} right`}
+                            onClick={() => moveHotelImage(index, 1)}
+                          >
+                            Move Right <ArrowRight className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            aria-label={`Remove hotel image ${index + 1}`}
+                            onClick={() => removeHotelImage(index)}
+                          >
+                            <X className="h-4 w-4" /> Remove
+                          </Button>
+                        </div>
+                        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-sm">
+                          <input
+                            type="radio"
+                            name="hotel-pdf-image"
+                            aria-label={`Use hotel image ${index + 1} in PDF`}
+                            checked={hotelPdfImageUrl === image.url}
+                            onChange={() => setHotelPdfImage(image.url)}
+                            className="accent-brand-600"
+                          />
+                          Use in PDF
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-semibold text-slate-800">
                     Section Title

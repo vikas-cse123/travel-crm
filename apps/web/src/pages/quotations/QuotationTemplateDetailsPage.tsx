@@ -1,6 +1,6 @@
 import { ArrowLeft, Edit3, Play, Printer, Route, Sparkles } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { PERMISSIONS, labelForLookup } from '@interscale/shared';
+import { PERMISSIONS, joinNonEmpty, labelForLookup } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useQuotationTemplate } from '@/features/quotations/quotations.api';
@@ -114,9 +114,13 @@ export function QuotationTemplateDetailsPage() {
               <article key={hotel.id} className="py-3">
                 <strong>{hotel.hotelName}</strong>
                 <p className="text-sm text-slate-600">
-                  {hotel.city} · {hotel.category || 'Category open'} ·{' '}
-                  {hotel.roomType || 'Room open'} · {hotel.mealPlan || 'Meal plan open'} ·{' '}
-                  {hotel.nights} nights
+                  {joinNonEmpty([
+                    hotel.city,
+                    hotel.category || 'Category open',
+                    hotel.roomType,
+                    hotel.mealPlan,
+                    `${hotel.nights} nights`,
+                  ])}
                 </p>
               </article>
             ))}
