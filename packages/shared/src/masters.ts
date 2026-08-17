@@ -230,6 +230,11 @@ export const airlineLogoUploadSchema = z.object({
   fileSize: z.coerce.number().int().positive(),
 });
 
+/** Server-side import of a remote airline logo (e.g. a provider/Google URL). */
+export const airlineLogoImportSchema = z.object({
+  url: z.string().trim().url().max(2000),
+});
+
 // ---------------------------------------------------------------------------
 // Cruises
 // ---------------------------------------------------------------------------
@@ -437,6 +442,7 @@ export type HotelMealPlanType = (typeof HOTEL_MEAL_PLAN_TYPES)[number];
 export type AirlineInput = z.infer<typeof airlineInputSchema>;
 export type AirlineUpdateInput = z.infer<typeof airlineUpdateSchema>;
 export type AirlineLogoUploadInput = z.infer<typeof airlineLogoUploadSchema>;
+export type AirlineLogoImportInput = z.infer<typeof airlineLogoImportSchema>;
 export type CruiseInput = z.infer<typeof cruiseInputSchema>;
 export type CruiseUpdateInput = z.infer<typeof cruiseUpdateSchema>;
 export type CruiseRoomTypeInput = z.infer<typeof cruiseRoomTypeInputSchema>;

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
@@ -395,5 +395,125 @@ describe('Phase 13B airlines master', () => {
 
     const actions = (await db.activityLog.findMany()).map((log) => log.action);
     expect(actions).toEqual(expect.arrayContaining(['AIRLINE_CREATED', 'AIRLINE_LOGO_UPLOADED']));
+  });
+
+  const pngBytes = () =>
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
+
+  const stubLogoFetch = (calls: string[] = [], failWithStatus = 0) => {
+    const fetchSpy = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      calls.push(href);
+      if (failWithStatus) return new Response(null, { status: failWithStatus });
+      return new Response(pngBytes(), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  };
+
+  it('imports a remote airline logo into master storage', async () => {
+    const client = await owner();
+    const airline = (await createAirline(client)).body.data as { id: string };
+    const fetchCalls: string[] = [];
+    stubLogoFetch(fetchCalls);
+    try {
+      const imported = await client.post(`/api/masters/airlines/${airline.id}/logo/import`, {
+        url: 'https://www.gstatic.com/flights/airline_logos/70px/6E.png',
+      });
+      expect(imported.status).toBe(200);
+      expect(imported.body.data).toMatchObject({ hasLogo: true });
+      expect(imported.body.data).not.toHaveProperty('logoObjectKey');
+      expect(fetchCalls[0]).toBe('https://www.gstatic.com/flights/airline_logos/70px/6E.png');
+
+      const row = await db.airline.findUniqueOrThrow({ where: { id: airline.id } });
+      expect(row.logoObjectKey).toMatch(
+        new RegExp(`^companies/${row.companyId}/masters/airlines/${airline.id}/logos/`),
+      );
+      expect(row.logoConfirmedAt).not.toBeNull();
+      expect(row.logoMimeType).toBe('image/png');
+      const stored = (storageService as MemoryStorageService).read(row.logoObjectKey!);
+      expect(stored).toBeDefined();
+      expect(stored!.length).toBe(12);
+
+      const actions = (await db.activityLog.findMany()).map((log) => log.action);
+      expect(actions).toContain('AIRLINE_LOGO_IMPORTED');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not re-import when the airline already has a confirmed logo', async () => {
+    const client = await owner();
+    const airline = (await createAirline(client)).body.data as { id: string };
+    const fetchCalls: string[] = [];
+    stubLogoFetch(fetchCalls);
+    try {
+      const first = await client.post(`/api/masters/airlines/${airline.id}/logo/import`, {
+        url: 'https://img.example.com/airline.png',
+      });
+      expect(first.status).toBe(200);
+      const firstKey = (await db.airline.findUniqueOrThrow({ where: { id: airline.id } }))
+        .logoObjectKey;
+      expect(fetchCalls).toHaveLength(1);
+
+      const second = await client.post(`/api/masters/airlines/${airline.id}/logo/import`, {
+        url: 'https://img.example.com/airline-2.png',
+      });
+      expect(second.status).toBe(200);
+      expect(second.body.data).toMatchObject({ hasLogo: true });
+      // The logo was NOT re-fetched or re-uploaded.
+      expect(fetchCalls).toHaveLength(1);
+      const secondKey = (await db.airline.findUniqueOrThrow({ where: { id: airline.id } }))
+        .logoObjectKey;
+      expect(secondKey).toBe(firstKey);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('leaves the airline without a logo when the remote download fails', async () => {
+    const client = await owner();
+    const airline = (await createAirline(client)).body.data as { id: string };
+    stubLogoFetch([], 404);
+    try {
+      const response = await client.post(`/api/masters/airlines/${airline.id}/logo/import`, {
+        url: 'https://img.example.com/missing.png',
+      });
+      expect(response.status).toBe(400);
+      const row = await db.airline.findUniqueOrThrow({ where: { id: airline.id } });
+      expect(row.logoObjectKey).toBeNull();
+      expect(row.logoConfirmedAt).toBeNull();
+      const actions = (await db.activityLog.findMany()).map((log) => log.action);
+      expect(actions).not.toContain('AIRLINE_LOGO_IMPORTED');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('rejects a remote response that is not a valid image', async () => {
+    const client = await owner();
+    const airline = (await createAirline(client)).body.data as { id: string };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(new TextEncoder().encode('not an image'), {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        }),
+      ),
+    );
+    try {
+      const response = await client.post(`/api/masters/airlines/${airline.id}/logo/import`, {
+        url: 'https://img.example.com/fake.png',
+      });
+      expect(response.status).toBe(400);
+      const row = await db.airline.findUniqueOrThrow({ where: { id: airline.id } });
+      expect(row.logoObjectKey).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

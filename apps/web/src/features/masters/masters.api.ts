@@ -523,6 +523,10 @@ export async function approveAirlineLogo(id: string, input: AirlineLogoUploadInp
 export async function confirmAirlineLogo(id: string) {
   return apiClient.post<Airline>(`/masters/airlines/${id}/logo/confirm`);
 }
+/** Server-side import of a remote airline logo into Airline Master storage. */
+export async function importAirlineLogoFromUrl(id: string, url: string) {
+  return apiClient.post<Airline>(`/masters/airlines/${id}/logo/import`, { url });
+}
 export async function airlineLogoUrl(id: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
     `/masters/airlines/${id}/logo/download-url`,

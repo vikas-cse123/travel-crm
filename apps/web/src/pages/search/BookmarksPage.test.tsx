@@ -384,4 +384,150 @@ describe('BookmarksPage', () => {
     expect(screen.queryByText(/₹0/)).not.toBeInTheDocument();
     expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
   });
+
+  describe('Saved date filter', () => {
+    const withDate = (
+      bookmark: typeof flightBookmark | typeof hotelBookmark,
+      createdAt: string,
+      id: string,
+      type = 'FLIGHT',
+    ) => ({
+      ...bookmark,
+      id,
+      type,
+      createdAt,
+      title: `${bookmark.title} ${id}`,
+    });
+
+    const all = [
+      withDate(flightBookmark, '2026-08-10T09:00:00.000Z', 'bm-f1'),
+      withDate(
+        {
+          ...hotelBookmark,
+          snapshot: {
+            hotel: { ...hotelBookmark.snapshot.hotel, name: 'Taj Exotica Goa bm-h1' },
+          },
+        },
+        '2026-08-12T09:00:00.000Z',
+        'bm-h1',
+        'HOTEL',
+      ),
+      withDate(flightBookmark, '2026-08-16T09:00:00.000Z', 'bm-f2'),
+    ];
+
+    it('filters by Saved date From only', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-12');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Taj Exotica Goa bm-h1')).toBeInTheDocument();
+        expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('DEL → SIN bm-f1')).not.toBeInTheDocument();
+    });
+
+    it('filters by Saved date To only', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date to'), '2026-08-12');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('DEL → SIN bm-f1')).toBeInTheDocument();
+        expect(screen.getByText('Taj Exotica Goa bm-h1')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('DEL → SIN bm-f2')).not.toBeInTheDocument();
+    });
+
+    it('filters by an inclusive From/To range', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-11');
+      await user.type(screen.getByLabelText('Saved date to'), '2026-08-16');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Taj Exotica Goa bm-h1')).toBeInTheDocument();
+        expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('DEL → SIN bm-f1')).not.toBeInTheDocument();
+    });
+
+    it('Clear restores all bookmarks', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-16');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => {
+        expect(screen.queryByText('DEL → SIN bm-f1')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Clear' }));
+      await waitFor(() => {
+        expect(screen.getByText('DEL → SIN bm-f1')).toBeInTheDocument();
+        expect(screen.getByText('Taj Exotica Goa bm-h1')).toBeInTheDocument();
+        expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();
+      });
+    });
+
+    it('applies the date filter together with the Flights/Hotels tabs', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-12');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      await user.click(screen.getByRole('tab', { name: 'Hotels' }));
+      await waitFor(() => {
+        expect(screen.getByText('Taj Exotica Goa bm-h1')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('DEL → SIN bm-f2')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('tab', { name: 'Flights' }));
+      await waitFor(() => {
+        expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Taj Exotica Goa bm-h1')).not.toBeInTheDocument();
+    });
+
+    it('shows a validation error for an invalid range instead of filtering', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-08-16');
+      await user.type(screen.getByLabelText('Saved date to'), '2026-08-12');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      expect(await screen.findByText('From date must be on or before the To date.')).toBeInTheDocument();
+      // Nothing was filtered out.
+      expect(screen.getByText('DEL → SIN bm-f1')).toBeInTheDocument();
+      expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();
+    });
+
+    it('shows the no-results state for a date range with no bookmarks', async () => {
+      stubBookmarkFetch(all, []);
+      const { user } = renderPage();
+      await screen.findByText('DEL → SIN bm-f1');
+
+      await user.type(screen.getByLabelText('Saved date from'), '2026-09-01');
+      await user.type(screen.getByLabelText('Saved date to'), '2026-09-30');
+      await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+      expect(
+        await screen.findByText('No bookmarks found for this date range.'),
+      ).toBeInTheDocument();
+    });
+  });
 });

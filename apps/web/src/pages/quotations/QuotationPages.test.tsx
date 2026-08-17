@@ -7788,6 +7788,34 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Meal plan master')).toBeDisabled();
   });
 
+  it('hides the Hotel Autofill (Suggest Hotels) control from the hotel section', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    // The one-click "Suggest Hotels" autofill control is removed; agents link
+    // hotels manually from the master dropdown.
+    expect(screen.queryByRole('button', { name: 'Suggest Hotels' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Choose hotels from your master/)).not.toBeInTheDocument();
+  });
+
+  it('removes the manual Bookmark ID control from the Hotel section', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    expect(screen.queryByText('Bookmark ID (optional)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the manual Bookmark ID control in the Flight section', async () => {
+    vi.stubGlobal('fetch', masterFetch(builderQuotation()));
+    renderBuilderPage();
+    await openTab('Flight');
+    expect(screen.getByText('Bookmark ID (optional)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load' })).toBeInTheDocument();
+  });
+
   it('inserts a hotel stay after the selected stay without clearing existing stays', async () => {
     const hotelRow = (city: string, hotelName: string, sequence: number) => ({
       hotelId: null,

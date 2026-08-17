@@ -8,6 +8,7 @@ import {
   MASTER_STATUSES,
   PERMISSIONS,
   airlineInputSchema,
+  airlineLogoImportSchema,
   airlineLogoUploadSchema,
   airlineUpdateSchema,
   cityInputSchema,
@@ -487,6 +488,12 @@ router.post(
   requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
   validateRequest({ params: airlineId }),
   asyncHandler(airlines.logoConfirm),
+);
+router.post(
+  '/airlines/:airlineId/logo/import',
+  requirePermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA),
+  validateRequest({ params: airlineId, body: airlineLogoImportSchema }),
+  asyncHandler(airlines.logoImport),
 );
 router.get(
   '/airlines/:airlineId/logo/download-url',

@@ -1,21 +1,29 @@
 import { env, isProduction } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
-import { ServiceUnavailableError } from '../../utils/errors.js';
+import { ServiceUnavailableError, ValidationError } from '../../utils/errors.js';
+import type { AuthContext } from '../../middleware/authenticate.js';
 import type {
   FlightSearchQuery,
   HotelAutocompleteQuery,
   HotelSearchQuery,
+  SearchApiUsageStatus,
+  SearchApiUsageType,
 } from '@interscale/shared';
+import { resolveSearchApiKeys, type ResolvedSearchApiKey } from './search-keys.service.js';
+import { markSearchApiKeyStatus } from './search-keys.service.js';
+import { recordSearchApiUsage } from './search-usage.service.js';
 
 /**
  * Live hotel & flight search proxy for SearchApi (searchapi.io).
  *
  * The SearchAPI key never reaches the browser: the backend resolves the
- * authenticated user's own saved key (falling back to the server-level
- * SEARCHAPI_API_KEY when the user has not saved one) and uses it only when
- * calling SearchAPI.io. A provider 429 (quota/rate-limit) is surfaced as a
- * distinct, non-fatal error so one user's exhausted key cannot affect other
- * users or unrelated CRM endpoints.
+ * authenticated user's own saved keys (falling back to the server-level
+ * SEARCHAPI_API_KEY when the user has none) and uses them only when calling
+ * SearchAPI.io. Each user may save several keys; a search starts with the
+ * highest-priority ACTIVE key and, ONLY when the provider clearly reports
+ * quota/credit exhaustion or an invalid key, automatically falls through to
+ * the next enabled key. Network errors, provider internal errors and bad
+ * requests keep the existing behaviour and never rotate.
  */
 
 const ENGINE_FLIGHTS = 'google_flights';
@@ -40,6 +48,74 @@ export function resetSearchApiRequestCounts(): void {
 }
 export function getSearchApiRequestTotal(): number {
   return Object.values(searchApiRequestCounts).reduce((sum, n) => sum + n, 0);
+}
+
+/** Why a provider attempt failed. Only quota/invalid-key rotate; the rest surface. */
+export type SearchApiFailureCategory =
+  'QUOTA_EXHAUSTED' | 'INVALID_KEY' | 'PROVIDER_ERROR' | 'NETWORK_ERROR';
+
+const categoryToUsageStatus = (category: SearchApiFailureCategory): SearchApiUsageStatus => {
+  switch (category) {
+    case 'QUOTA_EXHAUSTED':
+      return 'QUOTA_EXHAUSTED';
+    case 'INVALID_KEY':
+      return 'INVALID_KEY';
+    case 'NETWORK_ERROR':
+      return 'NETWORK_ERROR';
+    default:
+      return 'PROVIDER_ERROR';
+  }
+};
+
+/** Raised when SearchAPI responds 429 or an explicit quota message. Rotates. */
+export class SearchApiQuotaExceededError extends ServiceUnavailableError {
+  readonly category: SearchApiFailureCategory = 'QUOTA_EXHAUSTED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SearchApiQuotaExceededError';
+  }
+}
+
+/** Raised when SearchAPI rejects the key itself (401/403). Rotates. */
+export class SearchApiInvalidKeyError extends ServiceUnavailableError {
+  readonly category: SearchApiFailureCategory = 'INVALID_KEY';
+  constructor(message = 'SearchAPI rejected the API key.') {
+    super(message);
+    this.name = 'SearchApiInvalidKeyError';
+  }
+}
+
+/** Any other provider failure. Surfaced as before — no rotation. */
+export class SearchApiProviderError extends ServiceUnavailableError {
+  readonly category: SearchApiFailureCategory = 'PROVIDER_ERROR';
+  constructor(
+    message = 'The live search provider could not complete the request. Please try again.',
+  ) {
+    super(message);
+    this.name = 'SearchApiProviderError';
+  }
+}
+
+/** Network/timeout failures. Surfaced as before — no rotation. */
+export class SearchApiNetworkError extends ServiceUnavailableError {
+  readonly category: SearchApiFailureCategory = 'NETWORK_ERROR';
+  constructor(
+    message = 'The live search provider could not complete the request. Please try again.',
+  ) {
+    super(message);
+    this.name = 'SearchApiNetworkError';
+  }
+}
+
+/**
+ * The known SearchAPI quota/credit-exhaustion signals. A key is treated as
+ * exhausted ONLY when the provider clearly reports quota/credit exhaustion —
+ * never for bad parameters, validation, network timeouts or provider bugs.
+ */
+export function isQuotaExhaustionMessage(message: string): boolean {
+  return /used all of the searches|searches for the month|monthly (quota|limit)|quota exceeded/i.test(
+    message,
+  );
 }
 
 /** Read a non-2xx SearchApi body so the real provider reason can be logged. */
@@ -107,17 +183,12 @@ async function callSearchApi(
       },
       'SearchApi request could not be completed',
     );
-    throw new ServiceUnavailableError(
-      'The live search provider could not complete the request. Please try again.',
-    );
+    throw new SearchApiNetworkError();
   }
   const elapsedMs = Date.now() - startedAt;
 
   if (!response.ok) {
     const providerError = await readErrorBody(response);
-    // The provider's explanation is logged for development; production users get
-    // a clean message. A 429 (monthly quota / rate limit) is surfaced distinctly
-    // so the UI can tell "your SearchAPI key is out of quota" from a bad key.
     logger.warn(
       {
         status: response.status,
@@ -133,30 +204,100 @@ async function callSearchApi(
         'SearchAPI monthly quota exhausted. Add a new SearchAPI key or wait for the next cycle.',
       );
     }
-    throw new ServiceUnavailableError(
-      'The live search provider could not complete the request. Please try again.',
-    );
+    if (response.status === 401 || response.status === 403) {
+      throw new SearchApiInvalidKeyError();
+    }
+    throw new SearchApiProviderError();
   }
 
   const body = (await response.json()) as Record<string, unknown>;
 
   if (body.error) {
+    const message = String(body.error);
     logger.warn(
-      { engine: params.engine, providerError: body.error, elapsedMs, devOnly: !isProduction },
+      { engine: params.engine, providerError: message, elapsedMs, devOnly: !isProduction },
       'SearchApi returned error',
     );
-    throw new ServiceUnavailableError('The live search provider could not complete the request.');
+    if (isQuotaExhaustionMessage(message)) {
+      throw new SearchApiQuotaExceededError(
+        'SearchAPI monthly quota exhausted. Add a new SearchAPI key or wait for the next cycle.',
+      );
+    }
+    throw new SearchApiProviderError();
   }
 
   return body;
 }
 
-/** Raised when SearchAPI responds 429 (quota/rate-limit). Kept non-fatal and isolated. */
-export class SearchApiQuotaExceededError extends ServiceUnavailableError {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SearchApiQuotaExceededError';
+type ProviderParamBuilder<Q> = (query: Q) => Record<string, string | number | undefined>;
+
+/**
+ * Run one logical search against SearchAPI with automatic key rotation.
+ *
+ * - Starts with the first enabled, usable (ACTIVE) key.
+ * - On a clearly quota-exhausted or invalid key, marks that key and falls
+ *   through to the next enabled key — each key is attempted at most once.
+ * - Network/provider errors are surfaced immediately (no rotation).
+ * - Every actual provider attempt is recorded in SearchApiUsage, so the Owner
+ *   dashboard counts real credit consumption (1 logical search can equal
+ *   several provider requests when keys fall through).
+ */
+async function executeProviderSearch<Q>(
+  auth: AuthContext,
+  type: SearchApiUsageType,
+  engine: string,
+  buildParams: ProviderParamBuilder<Q>,
+  query: Q,
+): Promise<unknown> {
+  const keys = await resolveSearchApiKeys(auth);
+  if (keys.length === 0) {
+    throw new ValidationError(
+      'No active SearchAPI key. Add an API key in Settings to use Live Search.',
+    );
   }
+
+  let lastRotatableError: SearchApiQuotaExceededError | SearchApiInvalidKeyError | null = null;
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index] as ResolvedSearchApiKey;
+    const params = buildParams(query);
+    try {
+      const body = await callSearchApi(key.plaintext, params);
+      await recordSearchApiUsage(auth, {
+        type,
+        engine,
+        status: 'SUCCESS',
+        isFallbackAttempt: index > 0,
+        searchApiKeyId: key.id,
+        maskedKeySuffix: key.maskedSuffix,
+      });
+      return body;
+    } catch (error) {
+      const category = (error as { category?: SearchApiFailureCategory }).category;
+      await recordSearchApiUsage(auth, {
+        type,
+        engine,
+        status: category ? categoryToUsageStatus(category) : 'PROVIDER_ERROR',
+        isFallbackAttempt: index > 0,
+        searchApiKeyId: key.id,
+        maskedKeySuffix: key.maskedSuffix,
+      });
+      if (category === 'QUOTA_EXHAUSTED') {
+        if (key.id) await markSearchApiKeyStatus(auth, key.id, 'EXHAUSTED');
+        lastRotatableError = error as SearchApiQuotaExceededError;
+        continue;
+      }
+      if (category === 'INVALID_KEY') {
+        if (key.id) await markSearchApiKeyStatus(auth, key.id, 'INVALID');
+        lastRotatableError = error as SearchApiInvalidKeyError;
+        continue;
+      }
+      // Network/provider errors retain existing behaviour: surface, no rotation.
+      throw error;
+    }
+  }
+
+  // Every enabled key was tried and exhausted/invalidated.
+  throw lastRotatableError ?? new SearchApiQuotaExceededError('SearchAPI monthly quota exhausted.');
 }
 
 /** Build the SearchApi parameter map for a flight search. */
@@ -318,7 +459,9 @@ function logHotelLocationSanity(
 }
 
 /** Build the SearchApi parameter map for a hotel autocomplete search. */
-function autocompleteParams(query: HotelAutocompleteQuery): Record<string, string | number | undefined> {
+function autocompleteParams(
+  query: HotelAutocompleteQuery,
+): Record<string, string | number | undefined> {
   return {
     engine: ENGINE_HOTELS_AUTOCOMPLETE,
     q: query.q,
@@ -327,20 +470,30 @@ function autocompleteParams(query: HotelAutocompleteQuery): Record<string, strin
 }
 
 export const searchService = {
-  flights(apiKey: string, query: FlightSearchQuery): Promise<unknown> {
-    return callSearchApi(apiKey, flightParams(query));
+  flights(auth: AuthContext, query: FlightSearchQuery): Promise<unknown> {
+    return executeProviderSearch(auth, 'FLIGHT', ENGINE_FLIGHTS, flightParams, query);
   },
 
-  async hotels(apiKey: string, query: HotelSearchQuery): Promise<unknown> {
-    const body = (await callSearchApi(apiKey, hotelParams(query))) as {
-      properties?: Array<{ city?: string; country?: string }>;
-    };
+  async hotels(auth: AuthContext, query: HotelSearchQuery): Promise<unknown> {
+    const body = (await executeProviderSearch(
+      auth,
+      'HOTEL',
+      ENGINE_HOTELS,
+      hotelParams,
+      query,
+    )) as { properties?: Array<{ city?: string; country?: string }> };
     logHotelLocationSanity(query, body);
     return body;
   },
 
-  hotelsAutocomplete(apiKey: string, query: HotelAutocompleteQuery): Promise<unknown> {
-    return callSearchApi(apiKey, autocompleteParams(query));
+  hotelsAutocomplete(auth: AuthContext, query: HotelAutocompleteQuery): Promise<unknown> {
+    return executeProviderSearch(
+      auth,
+      'AUTOCOMPLETE',
+      ENGINE_HOTELS_AUTOCOMPLETE,
+      autocompleteParams,
+      query,
+    );
   },
 
   /**
@@ -362,7 +515,11 @@ export const searchService = {
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
       logger.warn(
-        { elapsedMs, reason: error instanceof Error ? error.message : String(error), devOnly: !isProduction },
+        {
+          elapsedMs,
+          reason: error instanceof Error ? error.message : String(error),
+          devOnly: !isProduction,
+        },
         'SearchApi test connection could not be completed',
       );
       return { ok: false, reason: 'Could not reach SearchAPI.' };

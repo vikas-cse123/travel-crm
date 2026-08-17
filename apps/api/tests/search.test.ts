@@ -31,8 +31,18 @@ const flightFixture = {
     {
       flights: [
         {
-          departure_airport: { name: 'Indira Gandhi International Airport', id: 'DEL', date: '2026-09-01', time: '09:00' },
-          arrival_airport: { name: 'Heathrow Airport', id: 'LHR', date: '2026-09-01', time: '13:30' },
+          departure_airport: {
+            name: 'Indira Gandhi International Airport',
+            id: 'DEL',
+            date: '2026-09-01',
+            time: '09:00',
+          },
+          arrival_airport: {
+            name: 'Heathrow Airport',
+            id: 'LHR',
+            date: '2026-09-01',
+            time: '13:30',
+          },
           duration: 330,
           airplane: 'Airbus A350',
           airline: 'Air India',
@@ -43,7 +53,12 @@ const flightFixture = {
       ],
       layovers: [],
       total_duration: 330,
-      carbon_emissions: { this_flight: 500000, typical_for_this_route: 480000, difference_percent: 4, lowest_route: 460000 },
+      carbon_emissions: {
+        this_flight: 500000,
+        typical_for_this_route: 480000,
+        difference_percent: 4,
+        lowest_route: 460000,
+      },
       price: 412,
       type: 'Round trip',
     },
@@ -58,7 +73,12 @@ const flightFixture = {
 
 const hotelFixture = {
   search_metadata: { id: 'search_def', status: 'Success' },
-  search_parameters: { engine: 'google_hotels', q: 'Goa', check_in_date: '2026-09-01', check_out_date: '2026-09-05' },
+  search_parameters: {
+    engine: 'google_hotels',
+    q: 'Goa',
+    check_in_date: '2026-09-01',
+    check_out_date: '2026-09-05',
+  },
   search_information: { total_results: 120 },
   properties: [
     {
@@ -85,7 +105,9 @@ const hotelFixture = {
 describe('GET /api/search', () => {
   it('rejects unauthenticated requests', async () => {
     const client = createAuthClient(app);
-    const response = await client.get('/api/search/flights?departure_id=DEL&arrival_id=LON&outbound_date=2026-09-01');
+    const response = await client.get(
+      '/api/search/flights?departure_id=DEL&arrival_id=LON&outbound_date=2026-09-01',
+    );
     expect(response.status).toBe(401);
   });
 
@@ -201,6 +223,28 @@ describe('GET /api/search', () => {
     fetchMock.mockRestore();
   });
 
+  it('forwards the departure_token on the second round-trip request', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(flightFixture), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/flights?departure_id=DEL&arrival_id=SIN&outbound_date=2026-09-05&return_date=2026-09-10&type=2&departure_token=DEP_TOK_123&currency=INR',
+    );
+    expect(response.status).toBe(200);
+
+    const calledUrl = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(calledUrl.href).toContain('departure_token=DEP_TOK_123');
+    expect(calledUrl.href).toContain('flight_type=round_trip');
+    expect(calledUrl.href).toContain('return_date=2026-09-10');
+    fetchMock.mockRestore();
+  });
+
   it('proxies a flight search and returns every SearchApi field', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify(flightFixture), {
@@ -239,7 +283,11 @@ describe('GET /api/search', () => {
     const client = createAuthClient(app);
     await owner(client);
     const destination = encodeURIComponent(
-      JSON.stringify({ displayName: 'Delhi', country: 'India', searchQuery: 'Hotels in Delhi, India' }),
+      JSON.stringify({
+        displayName: 'Delhi',
+        country: 'India',
+        searchQuery: 'Hotels in Delhi, India',
+      }),
     );
     const response = await client.get(
       `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05&currency=INR`,
@@ -274,7 +322,11 @@ describe('GET /api/search', () => {
     const client = createAuthClient(app);
     await owner(client);
     const destination = encodeURIComponent(
-      JSON.stringify({ displayName: 'Delhi', country: 'India', searchQuery: 'Hotels in Delhi, India' }),
+      JSON.stringify({
+        displayName: 'Delhi',
+        country: 'India',
+        searchQuery: 'Hotels in Delhi, India',
+      }),
     );
     const response = await client.get(
       `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05&next_page_token=CBI%3D`,
@@ -368,11 +420,12 @@ describe('SearchAPI request accounting', () => {
   });
 
   async function mockSearchApi(body: unknown) {
-    return vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
   }
 
@@ -381,7 +434,11 @@ describe('SearchAPI request accounting', () => {
     const client = createAuthClient(app);
     await owner(client);
     const destination = encodeURIComponent(
-      JSON.stringify({ displayName: 'Delhi', country: 'India', searchQuery: 'Hotels in Delhi, India' }),
+      JSON.stringify({
+        displayName: 'Delhi',
+        country: 'India',
+        searchQuery: 'Hotels in Delhi, India',
+      }),
     );
     const response = await client.get(
       `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05&currency=INR`,
@@ -396,7 +453,9 @@ describe('SearchAPI request accounting', () => {
 
   it('a single autocomplete request consumes exactly one google_hotels_autocomplete provider call', async () => {
     const fetchMock = await mockSearchApi({
-      suggestions: [{ type: 'airport', kgmid: '/m/09f07', title: 'Delhi', subtitle: 'City in India' }],
+      suggestions: [
+        { type: 'airport', kgmid: '/m/09f07', title: 'Delhi', subtitle: 'City in India' },
+      ],
     });
     const client = createAuthClient(app);
     await owner(client);
@@ -411,7 +470,9 @@ describe('SearchAPI request accounting', () => {
 
   it('counts each distinct autocomplete term as one provider call', async () => {
     const fetchMock = await mockSearchApi({
-      suggestions: [{ type: 'airport', kgmid: '/m/09f07', title: 'Delhi', subtitle: 'City in India' }],
+      suggestions: [
+        { type: 'airport', kgmid: '/m/09f07', title: 'Delhi', subtitle: 'City in India' },
+      ],
     });
     const client = createAuthClient(app);
     await owner(client);
@@ -430,7 +491,11 @@ describe('SearchAPI request accounting', () => {
     await owner(client);
     await client.get('/api/search/hotels/autocomplete?q=Del');
     const destination = encodeURIComponent(
-      JSON.stringify({ displayName: 'Delhi', country: 'India', searchQuery: 'Hotels in Delhi, India' }),
+      JSON.stringify({
+        displayName: 'Delhi',
+        country: 'India',
+        searchQuery: 'Hotels in Delhi, India',
+      }),
     );
     await client.get(
       `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05&currency=INR`,
@@ -444,18 +509,18 @@ describe('SearchAPI request accounting', () => {
   });
 });
 
-describe('GET/POST/DELETE /api/search/keys', () => {
+describe('GET/POST/PATCH/DELETE /api/search/keys', () => {
   it('requires authentication', async () => {
     const client = createAuthClient(app);
     expect((await client.get('/api/search/keys')).status).toBe(401);
   });
 
-  it('returns no key status initially', async () => {
+  it('returns no keys initially', async () => {
     const client = createAuthClient(app);
     await owner(client, 'keys1@test.in');
     const response = await client.get('/api/search/keys');
     expect(response.status).toBe(200);
-    expect(response.body.data).toMatchObject({ hasKey: false, maskedKey: null });
+    expect(response.body.data.keys).toEqual([]);
     expect(typeof response.body.data.serverFallbackAvailable).toBe('boolean');
   });
 
@@ -464,22 +529,23 @@ describe('GET/POST/DELETE /api/search/keys', () => {
     await owner(client, 'keys2@test.in');
     const response = await client.post('/api/search/keys', { apiKey: 'user-secret-key-ABCD' });
     expect(response.status).toBe(200);
-    expect(response.body.data.hasKey).toBe(true);
-    expect(response.body.data.maskedKey).toContain('••••');
-    expect(response.body.data.maskedKey).toContain('ABCD');
-    expect(response.body.data.maskedKey).not.toContain('user-secret-key');
+    const key = response.body.data.key;
+    expect(key.maskedKey).toContain('••••');
+    expect(key.maskedKey).toContain('ABCD');
+    expect(key.maskedKey).not.toContain('user-secret-key');
+    // The full key never appears anywhere in the response.
+    expect(JSON.stringify(response.body)).not.toContain('user-secret-key-ABCD');
   });
 
-  it('never returns the raw secret in status', async () => {
+  it('never returns the raw secret in the key list', async () => {
     const client = createAuthClient(app);
     await owner(client, 'keys3@test.in');
     await client.post('/api/search/keys', { apiKey: 'raw-secret-value-12345' });
     const response = await client.get('/api/search/keys');
     expect(response.status).toBe(200);
-    const raw = JSON.stringify(response.body);
-    expect(raw).not.toContain('raw-secret-value-12345');
-    // Only a masked tail is ever exposed.
-    expect(response.body.data.maskedKey).toMatch(/^•+2345$/);
+    expect(response.body.data.keys).toHaveLength(1);
+    expect(response.body.data.keys[0].maskedKey).toMatch(/^•+2345$/);
+    expect(JSON.stringify(response.body)).not.toContain('raw-secret-value-12345');
   });
 
   it('requires a non-empty key on save', async () => {
@@ -489,19 +555,56 @@ describe('GET/POST/DELETE /api/search/keys', () => {
     expect(response.status).toBe(400);
   });
 
-  it('removes a saved key', async () => {
+  it('rejects a duplicate identical key for the same user', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keysdup@test.in');
+    await client.post('/api/search/keys', { apiKey: 'duplicate-key-ABCD' });
+    const second = await client.post('/api/search/keys', { apiKey: 'duplicate-key-ABCD' });
+    expect(second.status).toBe(409);
+    const list = await client.get('/api/search/keys');
+    expect(list.body.data.keys).toHaveLength(1);
+  });
+
+  it('adds multiple keys and preserves insertion order', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keysmulti@test.in');
+    await client.post('/api/search/keys', { apiKey: 'key-one-AAAA' });
+    await client.post('/api/search/keys', { apiKey: 'key-two-BBBB' });
+    await client.post('/api/search/keys', { apiKey: 'key-three-CCCC' });
+    const list = await client.get('/api/search/keys');
+    expect(list.body.data.keys.map((k: { maskedKey: string }) => k.maskedKey)).toEqual([
+      '••••AAAA',
+      '••••BBBB',
+      '••••CCCC',
+    ]);
+  });
+
+  it('removes one key by id', async () => {
     const client = createAuthClient(app);
     await owner(client, 'keys5@test.in');
-    await client.post('/api/search/keys', { apiKey: 'some-key-to-remove' });
-    expect((await client.get('/api/search/keys')).body.data.hasKey).toBe(true);
-
-    const remove = await client.delete('/api/search/keys');
+    await client.post('/api/search/keys', { apiKey: 'some-key-AAAA' });
+    await client.post('/api/search/keys', { apiKey: 'other-key-BBBB' });
+    const list = await client.get('/api/search/keys');
+    expect(list.body.data.keys).toHaveLength(2);
+    const target = list.body.data.keys[0].id as string;
+    const remove = await client.delete(`/api/search/keys/${target}`);
     expect(remove.status).toBe(200);
-    expect(remove.body.data.hasKey).toBe(false);
-
     const after = await client.get('/api/search/keys');
-    expect(after.body.data.hasKey).toBe(false);
-    expect(after.body.data.maskedKey).toBeNull();
+    expect(after.body.data.keys.map((k: { maskedKey: string }) => k.maskedKey)).toEqual([
+      '••••BBBB',
+    ]);
+  });
+
+  it('enables, disables and reactivates a key', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'keys6@test.in');
+    await client.post('/api/search/keys', { apiKey: 'toggle-key-AAAA' });
+    const list = await client.get('/api/search/keys');
+    const id = list.body.data.keys[0].id as string;
+    await client.patch(`/api/search/keys/${id}`, { status: 'DISABLED' });
+    expect((await client.get('/api/search/keys')).body.data.keys[0].status).toBe('DISABLED');
+    await client.patch(`/api/search/keys/${id}`, { status: 'ACTIVE' });
+    expect((await client.get('/api/search/keys')).body.data.keys[0].status).toBe('ACTIVE');
   });
 
   it('keeps each user key isolated from other users', async () => {
@@ -511,11 +614,16 @@ describe('GET/POST/DELETE /api/search/keys', () => {
     await owner(userB, 'keysB@test.in');
 
     await userA.post('/api/search/keys', { apiKey: 'user-A-only-secret' });
-    expect((await userA.get('/api/search/keys')).body.data.hasKey).toBe(true);
-    // User B sees no key.
-    expect((await userB.get('/api/search/keys')).body.data.hasKey).toBe(false);
-    const rawB = JSON.stringify((await userB.get('/api/search/keys')).body);
-    expect(rawB).not.toContain('user-A-only-secret');
+    const listA = await userA.get('/api/search/keys');
+    expect(listA.body.data.keys).toHaveLength(1);
+    // User B sees no key from User A.
+    const listB = await userB.get('/api/search/keys');
+    expect(listB.body.data.keys).toHaveLength(0);
+    expect(JSON.stringify(listB.body)).not.toContain('user-A-only-secret');
+    // User B cannot delete or update User A's key.
+    const idA = listA.body.data.keys[0].id as string;
+    expect((await userB.delete(`/api/search/keys/${idA}`)).status).toBe(404);
+    expect((await userB.patch(`/api/search/keys/${idA}`, { status: 'DISABLED' })).status).toBe(404);
   });
 
   it('uses the user saved key in preference to the server fallback for searches', async () => {
@@ -592,6 +700,385 @@ describe('GET/POST/DELETE /api/search/keys', () => {
     // Other CRM endpoints still work.
     const me = await client.get('/api/auth/me');
     expect(me.status).toBe(200);
+  });
+});
+
+describe('Multi-key SearchAPI rotation', () => {
+  beforeEach(async () => {
+    await truncateAll(db);
+    const { resetSearchApiRequestCounts } = await import('../src/modules/search/search.service.js');
+    resetSearchApiRequestCounts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const hotelUrl = () => {
+    const destination = encodeURIComponent(
+      JSON.stringify({ displayName: 'Delhi', searchQuery: 'Hotels in Delhi, India' }),
+    );
+    return `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05`;
+  };
+
+  async function saveKeys(client: Client, keys: string[]) {
+    for (const key of keys) {
+      const response = await client.post('/api/search/keys', { apiKey: key });
+      expect(response.status).toBe(200);
+    }
+  }
+
+  /** Consumes one mocked provider response per actual outbound request. */
+  function mockProvider(...responses: Array<{ status: number; body: unknown }>) {
+    const calls: URL[] = [];
+    const queue = [...responses];
+    const fn = vi.fn(async (input: string | URL) => {
+      const next = queue.shift();
+      if (!next) throw new Error('Unexpected extra SearchAPI provider call in test.');
+      calls.push(input instanceof URL ? input : new URL(String(input)));
+      return new Response(JSON.stringify(next.body), {
+        status: next.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fn);
+    return { fn, calls };
+  }
+
+  it('first active key succeeds -> exactly 1 provider request', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk1@test.in');
+    await saveKeys(client, ['multi-key-A-1111']);
+    const { calls } = mockProvider({ status: 200, body: hotelFixture });
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.href).toContain('api_key=multi-key-A-1111');
+    const { getSearchApiRequestCounts } = await import('../src/modules/search/search.service.js');
+    expect(Object.values(getSearchApiRequestCounts()).reduce((s, n) => s + n, 0)).toBe(1);
+  });
+
+  it('key 1 exhausted -> key 2 succeeds -> exactly 2 provider requests', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk2@test.in');
+    await saveKeys(client, ['exhausted-key-AAAA', 'working-key-BBBB']);
+    const { calls } = mockProvider(
+      { status: 429, body: { error: 'You have used all of the searches for the month' } },
+      { status: 200, body: hotelFixture },
+    );
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(calls[0]!.href).toContain('api_key=exhausted-key-AAAA');
+    expect(calls[1]!.href).toContain('api_key=working-key-BBBB');
+
+    // Both attempts are recorded so the Owner dashboard counts 2 requests.
+    const usage = await db.searchApiUsage.findMany({ orderBy: { createdAt: 'asc' } });
+    expect(usage).toHaveLength(2);
+    expect(usage[0]!.status).toBe('QUOTA_EXHAUSTED');
+    expect(usage[1]!.status).toBe('SUCCESS');
+    expect(usage[1]!.isFallbackAttempt).toBe(true);
+  });
+
+  it('key1 + key2 exhausted + key3 succeeds -> exactly 3 provider requests', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk3@test.in');
+    await saveKeys(client, ['k1-AAAA', 'k2-BBBB', 'k3-CCCC']);
+    const { calls } = mockProvider(
+      { status: 429, body: { error: 'quota' } },
+      { status: 429, body: { error: 'quota' } },
+      { status: 200, body: hotelFixture },
+    );
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(3);
+    expect(calls[2]!.href).toContain('api_key=k3-CCCC');
+  });
+
+  it('an already-marked EXHAUSTED key is skipped on later searches', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk4@test.in');
+    await saveKeys(client, ['exhausted-AAAA', 'good-key-BBBB']);
+
+    const first = mockProvider(
+      { status: 429, body: { error: 'quota' } },
+      { status: 200, body: hotelFixture },
+    );
+    const r1 = await client.get(hotelUrl());
+    expect(r1.status).toBe(200);
+    expect(first.calls.length).toBe(2);
+    vi.unstubAllGlobals();
+
+    // Key 1 is EXHAUSTED now; the next search must never call the provider with it.
+    const second = mockProvider({ status: 200, body: hotelFixture });
+    const r2 = await client.get(hotelUrl());
+    expect(r2.status).toBe(200);
+    expect(second.calls.length).toBe(1);
+    expect(second.calls[0]!.href).toContain('api_key=good-key-BBBB');
+    expect(second.calls[0]!.href).not.toContain('api_key=exhausted-AAAA');
+  });
+
+  it('disabled keys are skipped without a provider request', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk5@test.in');
+    await saveKeys(client, ['disabled-key-AAAA', 'enabled-key-BBBB']);
+    const list = await client.get('/api/search/keys');
+    const disabledId = list.body.data.keys.find((k: { maskedKey: string }) =>
+      k.maskedKey.includes('AAAA'),
+    ).id as string;
+    await client.patch(`/api/search/keys/${disabledId}`, { status: 'DISABLED' });
+
+    const { calls } = mockProvider({ status: 200, body: hotelFixture });
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.href).toContain('api_key=enabled-key-BBBB');
+    expect(calls[0]!.href).not.toContain('api_key=disabled-key-AAAA');
+  });
+
+  it('an invalid key falls through to the next valid key', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk6@test.in');
+    await saveKeys(client, ['invalid-key-AAAA', 'valid-key-BBBB']);
+    const { calls } = mockProvider(
+      { status: 401, body: { error: 'Invalid API key' } },
+      { status: 200, body: hotelFixture },
+    );
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.href).toContain('api_key=valid-key-BBBB');
+
+    // The invalid key is persisted as INVALID so it is skipped later too.
+    const list = await client.get('/api/search/keys');
+    const invalid = list.body.data.keys.find((k: { maskedKey: string }) =>
+      k.maskedKey.includes('AAAA'),
+    );
+    expect(invalid.status).toBe('INVALID');
+  });
+
+  it('network/server errors do NOT mark a key exhausted', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk7@test.in');
+    await saveKeys(client, ['server-error-key-AAAA']);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('ECONNRESET');
+      }),
+    );
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(503);
+    vi.unstubAllGlobals();
+
+    // The key stays usable — a network failure never marks it exhausted.
+    const list = await client.get('/api/search/keys');
+    expect(list.body.data.keys[0].status).toBe('ACTIVE');
+    const usage = await db.searchApiUsage.findMany();
+    expect(usage[0]!.status).toBe('NETWORK_ERROR');
+  });
+
+  it('all keys exhausted -> a clear error is returned', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'mk8@test.in');
+    await saveKeys(client, ['all1-AAAA', 'all2-BBBB']);
+    const { calls } = mockProvider(
+      { status: 429, body: { error: 'quota' } },
+      { status: 429, body: { error: 'quota' } },
+    );
+    const response = await client.get(hotelUrl());
+    expect(response.status).toBe(503);
+    expect(response.body.error.message.toLowerCase()).toContain('quota');
+    expect(calls.length).toBe(2);
+  });
+
+  it('no key configured -> zero provider requests and a clear message', async () => {
+    const { env } = await import('../src/config/env.js');
+    const original = env.SEARCHAPI_API_KEY;
+    env.SEARCHAPI_API_KEY = undefined;
+    try {
+      const client = createAuthClient(app);
+      await owner(client, 'mk9@test.in');
+      const fn = vi.fn(async () => {
+        throw new Error('Provider must not be called.');
+      });
+      vi.stubGlobal('fetch', fn);
+      const response = await client.get(hotelUrl());
+      expect(response.status).toBe(400);
+      expect(response.body.error.message).toContain('No active SearchAPI key');
+      expect(fn).not.toHaveBeenCalled();
+    } finally {
+      env.SEARCHAPI_API_KEY = original;
+    }
+  });
+
+  it('a user can never use another user saved key', async () => {
+    const userA = createAuthClient(app);
+    const userB = createAuthClient(app);
+    await owner(userA, 'mkuseA@test.in');
+    await owner(userB, 'mkuseB@test.in');
+    await userA.post('/api/search/keys', { apiKey: 'user-A-only-secret-9999' });
+
+    const { calls } = mockProvider({ status: 200, body: hotelFixture });
+    const response = await userB.get(hotelUrl());
+    expect(response.status).toBe(200);
+    expect(calls.length).toBe(1);
+    // User B uses the server fallback, never User A's key.
+    expect(calls[0]!.href).not.toContain('user-A-only-secret-9999');
+  });
+});
+
+describe('Owner SearchAPI usage dashboard', () => {
+  const flightUrl = () =>
+    '/api/search/flights?departure_id=DEL&arrival_id=SIN&outbound_date=2026-09-05&return_date=2026-09-10&type=2';
+
+  beforeEach(async () => {
+    await truncateAll(db);
+    const { resetSearchApiRequestCounts } = await import('../src/modules/search/search.service.js');
+    resetSearchApiRequestCounts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function mockOneSuccess(body: unknown) {
+    return vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+  }
+
+  it('requires authentication', async () => {
+    const client = createAuthClient(app);
+    expect((await client.get('/api/search/usage/summary')).status).toBe(401);
+    expect((await client.get('/api/search/usage/users/abc')).status).toBe(401);
+  });
+
+  it('rejects a non-Owner with 403 even when called directly', async () => {
+    const ownerClient = createAuthClient(app);
+    const colleague = createAuthClient(app);
+    await owner(ownerClient, 'usageowner@test.in');
+    await owner(colleague, 'usagecolleague@test.in');
+
+    const ownerRow = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'usageowner@test.in' },
+      select: { companyId: true },
+    });
+    const salesRole = await db.role.findFirstOrThrow({
+      where: { companyId: ownerRow.companyId, name: 'Sales Executive' },
+    });
+    await db.user.update({
+      where: { normalizedEmail: 'usagecolleague@test.in' },
+      data: { companyId: ownerRow.companyId, roleId: salesRole.id },
+    });
+
+    // The non-Owner must not see company-wide usage.
+    expect((await colleague.get('/api/search/usage/summary')).status).toBe(403);
+    const detail = await colleague.get('/api/search/usage/users/abc');
+    expect(detail.status).toBe(403);
+
+    // The Owner can.
+    const allowed = await ownerClient.get('/api/search/usage/summary');
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.data.totals.total).toBe(0);
+  });
+
+  it('scopes usage to the owner tenant', async () => {
+    const tenantA = createAuthClient(app);
+    const tenantB = createAuthClient(app);
+    await owner(tenantA, 'usagetenA@test.in');
+    await owner(tenantB, 'usagetenB@test.in');
+
+    const fetchMock = await mockOneSuccess(hotelFixture);
+    const destination = encodeURIComponent(
+      JSON.stringify({ displayName: 'Delhi', searchQuery: 'Hotels in Delhi, India' }),
+    );
+    await tenantA.get(
+      `/api/search/hotels?destination=${destination}&check_in_date=2026-09-01&check_out_date=2026-09-05`,
+    );
+    fetchMock.mockRestore();
+
+    const summaryA = await tenantA.get('/api/search/usage/summary');
+    expect(summaryA.status).toBe(200);
+    expect(summaryA.body.data.totals.total).toBe(1);
+
+    const summaryB = await tenantB.get('/api/search/usage/summary');
+    expect(summaryB.body.data.totals.total).toBe(0);
+  });
+
+  it('counts every actual provider request, including key fallbacks', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'usagecount@test.in');
+    await client.post('/api/search/keys', { apiKey: 'count-key-AAAA' });
+    await client.post('/api/search/keys', { apiKey: 'count-key-BBBB' });
+
+    const fn = vi.fn(async () => {
+      const response = fn.mock.calls.length === 1 ? { error: 'quota' } : flightFixture;
+      const status = fn.mock.calls.length === 1 ? 429 : 200;
+      return new Response(JSON.stringify(response), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fn);
+
+    const response = await client.get(flightUrl());
+    expect(response.status).toBe(200);
+    expect(fn.mock.calls.length).toBe(2);
+    vi.unstubAllGlobals();
+
+    const summary = await client.get('/api/search/usage/summary');
+    expect(summary.status).toBe(200);
+    // One logical flight search consumed TWO actual provider requests.
+    expect(summary.body.data.totals.total).toBe(2);
+    expect(summary.body.data.totals.flights).toBe(2);
+    expect(summary.body.data.totals.hotels).toBe(0);
+    expect(summary.body.data.totals.failed).toBe(1);
+    expect(summary.body.data.totals.successful).toBe(1);
+
+    // Per-user aggregation.
+    expect(summary.body.data.byUser).toHaveLength(1);
+    expect(summary.body.data.byUser[0].flights).toBe(2);
+    expect(summary.body.data.byUser[0].total).toBe(2);
+
+    // Daily bucket contains today.
+    expect(summary.body.data.daily).toHaveLength(1);
+    expect(summary.body.data.daily[0].total).toBe(2);
+
+    // Masked per-key breakdown, never the full key.
+    const masked = summary.body.data.byKey.map((row: { maskedKey: string }) => row.maskedKey);
+    expect(masked).toContain('••••AAAA');
+    expect(masked).toContain('••••BBBB');
+    expect(JSON.stringify(summary.body)).not.toContain('count-key-AAAA');
+
+    // User detail exposes recent requests.
+    const userId = summary.body.data.byUser[0].userId as string;
+    const detail = await client.get(`/api/search/usage/users/${userId}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.totals.total).toBe(2);
+    expect(detail.body.data.recent).toHaveLength(2);
+    expect(detail.body.data.recent[0].type).toBe('FLIGHT');
+    expect(detail.body.data.recent[1].status).toBe('QUOTA_EXHAUSTED');
+    expect(detail.body.data.recent[1].isFallbackAttempt).toBe(false);
+  });
+
+  it('rejects usage queries for a user outside the owner company', async () => {
+    const tenantA = createAuthClient(app);
+    const tenantB = createAuthClient(app);
+    await owner(tenantA, 'usedetailA@test.in');
+    await owner(tenantB, 'usedetailB@test.in');
+
+    const rowB = await db.user.findUniqueOrThrow({
+      where: { normalizedEmail: 'usedetailb@test.in' },
+      select: { id: true },
+    });
+    // Tenant A's Owner cannot read Tenant B's user detail.
+    const detail = await tenantA.get(`/api/search/usage/users/${rowB.id}`);
+    expect(detail.status).toBe(404);
   });
 });
 
@@ -768,7 +1255,7 @@ describe('Bookmarks', () => {
         departure_id: 'DEL',
         arrival_id: 'LON',
         outbound_date: '2026-09-01',
-        type: 2,
+        type: 1,
         adults: 1,
         currency: 'INR',
       },
@@ -798,6 +1285,49 @@ describe('Bookmarks', () => {
     expect(response.body.data.bookmark.snapshot.raw.price).toBe(412);
   });
 
+  it('rejects a round-trip flight bookmark that only contains outbound segments', async () => {
+    const client = createAuthClient(app);
+    await owner(client, 'bmroundtripfail@test.in');
+
+    const response = await client.post('/api/search/bookmarks', {
+      type: 'FLIGHT',
+      searchParams: {
+        departure_id: 'DEL',
+        arrival_id: 'SIN',
+        outbound_date: '2026-09-05',
+        return_date: '2026-09-12',
+        type: 2,
+        currency: 'INR',
+      },
+      snapshot: {
+        flight: {
+          airline: 'Air India',
+          flightNumbers: ['AI 2118'],
+          price: 59370,
+          currency: 'INR',
+          type: 'Round trip',
+          segments: [
+            {
+              departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-05', time: '00:55' },
+              arrival_airport: {
+                name: 'Singapore',
+                id: 'SIN',
+                date: '2026-09-05',
+                time: '09:20',
+              },
+              duration: 355,
+              airline: 'Air India',
+              flight_number: 'AI 2118',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toContain('must include a return journey');
+  });
+
   it('never defaults a missing flight price to ₹0 and preserves INR', async () => {
     const client = createAuthClient(app);
     await owner(client, 'bmprice@test.in');
@@ -808,7 +1338,12 @@ describe('Bookmarks', () => {
     };
     const noPrice = await client.post('/api/search/bookmarks', {
       type: 'FLIGHT',
-      searchParams: { departure_id: 'DEL', arrival_id: 'LON', outbound_date: '2026-09-01', currency: 'INR' },
+      searchParams: {
+        departure_id: 'DEL',
+        arrival_id: 'LON',
+        outbound_date: '2026-09-01',
+        currency: 'INR',
+      },
       snapshot: { raw: noPriceRaw },
     });
     expect(noPrice.status).toBe(200);
@@ -816,7 +1351,12 @@ describe('Bookmarks', () => {
 
     const withPrice = await client.post('/api/search/bookmarks', {
       type: 'FLIGHT',
-      searchParams: { departure_id: 'DEL', arrival_id: 'LON', outbound_date: '2026-09-01', currency: 'INR' },
+      searchParams: {
+        departure_id: 'DEL',
+        arrival_id: 'LON',
+        outbound_date: '2026-09-01',
+        currency: 'INR',
+      },
       snapshot: { raw: flightFixture.best_flights[0] },
     });
     expect(withPrice.status).toBe(200);
@@ -828,12 +1368,54 @@ describe('Bookmarks', () => {
     const client = createAuthClient(app);
     await owner(client, 'bmfp@test.in');
 
-    const searchParams = { departure_id: 'DEL', arrival_id: 'SIN', outbound_date: '2026-09-05', type: 1, currency: 'INR' };
+    const searchParams = {
+      departure_id: 'DEL',
+      arrival_id: 'SIN',
+      outbound_date: '2026-09-05',
+      type: 1,
+      currency: 'INR',
+    };
     const flights = [
-      { flights: [{ departure_airport: { id: 'DEL', date: '2026-09-05' }, arrival_airport: { id: 'SIN', date: '2026-09-05' }, flight_number: '6E 1013' }], price: 18777 },
-      { flights: [{ departure_airport: { id: 'DEL', date: '2026-09-05' }, arrival_airport: { id: 'SIN', date: '2026-09-05' }, flight_number: 'XJ 231' }], price: 24810 },
-      { flights: [{ departure_airport: { id: 'DEL', date: '2026-09-05' }, arrival_airport: { id: 'SIN', date: '2026-09-05' }, flight_number: 'AI 2115' }], price: 26967 },
-      { flights: [{ departure_airport: { id: 'DEL', date: '2026-09-05' }, arrival_airport: { id: 'SIN', date: '2026-09-05' }, flight_number: 'TG 324' }], price: 29690 },
+      {
+        flights: [
+          {
+            departure_airport: { id: 'DEL', date: '2026-09-05' },
+            arrival_airport: { id: 'SIN', date: '2026-09-05' },
+            flight_number: '6E 1013',
+          },
+        ],
+        price: 18777,
+      },
+      {
+        flights: [
+          {
+            departure_airport: { id: 'DEL', date: '2026-09-05' },
+            arrival_airport: { id: 'SIN', date: '2026-09-05' },
+            flight_number: 'XJ 231',
+          },
+        ],
+        price: 24810,
+      },
+      {
+        flights: [
+          {
+            departure_airport: { id: 'DEL', date: '2026-09-05' },
+            arrival_airport: { id: 'SIN', date: '2026-09-05' },
+            flight_number: 'AI 2115',
+          },
+        ],
+        price: 26967,
+      },
+      {
+        flights: [
+          {
+            departure_airport: { id: 'DEL', date: '2026-09-05' },
+            arrival_airport: { id: 'SIN', date: '2026-09-05' },
+            flight_number: 'TG 324',
+          },
+        ],
+        price: 29690,
+      },
     ];
 
     const fingerprints: string[] = [];

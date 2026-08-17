@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from 'react';
 import {
+  ROLE_NAME,
   SYSTEM_ADMIN_LANDING_PATH,
   TENANT_LANDING_PATH,
   type AuthenticatedUser,
@@ -26,6 +27,8 @@ interface AuthContextValue {
   isFullyAuthenticated: boolean;
   /** True for the System Admin who manages global Masters. */
   isSystemAdmin: boolean;
+  /** True for a user holding the protected Owner role. */
+  isOwner: boolean;
   /** Safe landing route after login and for guard-denied redirects. */
   landingPath: string;
   permissions: string[];
@@ -43,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const needsEmailVerification = isAuthenticated && !user.emailVerified;
     const permissions = user?.permissions ?? [];
     const isSystemAdmin = user?.isSystemAdmin === true;
+    const isOwner = isAuthenticated && user.role.name === ROLE_NAME.OWNER;
 
     return {
       user,
@@ -51,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       needsEmailVerification,
       isFullyAuthenticated: isAuthenticated && user.emailVerified,
       isSystemAdmin,
+      isOwner,
       landingPath: isSystemAdmin ? SYSTEM_ADMIN_LANDING_PATH : TENANT_LANDING_PATH,
       permissions,
       hasPermission: (key: string) => permissions.includes(key),

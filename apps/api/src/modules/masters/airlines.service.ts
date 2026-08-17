@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
+  AIRLINE_LOGO_MIME_TYPES,
   MASTER_TYPE,
   PERMISSIONS,
   countryNameForCode,
   type AirlineInput,
+  type AirlineLogoImportInput,
   type AirlineLogoUploadInput,
   type AirlineUpdateInput,
 } from '@interscale/shared';
@@ -35,6 +37,29 @@ const has = (auth: AuthContext, permission: string) =>
 const blankToNull = (value: string | null | undefined): string | null => value?.trim() || null;
 const PRESIGN_TTL = env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS;
 const airlineInclude = { createdBy: { select: userSelect } } as const;
+/** Hard ceiling when fetching a remote logo; oversized bodies are rejected. */
+const LOGO_IMPORT_TIMEOUT_MS = 10_000;
+const LOGO_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+
+type AirlineLogoMimeType = (typeof AIRLINE_LOGO_MIME_TYPES)[number];
+
+/** Sniff the image type from its magic bytes (the reliable signal, not headers). */
+function sniffImageMimeType(bytes: Buffer): AirlineLogoMimeType | null {
+  if (
+    bytes.length >= 8 &&
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  )
+    return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
+    return 'image/jpeg';
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+  )
+    return 'image/webp';
+  return null;
+}
 
 function audit(
   auth: AuthContext,
@@ -426,6 +451,83 @@ export const airlinesService = {
       return row;
     });
     if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
+    return presentAirline(updated as unknown as Record<string, unknown>, scope);
+  },
+
+  /**
+   * Import a remote airline logo (e.g. a provider/Google URL) server-side and
+   * store it through the existing Airline Master storage flow. Idempotent:
+   * an airline that already has a confirmed logo is returned untouched.
+   * Download/validation failures leave the airline without a logo rather than
+   * failing the caller's overall flow.
+   */
+  async importLogoFromUrl(
+    auth: AuthContext,
+    airlineId: string,
+    input: AirlineLogoImportInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.AIRLINE);
+    const airline = await getAirline(auth, airlineId, scope, true);
+    assertCanModifyMaster(airline, scope);
+    if (airline.logoObjectKey && airline.logoConfirmedAt) {
+      return presentAirline(airline as unknown as Record<string, unknown>, scope);
+    }
+
+    const response = await fetch(input.url, {
+      headers: { Accept: 'image/jpeg,image/png,image/webp,*/*' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(LOGO_IMPORT_TIMEOUT_MS),
+    });
+    if (!response.ok)
+      throw new ValidationError('The remote airline logo could not be downloaded.');
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!body.length) throw new ValidationError('The remote airline logo is empty.');
+    const max = LOGO_IMPORT_MAX_BYTES;
+    if (body.length > max)
+      throw new ValidationError(
+        `Airline logos must be ${Math.floor(max / (1024 * 1024))} MB or smaller.`,
+      );
+    const mimeType = sniffImageMimeType(body);
+    if (!mimeType) throw new ValidationError('The remote file is not a valid airline logo image.');
+
+    const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
+    const key = airlineLogoObjectKey({
+      companyId: auth.companyId,
+      airlineId: airline.id,
+      imageId: crypto.randomUUID(),
+      fileName: `airline-logo.${extension}`,
+    });
+    await storageService.putObject({ key, body, contentType: mimeType });
+
+    const oldPending = airline.pendingLogoObjectKey;
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.airline.update({
+        where: { id: airline.id },
+        data: {
+          logoStorageProvider: storageService.provider,
+          logoBucket: storageService.bucket,
+          logoObjectKey: key,
+          logoFileName: `airline-logo.${extension}`,
+          logoMimeType: mimeType,
+          logoFileSize: body.length,
+          logoConfirmedAt: new Date(),
+          pendingLogoObjectKey: null,
+          pendingLogoFileName: null,
+          pendingLogoMimeType: null,
+          pendingLogoFileSize: null,
+        },
+        include: airlineInclude,
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'AIRLINE_LOGO_IMPORTED', airline.id, context, {
+          mimeType,
+          fileSize: body.length,
+        }),
+      });
+      return row;
+    });
+    if (oldPending && oldPending !== key) await storageService.deleteObject(oldPending);
     return presentAirline(updated as unknown as Record<string, unknown>, scope);
   },
 

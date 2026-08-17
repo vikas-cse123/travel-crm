@@ -4,86 +4,90 @@ import { UnauthorizedError, ValidationError } from '../../utils/errors.js';
 import { searchService } from './search.service.js';
 import { bookmarksService } from './bookmarks.service.js';
 import {
+  addSearchApiKey,
   hasServerFallbackKey,
+  lastFour,
+  listSearchApiKeys,
   removeSearchApiKey,
-  resolveSearchApiKey,
-  saveSearchApiKey,
-  searchApiKeyPreview,
+  resolveSearchApiKeys,
+  updateSearchApiKey,
 } from './search-keys.service.js';
+import {
+  recordSearchApiUsage,
+  searchUsageSummary,
+  searchUsageUserDetail,
+} from './search-usage.service.js';
+import type { SearchApiUsageStatus, SearchUsageRange } from '@interscale/shared';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
   return req.auth;
 };
 
-/** Resolve the key for the current user, or report that none is configured. */
-async function requireSearchApiKey(req: Request): Promise<string> {
-  const userKey = await resolveSearchApiKey(auth(req));
-  if (!userKey) {
-    throw new ValidationError('Add your SearchAPI key to use Live Search.');
-  }
-  return userKey;
-}
-
 export const searchController = {
   async flights(req: Request, res: Response) {
-    const apiKey = await requireSearchApiKey(req);
     sendSuccess(
       res,
-      await searchService.flights(apiKey, req.query as never),
+      await searchService.flights(auth(req), req.query as never),
       'Flight search completed.',
     );
   },
 
   async hotels(req: Request, res: Response) {
-    const apiKey = await requireSearchApiKey(req);
     sendSuccess(
       res,
-      await searchService.hotels(apiKey, req.query as never),
+      await searchService.hotels(auth(req), req.query as never),
       'Hotel search completed.',
     );
   },
 
   async hotelsAutocomplete(req: Request, res: Response) {
-    const apiKey = await requireSearchApiKey(req);
     sendSuccess(
       res,
-      await searchService.hotelsAutocomplete(apiKey, req.query as never),
+      await searchService.hotelsAutocomplete(auth(req), req.query as never),
       'Destination suggestions loaded.',
     );
   },
 
-  /** Current user's Live Search key status (masked preview only). */
-  async keyStatus(req: Request, res: Response) {
+  /** The current user's saved SearchAPI keys (masked previews only). */
+  async listKeys(req: Request, res: Response) {
     const actor = auth(req);
-    const masked = await searchApiKeyPreview(actor);
     sendSuccess(res, {
-      hasKey: Boolean(masked),
-      maskedKey: masked,
+      keys: await listSearchApiKeys(actor),
       serverFallbackAvailable: hasServerFallbackKey(),
     });
   },
 
-  /** Save (or replace) the current user's SearchAPI key. */
-  async saveKey(req: Request, res: Response) {
+  /** Add another SearchAPI key for the current user. */
+  async addKey(req: Request, res: Response) {
     const actor = auth(req);
     const body = req.body as { apiKey?: unknown };
     if (typeof body.apiKey !== 'string' || !body.apiKey.trim()) {
       throw new ValidationError('A SearchAPI API key is required.');
     }
-    const masked = await saveSearchApiKey(actor, body.apiKey);
-    sendSuccess(res, { hasKey: true, maskedKey: masked });
+    const key = await addSearchApiKey(actor, body.apiKey);
+    sendSuccess(res, { key, keys: await listSearchApiKeys(actor) }, 'API key saved.');
   },
 
-  /** Remove the current user's SearchAPI key. */
+  /** Remove one of the current user's SearchAPI keys. */
   async removeKey(req: Request, res: Response) {
-    await removeSearchApiKey(auth(req));
-    sendSuccess(res, { hasKey: false, maskedKey: null });
+    const actor = auth(req);
+    await removeSearchApiKey(actor, req.params.keyId as string);
+    sendSuccess(res, { keys: await listSearchApiKeys(actor) }, 'API key removed.');
+  },
+
+  /** Enable/disable a key or change its priority (order). */
+  async updateKey(req: Request, res: Response) {
+    const actor = auth(req);
+    const body = req.body as { status?: 'ACTIVE' | 'DISABLED'; priority?: number };
+    const key = await updateSearchApiKey(actor, req.params.keyId as string, body);
+    sendSuccess(res, { key, keys: await listSearchApiKeys(actor) }, 'API key updated.');
   },
 
   /**
    * Test the current user's saved key (or a key provided for this request only).
-   * Never returns the secret itself.
+   * Never returns the secret itself. Records the actual provider request so the
+   * Owner dashboard sees test-connection credit use too.
    */
   async testKey(req: Request, res: Response) {
     const actor = auth(req);
@@ -92,13 +96,30 @@ export const searchController = {
     if (typeof body.apiKey === 'string' && body.apiKey.trim()) {
       candidate = body.apiKey.trim();
     } else {
-      candidate = await resolveSearchApiKey(actor);
+      const keys = await resolveSearchApiKeys(actor);
+      candidate = keys[0]?.plaintext ?? null;
     }
     if (!candidate) {
       throw new ValidationError('Add your SearchAPI key to test the connection.');
     }
 
     const result = await searchService.testConnection(candidate);
+    const status: SearchApiUsageStatus = result.ok
+      ? 'SUCCESS'
+      : result.reason === 'quota'
+        ? 'QUOTA_EXHAUSTED'
+        : result.reason === 'invalid'
+          ? 'INVALID_KEY'
+          : 'NETWORK_ERROR';
+    await recordSearchApiUsage(actor, {
+      type: 'AUTOCOMPLETE',
+      engine: 'google_hotels_autocomplete',
+      status,
+      isFallbackAttempt: false,
+      searchApiKeyId: null,
+      maskedKeySuffix: lastFour(candidate),
+    });
+
     if (result.ok) {
       sendSuccess(res, { connected: true });
       return;
@@ -129,12 +150,29 @@ export const searchController = {
 
   /** Look up a bookmark by its public code (DB only; company-scoped). */
   async getBookmarkByCode(req: Request, res: Response) {
-    sendSuccess(res, await bookmarksService.getByCode(auth(req), req.params.bookmarkCode as string));
+    sendSuccess(
+      res,
+      await bookmarksService.getByCode(auth(req), req.params.bookmarkCode as string),
+    );
   },
 
   /** Delete the current user's bookmark (DB only). */
   async deleteBookmark(req: Request, res: Response) {
     await bookmarksService.remove(auth(req), req.params.id as string);
     sendSuccess(res, { deleted: true });
+  },
+
+  /** Owner-only aggregated SearchAPI usage. */
+  async usageSummary(req: Request, res: Response) {
+    const actor = auth(req);
+    const range = req.query as SearchUsageRange;
+    sendSuccess(res, await searchUsageSummary(actor, range));
+  },
+
+  /** Owner-only per-user SearchAPI usage detail. */
+  async usageUserDetail(req: Request, res: Response) {
+    const actor = auth(req);
+    const range = req.query as SearchUsageRange;
+    sendSuccess(res, await searchUsageUserDetail(actor, req.params.userId as string, range));
   },
 };

@@ -94,3 +94,16 @@ export function PermissionRoute({
   if (!hasPermission(permission)) return <Navigate to={landingPath} replace />;
   return <>{children}</>;
 }
+
+/**
+ * Owner-only route guard for the SearchAPI usage dashboard. The backend
+ * enforces the Owner role independently, so this is a UX layer, not a
+ * security boundary.
+ */
+export function OwnerRoute({ children }: { children: React.ReactNode }) {
+  const { isLoading, isFullyAuthenticated, isOwner, landingPath } = useAuth();
+  if (isLoading) return <SessionLoading />;
+  if (!isFullyAuthenticated) return <Navigate to="/login" replace />;
+  if (!isOwner) return <Navigate to={landingPath} replace />;
+  return <>{children}</>;
+}

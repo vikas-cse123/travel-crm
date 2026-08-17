@@ -7,8 +7,12 @@ import type {
   HotelSearchResponse,
   LiveSearchBookmark,
   LiveSearchBookmarkType,
-  LiveSearchKeyStatus,
   LiveSearchTestResult,
+  SearchApiKeysResponse,
+  SearchApiUsageSummary,
+  SearchApiUsageUserDetail,
+  SearchUsageRange,
+  UpdateSearchApiKeyInput,
 } from '@interscale/shared';
 import { apiClient } from '@/api/client';
 
@@ -31,7 +35,10 @@ export const searchKeys = {
   hotels: (params: unknown) => ['search', 'hotels', params] as const,
   hotelPage: (params: unknown, page: number) => ['search', 'hotels', params, 'page', page] as const,
   hotelAutocomplete: (q: string) => ['search', 'hotels', 'autocomplete', q] as const,
-  keyStatus: ['search', 'keys', 'status'] as const,
+  keys: ['search', 'keys'] as const,
+  usageSummary: (range: string) => ['search', 'usage', 'summary', range] as const,
+  usageUser: (userId: string, range: string) =>
+    ['search', 'usage', 'users', userId, range] as const,
   bookmarks: (type?: LiveSearchBookmarkType) => ['search', 'bookmarks', type ?? 'all'] as const,
   bookmark: (id: string) => ['search', 'bookmarks', 'id', id] as const,
   bookmarkByCode: (code: string) => ['search', 'bookmarks', 'by-code', code] as const,
@@ -163,28 +170,23 @@ export function useFlightSearch(params: FlightSearchParams) {
 }
 
 /**
- * Fetch the return-flight options for a chosen outbound, using that outbound's
- * `departure_token`. Keyed by (base flight params + departure_token), so
- * re-selecting an already-loaded outbound makes ZERO additional provider calls.
- * Disabled until a departure_token is provided.
+ * Fetch the return-flight options for a selected outbound flight using its
+ * `departure_token`. The original search parameters are preserved so the
+ * second request stays in the same search context.
  */
-export function useFlightReturnSearch(base: FlightSearchParams, departureToken: string | undefined) {
+export function useReturnFlightSearch(
+  params: FlightSearchParams,
+  departureToken: string | undefined,
+) {
   const enabled = Boolean(
-    base.departure_id &&
-      base.arrival_id &&
-      base.outbound_date &&
-      base.return_date &&
-      departureToken,
+    params.departure_id && params.arrival_id && params.outbound_date && departureToken,
   );
-  const { departure_token: _dt, ...rest } = base;
+  const queryParams = { ...params, departure_token: departureToken };
   return useQuery({
-    queryKey: searchKeys.flights({ ...rest, departure_token: departureToken }),
+    queryKey: searchKeys.flights(queryParams),
     queryFn: ({ signal }) =>
       apiClient.get<FlightSearchResponse>(
-        `/search/flights?${toQuery({
-          ...rest,
-          departure_token: departureToken,
-        } as unknown as Record<string, unknown>)}`,
+        `/search/flights?${toQuery(queryParams as unknown as Record<string, unknown>)}`,
         signal,
       ),
     enabled,
@@ -200,10 +202,7 @@ export function useFlightReturnSearch(base: FlightSearchParams, departureToken: 
 /** Page 1 of a live hotel search. Disabled until every required field is present. */
 export function useHotelSearch(params: HotelSearchParams) {
   const enabled = Boolean(
-    params.destination &&
-      params.check_in_date &&
-      params.check_out_date &&
-      !params.next_page_token,
+    params.destination && params.check_in_date && params.check_out_date && !params.next_page_token,
   );
   return useQuery({
     queryKey: searchKeys.hotels(params),
@@ -267,7 +266,7 @@ export function useHotelAutocomplete(raw: string) {
     const handle = window.setTimeout(() => setDebounced(trimmed), 700);
     return () => window.clearTimeout(handle);
   }, [enabled, trimmed]);
-  const q = enabled ? (debounced.trim().toLowerCase() || normalized) : '';
+  const q = enabled ? debounced.trim().toLowerCase() || normalized : '';
   return useQuery({
     queryKey: searchKeys.hotelAutocomplete(q),
     queryFn: ({ signal }) =>
@@ -286,37 +285,49 @@ export function useHotelAutocomplete(raw: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-user SearchAPI key management
+// Per-user SearchAPI key management (multiple keys)
 // ---------------------------------------------------------------------------
 
-/** The current user's saved Live Search key status (masked preview). */
-export function useSearchApiKeyStatus() {
+/** The current user's saved SearchAPI keys (masked previews). */
+export function useSearchApiKeys() {
   return useQuery({
-    queryKey: searchKeys.keyStatus,
-    queryFn: ({ signal }) => apiClient.get<LiveSearchKeyStatus>('/search/keys', signal),
+    queryKey: searchKeys.keys,
+    queryFn: ({ signal }) => apiClient.get<SearchApiKeysResponse>('/search/keys', signal),
     staleTime: 60 * 1000,
   });
 }
 
-/** Save or replace the current user's SearchAPI key. */
-export function useSaveSearchApiKey() {
+/** Add another SearchAPI key for the current user. */
+export function useAddSearchApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (apiKey: string) =>
-      apiClient.post<LiveSearchKeyStatus>('/search/keys', { apiKey }),
+      apiClient.post<SearchApiKeysResponse>('/search/keys', { apiKey }),
     onSuccess: (result) => {
-      queryClient.setQueryData(searchKeys.keyStatus, result);
+      queryClient.setQueryData(searchKeys.keys, result);
     },
   });
 }
 
-/** Remove the current user's SearchAPI key. */
+/** Remove one of the current user's SearchAPI keys. */
 export function useRemoveSearchApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiClient.delete<LiveSearchKeyStatus>('/search/keys'),
+    mutationFn: (keyId: string) => apiClient.delete<SearchApiKeysResponse>(`/search/keys/${keyId}`),
     onSuccess: (result) => {
-      queryClient.setQueryData(searchKeys.keyStatus, result);
+      queryClient.setQueryData(searchKeys.keys, result);
+    },
+  });
+}
+
+/** Enable/disable a key or change its priority (order). */
+export function useUpdateSearchApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ keyId, ...patch }: { keyId: string } & UpdateSearchApiKeyInput) =>
+      apiClient.patch<SearchApiKeysResponse>(`/search/keys/${keyId}`, patch),
+    onSuccess: (result) => {
+      queryClient.setQueryData(searchKeys.keys, result);
     },
   });
 }
@@ -326,6 +337,46 @@ export function useTestSearchApiKey() {
   return useMutation({
     mutationFn: (apiKey: string | null) =>
       apiClient.post<LiveSearchTestResult>('/search/keys/test', { apiKey: apiKey ?? undefined }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Owner SearchAPI usage dashboard
+// ---------------------------------------------------------------------------
+
+function usageRangeQuery(range: SearchUsageRange): string {
+  const query = new URLSearchParams();
+  if (range.from) query.set('from', range.from);
+  if (range.to) query.set('to', range.to);
+  return query.toString();
+}
+
+/** Company-wide SearchAPI usage (Owner only; the backend enforces the role). */
+export function useSearchApiUsageSummary(range: SearchUsageRange) {
+  const rangeKey = `${range.from ?? ''}|${range.to ?? ''}`;
+  return useQuery({
+    queryKey: searchKeys.usageSummary(rangeKey),
+    queryFn: ({ signal }) =>
+      apiClient.get<SearchApiUsageSummary>(
+        `/search/usage/summary?${usageRangeQuery(range)}`,
+        signal,
+      ),
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Per-user SearchAPI usage detail (Owner only). */
+export function useSearchApiUsageUserDetail(userId: string | null, range: SearchUsageRange) {
+  const rangeKey = `${range.from ?? ''}|${range.to ?? ''}`;
+  return useQuery({
+    queryKey: searchKeys.usageUser(userId ?? 'none', rangeKey),
+    queryFn: ({ signal }) =>
+      apiClient.get<SearchApiUsageUserDetail>(
+        `/search/usage/users/${userId}?${usageRangeQuery(range)}`,
+        signal,
+      ),
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
   });
 }
 
@@ -351,7 +402,10 @@ export function useCreateBookmark() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateBookmarkInput) =>
-      apiClient.post<{ bookmark: LiveSearchBookmark; created: boolean }>('/search/bookmarks', input),
+      apiClient.post<{ bookmark: LiveSearchBookmark; created: boolean }>(
+        '/search/bookmarks',
+        input,
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['search', 'bookmarks'] });
     },
@@ -368,7 +422,10 @@ export function useBookmarkByCode(code: string) {
   return useQuery({
     queryKey: searchKeys.bookmarkByCode(trimmed),
     queryFn: ({ signal }) =>
-      apiClient.get<LiveSearchBookmark>(`/search/bookmarks/by-code/${encodeURIComponent(trimmed)}`, signal),
+      apiClient.get<LiveSearchBookmark>(
+        `/search/bookmarks/by-code/${encodeURIComponent(trimmed)}`,
+        signal,
+      ),
     enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

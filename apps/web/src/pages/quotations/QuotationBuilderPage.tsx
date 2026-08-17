@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-form';
 import {
@@ -9,7 +9,6 @@ import {
   ImageIcon,
   Plus,
   Save,
-  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -51,13 +50,16 @@ import {
   hotelImageUrl,
   useAddOnServices,
   useAirlines,
+  useCreateAirline,
   useCruises,
   useDestinations,
   useHotel,
   useHotels,
   useSightseeingList,
   useVehicles,
+  type Airline,
   type Destination,
+  type Page,
   type Sightseeing,
 } from '@/features/masters/masters.api';
 import {
@@ -67,7 +69,13 @@ import {
   type HotelRowPatch,
   type ServiceRowPatch,
 } from '@/features/quotations/MasterFields';
-import { BookmarkLoadField, flightBookmarkToDetails, hotelBookmarkToDetails } from '@/features/quotations/BookmarkImport';
+import {
+  BookmarkLoadField,
+  flightBookmarkSegmentAirlines,
+  flightBookmarkToDetails,
+  normalizeAirlineName,
+  resolveFlightSegmentAirlines,
+} from '@/features/quotations/BookmarkImport';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
 
@@ -612,6 +620,7 @@ export function QuotationBuilderPage() {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canCost = hasPermission(PERMISSIONS.QUOTATIONS_VIEW_COSTING);
+  const canManageAirlineMedia = hasPermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA);
   const quotation = useQuotation(quotationId);
   const save = useUpdateQuotationVersion(quotationId, versionId);
   const addOnMasters = useAddOnServices(
@@ -645,8 +654,6 @@ export function QuotationBuilderPage() {
   // Cruise starts excluded: the user explicitly enables it (auto-creating the
   // first entry). Saved quotations with Cruise rows re-enable it on load.
   const [excluded, setExcluded] = useState<Record<string, boolean>>({ cruise: true });
-  // Primary hotel image imported from a hotel bookmark (DB snapshot URL only).
-  const [importedHotelImage, setImportedHotelImage] = useState<string | null>(null);
   // Tracks whether the user has explicitly toggled a section's Include checkbox
   // so the init-time sync (from the lead's requested services) never re-enables
   // a section after a manual choice.
@@ -696,6 +703,8 @@ export function QuotationBuilderPage() {
   const airlines = useAirlines(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
+  const createAirline = useCreateAirline();
+  const queryClient = useQueryClient();
   // Sightseeing master resolved by destinationId for each lead itinerary stay
   // instead of imprecise free-text search — guarantees complete city coverage.
   const destinationIdSet = useMemo(() => {
@@ -1367,48 +1376,6 @@ export function QuotationBuilderPage() {
         rooms: current?.rooms ?? quotation.data?.rooms ?? null,
       }),
     );
-  };
-
-  const suggestHotel = (index: number) => {
-    const city = watchedHotels?.[index]?.city?.trim().toLowerCase();
-    if (!city) return false;
-    const matching = (hotelMasters.data?.data ?? []).filter((hotel) => {
-      const hotelCity = hotel.city.name.trim().toLowerCase();
-      const destination = hotel.destination.name.trim().toLowerCase();
-      return (
-        hotelCity === city ||
-        destination === city ||
-        hotelCity.includes(city) ||
-        city.includes(hotelCity)
-      );
-    });
-    const hotel = matching.find((entry) => entry.isDefaultForCity) ?? matching[0];
-    if (!hotel) return false;
-    applyHotel(index, {
-      hotelId: hotel.id,
-      hotelRoomTypeId: null,
-      hotelMealPlanId: null,
-      hotelName: hotel.name,
-      city: hotel.city.name,
-      category: hotel.starCategory ? `${hotel.starCategory} Star` : null,
-    });
-    return true;
-  };
-
-  const suggestHotels = () => {
-    hotels.fields.forEach((_, index) => suggestHotel(index));
-  };
-
-  /** Import a saved hotel bookmark into the quotation form (DB only). */
-  const importHotelBookmark = (bookmark: LiveSearchBookmark) => {
-    const { hotelRow, hotelDetails, primaryImageUrl } = hotelBookmarkToDetails(bookmark);
-    form.setValue('hotelDetails', hotelDetails, { shouldDirty: true });
-    if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
-    // Replace any existing rows with the bookmarked stay; the agent can still
-    // add/edit rows afterwards.
-    hotels.replace([hotelRow]);
-    setExcluded((prev) => ({ ...prev, hotel: false }));
-    if (primaryImageUrl) setImportedHotelImage(primaryImageUrl);
   };
 
   const estimate = useMemo(() => {
@@ -2428,10 +2395,49 @@ export function QuotationBuilderPage() {
     const airlineList = airlines.data?.data ?? [];
     const labelCls = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
 
-    /** Import a saved flight bookmark into the quotation form (DB only). */
-    const importFlightBookmark = (bookmark: LiveSearchBookmark) => {
+    /**
+     * Import a saved flight bookmark into the quotation form (DB only). Each
+     * segment's airline is matched against the Airline Master and created
+     * automatically when missing, so the Airline dropdown is never left blank.
+     */
+    const importFlightBookmark = async (bookmark: LiveSearchBookmark) => {
       form.setValue('flightDetails', flightBookmarkToDetails(bookmark), { shouldDirty: true });
       if (bookmark.currency) form.setValue('currency', bookmark.currency, { shouldDirty: true });
+
+      const refs = flightBookmarkSegmentAirlines(bookmark);
+      if (refs.length === 0) return;
+      try {
+        const resolved = await resolveFlightSegmentAirlines(refs, {
+          airlines: airlineList,
+          createAirline: (input) => createAirline.mutateAsync(input),
+          canManageMedia: canManageAirlineMedia,
+          // Ensure dropdown options include any just-created airline immediately,
+          // without waiting for the server list to refetch.
+          onAirlineCreated: (airline) => {
+            queryClient.setQueriesData<Page<Airline>>(
+              { queryKey: ['masters', 'airlines'] },
+              (current) => {
+                if (!current || !Array.isArray(current.data)) return current;
+                if (current.data.some((row) => row.id === airline.id)) return current;
+                return { ...current, data: [...current.data, airline] };
+              },
+            );
+          },
+        });
+        for (const ref of refs) {
+          const key = normalizeAirlineName(ref.name ?? '');
+          const airline = resolved.get(key);
+          if (!airline?.airlineId) continue;
+          const path = `flightDetails.${ref.leg}.segments.${ref.segmentIndex}`;
+          form.setValue(fp(`${path}.airlineId`), airline.airlineId as never, { shouldDirty: true });
+          form.setValue(fp(`${path}.airlineName`), (airline.airlineName ?? ref.name) as never, {
+            shouldDirty: true,
+          });
+        }
+      } catch {
+        // Airline auto-resolution is best-effort; the bookmark itself already
+        // loaded the flight details (including the airline name as text).
+      }
     };
 
     const segmentCard = (
@@ -2669,11 +2675,7 @@ export function QuotationBuilderPage() {
 
     return (
       <div className="space-y-5">
-        <BookmarkLoadField
-          type="FLIGHT"
-          placeholder="FLT-000456"
-          onLoaded={importFlightBookmark}
-        />
+        <BookmarkLoadField type="FLIGHT" placeholder="FLT-000456" onLoaded={importFlightBookmark} />
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
           <input type="checkbox" {...form.register('flightDetails.include')} />
           Include Flight in Quotation
@@ -3295,37 +3297,6 @@ export function QuotationBuilderPage() {
             <IncludeBar tabKey="hotel" label="Hotel" />
             {isIncluded('hotel') && (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-cyan-600 px-4 py-3 text-white">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <Building2 className="h-5 w-5" />
-                    Choose hotels from your master for the lead's itinerary cities
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={hotelMasters.isPending || hotels.fields.length === 0}
-                    onClick={suggestHotels}
-                  >
-                    <Sparkles className="h-4 w-4" /> Suggest Hotels
-                  </Button>
-                </div>
-
-                <BookmarkLoadField
-                  type="HOTEL"
-                  placeholder="HTL-000123"
-                  onLoaded={importHotelBookmark}
-                />
-
-                {importedHotelImage ? (
-                  <div className="overflow-hidden rounded-lg border bg-card">
-                    <img
-                      src={importedHotelImage}
-                      alt="Imported hotel"
-                      className="h-36 w-full object-cover"
-                    />
-                  </div>
-                ) : null}
-
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-semibold text-slate-800">
                     Section Title

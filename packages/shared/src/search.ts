@@ -46,10 +46,11 @@ const timeRange = z
   .trim()
   .regex(/^\d{1,2},\d{1,2},\d{1,2},\d{1,2}$/, 'Time range must be "start,end,start,end" hours.')
   .refine(
-    (value) => value.split(',').every((part) => {
-      const n = Number(part);
-      return Number.isInteger(n) && n >= 0 && n <= 23;
-    }),
+    (value) =>
+      value.split(',').every((part) => {
+        const n = Number(part);
+        return Number.isInteger(n) && n >= 0 && n <= 23;
+      }),
     { message: 'Time range hours must be between 0 and 23.' },
   );
 
@@ -103,13 +104,10 @@ export const flightSearchQuerySchema = z
     /** 1 = only flights with lower-than-typical emissions. */
     emissions: z.coerce.number().int().min(0).max(1).optional(),
   })
-  .refine(
-    (data) => !data.return_date || data.return_date >= data.outbound_date,
-    {
-      path: ['return_date'],
-      message: 'Return date must be after the departure date.',
-    },
-  );
+  .refine((data) => !data.return_date || data.return_date >= data.outbound_date, {
+    path: ['return_date'],
+    message: 'Return date must be after the departure date.',
+  });
 
 export type FlightSearchQuery = z.infer<typeof flightSearchQuerySchema>;
 
@@ -298,11 +296,7 @@ export interface HotelDestination {
 /** Query schema for GET /api/search/hotels. */
 export const hotelSearchQuerySchema = z
   .object({
-    destination: z
-      .string()
-      .trim()
-      .min(1, 'A destination is required.')
-      .max(300),
+    destination: z.string().trim().min(1, 'A destination is required.').max(300),
     check_in_date: searchDate,
     check_out_date: searchDate,
     adults: z.coerce.number().int().min(1).max(9).default(2),
@@ -320,9 +314,7 @@ export const hotelSearchQuerySchema = z
     /** Sequential token for the next result page. */
     next_page_token: z.string().trim().optional(),
     // Advanced filters (all optional; only supported SearchApi params exposed).
-    sort_by: z
-      .enum(['relevance', 'lowest_price', 'highest_rating', 'most_reviewed'])
-      .optional(),
+    sort_by: z.enum(['relevance', 'lowest_price', 'highest_rating', 'most_reviewed']).optional(),
     property_types: z.string().trim().optional(),
     amenities: z.string().trim().optional(),
     /** 7 = 3.5+, 8 = 4.0+, 9 = 4.5+ stars (guest rating). */
@@ -454,19 +446,135 @@ export interface SearchApiMetadata {
   json_url?: string;
 }
 
-/** Live Search key status for the current user (masked preview only). */
-export interface LiveSearchKeyStatus {
-  hasKey: boolean;
-  /** Masked preview, e.g. "••••••••••••••abcd". Never the full key. */
-  maskedKey: string | null;
-  /** Whether a server-level SEARCHAPI_API_KEY fallback is configured. */
-  serverFallbackAvailable: boolean;
-}
-
 /** Result of the Test connection action. */
 export interface LiveSearchTestResult {
   connected: boolean;
   reason?: 'invalid' | 'quota';
+}
+
+// ---------------------------------------------------------------------------
+// Multiple SearchAPI keys per user
+// ---------------------------------------------------------------------------
+
+export const SEARCH_API_KEY_STATUSES = ['ACTIVE', 'EXHAUSTED', 'INVALID', 'DISABLED'] as const;
+export type SearchApiKeyStatus = (typeof SEARCH_API_KEY_STATUSES)[number];
+
+/** One saved SearchAPI key as exposed to the client. The secret is never sent. */
+export interface SearchApiKeyRecord {
+  id: string;
+  /** Masked preview, e.g. "••••abcd". Never the full key. */
+  maskedKey: string;
+  status: SearchApiKeyStatus;
+  /** Lower number = higher priority. Ties break on insertion order. */
+  priority: number;
+  createdAt: string;
+}
+
+/** Response for GET /api/search/keys. */
+export interface SearchApiKeysResponse {
+  keys: SearchApiKeyRecord[];
+  /** Whether a server-level SEARCHAPI_API_KEY fallback is configured. */
+  serverFallbackAvailable: boolean;
+}
+
+/** Body for PATCH /api/search/keys/:id — enable/disable or reorder. */
+export const updateSearchApiKeySchema = z
+  .object({
+    status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+    priority: z.coerce.number().int().min(0).max(1000).optional(),
+  })
+  .refine((value) => value.status !== undefined || value.priority !== undefined, {
+    message: 'Provide a status or a priority to update.',
+  });
+export type UpdateSearchApiKeyInput = z.infer<typeof updateSearchApiKeySchema>;
+
+// ---------------------------------------------------------------------------
+// Owner SearchAPI usage dashboard
+// ---------------------------------------------------------------------------
+
+export const SEARCH_API_USAGE_TYPES = ['FLIGHT', 'HOTEL', 'AUTOCOMPLETE'] as const;
+export type SearchApiUsageType = (typeof SEARCH_API_USAGE_TYPES)[number];
+
+export const SEARCH_API_USAGE_STATUSES = [
+  'SUCCESS',
+  'QUOTA_EXHAUSTED',
+  'INVALID_KEY',
+  'PROVIDER_ERROR',
+  'NETWORK_ERROR',
+] as const;
+export type SearchApiUsageStatus = (typeof SEARCH_API_USAGE_STATUSES)[number];
+
+/** Query for the usage endpoints — an inclusive YYYY-MM-DD date range. */
+export const searchUsageRangeSchema = z.object({
+  from: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'from must be YYYY-MM-DD.')
+    .optional(),
+  to: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'to must be YYYY-MM-DD.')
+    .optional(),
+});
+export type SearchUsageRange = z.infer<typeof searchUsageRangeSchema>;
+
+/** Aggregated company-wide SearchAPI usage for the Owner dashboard. */
+export interface SearchApiUsageSummary {
+  range: { from: string; to: string };
+  totals: {
+    total: number;
+    flights: number;
+    hotels: number;
+    autocomplete: number;
+    successful: number;
+    failed: number;
+  };
+  byService: Array<{ label: string; value: number }>;
+  byUser: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    flights: number;
+    hotels: number;
+    autocomplete: number;
+    total: number;
+  }>;
+  daily: Array<{
+    date: string;
+    flights: number;
+    hotels: number;
+    autocomplete: number;
+    total: number;
+  }>;
+  byKey: Array<{ maskedKey: string; requests: number; status: string }>;
+}
+
+/** One recent provider request in a user's detail view. */
+export interface SearchApiUsageActivityRow {
+  id: string;
+  type: SearchApiUsageType;
+  status: SearchApiUsageStatus;
+  isFallbackAttempt: boolean;
+  maskedKeySuffix: string | null;
+  createdAt: string;
+}
+
+/** Per-user detail: totals plus the most recent provider requests. */
+export interface SearchApiUsageUserDetail {
+  userId: string;
+  name: string;
+  email: string;
+  totals: {
+    flights: number;
+    hotels: number;
+    autocomplete: number;
+    total: number;
+    successful: number;
+    failed: number;
+  };
+  recent: SearchApiUsageActivityRow[];
+  hasMore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -546,7 +654,9 @@ export const createBookmarkSchema = z.object({
   /** The search parameters that produced this result. */
   searchParams: z.record(z.string(), z.unknown()),
   /** Normalized + raw snapshot of the saved result. */
-  snapshot: z.custom<LiveSearchBookmarkSnapshot>((value) => typeof value === 'object' && value !== null),
+  snapshot: z.custom<LiveSearchBookmarkSnapshot>(
+    (value) => typeof value === 'object' && value !== null,
+  ),
 });
 
 export type CreateBookmarkInput = z.infer<typeof createBookmarkSchema>;

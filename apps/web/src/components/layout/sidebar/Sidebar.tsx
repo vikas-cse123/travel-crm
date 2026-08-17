@@ -37,12 +37,13 @@ const TOOLTIP_DELAY_MS = 300;
  * guards remain the security boundary.
  */
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
-  const { hasPermission, isSystemAdmin } = useAuth();
+  const { hasPermission, isSystemAdmin, isOwner } = useAuth();
   const { pathname } = useLocation();
 
   const visibleItems = useMemo<NavItem[]>(() => {
     const visible = (item: NavItem): boolean =>
       (!item.hideForSystemAdmin || !isSystemAdmin) &&
+      (!item.hideUnlessOwner || isOwner) &&
       (!item.permission || hasPermission(item.permission) || Boolean(item.children?.length));
 
     const result: NavItem[] = [];
@@ -53,6 +54,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
             children: item.children.filter(
               (child) =>
                 (!child.hideForSystemAdmin || !isSystemAdmin) &&
+                (!child.hideUnlessOwner || isOwner) &&
                 (!child.permission || hasPermission(child.permission)),
             ),
           }
@@ -60,7 +62,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
       if (visible(filtered)) result.push(filtered);
     }
     return result;
-  }, [hasPermission, isSystemAdmin]);
+  }, [hasPermission, isSystemAdmin, isOwner]);
 
   const sections = useMemo(() => {
     const bySection = new Map<NavSection, NavItem[]>();

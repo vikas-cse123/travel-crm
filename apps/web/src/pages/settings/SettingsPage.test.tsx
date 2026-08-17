@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { SettingsPage } from './SettingsPage';
 
+const { auth } = vi.hoisted(() => ({ auth: { isOwner: false } }));
+vi.mock('@/features/auth/AuthProvider', () => ({
+  useAuth: () => ({ isOwner: auth.isOwner }),
+}));
+
 const response = (data: unknown, ok = true) =>
   ({
     ok,
@@ -55,7 +60,10 @@ function stub(data: unknown, ok = true) {
 }
 
 describe('Phase 18 settings page', () => {
-  beforeEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.isOwner = false;
+  });
 
   it('renders the profile tab by default and switches tabs', async () => {
     stub(settings());
@@ -342,20 +350,67 @@ describe('Phase 18 settings page', () => {
     expect(await screen.findByRole('button', { name: 'Add Custom Domain' })).toBeInTheDocument();
   });
 
-  it('shows a masked saved key in the Live Search tab and saves a new one', async () => {
+  it('shows masked saved keys in the Live Search tab and adds a new one', async () => {
     const calls: string[] = [];
     const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       calls.push(url);
       const method = options?.method ?? 'GET';
       if (url.includes('/api/search/keys') && method === 'GET') {
-        return response({ hasKey: true, maskedKey: '••••••••abcd', serverFallbackAvailable: true });
+        return response({
+          keys: [
+            {
+              id: 'key-1',
+              maskedKey: '••••abcd',
+              status: 'ACTIVE',
+              priority: 0,
+              createdAt: '2026-08-01T00:00:00.000Z',
+            },
+            {
+              id: 'key-2',
+              maskedKey: '••••efgh',
+              status: 'EXHAUSTED',
+              priority: 1,
+              createdAt: '2026-08-02T00:00:00.000Z',
+            },
+          ],
+          serverFallbackAvailable: true,
+        });
       }
       if (url.includes('/api/search/keys') && method === 'POST') {
-        return response({ hasKey: true, maskedKey: '••••••••wxyz' });
-      }
-      if (url.includes('/api/search/keys') && method === 'DELETE') {
-        return response({ hasKey: false, maskedKey: null });
+        return response({
+          key: {
+            id: 'key-3',
+            maskedKey: '••••wxyz',
+            status: 'ACTIVE',
+            priority: 2,
+            createdAt: '2026-08-16T00:00:00.000Z',
+          },
+          keys: [
+            {
+              id: 'key-1',
+              maskedKey: '••••abcd',
+              status: 'ACTIVE',
+              priority: 0,
+              createdAt: '2026-08-01T00:00:00.000Z',
+            },
+            {
+              id: 'key-2',
+              maskedKey: '••••efgh',
+              status: 'EXHAUSTED',
+              priority: 1,
+              createdAt: '2026-08-02T00:00:00.000Z',
+            },
+            {
+              id: 'key-3',
+              maskedKey: '••••wxyz',
+              status: 'ACTIVE',
+              priority: 2,
+              createdAt: '2026-08-16T00:00:00.000Z',
+            },
+          ],
+          serverFallbackAvailable: true,
+        });
       }
       return response(settings());
     });
@@ -365,39 +420,50 @@ describe('Phase 18 settings page', () => {
     await screen.findByRole('heading', { name: 'Company Settings' });
     await userEvent.click(screen.getByRole('button', { name: 'Live Search' }));
 
-    // Saved key is masked, full secret never shown.
-    expect(await screen.findByText('••••••••abcd')).toBeInTheDocument();
+    // Saved keys are masked; the full secrets are never shown.
+    expect(await screen.findByText('••••abcd')).toBeInTheDocument();
+    expect(screen.getByText('••••efgh')).toBeInTheDocument();
     expect(screen.queryByText(/sk-[a-zA-Z0-9]{20,}/)).not.toBeInTheDocument();
 
     // Input is a secret field with a show/hide toggle.
     const keyInput = screen.getByLabelText('SearchAPI API key');
     expect(keyInput).toHaveAttribute('type', 'password');
-
     await userEvent.click(screen.getByRole('button', { name: 'Show key' }));
     expect(keyInput).toHaveAttribute('type', 'text');
     await userEvent.click(screen.getByRole('button', { name: 'Hide key' }));
     expect(keyInput).toHaveAttribute('type', 'password');
 
-    // Save a new key.
+    // Add a new key.
     await userEvent.type(keyInput, 'sk-new-secret-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.getByText('API key saved.')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Add API key' }));
+    await waitFor(() => expect(screen.getByText('API key added.')).toBeInTheDocument());
+    expect(await screen.findByText('••••wxyz')).toBeInTheDocument();
 
-    const saveCall = calls.find((u) => u.includes('/api/search/keys') && u.endsWith('/keys'));
-    expect(saveCall).toBeTruthy();
+    const addCall = calls.find((u) => u.includes('/api/search/keys') && u.endsWith('/keys'));
+    expect(addCall).toBeTruthy();
     // The secret must be in the request body, never in the URL/query string.
     expect(calls.some((u) => u.includes('sk-new-secret-key'))).toBe(false);
   });
 
-  it('removes the saved key and shows the add prompt when no server fallback exists', async () => {
+  it('removes a key and shows the add prompt when no server fallback exists', async () => {
+    let keys = [
+      {
+        id: 'key-1',
+        maskedKey: '••••abcd',
+        status: 'ACTIVE',
+        priority: 0,
+        createdAt: '2026-08-01T00:00:00.000Z',
+      },
+    ];
     const mock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       const method = options?.method ?? 'GET';
       if (url.includes('/api/search/keys') && method === 'GET') {
-        return response({ hasKey: true, maskedKey: '••••••••abcd', serverFallbackAvailable: false });
+        return response({ keys, serverFallbackAvailable: false });
       }
       if (url.includes('/api/search/keys') && method === 'DELETE') {
-        return response({ hasKey: false, maskedKey: null });
+        keys = [];
+        return response({ keys, serverFallbackAvailable: false });
       }
       return response(settings());
     });
@@ -406,11 +472,13 @@ describe('Phase 18 settings page', () => {
     renderWithProviders(<SettingsPage />);
     await screen.findByRole('heading', { name: 'Company Settings' });
     await userEvent.click(screen.getByRole('button', { name: 'Live Search' }));
-    await screen.findByText('••••••••abcd');
+    await screen.findByText('••••abcd');
 
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(screen.getByText('API key removed.')).toBeInTheDocument());
-    expect(screen.getByText('Add your SearchAPI key to use Live Search.')).toBeInTheDocument();
+    expect(
+      screen.getByText('No active SearchAPI key. Add an API key in Settings to use Live Search.'),
+    ).toBeInTheDocument();
   });
 
   it('surfaces test-connection outcomes without revealing the key', async () => {
@@ -421,7 +489,7 @@ describe('Phase 18 settings page', () => {
         return response({ connected: false, reason: 'invalid' });
       }
       if (url.includes('/api/search/keys') && method === 'GET') {
-        return response({ hasKey: false, maskedKey: null, serverFallbackAvailable: false });
+        return response({ keys: [], serverFallbackAvailable: false });
       }
       return response(settings());
     });
@@ -434,5 +502,44 @@ describe('Phase 18 settings page', () => {
     await userEvent.type(screen.getByLabelText('SearchAPI API key'), 'sk-invalid');
     await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     await waitFor(() => expect(screen.getByText('Invalid SearchAPI key')).toBeInTheDocument());
+  });
+
+  it('hides the API Usage tab from non-owners', async () => {
+    auth.isOwner = false;
+    stub(settings());
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    expect(screen.queryByRole('button', { name: 'API Usage' })).not.toBeInTheDocument();
+  });
+
+  it('shows the API Usage tab for owners and renders the usage page inside Settings', async () => {
+    auth.isOwner = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/api/search/usage/summary')) {
+          return response({
+            range: { from: '2026-08-01', to: '2026-08-16' },
+            totals: { total: 4, flights: 2, hotels: 1, autocomplete: 1, successful: 3, failed: 1 },
+            byService: [
+              { label: 'Flights', value: 2 },
+              { label: 'Hotels', value: 1 },
+            ],
+            byUser: [],
+            daily: [],
+            byKey: [],
+          });
+        }
+        return response(settings());
+      }),
+    );
+    renderWithProviders(<SettingsPage />);
+    await screen.findByRole('heading', { name: 'Company Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'API Usage' }));
+    expect(
+      await screen.findByText('Monitor SearchAPI credit consumption across your team.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Total requests')).toBeInTheDocument();
   });
 });

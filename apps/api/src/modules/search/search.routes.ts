@@ -5,6 +5,8 @@ import {
   flightSearchQuerySchema,
   hotelAutocompleteQuerySchema,
   hotelSearchQuerySchema,
+  searchUsageRangeSchema,
+  updateSearchApiKeySchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { validateRequest } from '../../middleware/validate-request.js';
@@ -25,17 +27,30 @@ router.get(
   validateRequest({ query: flightSearchQuerySchema }),
   asyncHandler(c.flights),
 );
-router.get(
-  '/hotels',
-  validateRequest({ query: hotelSearchQuerySchema }),
-  asyncHandler(c.hotels),
-);
+router.get('/hotels', validateRequest({ query: hotelSearchQuerySchema }), asyncHandler(c.hotels));
 
-// Per-user SearchAPI key management (isolated under /search/keys).
-router.get('/keys', asyncHandler(c.keyStatus));
-router.post('/keys', asyncHandler(c.saveKey));
-router.delete('/keys', asyncHandler(c.removeKey));
+// Per-user SearchAPI key management (multiple keys; isolated under /search/keys).
+router.get('/keys', asyncHandler(c.listKeys));
+router.post('/keys', asyncHandler(c.addKey));
+router.delete('/keys/:keyId', asyncHandler(c.removeKey));
+router.patch(
+  '/keys/:keyId',
+  validateRequest({ body: updateSearchApiKeySchema }),
+  asyncHandler(c.updateKey),
+);
 router.post('/keys/test', asyncHandler(c.testKey));
+
+// Owner-only SearchAPI usage dashboard (backed by a role check in the service).
+router.get(
+  '/usage/summary',
+  validateRequest({ query: searchUsageRangeSchema }),
+  asyncHandler(c.usageSummary),
+);
+router.get(
+  '/usage/users/:userId',
+  validateRequest({ query: searchUsageRangeSchema }),
+  asyncHandler(c.usageUserDetail),
+);
 
 // Bookmarks (DB only — never calls SearchAPI).
 router.get(

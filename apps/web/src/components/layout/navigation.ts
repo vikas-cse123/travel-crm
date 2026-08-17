@@ -103,6 +103,8 @@ export interface NavItem {
   permission?: string;
   section: NavSection;
   hideForSystemAdmin?: boolean;
+  /** Owner-only items (e.g. SearchAPI usage). Backed by a backend role check. */
+  hideUnlessOwner?: boolean;
   matchPaths?: readonly string[];
   children?: readonly NavItem[];
 }

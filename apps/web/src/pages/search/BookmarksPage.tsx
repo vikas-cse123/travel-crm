@@ -638,12 +638,59 @@ function HotelBookmarkDetails({ hotel }: { hotel: HotelBookmarkSnapshot }) {
 
 type BookmarkFilter = LiveSearchBookmarkType | 'ALL';
 
+/** Calendar-date key (YYYY-MM-DD) for a saved bookmark's createdAt. */
+function savedDateKey(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function BookmarksPage() {
   const [filter, setFilter] = useState<BookmarkFilter>('ALL');
+  const [savedFrom, setSavedFrom] = useState('');
+  const [savedTo, setSavedTo] = useState('');
+  const [appliedFrom, setAppliedFrom] = useState('');
+  const [appliedTo, setAppliedTo] = useState('');
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const bookmarks = useBookmarks(filter === 'ALL' ? undefined : filter);
   const remove = useDeleteBookmark();
 
-  const list = bookmarks.data ?? [];
+  const dateFilterApplied = Boolean(appliedFrom || appliedTo);
+
+  const withinDateRange = (createdAt: string) => {
+    if (!dateFilterApplied) return true;
+    const key = savedDateKey(createdAt);
+    if (!key) return false;
+    if (appliedFrom && key < appliedFrom) return false;
+    if (appliedTo && key > appliedTo) return false;
+    return true;
+  };
+
+  const list = (bookmarks.data ?? []).filter((bookmark) => withinDateRange(bookmark.createdAt));
+
+  const applyDateRange = () => {
+    if (savedFrom && savedTo && savedFrom > savedTo) {
+      setRangeError('From date must be on or before the To date.');
+      return;
+    }
+    setRangeError(null);
+    setAppliedFrom(savedFrom);
+    setAppliedTo(savedTo);
+  };
+
+  const clearDateRange = () => {
+    setSavedFrom('');
+    setSavedTo('');
+    setAppliedFrom('');
+    setAppliedTo('');
+    setRangeError(null);
+  };
+
+  const dateInputClass =
+    'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/60';
 
   return (
     <div className="space-y-4">
@@ -677,6 +724,47 @@ export function BookmarksPage() {
         ))}
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Saved date</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block text-sm font-medium text-slate-800">
+                From
+                <input
+                  aria-label="Saved date from"
+                  type="date"
+                  value={savedFrom}
+                  onChange={(event) => setSavedFrom(event.target.value)}
+                  className={`${dateInputClass} mt-1`}
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-800">
+                To
+                <input
+                  aria-label="Saved date to"
+                  type="date"
+                  value={savedTo}
+                  onChange={(event) => setSavedTo(event.target.value)}
+                  className={`${dateInputClass} mt-1`}
+                />
+              </label>
+              <Button size="sm" variant="secondary" onClick={applyDateRange}>
+                Apply
+              </Button>
+              <Button size="sm" variant="ghost" onClick={clearDateRange}>
+                Clear
+              </Button>
+            </div>
+          </div>
+          {rangeError ? (
+            <p role="alert" className="text-xs text-red-600">
+              {rangeError}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
       {bookmarks.isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-32 w-full" />
@@ -706,6 +794,12 @@ export function BookmarksPage() {
             </div>
           ))}
         </div>
+      ) : dateFilterApplied ? (
+        <EmptyState
+          icon={Bookmark}
+          title="No bookmarks found for this date range."
+          description="Try widening the Saved date range or clearing the filter."
+        />
       ) : (
         <EmptyState
           icon={Bookmark}

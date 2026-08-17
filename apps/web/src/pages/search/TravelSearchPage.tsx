@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -13,7 +13,6 @@ import {
   Copy,
   Flame,
   Hotel,
-  Info,
   MapPin,
   Moon,
   Plane,
@@ -21,8 +20,6 @@ import {
   RefreshCw,
   Search,
   Star,
-  Users,
-  Wifi,
 } from 'lucide-react';
 import type {
   FlightSearchResponse,
@@ -42,6 +39,7 @@ import {
   SEARCH_DEFAULT_CURRENCY,
   flightFingerprint,
   hotelFingerprint,
+  hotelStayNights,
 } from '@interscale/shared';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
@@ -56,8 +54,8 @@ import { resolveHotelPrice } from './hotel-price';
 import {
   useBookmarks,
   useCreateBookmark,
-  useFlightReturnSearch,
   useFlightSearch,
+  useReturnFlightSearch,
   destinationFromParam,
   destinationToParam,
   type FlightSearchParams,
@@ -65,6 +63,7 @@ import {
   type HotelSearchParams,
 } from '@/features/search/search.api';
 import { useHotelPagedSearch } from '@/features/search/hotel-pagination';
+import { useCities, useDestinations, useHotels } from '@/features/masters/masters.api';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AUD', 'AED', 'SGD', 'THB'];
 const TRAVEL_CLASSES = ['economy', 'premium_economy', 'business', 'first_class'];
@@ -195,8 +194,8 @@ function BookmarkButton({
         onClick={onSave}
         disabled={create.isPending}
         aria-pressed={saved}
-        aria-label={saved ? 'Bookmarked' : 'Save bookmark'}
-        title={saved ? 'Bookmarked' : 'Save bookmark'}
+        aria-label={saved ? 'Bookmarked' : 'Bookmark'}
+        title={saved ? 'Bookmarked' : 'Bookmark'}
         className={cn(
           'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors',
           saved
@@ -205,7 +204,7 @@ function BookmarkButton({
         )}
       >
         <Bookmark className={cn('h-3.5 w-3.5', saved && 'fill-current')} aria-hidden="true" />
-        {saved ? 'Saved' : 'Save'}
+        {saved ? 'Bookmarked' : 'Bookmark'}
       </button>
       {savedCode ? (
         <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -217,7 +216,11 @@ function BookmarkButton({
             onClick={copyCode}
             className="inline-flex items-center gap-1 rounded border border-border px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+            {copied ? (
+              <Check className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <Copy className="h-3 w-3" aria-hidden="true" />
+            )}
             {copied ? 'Copied' : 'Copy'}
           </button>
         </span>
@@ -240,7 +243,10 @@ function DevRawResponse({ label, data }: { label: string; data: unknown }) {
         className="flex w-full cursor-pointer select-none items-center justify-between px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-muted/40"
       >
         <span>{label}</span>
-        <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        <ChevronDown
+          className={cn('h-4 w-4 transition-transform', open && 'rotate-180')}
+          aria-hidden="true"
+        />
       </button>
       {open ? (
         <pre className="max-h-96 overflow-auto border-t border-border bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
@@ -292,9 +298,16 @@ function AdvancedFilters({
         className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/40"
       >
         <span>Advanced filters</span>
-        <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        <ChevronDown
+          className={cn('h-4 w-4 transition-transform', open && 'rotate-180')}
+          aria-hidden="true"
+        />
       </button>
-      {open ? <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div> : null}
+      {open ? (
+        <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-3">
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -340,14 +353,21 @@ interface FlightForm {
 function FormGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h4>
       <div className="grid gap-3 sm:grid-cols-2">{children}</div>
     </div>
   );
 }
 
 /** Build "start,end,start,end" hour range string or undefined. */
-function timeRange(depStart: string, depEnd: string, arrStart: string, arrEnd: string): string | undefined {
+function timeRange(
+  depStart: string,
+  depEnd: string,
+  arrStart: string,
+  arrEnd: string,
+): string | undefined {
   const parts = [depStart, depEnd, arrStart, arrEnd];
   if (parts.every((p) => p.trim() !== '')) return parts.map((p) => p.trim()).join(',');
   return undefined;
@@ -361,6 +381,7 @@ function FlightFormFields({
   onSubmit,
   submitting,
   error,
+  returnDateError,
 }: {
   form: FlightForm;
   currency: string;
@@ -369,6 +390,7 @@ function FlightFormFields({
   onSubmit: () => void;
   submitting: boolean;
   error?: string | null;
+  returnDateError?: string | null;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
@@ -386,7 +408,7 @@ function FlightFormFields({
             <input
               aria-label="Departure airport code"
               className={inputClass}
-              placeholder="e.g. DEL — Indira Gandhi Intl"
+              placeholder="e.g. DEL"
               value={form.departure_id}
               onChange={(event) => onChange({ departure_id: event.target.value.toUpperCase() })}
             />
@@ -396,7 +418,7 @@ function FlightFormFields({
             <input
               aria-label="Arrival airport code"
               className={inputClass}
-              placeholder="e.g. SIN — Singapore Changi"
+              placeholder="e.g. SIN"
               value={form.arrival_id}
               onChange={(event) => onChange({ arrival_id: event.target.value.toUpperCase() })}
             />
@@ -444,6 +466,11 @@ function FlightFormFields({
               value={form.return_date}
               onChange={(event) => onChange({ return_date: event.target.value })}
             />
+            {returnDateError ? (
+              <span role="alert" className="block text-xs text-red-600">
+                {returnDateError}
+              </span>
+            ) : null}
           </label>
         </FormGroup>
 
@@ -569,7 +596,9 @@ function FlightFormFields({
               className={inputClass}
               placeholder="e.g. AI,6E"
               value={form.included_airlines}
-              onChange={(event) => onChange({ included_airlines: event.target.value.toUpperCase() })}
+              onChange={(event) =>
+                onChange({ included_airlines: event.target.value.toUpperCase() })
+              }
             />
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-foreground">
@@ -579,7 +608,9 @@ function FlightFormFields({
               className={inputClass}
               placeholder="e.g. EK"
               value={form.excluded_airlines}
-              onChange={(event) => onChange({ excluded_airlines: event.target.value.toUpperCase() })}
+              onChange={(event) =>
+                onChange({ excluded_airlines: event.target.value.toUpperCase() })
+              }
             />
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-foreground">
@@ -662,7 +693,9 @@ function FlightFormFields({
               className={inputClass}
               placeholder="e.g. BOM"
               value={form.included_connecting}
-              onChange={(event) => onChange({ included_connecting: event.target.value.toUpperCase() })}
+              onChange={(event) =>
+                onChange({ included_connecting: event.target.value.toUpperCase() })
+              }
             />
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-foreground">
@@ -672,7 +705,9 @@ function FlightFormFields({
               className={inputClass}
               placeholder="e.g. DXB"
               value={form.excluded_connecting}
-              onChange={(event) => onChange({ excluded_connecting: event.target.value.toUpperCase() })}
+              onChange={(event) =>
+                onChange({ excluded_connecting: event.target.value.toUpperCase() })
+              }
             />
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -788,9 +823,7 @@ function FlightFormFields({
           </label>
         </AdvancedFilters>
 
-        {error ? (
-          <Alert tone="error">{error}</Alert>
-        ) : null}
+        {error ? <Alert tone="error">{error}</Alert> : null}
 
         <div>
           <Button type="submit" isLoading={submitting}>
@@ -820,15 +853,29 @@ function splitItinerary(
   return { outbound: flights.slice(0, returnStart), return: flights.slice(returnStart) };
 }
 
+type FlightCardMode = 'one-way' | 'outbound' | 'return';
+
+function modeBadge(mode: FlightCardMode, optionType?: string): string {
+  if (mode === 'outbound') return 'Outbound';
+  if (mode === 'return') return 'Return';
+  return optionType?.toLowerCase().includes('round') ? 'Round trip' : 'One way';
+}
+
+function modePriceLabel(mode: FlightCardMode, optionType?: string): string {
+  if (mode === 'outbound') return 'Round-trip fare from';
+  if (mode === 'return') return 'Round-trip total';
+  return optionType?.toLowerCase().includes('round') ? 'Round-trip fare from' : 'One-way fare';
+}
+
 /** Compact summary row for a flight option (shown when collapsed). */
 function FlightSummary({
   option,
   currency,
-  isRoundTrip,
+  mode = 'one-way',
 }: {
   option: SearchApiFlightOption;
   currency: string;
-  isRoundTrip: boolean;
+  mode?: FlightCardMode;
 }) {
   const first = option.flights[0];
   const last = option.flights[option.flights.length - 1];
@@ -837,7 +884,12 @@ function FlightSummary({
       <div className="min-w-0">
         <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {first?.airline_logo ? (
-            <img src={first.airline_logo} alt="" className="h-4 w-4 rounded-sm object-contain" loading="lazy" />
+            <img
+              src={first.airline_logo}
+              alt=""
+              className="h-4 w-4 rounded-sm object-contain"
+              loading="lazy"
+            />
           ) : (
             <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
           )}
@@ -845,15 +897,20 @@ function FlightSummary({
         </span>
         {first && last ? (
           <div className="mt-1">
+            <p className="text-sm font-medium text-foreground">
+              {first.departure_airport.id} → {last.arrival_airport.id}
+            </p>
             <p className="text-sm text-foreground">
               <span className="font-medium">
-                {first.departure_airport.id} {formatFlightTime(first.departure_airport.time)}
+                {formatFlightTime(first.departure_airport.time)}
               </span>
               <span className="mx-2 text-muted-foreground">→</span>
-              <span className="text-xs text-muted-foreground">{minutes(option.total_duration)}</span>
+              <span className="text-xs text-muted-foreground">
+                {minutes(option.total_duration)}
+              </span>
               <span className="mx-2 text-muted-foreground">→</span>
               <span className="font-medium">
-                {last.arrival_airport.id} {formatFlightTime(last.arrival_airport.time)}
+                {formatFlightTime(last.arrival_airport.time)}
               </span>
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground/80">
@@ -864,24 +921,12 @@ function FlightSummary({
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary">{stopsLabel(option)}</Badge>
           <Badge variant="secondary">{option.flights[0]?.travel_class ?? '—'}</Badge>
-          {isRoundTrip ? <Badge variant="outline">Round trip</Badge> : <Badge variant="outline">One way</Badge>}
+          <Badge variant="outline">{modeBadge(mode, option.type)}</Badge>
         </div>
       </div>
       <div className="text-right">
         <p className="text-xl font-bold text-foreground">{formatPrice(option.price, currency)}</p>
-        <p className="text-xs text-muted-foreground">
-          {isRoundTrip ? (
-            <span
-              className="inline-flex items-center gap-1"
-              title="This fare includes an available return combination. Exact return flight depends on the selected return option."
-            >
-              Round-trip fare from
-              <Info className="h-3 w-3" aria-hidden="true" />
-            </span>
-          ) : (
-            'One-way fare'
-          )}
-        </p>
+        <p className="text-xs text-muted-foreground">{modePriceLabel(mode, option.type)}</p>
       </div>
     </div>
   );
@@ -897,7 +942,12 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {leg.airline_logo ? (
-            <img src={leg.airline_logo} alt="" className="h-4 w-4 rounded-sm object-contain" loading="lazy" />
+            <img
+              src={leg.airline_logo}
+              alt=""
+              className="h-4 w-4 rounded-sm object-contain"
+              loading="lazy"
+            />
           ) : (
             <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
           )}
@@ -924,10 +974,15 @@ function FlightLeg({ leg }: { leg: SearchApiFlightSegment }) {
           <span className="text-xs font-medium text-muted-foreground">{minutes(leg.duration)}</span>
           <span className="my-1 flex w-full items-center">
             <span className="h-px flex-1 bg-border" />
-            <Plane className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground" aria-hidden="true" />
+            <Plane
+              className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground"
+              aria-hidden="true"
+            />
             <span className="h-px flex-1 bg-border" />
           </span>
-          {leg.airplane && <span className="text-[11px] text-muted-foreground/80">{leg.airplane}</span>}
+          {leg.airplane && (
+            <span className="text-[11px] text-muted-foreground/80">{leg.airplane}</span>
+          )}
         </div>
         <div className="sm:text-right">
           <p className="text-lg font-semibold text-foreground">{formatFlightTime(arr.time)}</p>
@@ -989,14 +1044,18 @@ function FlightDetails({
   option,
   arrivalId,
   currency,
+  mode = 'one-way',
 }: {
   option: SearchApiFlightOption;
   arrivalId: string;
   currency: string;
+  mode?: FlightCardMode;
 }) {
   const { outbound, return: returnLegs } = splitItinerary(option, arrivalId);
   const emissions = option.carbon_emissions;
-  const isRoundTrip = option.type?.toLowerCase().includes('round');
+  const isRoundTrip =
+    mode === 'return' || option.type?.toLowerCase().includes('round') || false;
+  const showReturn = mode === 'one-way' && isRoundTrip && returnLegs.length > 0;
 
   const renderLegs = (legs: SearchApiFlightSegment[], prefix: string) => (
     <div className="space-y-3">
@@ -1014,25 +1073,18 @@ function FlightDetails({
       <section>
         <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
           <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
-          {isRoundTrip ? 'Outbound' : 'Flight details'}
+          {mode === 'return' ? 'Return' : isRoundTrip ? 'Outbound' : 'Flight details'}
         </h4>
-        {renderLegs(outbound, 'out')}
+        {renderLegs(mode === 'return' ? (returnLegs.length ? returnLegs : outbound) : outbound, 'out')}
       </section>
 
-      {isRoundTrip ? (
+      {showReturn ? (
         <section>
           <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
             <PlaneTakeoff className="h-4 w-4 rotate-180 text-primary" aria-hidden="true" />
             Return
           </h4>
-          {returnLegs.length ? (
-            renderLegs(returnLegs, 'return')
-          ) : (
-            <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-              Return flight included in this round-trip fare. Return schedule is provided by the
-              booking partner after selecting this option.
-            </p>
-          )}
+          {renderLegs(returnLegs, 'return')}
         </section>
       ) : null}
 
@@ -1043,7 +1095,8 @@ function FlightDetails({
           </span>
           {emissions.difference_percent !== undefined ? (
             <span>
-              {Math.abs(emissions.difference_percent)}% {emissions.difference_percent < 0 ? 'below' : 'above'} typical
+              {Math.abs(emissions.difference_percent)}%{' '}
+              {emissions.difference_percent < 0 ? 'below' : 'above'} typical
             </span>
           ) : null}
         </div>
@@ -1058,9 +1111,13 @@ function FlightDetails({
       ) : null}
 
       <p className="text-xs text-muted-foreground">
-        {isRoundTrip
-          ? `Round-trip fare: ${formatPrice(option.price, currency)}. Includes an available return combination.`
-          : `One-way fare: ${formatPrice(option.price, currency)}.`}
+        {mode === 'outbound'
+          ? `Round-trip fare from: ${formatPrice(option.price, currency)}.`
+          : mode === 'return'
+            ? `Round-trip total: ${formatPrice(option.price, currency)}.`
+            : isRoundTrip
+              ? `Round-trip fare from: ${formatPrice(option.price, currency)}.`
+              : `One-way fare: ${formatPrice(option.price, currency)}.`}
       </p>
     </div>
   );
@@ -1071,24 +1128,25 @@ function FlightOptionCard({
   option,
   currency,
   arrivalId,
-  isRoundTrip,
+  mode = 'one-way',
+  onSelect,
   searchParams,
-  onChooseReturn,
 }: {
   option: SearchApiFlightOption;
   currency: string;
   arrivalId: string;
-  isRoundTrip: boolean;
-  searchParams?: Record<string, unknown>;
-  onChooseReturn?: (departureToken: string) => void;
+  mode?: FlightCardMode;
+  onSelect?: () => void;
+  searchParams?: Record<string, unknown> | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const selectable = mode === 'outbound' || mode === 'return';
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <FlightSummary option={option} currency={currency} isRoundTrip={isRoundTrip} />
+        <FlightSummary option={option} currency={currency} mode={mode} />
         <div className="flex flex-wrap items-center gap-2">
-          {searchParams ? (
+          {mode === 'one-way' && searchParams ? (
             <BookmarkButton
               type="FLIGHT"
               searchParams={searchParams}
@@ -1096,13 +1154,9 @@ function FlightOptionCard({
               fingerprint={flightFingerprint(searchParams, option.flights)}
             />
           ) : null}
-          {isRoundTrip && option.departure_token && onChooseReturn ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => onChooseReturn(option.departure_token as string)}
-            >
-              Choose outbound
+          {selectable && onSelect ? (
+            <Button size="sm" onClick={onSelect}>
+              {mode === 'outbound' ? 'Select outbound' : 'Select return'}
             </Button>
           ) : null}
           <button
@@ -1111,14 +1165,17 @@ function FlightOptionCard({
             aria-expanded={open}
             className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
-            {open ? 'View less' : 'View details'}
-            <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+            {open ? 'View less' : 'Flight details'}
+            <ChevronDown
+              className={cn('h-4 w-4 transition-transform', open && 'rotate-180')}
+              aria-hidden="true"
+            />
           </button>
         </div>
       </div>
       {open ? (
         <div className="border-t border-border p-4">
-          <FlightDetails option={option} arrivalId={arrivalId} currency={currency} />
+          <FlightDetails option={option} arrivalId={arrivalId} currency={currency} mode={mode} />
         </div>
       ) : null}
     </Card>
@@ -1126,12 +1183,21 @@ function FlightOptionCard({
 }
 
 /** Compact price-insight strip. */
-function PriceInsightsStrip({ insights, currency }: { insights: NonNullable<FlightSearchResponse['price_insights']>; currency: string }) {
-  const lowest = insights.lowest_price !== undefined ? formatPrice(insights.lowest_price, currency) : null;
+function PriceInsightsStrip({
+  insights,
+  currency,
+}: {
+  insights: NonNullable<FlightSearchResponse['price_insights']>;
+  currency: string;
+}) {
+  const lowest =
+    insights.lowest_price !== undefined ? formatPrice(insights.lowest_price, currency) : null;
   const typical = insights.typical_price_range
     ? `${formatPrice(insights.typical_price_range.low_price, currency)}–${formatPrice(insights.typical_price_range.high_price, currency)}`
     : null;
-  const level = insights.price_level ? insights.price_level.charAt(0).toUpperCase() + insights.price_level.slice(1) : null;
+  const level = insights.price_level
+    ? insights.price_level.charAt(0).toUpperCase() + insights.price_level.slice(1)
+    : null;
   if (!lowest && !typical && !level) return null;
   return (
     <Card>
@@ -1159,6 +1225,97 @@ function PriceInsightsStrip({ insights, currency }: { insights: NonNullable<Flig
   );
 }
 
+function combineExtensions(a?: string[], b?: string[]): string[] | undefined {
+  const set = new Set([...(a ?? []), ...(b ?? [])]);
+  return set.size > 0 ? [...set] : undefined;
+}
+
+/**
+ * Merge a selected outbound option and a selected return option into one
+ * complete round trip.
+ *
+ * Price semantics: for SearchAPI/Google Flights the return option's price is
+ * the provider-returned total for the whole outbound + return combination, so
+ * the final total uses the return option's price — never outbound + return.
+ */
+function buildRoundTripOption(
+  outbound: SearchApiFlightOption,
+  returnFlight: SearchApiFlightOption,
+): SearchApiFlightOption {
+  const extensions = combineExtensions(outbound.extensions, returnFlight.extensions);
+  const result: SearchApiFlightOption = {
+    flights: [...outbound.flights, ...returnFlight.flights],
+    layovers: [...(outbound.layovers ?? []), ...(returnFlight.layovers ?? [])],
+    total_duration: (outbound.total_duration ?? 0) + (returnFlight.total_duration ?? 0),
+    price: returnFlight.price ?? outbound.price,
+    type: 'Round trip',
+  };
+  const airlineLogo = outbound.airline_logo ?? returnFlight.airline_logo;
+  if (airlineLogo) result.airline_logo = airlineLogo;
+  if (outbound.departure_token) result.departure_token = outbound.departure_token;
+  const bookingToken = returnFlight.booking_token ?? outbound.booking_token;
+  if (bookingToken) result.booking_token = bookingToken;
+  if (extensions) result.extensions = extensions;
+  const carbonEmissions = outbound.carbon_emissions ?? returnFlight.carbon_emissions;
+  if (carbonEmissions) result.carbon_emissions = carbonEmissions;
+  return result;
+}
+
+/** Render one side of a completed round-trip itinerary (outbound or return). */
+function JourneyDetails({ option, title }: { option: SearchApiFlightOption; title: string }) {
+  return (
+    <div className="space-y-3">
+      <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+      {option.flights.map((leg, index) => (
+        <div key={`journey-${leg.flight_number}-${index}`}>
+          <FlightLeg leg={leg} />
+          {option.layovers?.[index] ? <LayoverRow layover={option.layovers[index]} /> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Completed round trip: both journeys, one final total, and the bookmark action. */
+function CompleteItinerary({
+  outbound,
+  returnFlight,
+  currency,
+  searchParams,
+}: {
+  outbound: SearchApiFlightOption;
+  returnFlight: SearchApiFlightOption;
+  currency: string;
+  searchParams: Record<string, unknown>;
+}) {
+  const combined = useMemo(
+    () => buildRoundTripOption(outbound, returnFlight),
+    [outbound, returnFlight],
+  );
+
+  return (
+    <Card className="space-y-4 p-4">
+      <h3 className="text-base font-semibold text-foreground">Complete round trip</h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        <JourneyDetails option={outbound} title="Outbound journey" />
+        <JourneyDetails option={returnFlight} title="Return journey" />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+        <div>
+          <p className="text-xs text-muted-foreground">Total round-trip fare</p>
+          <p className="text-xl font-bold text-foreground">{formatPrice(combined.price, currency)}</p>
+        </div>
+        <BookmarkButton
+          type="FLIGHT"
+          searchParams={searchParams}
+          snapshot={combined}
+          fingerprint={flightFingerprint(searchParams, combined.flights)}
+        />
+      </div>
+    </Card>
+  );
+}
+
 function FlightResults({
   data,
   currency,
@@ -1173,119 +1330,199 @@ function FlightResults({
     const id = (sp as Record<string, unknown> | undefined)?.arrival_id;
     return typeof id === 'string' ? id : '';
   }, [data]);
-  const all = useMemo(
-    () => [...(data.best_flights ?? []), ...(data.other_flights ?? [])],
-    [data],
-  );
+  const all = useMemo(() => [...(data.best_flights ?? []), ...(data.other_flights ?? [])], [data]);
   const insights = data.price_insights;
   // Trip type comes from the actual submitted search, not the provider label,
   // so a one-way search never shows a "Round trip" badge.
   const isRoundTrip = baseParams?.type === 2;
+  const searchParams = useMemo(() => (baseParams ?? {}) as Record<string, unknown>, [baseParams]);
 
-  // Round-trip return flow: when an outbound is chosen, fetch its return options
-  // via departure_token, cached by (base params + departure_token).
-  const [chosenToken, setChosenToken] = useState<string | undefined>(undefined);
-  const [chosenPrice, setChosenPrice] = useState<number | undefined>(undefined);
-  const returnSearch = useFlightReturnSearch(baseParams ?? ({} as FlightSearchParams), chosenToken);
-  const returnOptions = useMemo(
-    () => [...(returnSearch.data?.best_flights ?? []), ...(returnSearch.data?.other_flights ?? [])],
-    [returnSearch.data],
+  const [selectedOutbound, setSelectedOutbound] = useState<SearchApiFlightOption | null>(null);
+  const [selectedReturn, setSelectedReturn] = useState<SearchApiFlightOption | null>(null);
+
+  useEffect(() => {
+    setSelectedOutbound(null);
+    setSelectedReturn(null);
+  }, [data]);
+
+  const returnSearch = useReturnFlightSearch(
+    (baseParams ?? {}) as FlightSearchParams,
+    selectedOutbound?.departure_token,
   );
+
+  useEffect(() => {
+    setSelectedReturn(null);
+  }, [selectedOutbound]);
+
+  const returnOptions = useMemo(() => {
+    if (!returnSearch.data) return [];
+    return [
+      ...(returnSearch.data.best_flights ?? []),
+      ...(returnSearch.data.other_flights ?? []),
+    ];
+  }, [returnSearch.data]);
+
+  const changeButtonClass =
+    'text-xs font-medium text-primary hover:underline';
+
+  const flightList = (
+    options: SearchApiFlightOption[],
+    mode: FlightCardMode,
+    onSelect: (option: SearchApiFlightOption) => void,
+    cardSearchParams?: Record<string, unknown>,
+  ) => (
+    <div className="space-y-3">
+          {options.map((option, index) => (
+            <FlightOptionCard
+              key={option.departure_token ?? option.booking_token ?? index}
+              option={option}
+              currency={currency}
+              arrivalId={arrivalId}
+              mode={mode}
+              searchParams={cardSearchParams}
+              onSelect={() => onSelect(option)}
+            />
+          ))}
+    </div>
+  );
+
+  // One-way searches keep the original card + bookmark behavior.
+  if (!isRoundTrip) {
+    return (
+      <div className="space-y-4">
+        {insights ? <PriceInsightsStrip insights={insights} currency={currency} /> : null}
+
+        {all.length ? (
+          flightList(all, 'one-way', () => undefined, searchParams)
+        ) : (
+          <EmptyState
+            icon={Plane}
+            title="No flights found for these dates"
+            description="Try different airports or dates."
+          />
+        )}
+
+        <DevRawResponse label="Developer data — flight" data={data} />
+        <BackToTop />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       {insights ? <PriceInsightsStrip insights={insights} currency={currency} /> : null}
 
-      {chosenToken ? (
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <PlaneTakeoff className="h-4 w-4 rotate-180 text-primary" aria-hidden="true" />
-              Choose return flight
-            </h3>
-            {chosenPrice !== undefined ? (
-              <span className="text-sm text-muted-foreground">
-                Outbound selected · {formatPrice(chosenPrice, currency)}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setChosenToken(undefined);
-                setChosenPrice(undefined);
-              }}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
+      {!selectedOutbound ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
+            <h3 className="text-sm font-semibold text-foreground">Outbound flights</h3>
           </div>
-
-          {returnSearch.isFetching && !returnOptions.length ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading return flights…
-            </div>
-          ) : returnSearch.isError ? (
-            <Alert tone="error">We couldn&apos;t load return flights. Please try again.</Alert>
-          ) : returnOptions.length ? (
-            <div className="space-y-3">
-              {returnOptions.map((option, index) => (
-                <FlightOptionCard
-                  key={option.departure_token ?? option.booking_token ?? index}
-                  option={option}
-                  currency={currency}
-                  arrivalId={arrivalId}
-                  isRoundTrip={isRoundTrip}
-                />
-              ))}
-            </div>
+          {all.length ? (
+            flightList(all, 'outbound', setSelectedOutbound)
           ) : (
             <EmptyState
-              icon={PlaneTakeoff}
-              title="No return flights found"
-              description="Try a different return date."
+              icon={Plane}
+              title="No flights found for these dates"
+              description="Try different airports or dates."
             />
           )}
         </div>
-      ) : null}
-
-      {all.length ? (
-        <div className="space-y-3">
-          {all.map((option, index) => {
-            const cardProps: {
-              option: SearchApiFlightOption;
-              currency: string;
-              arrivalId: string;
-              isRoundTrip: boolean;
-              searchParams: Record<string, unknown>;
-              onChooseReturn?: (token: string) => void;
-            } = {
-              option,
-              currency,
-              arrivalId,
-              isRoundTrip,
-              searchParams: (baseParams ?? {}) as Record<string, unknown>,
-            };
-            if (baseParams && baseParams.type === 2 && option.departure_token) {
-              cardProps.onChooseReturn = (token) => {
-                setChosenToken(token);
-                setChosenPrice(option.price);
-              };
-            }
-            return (
-              <FlightOptionCard
-                key={option.departure_token ?? option.booking_token ?? index}
-                {...cardProps}
-              />
-            );
-          })}
-        </div>
       ) : (
-        <EmptyState
-          icon={Plane}
-          title="No flights found for these dates"
-          description="Try different airports or dates."
-        />
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
+                <h3 className="text-sm font-semibold text-foreground">Selected outbound</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedOutbound(null);
+                  setSelectedReturn(null);
+                }}
+                className={changeButtonClass}
+              >
+                Change outbound
+              </button>
+            </div>
+            <FlightOptionCard
+              option={selectedOutbound}
+              currency={currency}
+              arrivalId={arrivalId}
+              mode="outbound"
+            />
+          </div>
+
+          {!selectedReturn ? (
+            <div className="space-y-3">
+              {returnSearch.isFetching && !returnSearch.data ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading return flights…
+                </p>
+              ) : null}
+              {returnSearch.isError ? (
+                <Alert tone="error">We couldn&apos;t load return flights. Please try again.</Alert>
+              ) : null}
+              {returnOptions.length > 0 ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <PlaneTakeoff
+                      className="h-4 w-4 rotate-180 text-primary"
+                      aria-hidden="true"
+                    />
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Return flights{' '}
+                      <span className="font-normal text-muted-foreground">
+                        ({arrivalId} → {baseParams?.departure_id ?? ''})
+                      </span>
+                    </h3>
+                  </div>
+                  {flightList(returnOptions, 'return', setSelectedReturn)}
+                </>
+              ) : !returnSearch.isFetching && returnSearch.data ? (
+                <EmptyState
+                  icon={Plane}
+                  title="No return flights found"
+                  description="Try a different outbound flight or dates."
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <PlaneTakeoff
+                    className="h-4 w-4 rotate-180 text-primary"
+                    aria-hidden="true"
+                  />
+                  <h3 className="text-sm font-semibold text-foreground">Selected return</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReturn(null)}
+                  className={changeButtonClass}
+                >
+                  Change return
+                </button>
+              </div>
+              <FlightOptionCard
+                option={selectedReturn}
+                currency={currency}
+                arrivalId={arrivalId}
+                mode="return"
+              />
+              <CompleteItinerary
+                outbound={selectedOutbound}
+                returnFlight={selectedReturn}
+                currency={currency}
+                searchParams={searchParams}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       <DevRawResponse label="Developer data — flight" data={data} />
@@ -1318,19 +1555,114 @@ interface HotelForm {
   bathrooms: string;
 }
 
-/** Plain destination text input. Typing never calls SearchAPI — the only
- *  provider request happens when the user clicks Search hotels. */
+interface HotelSuggestion {
+  id: string;
+  label: string;
+  kind: 'Destination' | 'City' | 'Hotel';
+  destination: HotelDestination;
+}
+
+function buildHotelSuggestion(
+  id: string,
+  label: string,
+  searchQuery: string,
+  kind: HotelSuggestion['kind'],
+  extra: Partial<HotelDestination> = {},
+): HotelSuggestion {
+  return { id, label, kind, destination: { displayName: label, searchQuery, ...extra } };
+}
+
+/**
+ * Local Masters autocomplete for the hotel destination/search field.
+ *
+ * Suggestions come ONLY from Destination / City / Hotel Master (fetched once and
+ * filtered client-side). Selecting a suggestion only fills the input — no
+ * SearchAPI call happens until the user clicks "Search hotels".
+ */
 function HotelDestinationInput({
   value,
   onText,
+  onSelectDestination,
 }: {
   value: HotelDestination | null;
   onText: (text: string) => void;
+  onSelectDestination: (destination: HotelDestination) => void;
 }) {
   const [text, setText] = useState(value?.displayName ?? '');
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const destinations = useDestinations(
+    new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }),
+  );
+  const cities = useCities(new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }));
+  const hotels = useHotels(new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }));
+
+  const suggestions = useMemo<HotelSuggestion[]>(() => {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    const out: HotelSuggestion[] = [];
+    for (const destination of destinations.data?.data ?? []) {
+      if (destination.name.toLowerCase().includes(q)) {
+        out.push(
+          buildHotelSuggestion(destination.id, destination.name, `Hotels in ${destination.name}`, 'Destination', {
+            ...(destination.countryName
+              ? { country: destination.countryName, countryCode: destination.countryCode ?? undefined }
+              : {}),
+          }),
+        );
+      }
+    }
+    for (const city of cities.data?.data ?? []) {
+      if (city.name.toLowerCase().includes(q)) {
+        out.push(
+          buildHotelSuggestion(city.id, city.name, `Hotels in ${city.name}`, 'City', {
+            countryCode: city.countryCode ?? undefined,
+          }),
+        );
+      }
+    }
+    for (const hotel of hotels.data?.data ?? []) {
+      if (hotel.name.toLowerCase().includes(q)) {
+        out.push(
+          buildHotelSuggestion(hotel.id, hotel.name, hotel.name, 'Hotel', {
+            city: hotel.city?.name,
+            region: hotel.destination?.name,
+          }),
+        );
+      }
+    }
+    return out.slice(0, 8);
+  }, [text, destinations.data, cities.data, hotels.data]);
+
+  const commit = (suggestion: HotelSuggestion) => {
+    setText(suggestion.label);
+    setOpen(false);
+    setHighlight(0);
+    onText(suggestion.label);
+    onSelectDestination(suggestion.destination);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || suggestions.length === 0) {
+      if (event.key === 'Escape') setOpen(false);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlight((current) => (current + 1) % suggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlight((current) => (current - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      commit(suggestions[highlight]!);
+    } else if (event.key === 'Escape') {
+      setOpen(false);
+    }
+  };
 
   return (
-    <div>
+    <div className="relative">
       <label className="block space-y-1.5 text-sm font-medium text-foreground">
         Destination
         <input
@@ -1339,14 +1671,48 @@ function HotelDestinationInput({
           placeholder="e.g. Delhi, Mumbai, Singapore"
           value={text}
           autoComplete="off"
+          onFocus={() => setOpen(text.trim().length > 0)}
+          onBlur={() => setOpen(false)}
           onChange={(event) => {
             const next = event.target.value;
             setText(next);
+            setOpen(next.trim().length > 0);
+            setHighlight(0);
             onText(next);
           }}
+          onKeyDown={onKeyDown}
         />
       </label>
       {value ? <p className="mt-1 text-xs text-muted-foreground">{value.searchQuery}</p> : null}
+      {open && suggestions.length ? (
+        <ul
+          role="listbox"
+          aria-label="Hotel destination suggestions"
+          className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg"
+        >
+          {suggestions.map((suggestion, index) => (
+            <li key={`${suggestion.kind}-${suggestion.id}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === highlight}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  commit(suggestion);
+                }}
+                onMouseEnter={() => setHighlight(index)}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm',
+                  index === highlight ? 'bg-muted' : '',
+                )}
+              >
+                <span className="truncate font-medium text-foreground">{suggestion.label}</span>
+                <Badge variant="outline">{suggestion.kind}</Badge>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -1388,6 +1754,9 @@ function HotelFormFields({
             <HotelDestinationInput
               value={form.destination}
               onText={(text) => onChange({ destination: null, destinationText: text })}
+              onSelectDestination={(destination) =>
+                onChange({ destination, destinationText: destination.displayName })
+              }
             />
           </div>
         </FormGroup>
@@ -1644,9 +2013,7 @@ function HotelFormFields({
           </label>
         </AdvancedFilters>
 
-        {error ? (
-          <Alert tone="error">{error}</Alert>
-        ) : null}
+        {error ? <Alert tone="error">{error}</Alert> : null}
 
         <div>
           <Button type="submit">
@@ -1720,7 +2087,7 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
   const single = validImages.length <= 1;
 
   return (
-    <div className="relative h-44 w-full overflow-hidden bg-muted sm:h-40 md:h-full">
+    <div className="relative h-44 w-full overflow-hidden bg-muted sm:h-48">
       {currentUrl ? (
         <img
           src={currentUrl}
@@ -1839,134 +2206,180 @@ function ReviewBreakdown({ items }: { items: SearchApiReviewBreakdown[] }) {
   );
 }
 
-/** Expandable secondary details for a hotel property. */
-function HotelDetails({ property }: { property: SearchApiHotelProperty }) {
+/** Complete, one-click expanded details for a hotel search card. */
+function HotelDetails({
+  property,
+  searchParams,
+}: {
+  property: SearchApiHotelProperty;
+  searchParams?: Record<string, unknown> | undefined;
+}) {
+  const amenities = property.amenities ?? [];
+  const essential = property.essential_info ?? [];
+  const checkIn =
+    typeof searchParams?.check_in_date === 'string' ? searchParams.check_in_date : null;
+  const checkOut =
+    typeof searchParams?.check_out_date === 'string' ? searchParams.check_out_date : null;
+  const nights = hotelStayNights(checkIn, checkOut);
+  const hasRatings =
+    property.location_rating !== undefined ||
+    property.proximity_to_things_to_do_rating !== undefined ||
+    property.proximity_to_transit_rating !== undefined ||
+    property.airport_access_rating !== undefined;
+  const hasHistogram = Boolean(
+    property.reviews_histogram && Object.keys(property.reviews_histogram).length,
+  );
+
   return (
-    <div className="grid gap-4 border-t border-border p-4 md:grid-cols-2 lg:grid-cols-3">
-      <div className="flex flex-wrap gap-x-8 gap-y-2 md:col-span-2 lg:col-span-3">
-        <PriceBlock label="Per night" price={property.price_per_night} />
-        <PriceBlock label="Total stay" price={property.total_price} />
-      </div>
-      <div className="space-y-1.5">
-        <Field label="Accommodation" value={propertyTypeLabel(property.type)} />
-        <Field label="Check-in" value={property.check_in_time} />
-        <Field label="Check-out" value={property.check_out_time} />
-        <Field
-          label="Coordinates"
-          value={
-            property.gps_coordinates
-              ? `${property.gps_coordinates.latitude}, ${property.gps_coordinates.longitude}`
-              : undefined
-          }
-        />
-        {property.essential_info?.length ? (
-          <>
-            <p className="pt-1 text-xs font-medium text-muted-foreground">Room & property</p>
-            <div className="flex flex-wrap gap-1.5">
-              {property.essential_info.map((info) => (
-                <Chip key={info}>{info}</Chip>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
-
-      <div>
-        {property.amenities?.length ? (
-          <>
-            <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-              <Wifi className="h-3 w-3" aria-hidden="true" /> All amenities
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {property.amenities.map((amenity) => (
-                <Chip key={amenity}>{amenity}</Chip>
-              ))}
-            </div>
-          </>
-        ) : null}
-        {property.excluded_amenities?.length ? (
-          <>
-            <p className="mb-1.5 mt-3 text-xs font-medium text-muted-foreground">Not available</p>
-            <div className="flex flex-wrap gap-1.5">
-              {property.excluded_amenities.map((amenity) => (
-                <span
-                  key={amenity}
-                  className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground/70 line-through"
-                >
-                  {amenity}
+    <div className="grid gap-5 border-t border-border p-4 md:grid-cols-2">
+      <div className="space-y-1.5 md:col-span-2">
+        <h4 className="text-sm font-semibold text-foreground">Hotel Overview</h4>
+        <p className="text-sm font-semibold text-foreground">{property.name}</p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {property.type ? (
+            <Badge variant="outline">{propertyTypeLabel(property.type)}</Badge>
+          ) : null}
+          {property.extracted_hotel_class ? <Stars count={property.extracted_hotel_class} /> : null}
+          {property.rating ? (
+            <span className="flex items-center gap-1">
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+              <span className="font-medium text-foreground">{property.rating}</span>
+              {property.reviews ? (
+                <span className="text-muted-foreground/80">
+                  ({property.reviews.toLocaleString()})
                 </span>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
-
-      <div>
-        {property.nearby_places?.length ? (
-          <>
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Nearby places</p>
-            <div className="space-y-1">
-              {property.nearby_places.map((place) => (
-                <div key={place.name} className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="font-medium text-foreground">{place.name}</span>
-                  {(place.transportations ?? []).map((transport, index) => (
-                    <span key={`${place.name}-${index}`} className="text-muted-foreground/80">
-                      {transport.type}: {transport.duration}
-                    </span>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
-
-      <div className="md:col-span-2 lg:col-span-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-lg border border-border p-3">
-            <p className="mb-2 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-              <Users className="h-3 w-3" aria-hidden="true" /> Guest ratings
-            </p>
-            <div className="space-y-2">
-              <RatingBar label="Location" value={property.location_rating} />
-              <RatingBar label="Things to do" value={property.proximity_to_things_to_do_rating} />
-              <RatingBar label="Transit" value={property.proximity_to_transit_rating} />
-              <RatingBar label="Airport access" value={property.airport_access_rating} />
-            </div>
-            <ReviewBreakdown items={property.reviews_breakdown ?? []} />
-          </div>
-          {property.reviews_histogram && Object.keys(property.reviews_histogram).length ? (
-            <div className="rounded-lg border border-border p-3">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">Review histogram</p>
-              <div className="space-y-1.5">
-                {[5, 4, 3, 2, 1].map((star) => {
-                  const count = property.reviews_histogram?.[String(star)] ?? 0;
-                  const total = property.reviews ?? 1;
-                  return (
-                    <div key={star} className="flex items-center gap-2 text-xs">
-                      <span className="w-6 shrink-0 text-muted-foreground">{star}★</span>
-                      <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted">
-                        <div
-                          className="h-full rounded bg-amber-400"
-                          style={{ width: `${Math.max(0, Math.min(100, (count / total) * 100))}%` }}
-                        />
-                      </div>
-                      <span className="w-10 shrink-0 text-right text-muted-foreground">
-                        {count.toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+              ) : null}
+            </span>
+          ) : null}
+          {property.city ? (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3 w-3" aria-hidden="true" />
+              {property.city}
+              {property.country ? `, ${property.country}` : ''}
+            </span>
           ) : null}
         </div>
+        {property.description ? (
+          <p className="text-xs text-muted-foreground">{property.description}</p>
+        ) : null}
       </div>
+
+      <div className="space-y-1.5">
+        <h4 className="text-sm font-semibold text-foreground">Stay Details</h4>
+        <Field label="Check-in" value={checkIn ? formatFlightDate(checkIn) : undefined} />
+        <Field label="Check-out" value={checkOut ? formatFlightDate(checkOut) : undefined} />
+        <Field label="Nights" value={nights ?? undefined} />
+        <Field label="Check-in time" value={property.check_in_time} />
+        <Field label="Check-out time" value={property.check_out_time} />
+      </div>
+
+      <div className="space-y-1.5">
+        <h4 className="text-sm font-semibold text-foreground">Room & Property</h4>
+        {essential.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {essential.map((info) => (
+              <Chip key={info}>{info}</Chip>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No room details returned.</p>
+        )}
+        {property.gps_coordinates ? (
+          <Field
+            label="Coordinates"
+            value={`${property.gps_coordinates.latitude}, ${property.gps_coordinates.longitude}`}
+          />
+        ) : null}
+      </div>
+
+      <div className="md:col-span-2">
+        <h4 className="mb-2 text-sm font-semibold text-foreground">Amenities</h4>
+        {amenities.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {amenities.map((amenity) => (
+              <Chip key={amenity}>{amenity}</Chip>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No amenities returned.</p>
+        )}
+        {property.excluded_amenities?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {property.excluded_amenities.map((amenity) => (
+              <span
+                key={amenity}
+                className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground/70 line-through"
+              >
+                {amenity}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {hasRatings ? (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-foreground">Guest Ratings</h4>
+          <RatingBar label="Location" value={property.location_rating} />
+          <RatingBar label="Things to do" value={property.proximity_to_things_to_do_rating} />
+          <RatingBar label="Transit" value={property.proximity_to_transit_rating} />
+          <RatingBar label="Airport access" value={property.airport_access_rating} />
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        {property.reviews_breakdown?.length ? (
+          <ReviewBreakdown items={property.reviews_breakdown} />
+        ) : null}
+        {hasHistogram ? (
+          <div>
+            <h4 className="mb-2 text-sm font-semibold text-foreground">Review Histogram</h4>
+            <div className="space-y-1.5">
+              {[5, 4, 3, 2, 1].map((star) => {
+                const count = property.reviews_histogram?.[String(star)] ?? 0;
+                const total = property.reviews ?? 1;
+                return (
+                  <div key={star} className="flex items-center gap-2 text-xs">
+                    <span className="w-6 shrink-0 text-muted-foreground">{star}★</span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted">
+                      <div
+                        className="h-full rounded bg-amber-400"
+                        style={{ width: `${Math.max(0, Math.min(100, (count / total) * 100))}%` }}
+                      />
+                    </div>
+                    <span className="w-10 shrink-0 text-right text-muted-foreground">
+                      {count.toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {property.nearby_places?.length ? (
+        <div className="md:col-span-2">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">Nearby Places</h4>
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {property.nearby_places.map((place) => (
+              <div key={place.name} className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="font-medium text-foreground">{place.name}</span>
+                {(place.transportations ?? []).map((transport, index) => (
+                  <span key={`${place.name}-${index}`} className="text-muted-foreground/80">
+                    {transport.type}: {transport.duration}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-/** Compact hotel card: image left, key info centre, price right. */
+/** Compact hotel search-result card: image left, key facts + price right. */
 function HotelPropertyCard({
   property,
   searchParams,
@@ -1975,24 +2388,33 @@ function HotelPropertyCard({
   searchParams?: Record<string, unknown>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const primaryAmenities = (property.amenities ?? []).slice(0, 6);
+  const amenities = property.amenities ?? [];
+  const primaryAmenities = amenities.slice(0, 6);
+  const extraCount = Math.max(0, amenities.length - primaryAmenities.length);
 
   return (
-    <Card>
-      <div className="grid md:grid-cols-[220px_1fr]">
-        <PropertyImages property={property} />
-        <div className="flex flex-col p-4">
+    <Card className="overflow-hidden">
+      <div className="flex flex-col sm:flex-row">
+        <div className="shrink-0 sm:w-48">
+          <PropertyImages property={property} />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-semibold text-foreground">{property.name}</h3>
+                <h3 className="truncate text-sm font-semibold text-foreground">{property.name}</h3>
                 <Stars count={property.extracted_hotel_class} />
-                {property.type ? <Badge variant="outline">{propertyTypeLabel(property.type)}</Badge> : null}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {property.type ? (
+                  <Badge variant="outline">{propertyTypeLabel(property.type)}</Badge>
+                ) : null}
                 {property.rating ? (
                   <span className="flex items-center gap-1">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    <Star
+                      className="h-3.5 w-3.5 fill-amber-400 text-amber-400"
+                      aria-hidden="true"
+                    />
                     <span className="font-medium text-foreground">{property.rating}</span>
                     {property.reviews ? (
                       <span className="text-muted-foreground/80">
@@ -2018,36 +2440,21 @@ function HotelPropertyCard({
             ) : null}
           </div>
 
-          {property.description ? (
-            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{property.description}</p>
-          ) : null}
-
           {primaryAmenities.length ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {primaryAmenities.map((amenity) => (
                 <Chip key={amenity}>{amenity}</Chip>
               ))}
-              {property.amenities && property.amenities.length > primaryAmenities.length ? (
-                <Chip>{`+${property.amenities.length - primaryAmenities.length} more`}</Chip>
-              ) : null}
+              {extraCount > 0 ? <Chip>{`+${extraCount} more`}</Chip> : null}
             </div>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-3 border-t border-border pt-3">
-            <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <div className="mt-auto flex flex-wrap items-end justify-between gap-3 border-t border-border pt-2">
+            <div className="flex flex-wrap items-end gap-4">
               <PriceBlock label="Per night" price={property.price_per_night} />
               <PriceBlock label="Total stay" price={property.total_price} />
             </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" aria-hidden="true" />
-                {property.check_in_time ?? '—'} / {property.check_out_time ?? '—'}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3">
               {searchParams ? (
                 <BookmarkButton
                   type="HOTEL"
@@ -2073,41 +2480,64 @@ function HotelPropertyCard({
                 type="button"
                 onClick={() => setDetailsOpen((value) => !value)}
                 aria-expanded={detailsOpen}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 {detailsOpen ? 'View less' : 'View details'}
-                <ChevronDown className={cn('h-4 w-4 transition-transform', detailsOpen && 'rotate-180')} aria-hidden="true" />
               </button>
             </div>
           </div>
         </div>
       </div>
-      {detailsOpen ? <HotelDetails property={property} /> : null}
+      {detailsOpen ? <HotelDetails property={property} searchParams={searchParams} /> : null}
     </Card>
   );
 }
 
-/** Sequential pagination for token-based hotel results. */
+/** Local pagination window: first, last, current±1 with ellipses for large sets. */
+function paginationWindow(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const set = new Set<number>([1, total, current - 1, current, current + 1]);
+  const list = [...set].filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+  const out: (number | 'ellipsis')[] = [];
+  let previous = 0;
+  for (const page of list) {
+    if (previous && page - previous > 1) out.push('ellipsis');
+    out.push(page);
+    previous = page;
+  }
+  return out;
+}
+
+/**
+ * Pagination for the local hotel result list. Page numbers navigate within the
+ * already-loaded properties (zero provider requests). Next on the last loaded
+ * page triggers one more provider batch when a next_page_token exists.
+ */
 function HotelPaginationFooter({
   currentPage,
-  loadedPages,
+  totalPages,
   hasNext,
   isLoading,
   onPage,
 }: {
   currentPage: number;
-  loadedPages: number[];
+  totalPages: number;
   hasNext: boolean;
   isLoading: boolean;
   onPage: (page: number) => void;
 }) {
   const pageButton =
-    'inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-sm font-medium transition-colors';
+    'inline-flex h-8 min-w-8 items-center justify-center rounded-md border px-2 text-sm font-medium transition-colors';
+  const canGoNext = currentPage < totalPages || hasNext;
+
   return (
-    <nav aria-label="Hotel pagination" className="flex flex-wrap items-center justify-center gap-1.5 pt-2">
+    <nav
+      aria-label="Hotel pagination"
+      className="flex flex-wrap items-center justify-center gap-1.5 pt-2"
+    >
       <button
         type="button"
-        disabled={currentPage <= 1}
+        disabled={currentPage <= 1 || isLoading}
         onClick={() => onPage(currentPage - 1)}
         className={cn(
           pageButton,
@@ -2116,23 +2546,29 @@ function HotelPaginationFooter({
       >
         Previous
       </button>
-      {loadedPages.map((page) => (
-        <button
-          key={page}
-          type="button"
-          aria-current={page === currentPage ? 'page' : undefined}
-          onClick={() => onPage(page)}
-          className={cn(
-            pageButton,
-            page === currentPage
-              ? 'border-brand-600 bg-brand-600 text-white'
-              : 'border-slate-300 text-slate-700 hover:bg-slate-50',
-          )}
-        >
-          {page}
-        </button>
-      ))}
-      {hasNext ? (
+      {paginationWindow(currentPage, totalPages).map((entry, index) =>
+        entry === 'ellipsis' ? (
+          <span key={`ellipsis-${index}`} className="px-1 text-slate-400">
+            …
+          </span>
+        ) : (
+          <button
+            key={entry}
+            type="button"
+            aria-current={entry === currentPage ? 'page' : undefined}
+            onClick={() => onPage(entry)}
+            className={cn(
+              pageButton,
+              entry === currentPage
+                ? 'border-brand-600 bg-brand-600 text-white'
+                : 'border-slate-300 text-slate-700 hover:bg-slate-50',
+            )}
+          >
+            {entry}
+          </button>
+        ),
+      )}
+      {canGoNext ? (
         <button
           type="button"
           disabled={isLoading}
@@ -2152,24 +2588,25 @@ function HotelPaginationFooter({
 function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
   const paged = useHotelPagedSearch(baseParams);
   const page1 = paged.page1;
-  const pageData = paged.pageData(paged.currentPage);
 
-  const providerTotal = paged.totalResults;
   const loadedCount = paged.loadedCount;
-  const pageSize = pageData?.properties?.length ?? 0;
-  const from = paged.currentPage === 1 ? 1 : (paged.currentPage - 1) * 20 + 1;
-  const to = from + pageSize - 1;
+  const providerTotal = paged.totalResults;
+  const currentPage = paged.currentPage;
+  const pageProperties = paged.pageProperties;
+
+  const rangeStart = loadedCount ? (currentPage - 1) * 20 + 1 : 0;
+  const rangeEnd = Math.min(currentPage * 20, loadedCount);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="flex items-center gap-1.5 text-foreground">
           <Building2 className="h-4 w-4 text-primary" aria-hidden="true" />
-          <span className="font-medium">{loadedCount.toLocaleString('en-IN')}</span> properties loaded
+          <span className="font-medium">{loadedCount.toLocaleString('en-IN')}</span> loaded
         </span>
-        {providerTotal !== undefined && providerTotal > loadedCount ? (
+        {providerTotal !== undefined ? (
           <span className="text-muted-foreground">
-            {providerTotal.toLocaleString('en-IN')} available from provider
+            · {providerTotal.toLocaleString('en-IN')} provider results
           </span>
         ) : null}
       </div>
@@ -2178,15 +2615,13 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
         <Alert tone="error">We couldn&apos;t load hotels. Please try again.</Alert>
       ) : paged.pageError ? (
         <Alert tone="error">{paged.pageError}</Alert>
-      ) : pageData && pageData.properties?.length ? (
+      ) : loadedCount > 0 ? (
         <>
-          {loadedCount > 0 && pageSize > 0 && (
-            <p className="text-sm text-muted-foreground">
-              Showing {from}–{to} of {loadedCount.toLocaleString('en-IN')} loaded
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            Showing {rangeStart}–{rangeEnd} of {loadedCount.toLocaleString('en-IN')} loaded
+          </p>
           <div className="space-y-3">
-            {(pageData.properties ?? []).map((property) => (
+            {pageProperties.map((property) => (
               <HotelPropertyCard
                 key={property.property_token ?? property.data_id ?? property.name}
                 property={property}
@@ -2194,9 +2629,15 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
               />
             ))}
           </div>
+          {paged.isLoadingPage ? (
+            <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading more hotels…
+            </p>
+          ) : null}
           <HotelPaginationFooter
             currentPage={paged.currentPage}
-            loadedPages={paged.loadedPages}
+            totalPages={paged.maxPage}
             hasNext={paged.hasNext}
             isLoading={paged.isLoadingPage}
             onPage={(page) => void paged.goToPage(page)}
@@ -2219,7 +2660,9 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
         />
       )}
 
-      {pageData ? <DevRawResponse label="Developer data — hotel" data={pageData} /> : null}
+      {paged.page1.data ? (
+        <DevRawResponse label="Developer data — hotel" data={paged.page1.data} />
+      ) : null}
       <BackToTop />
     </div>
   );
@@ -2295,6 +2738,25 @@ function formatDateRange(from: string, to: string | undefined): string {
   return `${fmt(base)} – ${fmt(toDate)}`;
 }
 
+/**
+ * Passenger-count phrases for the flight summary, shown only where count > 0
+ * and with correct singular/plural wording.
+ */
+function flightPassengerParts(query: FlightSearchParams): string[] {
+  const parts: string[] = [];
+  const adults = query.adults ?? 1;
+  parts.push(`${adults} ${adults === 1 ? 'adult' : 'adults'}`);
+  const children = query.children ?? 0;
+  if (children > 0) parts.push(`${children} ${children === 1 ? 'child' : 'children'}`);
+  const infantsInSeat = query.infants_in_seat ?? 0;
+  if (infantsInSeat > 0)
+    parts.push(`${infantsInSeat} ${infantsInSeat === 1 ? 'infant' : 'infants'} (seat)`);
+  const infantsOnLap = query.infants_on_lap ?? 0;
+  if (infantsOnLap > 0)
+    parts.push(`${infantsOnLap} ${infantsOnLap === 1 ? 'infant' : 'infants'} (lap)`);
+  return parts;
+}
+
 function SearchSummary({
   tab,
   flightQuery,
@@ -2314,8 +2776,12 @@ function SearchSummary({
         <span className="mx-2">·</span>
         {formatFlightDate(flightQuery.outbound_date)}
         {flightQuery.return_date ? ` → ${formatFlightDate(flightQuery.return_date)}` : ''}
-        <span className="mx-2">·</span>
-        {flightQuery.adults ?? 1} {flightQuery.adults === 1 ? 'adult' : 'adults'}
+        {flightPassengerParts(flightQuery).map((part) => (
+          <Fragment key={part}>
+            <span className="mx-2">·</span>
+            {part}
+          </Fragment>
+        ))}
         <span className="mx-2">·</span>
         {classLabel.charAt(0).toUpperCase() + classLabel.slice(1)}
       </p>
@@ -2346,6 +2812,7 @@ export function TravelSearchPage() {
   const [flightQuery, setFlightQuery] = useState<FlightSearchParams | null>(null);
   const [hotelQuery, setHotelQuery] = useState<HotelSearchParams | null>(null);
   const [flightError, setFlightError] = useState<string | null>(null);
+  const [returnDateError, setReturnDateError] = useState<string | null>(null);
   const [hotelError, setHotelError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -2355,6 +2822,7 @@ export function TravelSearchPage() {
 
   const submitFlights = () => {
     setFlightError(null);
+    setReturnDateError(null);
     // Local validation BEFORE any provider request.
     if (!flightForm.departure_id.trim() || !flightForm.arrival_id.trim()) {
       setFlightError('Enter both the departure and arrival airport codes.');
@@ -2364,8 +2832,17 @@ export function TravelSearchPage() {
       setFlightError('Choose a departure date.');
       return;
     }
-    if (flightForm.round_trip && flightForm.return_date && flightForm.return_date < flightForm.outbound_date) {
-      setFlightError('Return date must be after the departure date.');
+    // A round trip must have a return date — never call SearchAPI without one.
+    if (flightForm.round_trip && !flightForm.return_date) {
+      setReturnDateError('Return date is required for a round trip.');
+      return;
+    }
+    if (
+      flightForm.round_trip &&
+      flightForm.return_date &&
+      flightForm.return_date < flightForm.outbound_date
+    ) {
+      setReturnDateError('Return date must be after the departure date.');
       return;
     }
 
@@ -2407,8 +2884,10 @@ export function TravelSearchPage() {
     if (flightForm.max_duration) query.max_flight_duration = Number(flightForm.max_duration);
     if (flightForm.layover_min) query.layover_duration_min = Number(flightForm.layover_min);
     if (flightForm.layover_max) query.layover_duration_max = Number(flightForm.layover_max);
-    if (flightForm.included_connecting) query.included_connecting_airports = flightForm.included_connecting;
-    if (flightForm.excluded_connecting) query.excluded_connecting_airports = flightForm.excluded_connecting;
+    if (flightForm.included_connecting)
+      query.included_connecting_airports = flightForm.included_connecting;
+    if (flightForm.excluded_connecting)
+      query.excluded_connecting_airports = flightForm.excluded_connecting;
     if (flightForm.low_emissions) query.emissions = 1;
     if (flightForm.round_trip && flightForm.return_date) {
       query.return_date = flightForm.return_date;
@@ -2431,11 +2910,10 @@ export function TravelSearchPage() {
       setHotelError('Check-out date must be after the check-in date.');
       return;
     }
-    const destination =
-      hotelForm.destination ?? {
-        displayName: typed || 'Destination',
-        searchQuery: `Hotels in ${typed || 'Destination'}`,
-      };
+    const destination = hotelForm.destination ?? {
+      displayName: typed || 'Destination',
+      searchQuery: `Hotels in ${typed || 'Destination'}`,
+    };
     const query: HotelSearchParams = {
       destination: destinationToParam(destination),
       check_in_date: hotelForm.check_in_date,
@@ -2458,14 +2936,16 @@ export function TravelSearchPage() {
     setHotelQuery(query);
   };
 
-  const searching = tab === 'flights' ? flights.isFetching : Boolean(hotelQuery && !hotelQuery.destination);
+  const searching =
+    tab === 'flights' ? flights.isFetching : Boolean(hotelQuery && !hotelQuery.destination);
   const results = tab === 'flights' ? (flights.data ?? null) : null;
   const isError = tab === 'flights' ? flights.isError : false;
   const errorMessage = tab === 'flights' ? flightError : hotelError;
 
   const refresh = () => {
     if (tab === 'flights') {
-      if (flightQuery) void queryClient.refetchQueries({ queryKey: ['search', 'flights', flightQuery] });
+      if (flightQuery)
+        void queryClient.refetchQueries({ queryKey: ['search', 'flights', flightQuery] });
     }
   };
 
@@ -2484,7 +2964,10 @@ export function TravelSearchPage() {
         }
       />
 
-      <div role="tablist" className="flex w-fit rounded-lg border border-border bg-card p-1 shadow-sm">
+      <div
+        role="tablist"
+        className="flex w-fit rounded-lg border border-border bg-card p-1 shadow-sm"
+      >
         {(
           [
             ['flights', 'Flights', Plane],
@@ -2514,10 +2997,17 @@ export function TravelSearchPage() {
           form={flightForm}
           currency={currency}
           onCurrency={setCurrency}
-          onChange={(patch) => setFlightForm((current) => ({ ...current, ...patch }))}
+          onChange={(patch) => {
+            setFlightForm((current) => ({ ...current, ...patch }));
+            // Editing the return date or trip type clears a stale inline error.
+            if (patch.return_date !== undefined || patch.round_trip !== undefined) {
+              setReturnDateError(null);
+            }
+          }}
           onSubmit={submitFlights}
           submitting={searching}
           error={errorMessage}
+          returnDateError={returnDateError}
         />
       ) : (
         <HotelFormFields
@@ -2545,7 +3035,11 @@ export function TravelSearchPage() {
         ) : isError ? (
           <Alert tone="error">We couldn&apos;t load flights. Please try again.</Alert>
         ) : results ? (
-          <FlightResults data={results as FlightSearchResponse} currency={currency} baseParams={flightQuery} />
+          <FlightResults
+            data={results as FlightSearchResponse}
+            currency={currency}
+            baseParams={flightQuery}
+          />
         ) : (
           <EmptyState
             icon={Search}

@@ -4,11 +4,14 @@ import { SETTINGS_CURRENCIES, SETTINGS_TIMEZONES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import { formatDateTime12Hour } from '@/utils/dateTime';
+import { useAuth } from '@/features/auth/AuthProvider';
+import { SearchUsagePage } from '@/pages/administration/SearchUsagePage';
 import {
+  useAddSearchApiKey,
   useRemoveSearchApiKey,
-  useSaveSearchApiKey,
-  useSearchApiKeyStatus,
+  useSearchApiKeys,
   useTestSearchApiKey,
+  useUpdateSearchApiKey,
 } from '@/features/search/search.api';
 import {
   useCheckCustomDomain,
@@ -53,6 +56,7 @@ const TABS = [
   ['custom-domain', 'Custom Domain'],
   ...(SHOW_BANK_ACCOUNT_SETTINGS ? ([['bank', 'Bank Account']] as const) : []),
   ['live-search', 'Live Search'],
+  ['api-usage', 'API Usage'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -896,82 +900,181 @@ function CustomDomainTab({ canUpdate }: { canUpdate: boolean }) {
   );
 }
 
-/** Live Search settings: the user's own SearchAPI key (masked, never returned). */
+/** Live Search settings: the user's own SearchAPI keys (masked, never returned). */
 function LiveSearchKeyTab() {
-  const status = useSearchApiKeyStatus();
-  const save = useSaveSearchApiKey();
+  const { data: keyData, isLoading } = useSearchApiKeys();
+  const add = useAddSearchApiKey();
   const remove = useRemoveSearchApiKey();
+  const update = useUpdateSearchApiKey();
   const test = useTestSearchApiKey();
   const [keyInput, setKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [message, setMessage] = useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(
+    null,
+  );
+
+  const keys = keyData?.keys ?? [];
+  const fallbackAvailable = keyData?.serverFallbackAvailable ?? false;
 
   const applyMessage = (tone: 'ok' | 'error' | 'info', text: string) => setMessage({ tone, text });
 
-  const onSave = () => {
+  const onAdd = () => {
     if (!keyInput.trim()) {
-      applyMessage('error', 'Enter a SearchAPI API key to save.');
+      applyMessage('error', 'Enter a SearchAPI API key to add.');
       return;
     }
-    save.mutate(keyInput.trim(), {
+    add.mutate(keyInput.trim(), {
       onSuccess: () => {
         setKeyInput('');
         setShowKey(false);
-        applyMessage('ok', 'API key saved.');
+        applyMessage('ok', 'API key added.');
       },
       onError: (error) =>
         applyMessage('error', error instanceof Error ? error.message : 'Could not save the key.'),
     });
   };
 
-  const onRemove = () => {
-    remove.mutate(undefined, {
-      onSuccess: () => {
-        setKeyInput('');
-        setShowKey(false);
-        applyMessage('ok', 'API key removed.');
-      },
+  const onRemove = (keyId: string) => {
+    remove.mutate(keyId, {
+      onSuccess: () => applyMessage('ok', 'API key removed.'),
       onError: () => applyMessage('error', 'Could not remove the key.'),
     });
   };
 
+  const onSetStatus = (keyId: string, status: 'ACTIVE' | 'DISABLED') => {
+    update.mutate({ keyId, status });
+  };
+
+  const onMove = (keyId: string, direction: -1 | 1) => {
+    const index = keys.findIndex((key) => key.id === keyId);
+    const other = keys[index + direction];
+    if (index < 0 || !other) return;
+    update.mutate({ keyId, priority: other.priority });
+    void update.mutate({ keyId: other.id, priority: keys[index]?.priority ?? other.priority });
+  };
+
   const onTest = () => {
-    // Test the typed key if present, otherwise the saved key.
+    // Test the typed key if present, otherwise the first saved key.
     test.mutate(keyInput.trim() || null, {
       onSuccess: (result) => {
         if (result.connected) applyMessage('ok', 'API key connected successfully');
-        else if (result.reason === 'quota') applyMessage('error', 'SearchAPI monthly quota exhausted');
+        else if (result.reason === 'quota')
+          applyMessage('error', 'SearchAPI monthly quota exhausted');
         else applyMessage('error', 'Invalid SearchAPI key');
       },
       onError: () => applyMessage('error', 'Could not test the key.'),
     });
   };
 
-  if (status.isLoading) return <div className="h-32 animate-pulse rounded-xl bg-card" />;
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-card" />;
 
-  const masked = status.data?.maskedKey ?? null;
-  const hasKey = Boolean(masked);
-  const fallbackAvailable = status.data?.serverFallbackAvailable ?? false;
+  const statusLabel: Record<string, string> = {
+    ACTIVE: 'Active',
+    EXHAUSTED: 'Exhausted',
+    INVALID: 'Invalid',
+    DISABLED: 'Disabled',
+  };
+  const statusTone: Record<string, string> = {
+    ACTIVE: 'bg-emerald-50 text-emerald-700',
+    EXHAUSTED: 'bg-amber-50 text-amber-700',
+    INVALID: 'bg-red-50 text-red-700',
+    DISABLED: 'bg-slate-100 text-slate-600',
+  };
 
   return (
     <section className={card}>
       <div>
         <h2 className="font-semibold">Live Search</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Live hotel &amp; flight search uses SearchAPI. You can use your own SearchAPI API key
-          instead of the shared one. Keys are encrypted and never shown back to you.
-        </p>
+        {/* <p className="mt-1 text-sm text-slate-600">
+          Live hotel &amp; flight search uses SearchAPI. Save one or more SearchAPI API keys;
+          searches use your active keys in order and automatically skip an exhausted one. Keys are
+          encrypted and never shown back to you.
+        </p> */}
       </div>
 
-      {hasKey && (
-        <div className="rounded-lg bg-slate-50 p-3 text-sm">
-          <p className="font-medium">Saved key</p>
-          <p className="text-slate-600">{masked}</p>
+      <div className="rounded-lg border border-slate-200">
+        <div className="flex items-center justify-between px-3 py-2">
+          <p className="text-sm font-medium text-slate-800">SearchAPI keys</p>
         </div>
-      )}
+        {keys.length === 0 ? (
+          <p className="border-t border-slate-100 px-3 py-3 text-sm text-slate-500">
+            No API keys saved.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {keys.map((key, index) => (
+              <li
+                key={key.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm text-slate-800">{key.maskedKey}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusTone[key.status] ?? statusTone.ACTIVE}`}
+                    >
+                      {statusLabel[key.status] ?? key.status}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-400">Priority {index + 1}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-label={`Move key ${index + 1} up`}
+                    disabled={index === 0}
+                    onClick={() => onMove(key.id, -1)}
+                    className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Up
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move key ${index + 1} down`}
+                    disabled={index === keys.length - 1}
+                    onClick={() => onMove(key.id, 1)}
+                    className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Down
+                  </button>
+                  {key.status === 'DISABLED' ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onSetStatus(key.id, 'ACTIVE')}
+                    >
+                      Enable
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onSetStatus(key.id, 'DISABLED')}
+                    >
+                      Disable
+                    </Button>
+                  )}
+                  {(key.status === 'EXHAUSTED' || key.status === 'INVALID') && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onSetStatus(key.id, 'ACTIVE')}
+                    >
+                      Reset status
+                    </Button>
+                  )}
+                  <Button size="sm" variant="danger" onClick={() => onRemove(key.id)}>
+                    Remove
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="space-y-3 border-t pt-4">
-        <p className="text-sm font-medium">{hasKey ? 'Replace your key' : 'Add your SearchAPI API key'}</p>
+        <p className="text-sm font-medium">Add a SearchAPI API key</p>
         <Field label="SearchAPI API Key">
           <div className="relative">
             <input
@@ -994,14 +1097,14 @@ function LiveSearchKeyTab() {
           </div>
         </Field>
 
-        {!hasKey && fallbackAvailable && (
+        {keys.length === 0 && fallbackAvailable && (
           <p className="text-xs text-slate-500">
-            No personal key saved — searches will use the shared server key until you add one.
+            No personal keys saved — searches will use the shared server key until you add one.
           </p>
         )}
-        {!hasKey && !fallbackAvailable && (
+        {keys.length === 0 && !fallbackAvailable && (
           <p className="text-xs text-amber-700">
-            Add your SearchAPI key to use Live Search.
+            No active SearchAPI key. Add an API key in Settings to use Live Search.
           </p>
         )}
 
@@ -1020,17 +1123,12 @@ function LiveSearchKeyTab() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={onSave} isLoading={save.isPending}>
-            Save
+          <Button size="sm" onClick={onAdd} isLoading={add.isPending}>
+            Add API key
           </Button>
           <Button size="sm" variant="secondary" onClick={onTest} isLoading={test.isPending}>
             Test connection
           </Button>
-          {hasKey && (
-            <Button size="sm" variant="danger" onClick={onRemove} isLoading={remove.isPending}>
-              Remove
-            </Button>
-          )}
         </div>
       </div>
     </section>
@@ -1039,6 +1137,7 @@ function LiveSearchKeyTab() {
 
 export function SettingsPage() {
   const settings = useSettings();
+  const { isOwner } = useAuth();
   const [tab, setTab] = useState<TabKey>('profile');
 
   if (settings.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
@@ -1061,7 +1160,7 @@ export function SettingsPage() {
         className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
         aria-label="Settings sections"
       >
-        {TABS.map(([key, label]) => (
+        {TABS.filter(([key]) => key !== 'api-usage' || isOwner).map(([key, label]) => (
           <button
             key={key}
             className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${
@@ -1087,6 +1186,7 @@ export function SettingsPage() {
         <BankTab data={data} canUpdate={canUpdate} />
       )}
       {tab === 'live-search' && <LiveSearchKeyTab />}
+      {tab === 'api-usage' && isOwner && <SearchUsagePage />}
     </div>
   );
 }

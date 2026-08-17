@@ -293,6 +293,17 @@ export const airlinesController = {
       await airlinesService.confirmLogo(auth(req), req.params.airlineId!, context(req)),
       'Airline logo confirmed.',
     ),
+  logoImport: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await airlinesService.importLogoFromUrl(
+        auth(req),
+        req.params.airlineId!,
+        req.body,
+        context(req),
+      ),
+      'Airline logo imported.',
+    ),
   logoDownload: async (req: Request, res: Response) =>
     sendSuccess(res, await airlinesService.logoDownload(auth(req), req.params.airlineId!)),
   logoDelete: async (req: Request, res: Response) =>

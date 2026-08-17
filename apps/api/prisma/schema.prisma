@@ -313,6 +313,13 @@ enum StorageProvider {
   MEMORY
 }
 
+enum SearchApiKeyStatus {
+  ACTIVE
+  EXHAUSTED
+  INVALID
+  DISABLED
+}
+
 enum DocumentType {
   QUOTATION_PDF
   SUPPORTING_ATTACHMENT
@@ -849,6 +856,7 @@ enum ActivityAction {
   AIRLINE_ARCHIVED
   AIRLINE_LOGO_UPLOADED
   AIRLINE_LOGO_REPLACED
+  AIRLINE_LOGO_IMPORTED
   AIRLINE_LOGO_DELETED
   CRUISE_CREATED
   CRUISE_UPDATED
@@ -1043,8 +1051,10 @@ model Company {
   addOnServices                AddOnService[]
   bookingRefunds               BookingRefund[]
 
-  customDomains CustomDomain[]
+  customDomains       CustomDomain[]
   liveSearchBookmarks LiveSearchBookmark[]
+  searchApiKeys       SearchApiKey[]
+  searchApiUsage      SearchApiUsage[]
 
   @@index([status])
   @@index([createdAt])
@@ -1065,13 +1075,13 @@ model CustomDomain {
 
   // Phase 3 provisioning fields. certificateArn is never exposed to customer
   // UI; only the DNS records the customer must create are surfaced.
-  certificateArn            String?  @db.VarChar(2048)
-  certificateValidationName String?  @db.VarChar(253)
-  certificateValidationValue String? @db.VarChar(253)
-  dnsVerifiedAt             DateTime?
-  activatedAt               DateTime?
-  lastCheckedAt             DateTime?
-  lastError                 String?  @db.VarChar(500)
+  certificateArn             String?   @db.VarChar(2048)
+  certificateValidationName  String?   @db.VarChar(253)
+  certificateValidationValue String?   @db.VarChar(253)
+  dnsVerifiedAt              DateTime?
+  activatedAt                DateTime?
+  lastCheckedAt              DateTime?
+  lastError                  String?   @db.VarChar(500)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
@@ -1172,10 +1182,10 @@ model User {
   /// Forces a password change on next sign-in (admin-created accounts).
   mustChangePassword Boolean @default(false)
 
-  /// Per-user SearchAPI.io key for Live Search, encrypted at rest with the
-  /// shared data-encryption key (AES-256-GCM). User-specific so each agent can
-  /// bring their own key; never returned to the client in plaintext.
-  searchApiKeyEncrypted String?  @db.Text
+  /// LEGACY single SearchAPI key (superseded by the SearchApiKey model).
+  /// Kept so existing configured keys can be migrated by
+  /// `src/scripts/backfill-search-api-keys.ts`; new keys live on SearchApiKey.
+  searchApiKeyEncrypted  String? @db.Text
   searchApiKeyKeyVersion String? @db.VarChar(30)
 
   /// Brute-force controls, reset on every successful login.
@@ -1272,8 +1282,10 @@ model User {
   testimonialsCreated         Testimonial[]              @relation("TestimonialCreatedBy")
   testimonialsUpdated         Testimonial[]              @relation("TestimonialUpdatedBy")
 
-  hiddenMasterRows CompanyHiddenMaster[]
+  hiddenMasterRows    CompanyHiddenMaster[]
   liveSearchBookmarks LiveSearchBookmark[]
+  searchApiKeys       SearchApiKey[]
+  searchApiUsage      SearchApiUsage[]
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1292,26 +1304,26 @@ model User {
 /// of what the agent saw so the bookmark can be rendered later without calling
 /// SearchAPI again. Scoped to the owning user and tenant.
 model LiveSearchBookmark {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @db.Uuid
-  userId      String   @db.Uuid
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @db.Uuid
+  userId       String   @db.Uuid
   /// FLIGHT or HOTEL.
-  type        String   @db.VarChar(20)
+  type         String   @db.VarChar(20)
   /// Provider constant, e.g. SEARCHAPI.
-  provider    String   @db.VarChar(40)
+  provider     String   @db.VarChar(40)
   /// Stable identity of the saved result within the owning user's scope.
-  fingerprint String   @db.VarChar(160)
+  fingerprint  String   @db.VarChar(160)
   /// Public, human-readable bookmark code, e.g. HTL-000123 or FLT-000456.
-  bookmarkCode String  @unique @db.VarChar(20)
+  bookmarkCode String   @unique @db.VarChar(20)
   /// Short human-readable title (e.g. "DEL → SIN" or the hotel name).
-  title       String   @db.VarChar(300)
-  currency    String   @db.VarChar(10)
+  title        String   @db.VarChar(300)
+  currency     String   @db.VarChar(10)
   /// The search parameters that produced this result.
   searchParams Json
   /// The normalized + original provider snapshot used to render the bookmark.
   snapshot     Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1322,6 +1334,68 @@ model LiveSearchBookmark {
   @@index([companyId, userId, createdAt])
   @@index([userId, createdAt])
   @@map("live_search_bookmarks")
+}
+
+/// A user's saved SearchAPI.io API key for Live Search. Encrypted at rest with
+/// AES-256-GCM (DATA_ENCRYPTION_KEY); the plaintext is never returned. Status
+/// tracks quota/invalidity so exhausted keys are skipped without burning calls.
+model SearchApiKey {
+  id           String             @id @default(uuid()) @db.Uuid
+  companyId    String             @db.Uuid
+  userId       String             @db.Uuid
+  /// AES-256-GCM envelope (version:iv:tag:ciphertext). Never exposed.
+  encryptedKey String             @db.Text
+  keyVersion   String             @db.VarChar(30)
+  /// HMAC-SHA256 (TOKEN_PEPPER) digest of the trimmed key, for cheap duplicate checks.
+  keyDigest    String             @db.VarChar(64)
+  /// Last four characters of the trimmed key — the only identifier ever shown.
+  maskedSuffix String             @db.VarChar(16)
+  status       SearchApiKeyStatus @default(ACTIVE)
+  /// Lower number wins; ties break on creation (insertion order).
+  priority     Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  usage SearchApiUsage[]
+
+  /// No duplicate identical keys for the same user.
+  @@unique([userId, keyDigest])
+  @@index([companyId, userId, status, priority])
+  @@index([userId, priority])
+  @@map("search_api_keys")
+}
+
+/// One row = one actual outbound request to SearchAPI.io. Written only around
+/// the real provider call — never for frontend actions, bookmarks or cached
+/// views. The Owner-only dashboard aggregates these rows per company.
+model SearchApiUsage {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @db.Uuid
+  userId            String   @db.Uuid
+  searchApiKeyId    String?  @db.Uuid
+  /// FLIGHT | HOTEL | AUTOCOMPLETE
+  type              String   @db.VarChar(20)
+  engine            String   @db.VarChar(60)
+  /// SUCCESS | QUOTA_EXHAUSTED | INVALID_KEY | PROVIDER_ERROR | NETWORK_ERROR
+  status            String   @db.VarChar(20)
+  /// True when this attempt came after the first key failed (key fallback).
+  isFallbackAttempt Boolean  @default(false)
+  /// Last four characters of the key used — never the full key.
+  maskedKeySuffix   String?  @db.VarChar(16)
+  createdAt         DateTime @default(now())
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  searchApiKey SearchApiKey? @relation(fields: [searchApiKeyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@index([searchApiKeyId])
+  @@map("search_api_usage")
 }
 
 // ---------------------------------------------------------------------------
@@ -2883,37 +2957,37 @@ model QuotationTemplateItineraryDay {
 }
 
 model QuotationTemplateHotelOption {
-  id              String            @id @default(uuid()) @db.Uuid
-  companyId       String            @db.Uuid
-  templateId      String            @db.Uuid
-  hotelId         String?           @db.Uuid
-  hotelRoomTypeId String?           @db.Uuid
-  hotelMealPlanId String?           @db.Uuid
-  city            String            @db.VarChar(120)
-  hotelName       String            @db.VarChar(200)
-  category        String?           @db.VarChar(40)
-  roomType        String?           @db.VarChar(100)
-  mealPlan        String?           @db.VarChar(100)
-  rooms           Int?
-  nights          Int
-  checkInDate     DateTime?         @db.Date
-  checkOutDate    DateTime?         @db.Date
-  checkInTime     String?           @db.VarChar(5)
-  checkOutTime    String?           @db.VarChar(5)
-  showCheckInTime Boolean?
+  id               String            @id @default(uuid()) @db.Uuid
+  companyId        String            @db.Uuid
+  templateId       String            @db.Uuid
+  hotelId          String?           @db.Uuid
+  hotelRoomTypeId  String?           @db.Uuid
+  hotelMealPlanId  String?           @db.Uuid
+  city             String            @db.VarChar(120)
+  hotelName        String            @db.VarChar(200)
+  category         String?           @db.VarChar(40)
+  roomType         String?           @db.VarChar(100)
+  mealPlan         String?           @db.VarChar(100)
+  rooms            Int?
+  nights           Int
+  checkInDate      DateTime?         @db.Date
+  checkOutDate     DateTime?         @db.Date
+  checkInTime      String?           @db.VarChar(5)
+  checkOutTime     String?           @db.VarChar(5)
+  showCheckInTime  Boolean?
   showCheckOutTime Boolean?
-  internalCost    Decimal?          @db.Decimal(14, 2)
-  sellingPrice    Decimal?          @db.Decimal(14, 2)
-  selected        Boolean           @default(true)
-  notes           String?           @db.VarChar(2000)
-  sequence        Int
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  template        QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  hotel           Hotel?            @relation(fields: [hotelId], references: [id], onDelete: SetNull)
-  hotelRoomType   HotelRoomType?    @relation(fields: [hotelRoomTypeId], references: [id], onDelete: SetNull)
-  hotelMealPlan   HotelMealPlan?    @relation(fields: [hotelMealPlanId], references: [id], onDelete: SetNull)
+  internalCost     Decimal?          @db.Decimal(14, 2)
+  sellingPrice     Decimal?          @db.Decimal(14, 2)
+  selected         Boolean           @default(true)
+  notes            String?           @db.VarChar(2000)
+  sequence         Int
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template         QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  hotel            Hotel?            @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  hotelRoomType    HotelRoomType?    @relation(fields: [hotelRoomTypeId], references: [id], onDelete: SetNull)
+  hotelMealPlan    HotelMealPlan?    @relation(fields: [hotelMealPlanId], references: [id], onDelete: SetNull)
 
   @@unique([templateId, sequence])
   @@index([companyId, templateId])
@@ -3087,21 +3161,21 @@ model QuotationWeblinkView {
 
   // Rich visitor snapshot (best-effort; the latest visit overwrites). All
   // optional — populated by the public /track beacon + server IP/UA enrichment.
-  userAgent         String? @db.Text
-  browser           String? @db.VarChar(60)
-  browserVersion    String? @db.VarChar(40)
-  os                String? @db.VarChar(60)
-  osVersion         String? @db.VarChar(40)
-  deviceType        String? @db.VarChar(20)
-  deviceVendor      String? @db.VarChar(60)
-  deviceModel       String? @db.VarChar(80)
-  country           String? @db.VarChar(80)
-  region            String? @db.VarChar(80)
-  city              String? @db.VarChar(80)
-  isp               String? @db.VarChar(120)
-  geoTimezone       String? @db.VarChar(60)
-  latitude          Float?
-  longitude         Float?
+  userAgent          String?  @db.Text
+  browser            String?  @db.VarChar(60)
+  browserVersion     String?  @db.VarChar(40)
+  os                 String?  @db.VarChar(60)
+  osVersion          String?  @db.VarChar(40)
+  deviceType         String?  @db.VarChar(20)
+  deviceVendor       String?  @db.VarChar(60)
+  deviceModel        String?  @db.VarChar(80)
+  country            String?  @db.VarChar(80)
+  region             String?  @db.VarChar(80)
+  city               String?  @db.VarChar(80)
+  isp                String?  @db.VarChar(120)
+  geoTimezone        String?  @db.VarChar(60)
+  latitude           Float?
+  longitude          Float?
   platform           String?  @db.VarChar(60)
   language           String?  @db.VarChar(20)
   languages          String?  @db.Text

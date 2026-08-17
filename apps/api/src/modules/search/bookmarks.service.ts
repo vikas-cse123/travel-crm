@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import type {
   CreateBookmarkInput,
   FlightBookmarkSnapshot,
@@ -148,9 +148,17 @@ function buildFlightBookmark(
 
   const first = segments[0];
   const last = segments[segments.length - 1];
+  const arrivalId =
+    typeof searchParams.arrival_id === 'string' ? searchParams.arrival_id : undefined;
+  const isRoundTrip =
+    (option.type?.toLowerCase().includes('round') ?? false) &&
+    Boolean(arrivalId) &&
+    last?.arrival_airport.id === first?.departure_airport.id;
   const title =
     first && last
-      ? `${first.departure_airport.id} → ${last.arrival_airport.id}`
+      ? isRoundTrip
+        ? `${first.departure_airport.id} → ${arrivalId} → ${first.departure_airport.id}`
+        : `${first.departure_airport.id} → ${last.arrival_airport.id}`
       : (option.flights?.[0]?.airline ?? 'Flight');
 
   const flight: FlightBookmarkSnapshot = {
@@ -362,6 +370,25 @@ export const bookmarksService = {
         title = built.title;
         snapshot = built.snapshot;
         fingerprint = built.fingerprint;
+      }
+    }
+
+    // A round-trip flight bookmark is only valid when it contains both an
+    // outbound and a return journey.
+    if (input.type === 'FLIGHT') {
+      const isRoundTrip = input.searchParams.type === 2 || input.searchParams.type === '2';
+      if (isRoundTrip) {
+        const flightSegments = snapshot.flight?.segments ?? [];
+        const arrivalId =
+          typeof input.searchParams.arrival_id === 'string' ? input.searchParams.arrival_id : null;
+        const hasReturn =
+          Boolean(arrivalId) &&
+          flightSegments.some((segment) => segment.departure_airport?.id === arrivalId);
+        if (!hasReturn) {
+          throw new ValidationError(
+            'Round-trip flight bookmarks must include a return journey.',
+          );
+        }
       }
     }
 
