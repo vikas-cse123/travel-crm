@@ -61,6 +61,11 @@ export interface TemplateHotel extends MasterHotelRefs {
   selected: boolean;
   notes: string | null;
   sequence: number;
+  images?: Array<{
+    url: string;
+    thumbnailUrl?: string | null;
+    alt?: string | null;
+  }>;
 }
 export interface TemplateService extends MasterServiceRefs {
   id: string;

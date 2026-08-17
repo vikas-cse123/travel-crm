@@ -319,6 +319,7 @@ export function QuotationTemplateFormPage() {
                 selected: true,
                 notes: null,
                 sequence: hotels.fields.length + 1,
+                images: [],
               })
             }
           >

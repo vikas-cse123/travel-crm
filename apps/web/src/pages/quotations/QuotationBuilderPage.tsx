@@ -1230,7 +1230,7 @@ export function QuotationBuilderPage() {
         ? version.hotels.map((row, index) => {
             const matchingStay =
               leadHotelRows.find(
-                (stay) => stay.city.trim().toLowerCase() === row.city.trim().toLowerCase(),
+                (stay) => (stay.city ?? '').trim().toLowerCase() === (row.city ?? '').trim().toLowerCase(),
               ) ?? leadHotelRows[index];
             return {
               ...row,
@@ -1395,17 +1395,17 @@ export function QuotationBuilderPage() {
     rows.forEach((row, index) => {
       if (row.hotelId || row.hotelName?.trim()) return;
       // A hotel for this destination already exists → no duplicate default.
-      const city = row.city.trim().toLowerCase();
+      const city = (row.city ?? '').trim().toLowerCase();
       const covered = city
         ? rows.some(
             (other, otherIndex) =>
               otherIndex !== index &&
               Boolean(other.hotelId) &&
-              other.city.trim().toLowerCase() === city,
+              (other.city ?? '').trim().toLowerCase() === city,
           )
         : false;
       if (covered) return;
-      const defaultHotel = matchDefaultHotel(row.city, hotelMasters.data?.data ?? []);
+      const defaultHotel = matchDefaultHotel(row.city ?? '', hotelMasters.data?.data ?? []);
       if (!defaultHotel) return;
       matched = true;
       // Same mapping as a manual master selection (see HotelMasterFields).
@@ -2129,9 +2129,9 @@ export function QuotationBuilderPage() {
         <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-3">
-              <HotelMasterFields
+               <HotelMasterFields
                 canCost={canCost}
-                preferredCity={hotel?.city}
+                preferredCity={hotel?.city ?? undefined}
                 showLabels
                 value={{
                   hotelId: hotel?.hotelId,
