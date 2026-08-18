@@ -385,7 +385,7 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       // that field stays empty unless the user types a custom section note.
       description: null,
       // Clear section-level images when importing to per-stay storage
-      images: undefined,
+      images: [],
       pdfImageUrl: null,
     },
     primaryImageUrl: images[0]?.url ?? null,

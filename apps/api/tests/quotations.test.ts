@@ -535,8 +535,9 @@ describe('Phase 8 customer quotations', () => {
     });
     expect(cleared.status).toBe(200);
 
-    // An empty hotel row is still rejected when hotel data is supplied.
-    const invalid = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+    // A blank draft stay (empty hotel name) is allowed to persist so "Add Stay
+    // Before/After" rows survive a draft save; the name is filled in later.
+    const blank = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
       hotels: [
         {
           city: 'Goa',
@@ -548,8 +549,26 @@ describe('Phase 8 customer quotations', () => {
         },
       ],
     });
-    expect(invalid.status).toBe(400);
-    expect(invalid.body.error.fields['hotels.0.hotelName']).toBeDefined();
+    expect(blank.status).toBe(200);
+    expect(blank.body.data.hotels[0].hotelName).toBe('');
+
+    // Legacy hotel rows whose per-stay images column is NULL must normalize to
+    // [] at the shared boundary instead of failing validation.
+    const nullImages = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      hotels: [
+        {
+          city: 'Goa',
+          hotelName: 'Coastal Bay Resort',
+          rooms: 1,
+          nights: 4,
+          selected: true,
+          sequence: 1,
+          images: null,
+        },
+      ],
+    });
+    expect(nullImages.status).toBe(200);
+    expect(nullImages.body.data.hotels[0].images).toEqual([]);
 
     // Valid hotel information saves successfully.
     const valid = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
@@ -566,6 +585,29 @@ describe('Phase 8 customer quotations', () => {
     });
     expect(valid.status).toBe(200);
     expect(valid.body.data.hotels[0].hotelName).toBe('Coastal Bay Resort');
+  });
+
+  it('saves rich-text inclusions and exclusions beyond 8000 characters', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const version = quotation.versions[0];
+
+    const longHtml = `<ul>${Array.from(
+      { length: 100 },
+      (_, i) =>
+        `<li>Inclusion item number ${i + 1} with a deliberately long wrapped description of the included facility, service and applicable terms for the traveller.</li>`,
+    ).join('')}</ul>`;
+    expect(longHtml.length).toBeGreaterThan(8000);
+
+    const res = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      inclusionsHtml: longHtml,
+      exclusionsHtml: longHtml,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.inclusionsHtml).toBe(longHtml);
+    expect(res.body.data.exclusionsHtml).toBe(longHtml);
   });
 
   it('generates and reuses a customer-safe PDF in fake private storage', async () => {

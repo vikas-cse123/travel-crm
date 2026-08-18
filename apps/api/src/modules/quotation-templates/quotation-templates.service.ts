@@ -35,7 +35,12 @@ function nestedRows(input: QuotationTemplateInput, companyId: string) {
       void _date;
       return { ...row, companyId };
     }),
-    hotels: input.hotels.map((row) => ({ ...row, companyId })),
+    hotels: input.hotels.map(({ images: _images, ...row }) => {
+      // Per-stay images exist only on quotation hotel options; the template
+      // table has no images column, so it must not be persisted there.
+      void _images;
+      return { ...row, companyId };
+    }),
     services: input.services.map((row) => ({
       ...row,
       companyId,
@@ -345,11 +350,15 @@ export const quotationTemplatesService = {
           });
           if (input.hotels.length)
             await tx.quotationTemplateHotelOption.createMany({
-              data: input.hotels.map((row) => ({
-                ...row,
-                companyId: auth.companyId,
-                templateId: id,
-              })) as Prisma.QuotationTemplateHotelOptionCreateManyInput[],
+              data: input.hotels.map(({ images: _images, ...row }) => {
+                // See nestedRows: template hotel options have no images column.
+                void _images;
+                return {
+                  ...row,
+                  companyId: auth.companyId,
+                  templateId: id,
+                };
+              }) as Prisma.QuotationTemplateHotelOptionCreateManyInput[],
             });
         }
         if (input.services !== undefined) {
@@ -474,6 +483,9 @@ export const quotationTemplatesService = {
           ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
           internalCost: internalCost?.toNumber(),
           sellingPrice: sellingPrice?.toNumber(),
+          // Template hotel options have no images column; expose an empty list
+          // so the snapshot keeps the shared hotel schema shape.
+          images: [],
         }),
       ),
       services: source.services.map(

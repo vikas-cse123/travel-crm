@@ -229,18 +229,21 @@ export const quotationHotelSchema = z
     sequence,
     // Per-stay images for bookmark snapshots. When a hotel is bookmarked,
     // its images are stored here instead of in the section-level hotelDetails.
-    // This allows multiple stays to have independent images.
-    images: z
-      .array(
-        z.object({
-          url: z.string().url(),
-          thumbnailUrl: optionalText(1000),
-          alt: optionalText(500),
-        }),
-      )
-      .max(12)
-      .optional()
-      .default([]),
+    // This allows multiple stays to have independent images. Older quotations
+    // store NULL (or omit) the column, so null/undefined are normalized to an
+    // empty array at the shared boundary — never a validation failure.
+    images: z.preprocess(
+      (value) => (value === null || value === undefined ? [] : value),
+      z
+        .array(
+          z.object({
+            url: z.string().url(),
+            thumbnailUrl: optionalText(1000),
+            alt: optionalText(500),
+          }),
+        )
+        .max(12),
+    ),
   })
   .refine((v) => !v.checkInDate || !v.checkOutDate || v.checkInDate <= v.checkOutDate, {
     message: 'Check-out must be on or after check-in.',
@@ -612,21 +615,23 @@ export const hotelDetailsSchema = z.object({
    * imported via a bookmark code. Stored as plain URLs (thumbnail/original)
    * and never fetched from SearchAPI.
    */
-  images: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        /**
-         * The bookmark card's fallback URL for the same provider image (the
-         * `thumbnail` candidate). Kept verbatim from the bookmark so renderers
-         * can fall back exactly like the carousel when `url` fails to load.
-         */
-        thumbnailUrl: optionalText(1000),
-        alt: optionalText(500),
-      }),
-    )
-    .max(12)
-    .optional(),
+  images: z.preprocess(
+    (value) => (value === null || value === undefined ? [] : value),
+    z
+      .array(
+        z.object({
+          url: z.string().url(),
+          /**
+           * The bookmark card's fallback URL for the same provider image (the
+           * `thumbnail` candidate). Kept verbatim from the bookmark so renderers
+           * can fall back exactly like the carousel when `url` fails to load.
+           */
+          thumbnailUrl: optionalText(1000),
+          alt: optionalText(500),
+        }),
+      )
+      .max(12),
+  ),
   /**
    * The image (a URL from `images`) chosen as the single hotel photo for the
    * PDF via "Use in PDF". Absent, or pointing at a removed image, the PDF falls
@@ -688,9 +693,12 @@ export const quotationVersionInputSchema = z
     // Weblink "Quick Navigation" section index (default shown; sticky opt-in).
     showQuickNav: z.boolean().optional(),
     quickNavSticky: z.boolean().optional(),
-    // Reference "Inclusions & Exclusions" — rich-text/HTML blocks.
-    inclusionsHtml: optionalText(8000),
-    exclusionsHtml: optionalText(8000),
+    // Reference "Inclusions & Exclusions" — rich-text/HTML blocks. Rich text
+    // is stored with markup, so it legitimately exceeds 8000 characters. The
+    // 50,000 ceiling is the project's rich-HTML limit (see optionalRichText in
+    // masters.ts) and matches the DB columns widened to TEXT.
+    inclusionsHtml: optionalText(50_000),
+    exclusionsHtml: optionalText(50_000),
     paymentPolicies: optionalText(8000),
     cancellationPolicies: optionalText(8000),
     bookingTerms: optionalText(8000),

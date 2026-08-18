@@ -3259,9 +3259,10 @@ model QuotationVersion {
   // Weblink "Quick Navigation" section index. Shown by default; sticky opt-in.
   showQuickNav                 Boolean                @default(true)
   quickNavSticky               Boolean                @default(false)
-  // Reference "Inclusions & Exclusions" — rich-text/HTML blocks.
-  inclusionsHtml               String?                @db.VarChar(8000)
-  exclusionsHtml               String?                @db.VarChar(8000)
+  // Reference "Inclusions & Exclusions" — rich-text/HTML blocks. TEXT (not
+  // VARCHAR) because HTML markup makes these legitimately exceed 8000 chars.
+  inclusionsHtml               String?                @db.Text
+  exclusionsHtml               String?                @db.Text
   paymentPolicies              String?                @db.VarChar(8000)
   cancellationPolicies         String?                @db.VarChar(8000)
   bookingTerms                 String?                @db.VarChar(8000)

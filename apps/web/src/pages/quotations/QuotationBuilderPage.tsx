@@ -209,6 +209,7 @@ const defaultHotelDetails = (): NonNullable<QuotationVersionInput['hotelDetails'
   sectionTitle: 'Your Hotels',
   amount: 0,
   description: null,
+  images: [],
 });
 
 interface VehicleDraft {

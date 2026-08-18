@@ -579,6 +579,7 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         sellingPrice,
         showCheckInTime,
         showCheckOutTime,
+        images: rawImages,
         ...row
       }) => ({
         ...row,
@@ -586,6 +587,13 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
         internalCost: internalCost.toNumber(),
         sellingPrice: sellingPrice.toNumber(),
+        // Legacy rows store NULL in the Json column; normalize to [] so the
+        // snapshot stays valid for every copy/revision path.
+        images: (Array.isArray(rawImages) ? rawImages : []) as Array<{
+          url: string;
+          thumbnailUrl?: string | null;
+          alt?: string | null;
+        }>,
       }),
     ),
     services: source.services.map(
@@ -1267,6 +1275,9 @@ export const quotationsService = {
             ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
             internalCost: internalCost?.toNumber(),
             sellingPrice: sellingPrice?.toNumber(),
+            // Template hotel options have no images column; keep the shared
+            // hotel schema shape valid on apply.
+            images: [],
           }),
         ),
         services: template.services.map(
