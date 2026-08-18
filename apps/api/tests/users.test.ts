@@ -262,13 +262,14 @@ describe('Owner set password', () => {
   it('rejects an invalid password', async () => {
     const { c, manager } = await setup();
     const target = await createManagedUser(c, manager.id);
+    const before = (await db.user.findUniqueOrThrow({ where: { id: target.id } })).passwordHash;
     const res = await c.post(`/api/users/${target.id}/set-password`, {
       password: 'short',
     });
     expect(res.status).toBe(400);
-    // Nothing was changed.
+    // Nothing was changed: the stored hash is unchanged.
     const stored = await db.user.findUniqueOrThrow({ where: { id: target.id } });
-    expect(stored.passwordHash).toContain('OldPass@2026');
+    expect(stored.passwordHash).toBe(before);
   });
 
   it('never exposes the password in the API response', async () => {
