@@ -2393,12 +2393,27 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   const range = doc.bufferedPageRange();
   const total = range.count;
-  for (let i = 0; i < total; i += 1) {
-    doc.switchToPage(range.start + i);
-    doc.page.margins.bottom = 0; // critical: prevents auto-pagination
-    const pageHeight = pageMetrics[i]?.pageHeight ?? doc.page.height;
-    const footerTop = pageMetrics[i]?.footerTop ?? pageHeight - BOTTOM_M - FOOTER_H;
-    drawPageFooter(doc, company, i + 1, total, footerTop, pageHeight);
+  // The footer pass must add zero pages. PDFKit's text() creates a new page
+  // whenever a footer line is positioned below the page's maxY, which happened
+  // on sparse pages whose planned per-page metrics were misaligned with the
+  // physical pages (the body pass can auto-create pages). Neutralize page
+  // creation for the duration of the pass so no footer draw call can ever
+  // paginate, then restore the real implementation.
+  const realAddPage = doc.addPage.bind(doc);
+  doc.addPage = (() => doc) as unknown as typeof doc.addPage;
+  try {
+    for (let i = 0; i < total; i += 1) {
+      doc.switchToPage(range.start + i);
+      doc.page.margins.bottom = 0; // critical: prevents auto-pagination
+      // Anchor the footer to the ACTUAL physical page height (not the planned
+      // per-page metrics array), so every footer element stays inside the page
+      // bounds and never flows onto a new page.
+      const pageHeight = doc.page.height;
+      const footerTop = pageHeight - BOTTOM_M - FOOTER_H;
+      drawPageFooter(doc, company, i + 1, total, footerTop, pageHeight);
+    }
+  } finally {
+    doc.addPage = realAddPage;
   }
   const pageCountAfterFooter = doc.bufferedPageRange().count;
   if (pageCountAfterFooter !== total) {

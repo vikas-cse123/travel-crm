@@ -1359,6 +1359,112 @@ describe('PDF rendering with long content', () => {
     );
   });
 
+  it('keeps the page count unchanged when the footer is drawn on a long, sparse multi-page document', async () => {
+    // A long quotation with many hotels and many sparse (short) itinerary-day
+    // pages. The footer pass previously drew below a sparse page's physical
+    // height, PDFKit paginated, and the page-count guard threw (23 -> 54 in
+    // production). The footer pass must add zero pages.
+    const hotels = Array.from({ length: 40 }, (_, index) => ({
+      city: `City ${index + 1}`,
+      hotelName: `Grand Luxury Hotel & Resort Number ${index + 1} International`,
+      category: '5 Star',
+      roomType: 'Deluxe King Room with Sea View and Balcony',
+      mealPlan: 'Breakfast Included',
+      rooms: 2,
+      nights: 3,
+      selected: true,
+      checkInDate: new Date('2026-11-01'),
+      checkOutDate: new Date('2026-11-04'),
+      notes: 'A fairly long remark describing the stay details for the traveller.',
+    }));
+    const days = Array.from({ length: 30 }, (_, index) => ({
+      dayNumber: index + 1,
+      title: `Day ${index + 1} in the itinerary for this long quotation`,
+      date: new Date(`2026-11-${String(index + 1).padStart(2, '0')}`),
+      meals: { breakfast: true },
+      activities: [
+        {
+          name: `Morning activity ${index + 1}`,
+          description: 'A short description.',
+          startTime: '09:00',
+          transfer: 'PRIVATE',
+        },
+      ],
+    }));
+    // A successful render means the internal page-count guard passed, i.e. the
+    // page count before the footer pass equals the page count after it.
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-LONGFOOTER-0001',
+        customerName: 'Long Sparse Trip',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Singapore',
+        travelStartDate: new Date('2026-11-13'),
+        travelEndDate: new Date('2026-11-18'),
+        adults: 2,
+        childrenWithBed: 1,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Singapore Long Sparse Package',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '80000',
+        notes: null,
+        perAdultPrice: '35000',
+        perChildWithBedPrice: '10000',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: 'Inclusive of all taxes, excluding TCS',
+        initialPaymentAmount: '20000',
+        paymentLink: null,
+        inclusionsHtml: '<ul><li>Transfers</li><li>Breakfast</li></ul>',
+        exclusionsHtml: null,
+        paymentPolicies: '<p>Pay early.</p>',
+        cancellationPolicies: '<p>Cancellation applies.</p>',
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Tours',
+          amount: 0,
+          description: null,
+          days,
+        },
+        hotels,
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    const count = pageCount(pdf);
+    expect(count).toBeGreaterThan(20);
+    // Every page still has real content (footer + body) — no trailing or
+    // interleaved blank pages were introduced by the footer pass.
+    const pages = pageWordBoxes(pdf);
+    expect(pages.length).toBe(count);
+    expect(pages.every((page) => page.words.length > 0)).toBe(true);
+    // The final page is the content-sized thank-you page, not a blank page.
+    expect(pdfTextPage(pdf, count)).toContain('THANK');
+  });
+
   it('reserves a footer-safe zone below the content bottom limit', () => {
     // Content must stop before the footer divider on every measured page.
     const fullContentHeight = CONTENT_BOTTOM_LIMIT - PDF_TOP_MARGIN;
