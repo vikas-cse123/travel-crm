@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
-  AIRLINE_LOGO_MIME_TYPES,
+  type AIRLINE_LOGO_MIME_TYPES,
   MASTER_TYPE,
   PERMISSIONS,
   countryNameForCode,
@@ -479,8 +479,7 @@ export const airlinesService = {
       redirect: 'follow',
       signal: AbortSignal.timeout(LOGO_IMPORT_TIMEOUT_MS),
     });
-    if (!response.ok)
-      throw new ValidationError('The remote airline logo could not be downloaded.');
+    if (!response.ok) throw new ValidationError('The remote airline logo could not be downloaded.');
     const body = Buffer.from(await response.arrayBuffer());
     if (!body.length) throw new ValidationError('The remote airline logo is empty.');
     const max = LOGO_IMPORT_MAX_BYTES;

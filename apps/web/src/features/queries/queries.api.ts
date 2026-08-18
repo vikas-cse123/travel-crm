@@ -113,7 +113,7 @@ export interface Lead {
     quotationId: string;
     publicUrl: string | null;
     isGenerated: boolean;
-    totalViews: number;
+    externalViews: number;
   } | null;
   bookingSummary?: {
     bookingId: string;

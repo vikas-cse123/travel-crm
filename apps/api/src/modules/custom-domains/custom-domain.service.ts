@@ -38,9 +38,9 @@ export async function resolveCustomDomain(hostname: string): Promise<CustomDomai
   return { hostname: normalized, companyId: domain.companyId };
 }
 
-/** First-party platform hostnames (WEB_URL/API_URL), lower-cased. */
+/** First-party platform hostnames (WEB_URL/API_URL/PUBLIC_SLUG_BASE_URL), lower-cased. */
 function platformHostnames(): string[] {
-  return [env.WEB_URL, env.API_URL]
+  return [env.WEB_URL, env.API_URL, env.PUBLIC_SLUG_BASE_URL]
     .map((url) => {
       try {
         return new URL(url).hostname.toLowerCase();
@@ -58,18 +58,36 @@ export function isPlatformHostname(hostname: string): boolean {
   return platformHostnames().includes(normalized) || isReservedHostname(normalized);
 }
 
+/** ACTIVE custom-domain hostname for a company, or null when none exists. */
+async function activeCustomDomainHostname(companyId: string): Promise<string | null> {
+  const active = await prisma.customDomain.findFirst({
+    where: { companyId, status: 'ACTIVE' },
+    select: { hostname: true },
+  });
+  return active?.hostname ?? null;
+}
+
 /**
  * Preferred customer-facing app base URL for a company: the ACTIVE custom
  * domain hostname when one exists, else the platform WEB_URL. This is the
  * single source of truth for generating new public quotation links.
  */
 export async function preferredPublicAppBaseUrl(companyId: string): Promise<string> {
-  const active = await prisma.customDomain.findFirst({
-    where: { companyId, status: 'ACTIVE' },
-    select: { hostname: true },
-  });
-  if (active?.hostname) return `https://${active.hostname}`;
+  const hostname = await activeCustomDomainHostname(companyId);
+  if (hostname) return `https://${hostname}`;
   return env.WEB_URL.replace(/\/$/, '');
+}
+
+/**
+ * Public base URL for friendly quotation slugs (`/<publicSlug>`) for a company.
+ * An ACTIVE custom domain wins; otherwise the apex marketing domain
+ * (PUBLIC_SLUG_BASE_URL). This is deliberately NOT the app-domain fallback that
+ * `preferredPublicAppBaseUrl` uses — slug fallback must stay on the apex.
+ */
+export async function friendlyPublicSlugBaseUrl(companyId: string): Promise<string> {
+  const hostname = await activeCustomDomainHostname(companyId);
+  if (hostname) return `https://${hostname}`;
+  return env.PUBLIC_SLUG_BASE_URL.replace(/\/$/, '');
 }
 
 /**

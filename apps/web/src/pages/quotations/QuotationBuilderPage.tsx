@@ -1250,7 +1250,8 @@ export function QuotationBuilderPage() {
         ? version.hotels.map((row, index) => {
             const matchingStay =
               leadHotelRows.find(
-                (stay) => (stay.city ?? '').trim().toLowerCase() === (row.city ?? '').trim().toLowerCase(),
+                (stay) =>
+                  (stay.city ?? '').trim().toLowerCase() === (row.city ?? '').trim().toLowerCase(),
               ) ?? leadHotelRows[index];
             return {
               ...row,
@@ -1270,20 +1271,20 @@ export function QuotationBuilderPage() {
               // the single hotel stay so the per-stay image manager and PDF
               // selection keep working. Rows that already carry their own
               // images (newer saves) are left untouched.
-              images: (
-                Array.isArray(row.images) && row.images.length > 0
-                  ? row.images
-                  : version.hotels.length === 1 && Array.isArray(version.hotelDetails?.images)
-                    ? version.hotelDetails.images.map((image) => ({
-                        url: image.url,
-                        thumbnailUrl: null,
-                        alt: image.alt ?? null,
-                      }))
-                    : row.images ?? []
-              ) as NonNullable<QuotationVersionInput['hotels']>[number]['images'],
+              images: (Array.isArray(row.images) && row.images.length > 0
+                ? row.images
+                : version.hotels.length === 1 && Array.isArray(version.hotelDetails?.images)
+                  ? version.hotelDetails.images.map((image) => ({
+                      url: image.url,
+                      thumbnailUrl: null,
+                      alt: image.alt ?? null,
+                    }))
+                  : (row.images ?? [])) as NonNullable<
+                QuotationVersionInput['hotels']
+              >[number]['images'],
               pdfImageUrl:
                 row.pdfImageUrl ??
-                (version.hotels.length === 1 ? version.hotelDetails?.pdfImageUrl ?? null : null),
+                (version.hotels.length === 1 ? (version.hotelDetails?.pdfImageUrl ?? null) : null),
             };
           })
         : autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? []),
@@ -2160,7 +2161,10 @@ export function QuotationBuilderPage() {
               aria-label={`${expandedHotels[rowId] ? 'Collapse' : 'Expand'} hotel stay ${index + 1}`}
               title={`${expandedHotels[rowId] ? 'Collapse' : 'Expand'} hotel stay ${index + 1}`}
               onClick={() =>
-                setExpandedHotels((current) => ({ ...current, [rowId]: !(current[rowId] ?? false) }))
+                setExpandedHotels((current) => ({
+                  ...current,
+                  [rowId]: !(current[rowId] ?? false),
+                }))
               }
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
             >
@@ -2232,232 +2236,237 @@ export function QuotationBuilderPage() {
 
         {(expandedHotels[rowId] ?? false) && (
           <>
-        <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-               <HotelMasterFields
-                canCost={canCost}
-                preferredCity={hotel?.city ?? undefined}
-                showLabels
-                value={{
-                  hotelId: hotel?.hotelId,
-                  hotelRoomTypeId: hotel?.hotelRoomTypeId,
-                  hotelMealPlanId: hotel?.hotelMealPlanId,
-                }}
-                roomTypeText={hotel?.roomType}
-                mealPlanText={hotel?.mealPlan}
-                hotelNameText={hotel?.hotelName}
-                onChange={(patch) => applyHotel(index, patch)}
+            <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <HotelMasterFields
+                    canCost={canCost}
+                    preferredCity={hotel?.city ?? undefined}
+                    showLabels
+                    value={{
+                      hotelId: hotel?.hotelId,
+                      hotelRoomTypeId: hotel?.hotelRoomTypeId,
+                      hotelMealPlanId: hotel?.hotelMealPlanId,
+                    }}
+                    roomTypeText={hotel?.roomType}
+                    mealPlanText={hotel?.mealPlan}
+                    hotelNameText={hotel?.hotelName}
+                    onChange={(patch) => applyHotel(index, patch)}
+                  />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-5">
+                  <label className="text-sm font-semibold text-slate-800">
+                    City
+                    <input
+                      aria-label="Hotel city"
+                      value={hotel?.city ?? ''}
+                      readOnly
+                      className={`${field} mt-1 bg-slate-100`}
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Check-In <span className="text-red-500">*</span>
+                    <input
+                      aria-label="Hotel check-in"
+                      type="date"
+                      value={toDate(hotel?.checkInDate)}
+                      onChange={(event) =>
+                        setStayDate(
+                          'checkInDate',
+                          event.target.value ? new Date(event.target.value) : null,
+                        )
+                      }
+                      className={`${field} mt-1`}
+                    />
+                    <input
+                      {...form.register(`hotels.${index}.checkInTime`)}
+                      aria-label="Hotel check-in time"
+                      type="time"
+                      value={hotel?.checkInTime ?? ''}
+                      onChange={(event) => {
+                        const time = event.target.value || null;
+                        form.setValue(`hotels.${index}.checkInTime`, time, {
+                          shouldDirty: true,
+                        });
+                        form.setValue(`hotels.${index}.showCheckInTime`, Boolean(time), {
+                          shouldDirty: true,
+                        });
+                      }}
+                      className={`${field} mt-1`}
+                    />
+                    <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
+                      <input
+                        type="checkbox"
+                        aria-label="Hotel check-in include time in PDF and weblink"
+                        checked={hotel?.showCheckInTime === true}
+                        onChange={(event) =>
+                          form.setValue(`hotels.${index}.showCheckInTime`, event.target.checked, {
+                            shouldDirty: true,
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      Include time in PDF and weblink
+                    </span>
+                  </label>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Check-Out <span className="text-red-500">*</span>
+                    <input
+                      aria-label="Hotel check-out"
+                      type="date"
+                      value={toDate(hotel?.checkOutDate)}
+                      onChange={(event) =>
+                        setStayDate(
+                          'checkOutDate',
+                          event.target.value ? new Date(event.target.value) : null,
+                        )
+                      }
+                      className={`${field} mt-1`}
+                    />
+                    <input
+                      {...form.register(`hotels.${index}.checkOutTime`)}
+                      aria-label="Hotel check-out time"
+                      type="time"
+                      value={hotel?.checkOutTime ?? ''}
+                      onChange={(event) => {
+                        const time = event.target.value || null;
+                        form.setValue(`hotels.${index}.checkOutTime`, time, {
+                          shouldDirty: true,
+                        });
+                        form.setValue(`hotels.${index}.showCheckOutTime`, Boolean(time), {
+                          shouldDirty: true,
+                        });
+                      }}
+                      className={`${field} mt-1`}
+                    />
+                    <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
+                      <input
+                        type="checkbox"
+                        aria-label="Hotel check-out include time in PDF and weblink"
+                        checked={hotel?.showCheckOutTime === true}
+                        onChange={(event) =>
+                          form.setValue(`hotels.${index}.showCheckOutTime`, event.target.checked, {
+                            shouldDirty: true,
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      Include time in PDF and weblink
+                    </span>
+                  </label>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Nights
+                    <input
+                      aria-label="Hotel nights"
+                      readOnly
+                      value={String(displayNights)}
+                      className={`${field} mt-1 bg-slate-100`}
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Number of Rooms
+                    <input
+                      aria-label="Hotel number of rooms"
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      {...form.register(`hotels.${index}.rooms`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
+                      className={`${field} mt-1`}
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Remark
+                    <input
+                      aria-label="Hotel remark"
+                      placeholder="e.g. additional bed, flower arrangement"
+                      {...form.register(`hotels.${index}.notes`)}
+                      className={`${field} mt-1`}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <HotelPreview
+                hotelId={hotel?.hotelId}
+                snapshotImageUrl={hotel?.hotelName ? hotel?.images?.[0]?.url : undefined}
+                snapshotThumbnailUrl={
+                  hotel?.hotelName ? hotel?.images?.[0]?.thumbnailUrl : undefined
+                }
               />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-5">
-              <label className="text-sm font-semibold text-slate-800">
-                City
-                <input
-                  aria-label="Hotel city"
-                  value={hotel?.city ?? ''}
-                  readOnly
-                  className={`${field} mt-1 bg-slate-100`}
-                />
-              </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Check-In <span className="text-red-500">*</span>
-                <input
-                  aria-label="Hotel check-in"
-                  type="date"
-                  value={toDate(hotel?.checkInDate)}
-                  onChange={(event) =>
-                    setStayDate(
-                      'checkInDate',
-                      event.target.value ? new Date(event.target.value) : null,
-                    )
-                  }
-                  className={`${field} mt-1`}
-                />
-                <input
-                  {...form.register(`hotels.${index}.checkInTime`)}
-                  aria-label="Hotel check-in time"
-                  type="time"
-                  value={hotel?.checkInTime ?? ''}
-                  onChange={(event) => {
-                    const time = event.target.value || null;
-                    form.setValue(`hotels.${index}.checkInTime`, time, {
-                      shouldDirty: true,
-                    });
-                    form.setValue(`hotels.${index}.showCheckInTime`, Boolean(time), {
-                      shouldDirty: true,
-                    });
-                  }}
-                  className={`${field} mt-1`}
-                />
-                <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
-                  <input
-                    type="checkbox"
-                    aria-label="Hotel check-in include time in PDF and weblink"
-                    checked={hotel?.showCheckInTime === true}
-                    onChange={(event) =>
-                      form.setValue(`hotels.${index}.showCheckInTime`, event.target.checked, {
-                        shouldDirty: true,
-                      })
-                    }
-                    className="mt-0.5"
-                  />
-                  Include time in PDF and weblink
-                </span>
-              </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Check-Out <span className="text-red-500">*</span>
-                <input
-                  aria-label="Hotel check-out"
-                  type="date"
-                  value={toDate(hotel?.checkOutDate)}
-                  onChange={(event) =>
-                    setStayDate(
-                      'checkOutDate',
-                      event.target.value ? new Date(event.target.value) : null,
-                    )
-                  }
-                  className={`${field} mt-1`}
-                />
-                <input
-                  {...form.register(`hotels.${index}.checkOutTime`)}
-                  aria-label="Hotel check-out time"
-                  type="time"
-                  value={hotel?.checkOutTime ?? ''}
-                  onChange={(event) => {
-                    const time = event.target.value || null;
-                    form.setValue(`hotels.${index}.checkOutTime`, time, {
-                      shouldDirty: true,
-                    });
-                    form.setValue(`hotels.${index}.showCheckOutTime`, Boolean(time), {
-                      shouldDirty: true,
-                    });
-                  }}
-                  className={`${field} mt-1`}
-                />
-                <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
-                  <input
-                    type="checkbox"
-                    aria-label="Hotel check-out include time in PDF and weblink"
-                    checked={hotel?.showCheckOutTime === true}
-                    onChange={(event) =>
-                      form.setValue(`hotels.${index}.showCheckOutTime`, event.target.checked, {
-                        shouldDirty: true,
-                      })
-                    }
-                    className="mt-0.5"
-                  />
-                  Include time in PDF and weblink
-                </span>
-              </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Nights
-                <input
-                  aria-label="Hotel nights"
-                  readOnly
-                  value={String(displayNights)}
-                  className={`${field} mt-1 bg-slate-100`}
-                />
-              </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Number of Rooms
-                <input
-                  aria-label="Hotel number of rooms"
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  {...form.register(`hotels.${index}.rooms`, {
-                    setValueAs: (value) => (value === '' ? null : Number(value)),
-                  })}
-                  className={`${field} mt-1`}
-                />
-              </label>
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-slate-800">
-                Remark
-                <input
-                  aria-label="Hotel remark"
-                  placeholder="e.g. additional bed, flower arrangement"
-                  {...form.register(`hotels.${index}.notes`)}
-                  className={`${field} mt-1`}
-                />
-              </label>
-            </div>
-          </div>
-
-          <HotelPreview
-            hotelId={hotel?.hotelId}
-            snapshotImageUrl={hotel?.hotelName ? hotel?.images?.[0]?.url : undefined}
-            snapshotThumbnailUrl={hotel?.hotelName ? hotel?.images?.[0]?.thumbnailUrl : undefined}
-          />
-        </div>
-
-        {/* Per-stay bookmark image manager: this hotel stay owns its own image
+            {/* Per-stay bookmark image manager: this hotel stay owns its own image
             order and its own "Use in PDF" selection. */}
-        {Array.isArray(hotel?.images) && hotel.images.length > 0 && (
-          <div className="space-y-2.5 border-t border-slate-200 p-4">
-            <h4 className="text-sm font-semibold text-slate-800">
-              Hotel Images{' '}
-              <span className="font-normal text-slate-400">
-                ({hotel.images.length}) · order saved with the quotation
-              </span>
-            </h4>
-            {hotel.images.map((image, imageIndex) => (
-              <div
-                key={image.url}
-                className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5"
-              >
-                <HotelImageThumb image={image} alt={image.alt ?? `Hotel image ${imageIndex + 1}`} />
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={imageIndex === 0}
-                    aria-label={`Move hotel image ${imageIndex + 1} left`}
-                    onClick={() => moveHotelImage(index, imageIndex, -1)}
+            {Array.isArray(hotel?.images) && hotel.images.length > 0 && (
+              <div className="space-y-2.5 border-t border-slate-200 p-4">
+                <h4 className="text-sm font-semibold text-slate-800">
+                  Hotel Images{' '}
+                  <span className="font-normal text-slate-400">
+                    ({hotel.images.length}) · order saved with the quotation
+                  </span>
+                </h4>
+                {hotel.images.map((image, imageIndex) => (
+                  <div
+                    key={image.url}
+                    className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5"
                   >
-                    <ArrowLeft className="h-4 w-4" /> Move Left
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={imageIndex === hotel.images.length - 1}
-                    aria-label={`Move hotel image ${imageIndex + 1} right`}
-                    onClick={() => moveHotelImage(index, imageIndex, 1)}
-                  >
-                    Move Right <ArrowRight className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Remove hotel image ${imageIndex + 1}`}
-                    onClick={() => removeHotelImage(index, imageIndex)}
-                  >
-                    <X className="h-4 w-4" /> Remove
-                  </Button>
-                </div>
-                <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-sm">
-                  <input
-                    type="radio"
-                    name={`hotel-${index}-pdf-image`}
-                    aria-label={`Use hotel image ${imageIndex + 1} in PDF`}
-                    checked={hotel.pdfImageUrl === image.url}
-                    onChange={() => setHotelPdfImage(index, image.url)}
-                    className="accent-brand-600"
-                  />
-                   Use in PDF
-                </label>
+                    <HotelImageThumb
+                      image={image}
+                      alt={image.alt ?? `Hotel image ${imageIndex + 1}`}
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={imageIndex === 0}
+                        aria-label={`Move hotel image ${imageIndex + 1} left`}
+                        onClick={() => moveHotelImage(index, imageIndex, -1)}
+                      >
+                        <ArrowLeft className="h-4 w-4" /> Move Left
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={imageIndex === hotel.images.length - 1}
+                        aria-label={`Move hotel image ${imageIndex + 1} right`}
+                        onClick={() => moveHotelImage(index, imageIndex, 1)}
+                      >
+                        Move Right <ArrowRight className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        aria-label={`Remove hotel image ${imageIndex + 1}`}
+                        onClick={() => removeHotelImage(index, imageIndex)}
+                      >
+                        <X className="h-4 w-4" /> Remove
+                      </Button>
+                    </div>
+                    <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-sm">
+                      <input
+                        type="radio"
+                        name={`hotel-${index}-pdf-image`}
+                        aria-label={`Use hotel image ${imageIndex + 1} in PDF`}
+                        checked={hotel.pdfImageUrl === image.url}
+                        onChange={() => setHotelPdfImage(index, image.url)}
+                        className="accent-brand-600"
+                      />
+                      Use in PDF
+                    </label>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
           </>
         )}
       </article>
@@ -2730,9 +2739,9 @@ export function QuotationBuilderPage() {
       const base = `flightDetails.${leg}.segments.${index}`;
       const via =
         index > 0
-          ? ((form.watch(fp(`${base}.from`)) as string) ||
-              (form.watch(fp(`flightDetails.${leg}.segments.${index - 1}.to`)) as string) ||
-              '')
+          ? (form.watch(fp(`${base}.from`)) as string) ||
+            (form.watch(fp(`flightDetails.${leg}.segments.${index - 1}.to`)) as string) ||
+            ''
           : '';
       const departureDate = form.watch(fp(`${base}.departureDate`)) as string | null;
       const departureTime = form.watch(fp(`${base}.departureTime`)) as string | null;

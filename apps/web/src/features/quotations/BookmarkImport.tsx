@@ -504,9 +504,7 @@ export function BookmarkLoadField({
         </p>
       ) : null}
       {failedCodes.length ? (
-        <p className="text-xs text-red-600">
-          Not found or no access: {failedCodes.join(', ')}
-        </p>
+        <p className="text-xs text-red-600">Not found or no access: {failedCodes.join(', ')}</p>
       ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
@@ -578,11 +576,7 @@ export function HotelBookmarkListField({
         />
       </label>
       {status ? (
-        <p
-          className={
-            status.ok ? 'text-sm font-medium text-emerald-600' : 'text-xs text-red-600'
-          }
-        >
+        <p className={status.ok ? 'text-sm font-medium text-emerald-600' : 'text-xs text-red-600'}>
           {status.ok ? `✓ Loaded ${status.code}` : `Bookmark not found: ${status.code}`}
         </p>
       ) : null}

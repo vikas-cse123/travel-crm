@@ -1181,7 +1181,14 @@ function HotelImageCarousel({
 }
 
 export function PublicQuotationPage() {
-  const { token = '' } = useParams();
+  const { token = '', slug = '' } = useParams();
+  // Friendly `travelagencycrm.in/<slug>` alias vs the legacy `/q/<token>` path.
+  // Both render this same page; only the API endpoint differs.
+  const isSlug = Boolean(slug);
+  const identifier = isSlug ? slug : token;
+  const publicPath = isSlug
+    ? `/api/public/quotations/by-slug/${encodeURIComponent(slug)}`
+    : `/api/public/quotations/${encodeURIComponent(token)}`;
   const [data, setData] = useState<PublicQuotation | null>(null);
   const [error, setError] = useState('');
   // Public Policies accordion: only one section is open at a time; Inclusions
@@ -1202,21 +1209,23 @@ export function PublicQuotationPage() {
   // Tab title mirrors the quotation title once loaded (fallback: "Quotation").
   useDocumentTitle(data?.version.title);
   useEffect(() => {
-    void publicRequest<PublicQuotation>(`/api/public/quotations/${encodeURIComponent(token)}`)
+    void publicRequest<PublicQuotation>(publicPath)
       .then((value) => {
         setData(value);
       })
       .catch((value: unknown) =>
         setError(value instanceof Error ? value.message : 'Quotation unavailable.'),
       );
-  }, [token]);
+  }, [publicPath]);
 
   // Best-effort visitor telemetry: an initial snapshot on load plus a final
   // scroll/time beacon on leave. Fully client-derived (device, screen, locale,
   // referrer, UTM); the server adds IP, User-Agent parsing and geolocation.
   useEffect(() => {
-    if (!token) return;
-    const trackUrl = `/api/public/quotations/${encodeURIComponent(token)}/track`;
+    if (!identifier) return;
+    const trackUrl = isSlug
+      ? `/api/public/quotations/by-slug/${encodeURIComponent(slug)}/track`
+      : `/api/public/quotations/${encodeURIComponent(token)}/track`;
     let maxScroll = 0;
     let wasScrollable = false;
     let ctaClicks = 0;
@@ -1343,7 +1352,7 @@ export function PublicQuotationPage() {
       if (document.visibilityState === 'visible') activeMs += Date.now() - lastResume;
       send(true);
     };
-  }, [token]);
+  }, [token, slug, isSlug]);
   if (error)
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
@@ -1727,8 +1736,7 @@ export function PublicQuotationPage() {
                   const sectionImages = Array.isArray(v.hotelDetails?.images)
                     ? v.hotelDetails.images
                     : [];
-                  const snapshotImages =
-                    perStayImages.length > 0 ? perStayImages : sectionImages;
+                  const snapshotImages = perStayImages.length > 0 ? perStayImages : sectionImages;
                   const snapshotImageUrl = snapshotImages[0]?.url ?? null;
                   const cardImageUrl = presentation?.imageUrl ?? snapshotImageUrl;
                   // Star rating comes from Hotel Master only (0–5). Never fall back

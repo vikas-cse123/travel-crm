@@ -33,7 +33,12 @@ const flightBookmark = {
   title: 'DEL → SIN',
   currency: 'INR',
   createdAt: '2026-08-16T10:00:00.000Z',
-  searchParams: { departure_id: 'DEL', arrival_id: 'SIN', outbound_date: '2026-09-05', currency: 'INR' },
+  searchParams: {
+    departure_id: 'DEL',
+    arrival_id: 'SIN',
+    outbound_date: '2026-09-05',
+    currency: 'INR',
+  },
   snapshot: {
     flight: {
       airline: 'Air India',
@@ -77,7 +82,10 @@ const hotelBookmark = {
       pricePerNight: { price: '₹25,000', extracted_price: 25000 },
       totalPrice: { price: '₹50,000', extracted_price: 50000 },
       images: [
-        { thumbnail: 'https://img.example.com/a.jpg', original: 'https://img.example.com/a-orig.jpg' },
+        {
+          thumbnail: 'https://img.example.com/a.jpg',
+          original: 'https://img.example.com/a-orig.jpg',
+        },
         { thumbnail: 'https://img.example.com/b.jpg' },
       ],
       checkInTime: '2:00 PM',
@@ -94,7 +102,12 @@ function stubFetch(handlers: Record<string, ReturnType<typeof success>>, calls: 
       calls.push(url);
       const match = Object.entries(handlers).find(([path]) => url.includes(path));
       if (!match) {
-        return { ok: true, status: 200, statusText: 'OK', json: async () => ({ success: true, data: {} }) };
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ success: true, data: {} }),
+        };
       }
       return match[1];
     }),
@@ -120,7 +133,12 @@ function stubBookmarkFetch(bookmarks: unknown[], calls: string[]) {
       if (url.includes('/api/search/bookmarks')) {
         return success(bookmarks);
       }
-      return { ok: true, status: 200, statusText: 'OK', json: async () => ({ success: true, data: {} }) };
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ success: true, data: {} }),
+      };
     }),
   );
 }
@@ -307,7 +325,12 @@ describe('BookmarksPage', () => {
           segments: [
             {
               departure_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-15', time: '09:05' },
-              arrival_airport: { name: 'Singapore Changi', id: 'SIN', date: '2026-09-15', time: '17:45' },
+              arrival_airport: {
+                name: 'Singapore Changi',
+                id: 'SIN',
+                date: '2026-09-15',
+                time: '17:45',
+              },
               duration: 370,
               airplane: 'A320neo',
               airline: 'IndiGo',
@@ -510,7 +533,9 @@ describe('BookmarksPage', () => {
       await user.type(screen.getByLabelText('Saved date to'), '2026-08-12');
       await user.click(screen.getByRole('button', { name: 'Apply' }));
 
-      expect(await screen.findByText('From date must be on or before the To date.')).toBeInTheDocument();
+      expect(
+        await screen.findByText('From date must be on or before the To date.'),
+      ).toBeInTheDocument();
       // Nothing was filtered out.
       expect(screen.getByText('DEL → SIN bm-f1')).toBeInTheDocument();
       expect(screen.getByText('DEL → SIN bm-f2')).toBeInTheDocument();

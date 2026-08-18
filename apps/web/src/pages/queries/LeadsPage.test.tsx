@@ -1381,7 +1381,7 @@ function weblinkLead(overrides: Record<string, unknown> = {}) {
       quotationId: 'quote-1',
       publicUrl: 'http://localhost:5173/q/token1234567890abcdef',
       isGenerated: true,
-      totalViews: 0,
+      externalViews: 0,
     },
     actions: { ...enrichedLead.actions, canCreateWeblink: true },
     ...overrides,
@@ -1454,7 +1454,7 @@ describe('Lead weblink column', () => {
   });
 
   it('renders the joined View + eye group with a real count', async () => {
-    stubWeblinkList([weblinkLead({ weblink: { ...weblinkLead().weblink, totalViews: 5 } })]);
+    stubWeblinkList([weblinkLead({ weblink: { ...weblinkLead().weblink, externalViews: 5 } })]);
     renderWithProviders(<LeadsPage />);
     const view = await screen.findByRole('link', { name: /View quotation weblink/ });
     expect(view).toHaveAttribute('href', 'http://localhost:5173/q/token1234567890abcdef');
@@ -1523,9 +1523,9 @@ describe('Lead weblink column', () => {
     const eye = await screen.findByRole('button', { name: /Weblink view analytics/ });
     await userEvent.click(eye);
     await screen.findByRole('dialog', { name: /Weblink View Analytics/ });
-    // The modal's analytics returns totalViews 3; the row badge catches up.
+    // The modal's analytics returns externalViews 2; the row badge catches up.
     const badge = screen.getByRole('button', { name: /Weblink view analytics/ });
-    await waitFor(() => expect(badge).toHaveTextContent('3'));
+    await waitFor(() => expect(badge).toHaveTextContent('2'));
   });
 
   it('shows an empty state and zero cards when there are no views', async () => {

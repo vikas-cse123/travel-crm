@@ -11,7 +11,7 @@ const RESERVED_PLATFORM_HOSTS = new Set<string>();
 
 function reservedPlatformHosts(): Set<string> {
   if (RESERVED_PLATFORM_HOSTS.size === 0) {
-    for (const url of [env.WEB_URL, env.API_URL]) {
+    for (const url of [env.WEB_URL, env.API_URL, env.PUBLIC_SLUG_BASE_URL]) {
       try {
         const host = new URL(url).hostname.toLowerCase();
         if (host) RESERVED_PLATFORM_HOSTS.add(host);

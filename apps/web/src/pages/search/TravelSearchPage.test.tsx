@@ -563,7 +563,7 @@ describe('TravelSearchPage', () => {
     const { user } = renderPage();
     await runHotelSearch(user, 'Lucknow');
 
-    let img = screen.getByAltText('Hotel 0') as HTMLImageElement;
+    const img = screen.getByAltText('Hotel 0') as HTMLImageElement;
     fireEventError(img);
     await waitFor(() => {
       expect(screen.getByText('No images available')).toBeInTheDocument();
@@ -1635,7 +1635,12 @@ describe('TravelSearchPage validation & filters', () => {
         {
           flights: [
             {
-              departure_airport: { name: 'Singapore', id: 'SIN', date: '2026-11-20', time: '10:00' },
+              departure_airport: {
+                name: 'Singapore',
+                id: 'SIN',
+                date: '2026-11-20',
+                time: '10:00',
+              },
               arrival_airport: { name: 'Delhi', id: 'DEL', date: '2026-11-20', time: '18:00' },
               duration: 480,
               airplane: 'A321',

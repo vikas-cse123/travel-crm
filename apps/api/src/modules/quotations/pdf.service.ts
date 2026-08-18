@@ -882,7 +882,12 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
    * exact measurement the render pass will use. Shared by the single-block and
    * page-splitting flow builders so measured and drawn text always match.
    */
-  const layoutRichLine = (line: PdfRichTextLine, width: number, size: number, gap: number): LineLayout => {
+  const layoutRichLine = (
+    line: PdfRichTextLine,
+    width: number,
+    size: number,
+    gap: number,
+  ): LineLayout => {
     const parts: Array<{ value: string; bold: boolean; emoji?: Buffer }> = [];
     for (const run of line) {
       let cursor = 0;

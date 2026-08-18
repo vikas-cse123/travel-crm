@@ -120,12 +120,8 @@ function buildFlightBookmark(
       departure_airport: {
         name: segment.departure_airport?.name ?? '—',
         id: segment.departure_airport?.id ?? '—',
-        ...(segment.departure_airport?.date
-          ? { date: segment.departure_airport.date }
-          : {}),
-        ...(segment.departure_airport?.time
-          ? { time: segment.departure_airport.time }
-          : {}),
+        ...(segment.departure_airport?.date ? { date: segment.departure_airport.date } : {}),
+        ...(segment.departure_airport?.time ? { time: segment.departure_airport.time } : {}),
       },
       arrival_airport: {
         name: segment.arrival_airport?.name ?? '—',
@@ -141,9 +137,7 @@ function buildFlightBookmark(
       flight_number: segment.flight_number ?? '—',
       ...(segment.is_overnight ? { is_overnight: segment.is_overnight } : {}),
       ...(segment.extensions ? { extensions: segment.extensions } : {}),
-      ...(segment.detected_extensions
-        ? { detected_extensions: segment.detected_extensions }
-        : {}),
+      ...(segment.detected_extensions ? { detected_extensions: segment.detected_extensions } : {}),
     })) ?? [];
 
   const first = segments[0];
@@ -163,9 +157,7 @@ function buildFlightBookmark(
 
   const flight: FlightBookmarkSnapshot = {
     airline: option.flights?.[0]?.airline ?? '—',
-    ...(option.flights?.[0]?.airline_logo
-      ? { airlineLogo: option.flights[0].airline_logo }
-      : {}),
+    ...(option.flights?.[0]?.airline_logo ? { airlineLogo: option.flights[0].airline_logo } : {}),
     flightNumbers: segments.map((s) => s.flight_number).filter(Boolean),
     ...(typeof option.price === 'number' ? { price: option.price } : {}),
     currency,
@@ -227,16 +219,12 @@ function buildHotelBookmark(
     ...(property.images ? { images: property.images } : {}),
     ...(property.city ? { city: property.city } : {}),
     ...(property.country ? { country: property.country } : {}),
-    ...(property.extracted_hotel_class
-      ? { stars: property.extracted_hotel_class }
-      : {}),
+    ...(property.extracted_hotel_class ? { stars: property.extracted_hotel_class } : {}),
     ...(property.rating !== undefined ? { rating: property.rating } : {}),
     ...(property.reviews !== undefined ? { reviews: property.reviews } : {}),
     ...(property.description ? { description: property.description } : {}),
     ...(property.amenities ? { amenities: property.amenities } : {}),
-    ...(property.excluded_amenities
-      ? { excludedAmenities: property.excluded_amenities }
-      : {}),
+    ...(property.excluded_amenities ? { excludedAmenities: property.excluded_amenities } : {}),
     ...(property.essential_info ? { essentialInfo: property.essential_info } : {}),
     ...(property.price_per_night ? { pricePerNight: property.price_per_night } : {}),
     ...(property.total_price ? { totalPrice: property.total_price } : {}),
@@ -244,9 +232,7 @@ function buildHotelBookmark(
     ...(property.check_in_time ? { checkInTime: property.check_in_time } : {}),
     ...(property.check_out_time ? { checkOutTime: property.check_out_time } : {}),
     ...(property.nearby_places ? { nearbyPlaces: property.nearby_places } : {}),
-    ...(property.location_rating !== undefined
-      ? { locationRating: property.location_rating }
-      : {}),
+    ...(property.location_rating !== undefined ? { locationRating: property.location_rating } : {}),
     ...(property.proximity_to_transit_rating !== undefined
       ? { transitRating: property.proximity_to_transit_rating }
       : {}),
@@ -345,7 +331,8 @@ export const bookmarksService = {
         const flight = input.snapshot.flight;
         const first = flight.segments[0];
         const last = flight.segments[flight.segments.length - 1];
-        title = first && last ? `${first.departure_airport.id} → ${last.arrival_airport.id}` : 'Flight';
+        title =
+          first && last ? `${first.departure_airport.id} → ${last.arrival_airport.id}` : 'Flight';
         fingerprint = flightFingerprint(input.searchParams, flight.segments);
         snapshot = { flight, raw: input.snapshot.raw };
       } else {
@@ -385,9 +372,7 @@ export const bookmarksService = {
           Boolean(arrivalId) &&
           flightSegments.some((segment) => segment.departure_airport?.id === arrivalId);
         if (!hasReturn) {
-          throw new ValidationError(
-            'Round-trip flight bookmarks must include a return journey.',
-          );
+          throw new ValidationError('Round-trip flight bookmarks must include a return journey.');
         }
       }
     }

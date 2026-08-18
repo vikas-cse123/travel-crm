@@ -654,7 +654,7 @@ describe('Phase 17 lead workflow parity', () => {
     expect(rowBefore.weblink).toMatchObject({
       quotationId: quotation.id,
       isGenerated: true,
-      totalViews: 0,
+      externalViews: 0,
     });
     expect(rowBefore.weblink.publicUrl).toContain('/q/');
 
@@ -669,7 +669,7 @@ describe('Phase 17 lead workflow parity', () => {
     expect(rowAfter.weblink).toMatchObject({
       quotationId: quotation.id,
       isGenerated: true,
-      totalViews: 1,
+      externalViews: 1,
     });
     expect(rowAfter.weblink.publicUrl).toContain(token);
   });

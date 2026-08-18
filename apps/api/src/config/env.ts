@@ -50,6 +50,10 @@ const envSchema = z.object({
   API_PORT: intWithDefault(4000),
   API_URL: z.string().url().default('http://localhost:4000'),
   WEB_URL: z.string().url().default('http://localhost:5173'),
+  // Apex marketing domain that hosts friendly quotation slugs
+  // (`https://travelagencycrm.in/<publicSlug>`). Distinct from WEB_URL (the
+  // CRM app host) because slugs resolve on the marketing root domain.
+  PUBLIC_SLUG_BASE_URL: z.string().url().default('https://travelagencycrm.in'),
 
   DATABASE_URL: z
     .string()
@@ -153,12 +157,11 @@ const envSchema = z.object({
    * be treated the same as "unset" so the API boots and auth keeps working even
    * when live search is not configured.
    */
-  SEARCHAPI_API_KEY: z
-    .preprocess((value) => (value === '' ? undefined : value), z.string().min(1).optional()),
-  SEARCHAPI_BASE_URL: z
-    .string()
-    .url()
-    .default('https://www.searchapi.io/api/v1/search'),
+  SEARCHAPI_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  SEARCHAPI_BASE_URL: z.string().url().default('https://www.searchapi.io/api/v1/search'),
 
   /**
    * System Global Masters bootstrap credentials. Read ONLY by the

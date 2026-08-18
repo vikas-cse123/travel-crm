@@ -498,11 +498,12 @@ describe('Phase 13B airlines master', () => {
     const airline = (await createAirline(client)).body.data as { id: string };
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(new TextEncoder().encode('not an image'), {
-          status: 200,
-          headers: { 'content-type': 'text/plain' },
-        }),
+      vi.fn(
+        async () =>
+          new Response(new TextEncoder().encode('not an image'), {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+          }),
       ),
     );
     try {

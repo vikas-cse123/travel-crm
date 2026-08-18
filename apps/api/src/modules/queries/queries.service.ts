@@ -21,7 +21,10 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/erro
 import { resolvePagination } from '../../utils/pagination.js';
 import { localDayBounds, zonedTimeToUtc } from '../../utils/timezone.js';
 import { permissionsService } from '../auth/permissions.service.js';
-import { preferredPublicAppBaseUrl } from '../custom-domains/custom-domain.service.js';
+import {
+  preferredPublicAppBaseUrl,
+  friendlyPublicSlugBaseUrl,
+} from '../custom-domains/custom-domain.service.js';
 import { getVisibleCustomer, recalculateCustomerMetrics } from '../customers/customers.service.js';
 import { reminderProcessor } from '../reminders/reminder-processor.service.js';
 
@@ -74,6 +77,7 @@ const leadListInclude = {
       createdAt: true,
       publicToken: true,
       publicTokenExpiresAt: true,
+      publicSlug: true,
       booking: { select: { id: true, bookingNumber: true } },
       versions: {
         orderBy: { versionNumber: 'desc' as const },
@@ -120,7 +124,8 @@ export interface LeadWeblinkSummary {
   quotationId: string;
   publicUrl: string | null;
   isGenerated: boolean;
-  totalViews: number;
+  /** EXTERNAL visitor views only (matches the quotation Weblink Visitors "External" count). */
+  externalViews: number;
 }
 
 /** A quotation is convertible to a booking only when accepted and not yet booked. */
@@ -143,8 +148,9 @@ export function conversionEligible(quotation: {
 export function presentLeadRow(
   value: LeadListRow,
   caps: LeadRowCaps,
-  weblinkViews: Map<string, number> = new Map(),
+  externalViews: Map<string, number> = new Map(),
   preferredPublicBaseUrl = env.WEB_URL.replace(/\/$/, ''),
+  friendlySlugBaseUrl = env.PUBLIC_SLUG_BASE_URL.replace(/\/$/, ''),
 ) {
   const { quotations, bookings, ...rest } = value;
   const base = presentQuery(rest as IncludedQuery);
@@ -185,14 +191,16 @@ export function presentLeadRow(
             latestQuotation.publicToken &&
             (!latestQuotation.publicTokenExpiresAt ||
               latestQuotation.publicTokenExpiresAt >= new Date())
-              ? `${preferredPublicBaseUrl}/q/${latestQuotation.publicToken}`
+              ? latestQuotation.publicSlug
+                ? `${friendlySlugBaseUrl}/${latestQuotation.publicSlug}`
+                : `${preferredPublicBaseUrl}/q/${latestQuotation.publicToken}`
               : null,
           isGenerated: Boolean(
             latestQuotation.publicToken &&
             (!latestQuotation.publicTokenExpiresAt ||
               latestQuotation.publicTokenExpiresAt >= new Date()),
           ),
-          totalViews: weblinkViews.get(latestQuotation.id) ?? 0,
+          externalViews: externalViews.get(latestQuotation.id) ?? 0,
         }
       : null;
 
@@ -651,23 +659,31 @@ export const queriesService = {
       prisma.query.count({ where }),
     ]);
     // One batched aggregation covers every displayed quotation on this page, so
-    // the weblink view counts never trigger a per-row query (no N+1).
+    // the weblink view counts never trigger a per-row query (no N+1). The Leads
+    // WEBLINK badge shows EXTERNAL visits only, matching the quotation's Weblink
+    // Visitors "External" figure.
     const quotationIds = data.flatMap((row) => (row.quotations[0] ? [row.quotations[0].id] : []));
-    const weblinkViews = new Map<string, number>();
+    const externalViews = new Map<string, number>();
     if (quotationIds.length) {
       const grouped = await prisma.quotationWeblinkView.groupBy({
         by: ['quotationId'],
-        where: { companyId: auth.companyId, quotationId: { in: quotationIds } },
+        where: { companyId: auth.companyId, quotationId: { in: quotationIds }, type: 'EXTERNAL' },
         _sum: { viewCount: true },
       });
-      for (const row of grouped) weblinkViews.set(row.quotationId, row._sum.viewCount ?? 0);
+      for (const row of grouped) externalViews.set(row.quotationId, row._sum.viewCount ?? 0);
     }
     // The customer-facing quotation hostname is the company's ACTIVE custom
     // domain when one exists, else the platform WEB_URL. Resolved once per list
-    // so every weblink on the page uses the same preferred hostname.
-    const preferredPublicBaseUrl = await preferredPublicAppBaseUrl(auth.companyId);
+    // so every weblink on the page uses the same preferred hostname. Friendly
+    // slugs resolve to the custom domain when present, else the apex domain.
+    const [preferredPublicBaseUrl, friendlySlugBaseUrl] = await Promise.all([
+      preferredPublicAppBaseUrl(auth.companyId),
+      friendlyPublicSlugBaseUrl(auth.companyId),
+    ]);
     return {
-      data: data.map((row) => presentLeadRow(row, caps, weblinkViews, preferredPublicBaseUrl)),
+      data: data.map((row) =>
+        presentLeadRow(row, caps, externalViews, preferredPublicBaseUrl, friendlySlugBaseUrl),
+      ),
       pagination: { ...p, total, totalPages: total ? Math.ceil(total / p.pageSize) : 0 },
     };
   },

@@ -367,10 +367,7 @@ export function hotelStayNights(
  * plan) never render empty placeholders or dangling separators such as
  * "Deluxe ·" or "· Breakfast".
  */
-export function joinNonEmpty(
-  parts: Array<string | null | undefined>,
-  separator = ' · ',
-): string {
+export function joinNonEmpty(parts: Array<string | null | undefined>, separator = ' · '): string {
   return parts
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter((part) => part.length > 0)

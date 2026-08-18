@@ -3114,6 +3114,11 @@ model Quotation {
   // looks it up by its hash). Cleared on revoke. Kept tenant-side only.
   publicToken          String?         @db.VarChar(64)
   publicTokenExpiresAt DateTime?
+  // Friendly customer-facing weblink alias (e.g. "mohan-singapore") for the
+  // apex domain `travelagencycrm.in/<publicSlug>`. Globally unique across every
+  // tenant; nullable so pre-existing quotations need no backfill. Changing it
+  // never regenerates the public token.
+  publicSlug           String?         @unique @db.VarChar(60)
   firstSentAt          DateTime?
   lastSentAt           DateTime?
   firstViewedAt        DateTime?

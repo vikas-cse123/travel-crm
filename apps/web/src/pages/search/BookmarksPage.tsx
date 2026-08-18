@@ -86,7 +86,11 @@ function BookmarkCode({ code }: { code: string }) {
         onClick={copy}
         className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+        {copied ? (
+          <Check className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3 w-3" aria-hidden="true" />
+        )}
         {copied ? 'Copied' : 'Copy'}
       </button>
     </span>
@@ -94,9 +98,15 @@ function BookmarkCode({ code }: { code: string }) {
 }
 
 /** Image carousel driven entirely by the saved snapshot (no SearchAPI). */
-function BookmarkImages({ images }: { images: { thumbnail?: string; original?: string }[] | undefined }) {
+function BookmarkImages({
+  images,
+}: {
+  images: { thumbnail?: string; original?: string }[] | undefined;
+}) {
   const urls = useMemo(
-    () => images?.map((image) => resolveHotelImageCandidates(image)).filter((list) => list.length) ?? [],
+    () =>
+      images?.map((image) => resolveHotelImageCandidates(image)).filter((list) => list.length) ??
+      [],
     [images],
   );
 
@@ -197,7 +207,9 @@ function Field({ label, value }: { label: string; value: string | number | undef
 
 function Chip({ children }: { children: string }) {
   return (
-    <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{children}</span>
+    <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+      {children}
+    </span>
   );
 }
 
@@ -221,7 +233,12 @@ function FlightBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
           <h3 className="text-base font-semibold text-foreground">{bookmark.title}</h3>
           <span className="flex items-center gap-2 text-sm font-medium text-foreground">
             {flight.airlineLogo ? (
-              <img src={flight.airlineLogo} alt="" className="h-4 w-4 rounded-sm object-contain" loading="lazy" />
+              <img
+                src={flight.airlineLogo}
+                alt=""
+                className="h-4 w-4 rounded-sm object-contain"
+                loading="lazy"
+              />
             ) : (
               <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
             )}
@@ -252,8 +269,14 @@ function FlightBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
                 {stops === 0 ? 'Non-stop' : stops === 1 ? '1 stop' : `${stops} stops`}
               </Badge>
             )}
-            {!incomplete ? <Badge variant="secondary">{flight.segments[0]?.travel_class ?? '—'}</Badge> : null}
-            {isRoundTrip ? <Badge variant="outline">Round trip</Badge> : <Badge variant="outline">One way</Badge>}
+            {!incomplete ? (
+              <Badge variant="secondary">{flight.segments[0]?.travel_class ?? '—'}</Badge>
+            ) : null}
+            {isRoundTrip ? (
+              <Badge variant="outline">Round trip</Badge>
+            ) : (
+              <Badge variant="outline">One way</Badge>
+            )}
           </div>
         </div>
         <div className="text-right">
@@ -275,7 +298,10 @@ function FlightBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
           className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
         >
           {open ? 'View less' : 'View details'}
-          <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+          <ChevronDown
+            className={cn('h-4 w-4 transition-transform', open && 'rotate-180')}
+            aria-hidden="true"
+          />
         </button>
       </div>
       {open ? <FlightBookmarkDetails flight={flight} /> : null}
@@ -287,7 +313,10 @@ function FlightBookmarkDetails({ flight }: { flight: FlightBookmarkSnapshot }) {
   const renderSegments = () => (
     <div className="space-y-3">
       {flight.segments.map((segment, index) => (
-        <div key={`${segment.flight_number}-${index}`} className="rounded-lg border border-border bg-card-2 p-3">
+        <div
+          key={`${segment.flight_number}-${index}`}
+          className="rounded-lg border border-border bg-card-2 p-3"
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -308,10 +337,15 @@ function FlightBookmarkDetails({ flight }: { flight: FlightBookmarkSnapshot }) {
               <p className="text-xs text-muted-foreground/80">{segment.departure_airport.name}</p>
             </div>
             <div className="flex flex-col items-center text-center">
-              <span className="text-xs font-medium text-muted-foreground">{minutes(segment.duration)}</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {minutes(segment.duration)}
+              </span>
               <span className="my-1 flex w-full items-center">
                 <span className="h-px flex-1 bg-border" />
-                <Plane className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground" aria-hidden="true" />
+                <Plane
+                  className="mx-1 h-3.5 w-3.5 rotate-90 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <span className="h-px flex-1 bg-border" />
               </span>
               {segment.airplane && (
@@ -360,7 +394,10 @@ function FlightBookmarkDetails({ flight }: { flight: FlightBookmarkSnapshot }) {
         <div className="rounded-lg border border-border p-3">
           <p className="mb-2 text-xs font-medium text-muted-foreground">Emissions</p>
           <div className="grid gap-3 sm:grid-cols-4">
-            <Field label="This flight" value={`${Math.round((flight.carbonEmissions.this_flight ?? 0) / 1000)} kg`} />
+            <Field
+              label="This flight"
+              value={`${Math.round((flight.carbonEmissions.this_flight ?? 0) / 1000)} kg`}
+            />
             <Field
               label="Typical route"
               value={`${Math.round((flight.carbonEmissions.typical_for_this_route ?? 0) / 1000)} kg`}
@@ -369,7 +406,10 @@ function FlightBookmarkDetails({ flight }: { flight: FlightBookmarkSnapshot }) {
               label="Lowest route"
               value={`${Math.round((flight.carbonEmissions.lowest_route ?? 0) / 1000)} kg`}
             />
-            <Field label="Difference" value={`${flight.carbonEmissions.difference_percent ?? 0}%`} />
+            <Field
+              label="Difference"
+              value={`${flight.carbonEmissions.difference_percent ?? 0}%`}
+            />
           </div>
         </div>
       ) : null}
@@ -407,10 +447,15 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
               <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 {hotel.rating ? (
                   <span className="flex items-center gap-1">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    <Star
+                      className="h-3.5 w-3.5 fill-amber-400 text-amber-400"
+                      aria-hidden="true"
+                    />
                     <span className="font-medium text-foreground">{hotel.rating}</span>
                     {hotel.reviews ? (
-                      <span className="text-muted-foreground/80">({hotel.reviews.toLocaleString()})</span>
+                      <span className="text-muted-foreground/80">
+                        ({hotel.reviews.toLocaleString()})
+                      </span>
                     ) : null}
                   </span>
                 ) : null}
@@ -421,7 +466,9 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
                     {hotel.country ? `, ${hotel.country}` : ''}
                   </span>
                 ) : null}
-                {hotel.propertyType ? <Badge variant="secondary">{hotel.propertyType}</Badge> : null}
+                {hotel.propertyType ? (
+                  <Badge variant="secondary">{hotel.propertyType}</Badge>
+                ) : null}
               </div>
             </div>
             {hotel.deal ? (
@@ -455,7 +502,9 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
                   <p className="text-base font-semibold text-foreground">
                     {pricePerNight.main}
                     {pricePerNight.beforeTaxes ? (
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">Before taxes</span>
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        Before taxes
+                      </span>
                     ) : null}
                   </p>
                 ) : (
@@ -468,7 +517,9 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
                   <p className="text-base font-semibold text-foreground">
                     {totalPrice.main}
                     {totalPrice.beforeTaxes ? (
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">Before taxes</span>
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        Before taxes
+                      </span>
                     ) : null}
                   </p>
                 ) : (
@@ -504,7 +555,10 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
                 className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
               >
                 {detailsOpen ? 'View less' : 'View details'}
-                <ChevronDown className={cn('h-4 w-4 transition-transform', detailsOpen && 'rotate-180')} aria-hidden="true" />
+                <ChevronDown
+                  className={cn('h-4 w-4 transition-transform', detailsOpen && 'rotate-180')}
+                  aria-hidden="true"
+                />
               </button>
             </div>
           </div>
@@ -530,7 +584,9 @@ function HotelBookmarkDetails({ hotel }: { hotel: HotelBookmarkSnapshot }) {
             <p className="text-sm text-foreground">
               {pricePerNight.main}
               {pricePerNight.beforeTaxes ? (
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">Before taxes</span>
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                  Before taxes
+                </span>
               ) : null}
             </p>
           ) : (
@@ -543,7 +599,9 @@ function HotelBookmarkDetails({ hotel }: { hotel: HotelBookmarkSnapshot }) {
             <p className="text-sm text-foreground">
               {totalPrice.main}
               {totalPrice.beforeTaxes ? (
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">Before taxes</span>
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                  Before taxes
+                </span>
               ) : null}
             </p>
           ) : (
@@ -586,7 +644,10 @@ function HotelBookmarkDetails({ hotel }: { hotel: HotelBookmarkSnapshot }) {
             <p className="mb-1.5 mt-3 text-xs font-medium text-muted-foreground">Not available</p>
             <div className="flex flex-wrap gap-1.5">
               {hotel.excludedAmenities.map((amenity) => (
-                <span key={amenity} className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground/70 line-through">
+                <span
+                  key={amenity}
+                  className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground/70 line-through"
+                >
                   {amenity}
                 </span>
               ))}
@@ -639,7 +700,9 @@ function HotelBookmarkDetails({ hotel }: { hotel: HotelBookmarkSnapshot }) {
                       style={{ width: `${Math.max(0, Math.min(100, (count / total) * 100))}%` }}
                     />
                   </div>
-                  <span className="w-10 shrink-0 text-right text-muted-foreground">{count.toLocaleString()}</span>
+                  <span className="w-10 shrink-0 text-right text-muted-foreground">
+                    {count.toLocaleString()}
+                  </span>
                 </div>
               );
             })}
@@ -747,7 +810,10 @@ export function BookmarksPage() {
         description="Saved prices and details reflect the time they were bookmarked. Viewing saved items does not refresh live prices."
       />
 
-      <div role="tablist" className="flex w-fit rounded-lg border border-border bg-card p-1 shadow-sm">
+      <div
+        role="tablist"
+        className="flex w-fit rounded-lg border border-border bg-card p-1 shadow-sm"
+      >
         {(
           [
             ['ALL', 'All'],

@@ -2,8 +2,8 @@
 # Detect which production services a push or manual run must deploy.
 #
 # Inputs (environment):
-#   GITHUB_EVENT_NAME        push | workflow_dispatch
-#   GITHUB_BEFORE            previous SHA (push)
+#   GITHUB_EVENT_NAME        push | workflow_run | workflow_dispatch
+#   GITHUB_BEFORE            previous SHA (push; workflow_run computes HEAD^)
 #   GITHUB_SHA               current SHA
 #   DEPLOY_SCOPE_INPUT       auto|frontend|api|both (workflow_dispatch)
 #   RUN_MIGRATIONS_INPUT     auto|yes|no (workflow_dispatch)
@@ -21,11 +21,16 @@ infra_changed="false"
 
 changed=""
 
-if [[ "${GITHUB_EVENT_NAME:-}" == "push" ]]; then
-  before="${GITHUB_BEFORE:-0000000000000000000000000000000000000000}"
+if [[ "${GITHUB_EVENT_NAME:-}" == "push" || "${GITHUB_EVENT_NAME:-}" == "workflow_run" ]]; then
+  before="${GITHUB_BEFORE:-}"
+  if [[ -z "$before" ]]; then
+    # workflow_run has no push payload: resolve the parent of the checked-out
+    # (CI-passed) commit so only that commit's changes are deployed.
+    before="$(git rev-parse HEAD^ 2>/dev/null || echo 0000000000000000000000000000000000000000)"
+  fi
   sha="${GITHUB_SHA:-HEAD}"
   if [[ "$before" =~ ^0+$ ]]; then
-    # First push to the branch: treat all files as changed.
+    # First commit on the branch: treat all files as changed.
     changed="$(git ls-tree -r --name-only HEAD)"
   else
     changed="$(git diff --name-only "$before" "$sha")"
@@ -106,7 +111,7 @@ fi
 mig="${RUN_MIGRATIONS_INPUT:-auto}"
 if [[ "$deploy_api" == "true" ]]; then
   migration_files_changed="false"
-  if [[ "${GITHUB_EVENT_NAME:-}" == "push" ]]; then
+  if [[ "${GITHUB_EVENT_NAME:-}" == "push" || "${GITHUB_EVENT_NAME:-}" == "workflow_run" ]]; then
     migration_files_changed="$(printf '%s\n' "$changed" | grep -c '^apps/api/prisma/migrations/' || true)"
     schema_changed="$(printf '%s\n' "$changed" | grep -c '^apps/api/prisma/schema.prisma$' || true)"
   else
@@ -116,13 +121,13 @@ if [[ "$deploy_api" == "true" ]]; then
   if [[ "$mig" == "yes" ]]; then
     run_migrations="true"
   elif [[ "$mig" == "auto" ]]; then
-    if [[ "${GITHUB_EVENT_NAME:-}" == "push" && "$migration_files_changed" != "0" ]]; then
+    if [[ ( "${GITHUB_EVENT_NAME:-}" == "push" || "${GITHUB_EVENT_NAME:-}" == "workflow_run" ) && "$migration_files_changed" != "0" ]]; then
       run_migrations="true"
     fi
   fi
 
   # Schema changed but no migration committed -> block API deployment.
-  if [[ "${GITHUB_EVENT_NAME:-}" == "push" && "$schema_changed" != "0" && "$migration_files_changed" == "0" ]]; then
+  if [[ ( "${GITHUB_EVENT_NAME:-}" == "push" || "${GITHUB_EVENT_NAME:-}" == "workflow_run" ) && "$schema_changed" != "0" && "$migration_files_changed" == "0" ]]; then
     schema_without_migration="true"
   fi
 fi

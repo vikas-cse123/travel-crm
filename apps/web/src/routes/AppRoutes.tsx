@@ -126,6 +126,10 @@ export function AppRoutes() {
 
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       <Route path="/q/:token" element={<PublicQuotationPage />} />
+      {/* Friendly public quotation alias: `travelagencycrm.in/<publicSlug>`.
+          Static routes above win over this dynamic segment; the page itself
+          404s for an unknown slug. */}
+      <Route path="/:slug" element={<PublicQuotationPage />} />
 
       <Route element={<VerificationRoute />}>
         <Route path="/verify-email" element={<VerifyEmailPage />} />

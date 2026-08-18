@@ -365,7 +365,7 @@ function LeadActionsCell({
 }
 
 /** Local per-row override for weblink state (analytics count sync only). */
-type WeblinkOverride = Partial<{ totalViews: number }>;
+type WeblinkOverride = Partial<{ externalViews: number }>;
 
 const weblinkDate = (value: string | null | undefined) => {
   if (!value) return '—';
@@ -400,7 +400,7 @@ function WeblinkCell({
   const quotationId = lead.weblink?.quotationId ?? lead.quotationSummary?.quotationId ?? '';
   // Merge the server summary with any local override (analytics count sync).
   const weblink = override
-    ? { ...lead.weblink, totalViews: override.totalViews ?? lead.weblink?.totalViews ?? 0 }
+    ? { ...lead.weblink, externalViews: override.externalViews ?? lead.weblink?.externalViews ?? 0 }
     : (lead.weblink ?? null);
 
   if (!quotationId) return <span className="leads-cell-muted">Not Available</span>;
@@ -426,7 +426,7 @@ function WeblinkCell({
         title="Weblink view analytics"
         className="leads-weblink-count"
       >
-        <Eye className="h-3 w-3" aria-hidden="true" /> {weblink.totalViews}
+        <Eye className="h-3 w-3" aria-hidden="true" /> {weblink.externalViews}
       </button>
     </div>
   );
@@ -463,13 +463,13 @@ function WeblinkAnalyticsModal({
 }: {
   quotationId: string;
   onClose: () => void;
-  onCount: (total: number) => void;
+  onCount: (external: number) => void;
 }) {
   const analytics = useQuotationWeblinkAnalytics(quotationId);
   const data = analytics.data;
 
   useEffect(() => {
-    if (data && typeof data.totalViews === 'number') onCount(data.totalViews);
+    if (data && typeof data.externalViews === 'number') onCount(data.externalViews);
   }, [data, onCount]);
 
   useEffect(() => {
@@ -723,11 +723,11 @@ export function LeadsPage() {
     null,
   );
 
-  const syncWeblinkCount = useCallback((leadId: string, total: number) => {
+  const syncWeblinkCount = useCallback((leadId: string, external: number) => {
     setWeblinkState((prev) => {
       const current = prev[leadId];
-      if (current && current.totalViews === total) return prev;
-      return { ...prev, [leadId]: { ...current, totalViews: total } };
+      if (current && current.externalViews === external) return prev;
+      return { ...prev, [leadId]: { ...current, externalViews: external } };
     });
   }, []);
 

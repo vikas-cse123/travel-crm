@@ -7,6 +7,7 @@ import {
   quotationVersionInputSchema,
   quotationVersionUpdateSchema,
   quotationWeblinkSettingsSchema,
+  quotationWeblinkNameSchema,
   quotationSendSchema,
   publicLinkSchema,
   uploadRequestSchema,
@@ -101,6 +102,12 @@ router.patch(
   requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),
   validateRequest({ params: versionId, body: quotationWeblinkSettingsSchema }),
   asyncHandler(controller.updateWeblinkSettings),
+);
+router.patch(
+  '/:quotationId/weblink-name',
+  requirePermission(PERMISSIONS.QUOTATIONS_UPDATE),
+  validateRequest({ params: id, body: quotationWeblinkNameSchema }),
+  asyncHandler(controller.updateWeblinkName),
 );
 router.post(
   '/:quotationId/versions/:versionId/finalize',

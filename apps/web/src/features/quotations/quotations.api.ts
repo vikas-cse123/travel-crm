@@ -321,6 +321,9 @@ export interface Quotation {
   rooms: number;
   currency: string;
   validUntil: string | null;
+  publicSlug: string | null;
+  /** Resolved friendly-slug base URL (ACTIVE custom domain, else apex). */
+  publicSlugBaseUrl: string;
   firstSentAt: string | null;
   lastSentAt: string | null;
   firstViewedAt: string | null;
@@ -561,6 +564,26 @@ export function useUpdateQuotationWeblinkSettings(quotationId: string) {
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: quotationKeys.quotation(quotationId) });
+    },
+  });
+}
+
+/** Set/clear the friendly Weblink Name (publicSlug). */
+export function useUpdateQuotationWeblinkName(quotationId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { publicSlug: string | null }) =>
+      apiClient.patch<{ publicSlug: string | null }>(
+        `/quotations/${quotationId}/weblink-name`,
+        input,
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: quotationKeys.quotation(quotationId) });
+      void client.invalidateQueries({ queryKey: quotationKeys.quotations });
+      // The Leads list renders the weblink URL (friendly when publicSlug exists),
+      // so refresh its cache too or the WEBLINK column keeps showing the stale
+      // token URL until the 30s staleTime elapses.
+      void client.invalidateQueries({ queryKey: ['queries'] });
     },
   });
 }

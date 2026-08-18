@@ -6,7 +6,10 @@ import { createTestPrismaClient, truncateAll } from './helpers/test-database.js'
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
-import { resolveItineraryNights, resolvePdfHotelImageUrl } from '../src/modules/quotations/quotations.service.js';
+import {
+  resolveItineraryNights,
+  resolvePdfHotelImageUrl,
+} from '../src/modules/quotations/quotations.service.js';
 import { PERMISSIONS } from '@interscale/shared';
 
 let app: Express;
@@ -457,7 +460,10 @@ describe('Phase 8 customer quotations', () => {
     // Unassigned consultant: holds quotations.view/update but is neither the
     // linked lead's creator nor assignee → lead-scoped access keeps the
     // quotation (and its revision) hidden from them.
-    const unassigned = await addConsultant('consultant-unassigned', 'consultant-unassigned@alpha.test');
+    const unassigned = await addConsultant(
+      'consultant-unassigned',
+      'consultant-unassigned@alpha.test',
+    );
     expect((await unassigned.get(`/api/quotations/${quotation.id}`)).status).toBe(404);
     expect(
       (
@@ -613,19 +619,22 @@ describe('Phase 8 customer quotations', () => {
 
     // Legacy hotel rows whose per-stay images column is NULL must normalize to
     // [] at the shared boundary instead of failing validation.
-    const nullImages = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
-      hotels: [
-        {
-          city: 'Goa',
-          hotelName: 'Coastal Bay Resort',
-          rooms: 1,
-          nights: 4,
-          selected: true,
-          sequence: 1,
-          images: null,
-        },
-      ],
-    });
+    const nullImages = await client.patch(
+      `/api/quotations/${quotation.id}/versions/${version.id}`,
+      {
+        hotels: [
+          {
+            city: 'Goa',
+            hotelName: 'Coastal Bay Resort',
+            rooms: 1,
+            nights: 4,
+            selected: true,
+            sequence: 1,
+            images: null,
+          },
+        ],
+      },
+    );
     expect(nullImages.status).toBe(200);
     expect(nullImages.body.data.hotels[0].images).toEqual([]);
 
@@ -2029,37 +2038,40 @@ describe('Quotation independence from bookmarks', () => {
 
     // Save a quotation version carrying the imported hotel data (copied from the
     // bookmark snapshot, exactly like the quotation UI does).
-    const saved = await client.patch(`/api/quotations/${quotation.body.data.id}/versions/${versionId}`, {
-      hotelDetails: {
-        include: true,
-        sectionTitle: 'Your Hotels',
-        amount: 58312,
-        description: 'Luxury beach resort.',
-        images: [{ url: 'https://img/a-orig.jpg', alt: 'Taj Exotica Goa' }],
-      },
-      hotels: [
-        {
-          city: 'Goa',
-          hotelName: 'Taj Exotica Goa',
-          category: '5 Star',
-          roomType: null,
-          mealPlan: null,
-          rooms: 1,
-          nights: 4,
-          checkInDate: new Date('2026-09-10T00:00:00'),
-          checkOutDate: new Date('2026-09-14T00:00:00'),
-          checkInTime: '14:00',
-          checkOutTime: '11:00',
-          showCheckInTime: true,
-          showCheckOutTime: true,
-          internalCost: 0,
-          sellingPrice: 58312,
-          selected: true,
-          notes: null,
-          sequence: 1,
+    const saved = await client.patch(
+      `/api/quotations/${quotation.body.data.id}/versions/${versionId}`,
+      {
+        hotelDetails: {
+          include: true,
+          sectionTitle: 'Your Hotels',
+          amount: 58312,
+          description: 'Luxury beach resort.',
+          images: [{ url: 'https://img/a-orig.jpg', alt: 'Taj Exotica Goa' }],
         },
-      ],
-    });
+        hotels: [
+          {
+            city: 'Goa',
+            hotelName: 'Taj Exotica Goa',
+            category: '5 Star',
+            roomType: null,
+            mealPlan: null,
+            rooms: 1,
+            nights: 4,
+            checkInDate: new Date('2026-09-10T00:00:00'),
+            checkOutDate: new Date('2026-09-14T00:00:00'),
+            checkInTime: '14:00',
+            checkOutTime: '11:00',
+            showCheckInTime: true,
+            showCheckOutTime: true,
+            internalCost: 0,
+            sellingPrice: 58312,
+            selected: true,
+            notes: null,
+            sequence: 1,
+          },
+        ],
+      },
+    );
     expect(saved.status).toBe(200);
 
     // Look up the bookmark by code to confirm it exists, then delete it.
@@ -2107,7 +2119,12 @@ describe('Quotation independence from bookmarks', () => {
               flight_number: 'AI 2118',
             },
             {
-              departure_airport: { name: 'Singapore', id: 'SIN', date: '2026-09-14', time: '10:00' },
+              departure_airport: {
+                name: 'Singapore',
+                id: 'SIN',
+                date: '2026-09-14',
+                time: '10:00',
+              },
               arrival_airport: { name: 'Delhi', id: 'DEL', date: '2026-09-14', time: '12:00' },
               duration: 120,
               airline: 'Air India',
@@ -2125,63 +2142,66 @@ describe('Quotation independence from bookmarks', () => {
     const quotation = await client.post('/api/quotations', { queryId: lead.body.data.id });
     const versionId = quotation.body.data.versions[0].id as string;
 
-    const saved = await client.patch(`/api/quotations/${quotation.body.data.id}/versions/${versionId}`, {
-      flightDetails: {
-        include: true,
-        sectionTitle: 'Flight Details',
-        amount: 59370,
-        entryMode: 'MANUAL',
-        journeyType: 'ROUND_TRIP',
-        outbound: {
-          fromCity: 'Delhi',
-          toCity: 'Singapore',
-          travelClass: 'Economy',
-          segments: [
-            {
-              airlineId: null,
-              airlineName: 'Air India',
-              flightNumber: 'AI 2118',
-              travelClass: 'Economy',
-              from: 'Delhi',
-              to: 'Singapore',
-              departureDate: '2026-09-10',
-              departureTime: '00:55',
-              arrivalDate: '2026-09-10',
-              arrivalTime: '09:20',
-              duration: '5h 55m',
-              cabinLuggage: null,
-              checkInLuggage: null,
-              notes: null,
-              connectionVia: null,
-            },
-          ],
-        },
-        returnJourney: {
-          fromCity: 'Singapore',
-          toCity: 'Delhi',
-          travelClass: 'Economy',
-          segments: [
-            {
-              airlineId: null,
-              airlineName: 'Air India',
-              flightNumber: 'AI 2119',
-              travelClass: 'Economy',
-              from: 'Singapore',
-              to: 'Delhi',
-              departureDate: '2026-09-14',
-              departureTime: '10:00',
-              arrivalDate: '2026-09-14',
-              arrivalTime: '12:00',
-              duration: '2h 0m',
-              cabinLuggage: null,
-              checkInLuggage: null,
-              notes: null,
-              connectionVia: null,
-            },
-          ],
+    const saved = await client.patch(
+      `/api/quotations/${quotation.body.data.id}/versions/${versionId}`,
+      {
+        flightDetails: {
+          include: true,
+          sectionTitle: 'Flight Details',
+          amount: 59370,
+          entryMode: 'MANUAL',
+          journeyType: 'ROUND_TRIP',
+          outbound: {
+            fromCity: 'Delhi',
+            toCity: 'Singapore',
+            travelClass: 'Economy',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Air India',
+                flightNumber: 'AI 2118',
+                travelClass: 'Economy',
+                from: 'Delhi',
+                to: 'Singapore',
+                departureDate: '2026-09-10',
+                departureTime: '00:55',
+                arrivalDate: '2026-09-10',
+                arrivalTime: '09:20',
+                duration: '5h 55m',
+                cabinLuggage: null,
+                checkInLuggage: null,
+                notes: null,
+                connectionVia: null,
+              },
+            ],
+          },
+          returnJourney: {
+            fromCity: 'Singapore',
+            toCity: 'Delhi',
+            travelClass: 'Economy',
+            segments: [
+              {
+                airlineId: null,
+                airlineName: 'Air India',
+                flightNumber: 'AI 2119',
+                travelClass: 'Economy',
+                from: 'Singapore',
+                to: 'Delhi',
+                departureDate: '2026-09-14',
+                departureTime: '10:00',
+                arrivalDate: '2026-09-14',
+                arrivalTime: '12:00',
+                duration: '2h 0m',
+                cabinLuggage: null,
+                checkInLuggage: null,
+                notes: null,
+                connectionVia: null,
+              },
+            ],
+          },
         },
       },
-    });
+    );
     expect(saved.status).toBe(200);
 
     const lookup = await client.get(`/api/search/bookmarks/by-code/${flightCode}`);

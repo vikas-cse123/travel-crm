@@ -902,17 +902,13 @@ function FlightSummary({
               {first.departure_airport.id} → {last.arrival_airport.id}
             </p>
             <p className="text-sm text-foreground">
-              <span className="font-medium">
-                {formatFlightTime(first.departure_airport.time)}
-              </span>
+              <span className="font-medium">{formatFlightTime(first.departure_airport.time)}</span>
               <span className="mx-2 text-muted-foreground">→</span>
               <span className="text-xs text-muted-foreground">
                 {minutes(option.total_duration)}
               </span>
               <span className="mx-2 text-muted-foreground">→</span>
-              <span className="font-medium">
-                {formatFlightTime(last.arrival_airport.time)}
-              </span>
+              <span className="font-medium">{formatFlightTime(last.arrival_airport.time)}</span>
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground/80">
               {first.departure_airport.name} → {last.arrival_airport.name}
@@ -1054,8 +1050,7 @@ function FlightDetails({
 }) {
   const { outbound, return: returnLegs } = splitItinerary(option, arrivalId);
   const emissions = option.carbon_emissions;
-  const isRoundTrip =
-    mode === 'return' || option.type?.toLowerCase().includes('round') || false;
+  const isRoundTrip = mode === 'return' || option.type?.toLowerCase().includes('round') || false;
   const showReturn = mode === 'one-way' && isRoundTrip && returnLegs.length > 0;
 
   const renderLegs = (legs: SearchApiFlightSegment[], prefix: string) => (
@@ -1076,7 +1071,10 @@ function FlightDetails({
           <Plane className="h-4 w-4 text-primary" aria-hidden="true" />
           {mode === 'return' ? 'Return' : isRoundTrip ? 'Outbound' : 'Flight details'}
         </h4>
-        {renderLegs(mode === 'return' ? (returnLegs.length ? returnLegs : outbound) : outbound, 'out')}
+        {renderLegs(
+          mode === 'return' ? (returnLegs.length ? returnLegs : outbound) : outbound,
+          'out',
+        )}
       </section>
 
       {showReturn ? (
@@ -1304,7 +1302,9 @@ function CompleteItinerary({
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
         <div>
           <p className="text-xs text-muted-foreground">Total round-trip fare</p>
-          <p className="text-xl font-bold text-foreground">{formatPrice(combined.price, currency)}</p>
+          <p className="text-xl font-bold text-foreground">
+            {formatPrice(combined.price, currency)}
+          </p>
         </div>
         <BookmarkButton
           type="FLIGHT"
@@ -1357,14 +1357,10 @@ function FlightResults({
 
   const returnOptions = useMemo(() => {
     if (!returnSearch.data) return [];
-    return [
-      ...(returnSearch.data.best_flights ?? []),
-      ...(returnSearch.data.other_flights ?? []),
-    ];
+    return [...(returnSearch.data.best_flights ?? []), ...(returnSearch.data.other_flights ?? [])];
   }, [returnSearch.data]);
 
-  const changeButtonClass =
-    'text-xs font-medium text-primary hover:underline';
+  const changeButtonClass = 'text-xs font-medium text-primary hover:underline';
 
   const flightList = (
     options: SearchApiFlightOption[],
@@ -1373,17 +1369,17 @@ function FlightResults({
     cardSearchParams?: Record<string, unknown>,
   ) => (
     <div className="space-y-3">
-          {options.map((option, index) => (
-            <FlightOptionCard
-              key={option.departure_token ?? option.booking_token ?? index}
-              option={option}
-              currency={currency}
-              arrivalId={arrivalId}
-              mode={mode}
-              searchParams={cardSearchParams}
-              onSelect={() => onSelect(option)}
-            />
-          ))}
+      {options.map((option, index) => (
+        <FlightOptionCard
+          key={option.departure_token ?? option.booking_token ?? index}
+          option={option}
+          currency={currency}
+          arrivalId={arrivalId}
+          mode={mode}
+          searchParams={cardSearchParams}
+          onSelect={() => onSelect(option)}
+        />
+      ))}
     </div>
   );
 
@@ -1470,10 +1466,7 @@ function FlightResults({
               {returnOptions.length > 0 ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <PlaneTakeoff
-                      className="h-4 w-4 rotate-180 text-primary"
-                      aria-hidden="true"
-                    />
+                    <PlaneTakeoff className="h-4 w-4 rotate-180 text-primary" aria-hidden="true" />
                     <h3 className="text-sm font-semibold text-foreground">
                       Return flights{' '}
                       <span className="font-normal text-muted-foreground">
@@ -1495,10 +1488,7 @@ function FlightResults({
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <PlaneTakeoff
-                    className="h-4 w-4 rotate-180 text-primary"
-                    aria-hidden="true"
-                  />
+                  <PlaneTakeoff className="h-4 w-4 rotate-180 text-primary" aria-hidden="true" />
                   <h3 className="text-sm font-semibold text-foreground">Selected return</h3>
                 </div>
                 <button
@@ -1592,9 +1582,7 @@ function HotelDestinationInput({
   const [text, setText] = useState(value?.displayName ?? '');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const destinations = useDestinations(
-    new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }),
-  );
+  const destinations = useDestinations(new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }));
   const cities = useCities(new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }));
   const hotels = useHotels(new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }));
 
@@ -1605,11 +1593,20 @@ function HotelDestinationInput({
     for (const destination of destinations.data?.data ?? []) {
       if (destination.name.toLowerCase().includes(q)) {
         out.push(
-          buildHotelSuggestion(destination.id, destination.name, `Hotels in ${destination.name}`, 'Destination', {
-            ...(destination.countryName
-              ? { country: destination.countryName, countryCode: destination.countryCode ?? undefined }
-              : {}),
-          }),
+          buildHotelSuggestion(
+            destination.id,
+            destination.name,
+            `Hotels in ${destination.name}`,
+            'Destination',
+            {
+              ...(destination.countryName
+                ? {
+                    country: destination.countryName,
+                    countryCode: destination.countryCode ?? undefined,
+                  }
+                : {}),
+            },
+          ),
         );
       }
     }

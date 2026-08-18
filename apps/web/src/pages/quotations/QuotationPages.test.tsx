@@ -399,7 +399,10 @@ describe('Phase 8 quotation pages', () => {
         hotel({ id: 'none' }),
       ],
     };
-    vi.stubGlobal('fetch', vi.fn(async () => response(preview)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(preview)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/quotation-templates/:templateId" element={<QuotationTemplateDetailsPage />} />
@@ -966,9 +969,9 @@ describe('Phase 8 quotation pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create revision' }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/could not be found/i);
-    expect(
-      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/versions')),
-    ).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/versions'))).toHaveLength(
+      1,
+    );
     expect(screen.queryByRole('button', { name: /Edit quotation/ })).not.toBeInTheDocument();
   });
 
@@ -978,7 +981,8 @@ describe('Phase 8 quotation pages', () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
       (input, options) => {
         const url = String(input);
-        if (!options || options.method === 'GET') return Promise.resolve(response(copyQuotationDetail));
+        if (!options || options.method === 'GET')
+          return Promise.resolve(response(copyQuotationDetail));
         if (url.endsWith('/versions')) return versionsCall;
         return Promise.resolve(response({}));
       },
@@ -1808,13 +1812,19 @@ describe('Phase 8 quotation pages', () => {
     await screen.findByText('Goa proposal');
 
     // The first ordered image is shown initially; only one image at a time.
-    expect(screen.getByAltText('Gallery 1')).toHaveAttribute('src', 'https://cdn.example/img-1.jpg');
+    expect(screen.getByAltText('Gallery 1')).toHaveAttribute(
+      'src',
+      'https://cdn.example/img-1.jpg',
+    );
     expect(screen.queryByAltText('Gallery 2')).not.toBeInTheDocument();
     expect(screen.getByText('1 / 9')).toBeInTheDocument();
 
     // Next cycles forward through every imported image (1 → 9), no reload.
     await userEvent.click(screen.getByRole('button', { name: 'Next hotel image' }));
-    expect(screen.getByAltText('Gallery 2')).toHaveAttribute('src', 'https://cdn.example/img-2.jpg');
+    expect(screen.getByAltText('Gallery 2')).toHaveAttribute(
+      'src',
+      'https://cdn.example/img-2.jpg',
+    );
     expect(screen.queryByAltText('Gallery 1')).not.toBeInTheDocument();
     expect(screen.getByText('2 / 9')).toBeInTheDocument();
     for (let step = 3; step <= 9; step += 1) {
@@ -1923,7 +1933,10 @@ describe('Phase 8 quotation pages', () => {
       hotelPresentations: {},
       downloadUrl: null,
     };
-    vi.stubGlobal('fetch', vi.fn(async () => response(publicData)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/q/:token" element={<PublicQuotationPage />} />
@@ -2027,7 +2040,10 @@ describe('Phase 8 quotation pages', () => {
       hotelPresentations: {},
       downloadUrl: null,
     };
-    vi.stubGlobal('fetch', vi.fn(async () => response(publicData)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
     renderWithProviders(
       <Routes>
         <Route path="/q/:token" element={<PublicQuotationPage />} />
@@ -8407,7 +8423,9 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel description')).toHaveTextContent('');
 
     // Exactly ONE hotel stay is created from one bookmarked hotel.
-    expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay 1$/ })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay 1$/ }),
+    ).toHaveLength(1);
 
     // 4. The existing bookmarked hotel image populates from the snapshot, and
     // the first image is the default "Use in PDF" photo.
@@ -8432,7 +8450,9 @@ describe('Phase 14 master selectors', () => {
     // 7. Manual hotel entry still works after the import.
     expect(screen.getByRole('button', { name: 'Add hotel stay after stay 1' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Add hotel stay after stay 1' }));
-    expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(
+      2,
+    );
   });
 
   it('imports the exact Holiday Inn Lucknow Airport bookmark and persists it after save + refresh', async () => {
@@ -8490,9 +8510,7 @@ describe('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     // 2. Every bookmark field populates the normal hotel stay row.
-    expect(screen.getByLabelText('Hotel master')).toHaveValue(
-      'Holiday Inn Lucknow Airport by IHG',
-    );
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('Holiday Inn Lucknow Airport by IHG');
     expect(screen.getByLabelText('Hotel city')).toHaveValue('Lucknow');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
@@ -8614,9 +8632,7 @@ describe('Phase 14 master selectors', () => {
     await openTab('Hotel');
     expect(screen.getAllByRole('button', { name: /Expand hotel stay 1/ })).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
-    expect(screen.getByLabelText('Hotel master')).toHaveValue(
-      'Holiday Inn Lucknow Airport by IHG',
-    );
+    expect(screen.getByLabelText('Hotel master')).toHaveValue('Holiday Inn Lucknow Airport by IHG');
     expect(screen.getByLabelText('Hotel city')).toHaveValue('Lucknow');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
@@ -8752,8 +8768,7 @@ describe('Phase 14 master selectors', () => {
     // No hotel master was created and ZERO SearchAPI requests were made.
     expect(
       fetchMock.mock.calls.some(
-        ([url, options]) =>
-          options?.method === 'POST' && String(url).includes('/masters/hotels'),
+        ([url, options]) => options?.method === 'POST' && String(url).includes('/masters/hotels'),
       ),
     ).toBe(false);
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
@@ -8772,15 +8787,26 @@ describe('Phase 14 master selectors', () => {
       title: 'Hotel Alpha',
       currency: 'INR',
       createdAt: '2026-08-17T10:00:00.000Z',
-      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-13', rooms: 1, currency: 'INR' },
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-13',
+        rooms: 1,
+        currency: 'INR',
+      },
       snapshot: {
         hotel: {
           name: 'Hotel Alpha',
           city: 'Lucknow',
           stars: 4,
           images: [
-            { original: 'https://cdn.example/a-1.jpg', thumbnail: 'https://cdn.example/a-1-th.jpg' },
-            { original: 'https://cdn.example/a-2.jpg', thumbnail: 'https://cdn.example/a-2-th.jpg' },
+            {
+              original: 'https://cdn.example/a-1.jpg',
+              thumbnail: 'https://cdn.example/a-1-th.jpg',
+            },
+            {
+              original: 'https://cdn.example/a-2.jpg',
+              thumbnail: 'https://cdn.example/a-2-th.jpg',
+            },
           ],
         },
       },
@@ -8794,14 +8820,22 @@ describe('Phase 14 master selectors', () => {
       title: 'Hotel Bravo',
       currency: 'INR',
       createdAt: '2026-08-17T10:00:00.000Z',
-      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-12', rooms: 1, currency: 'INR' },
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-12',
+        rooms: 1,
+        currency: 'INR',
+      },
       snapshot: {
         hotel: {
           name: 'Hotel Bravo',
           city: 'Puri',
           stars: 5,
           images: [
-            { original: 'https://cdn.example/b-1.jpg', thumbnail: 'https://cdn.example/b-1-th.jpg' },
+            {
+              original: 'https://cdn.example/b-1.jpg',
+              thumbnail: 'https://cdn.example/b-1-th.jpg',
+            },
           ],
         },
       },
@@ -8843,16 +8877,18 @@ describe('Phase 14 master selectors', () => {
       within(stays[0]!).getByRole('button', { name: 'Move hotel image 1 right' }),
     );
     expect(
-      within(stays[0]!).getAllByAltText('Hotel Alpha').map((img) => img.getAttribute('src')),
+      within(stays[0]!)
+        .getAllByAltText('Hotel Alpha')
+        .map((img) => img.getAttribute('src')),
     ).toEqual(['https://cdn.example/a-2.jpg', 'https://cdn.example/a-1.jpg']);
     expect(
-      within(stays[1]!).getAllByAltText('Hotel Bravo').map((img) => img.getAttribute('src')),
+      within(stays[1]!)
+        .getAllByAltText('Hotel Bravo')
+        .map((img) => img.getAttribute('src')),
     ).toEqual(['https://cdn.example/b-1.jpg']);
 
     // Remove works only for that stay: remove Bravo's only image.
-    await userEvent.click(
-      within(stays[1]!).getByRole('button', { name: 'Remove hotel image 1' }),
-    );
+    await userEvent.click(within(stays[1]!).getByRole('button', { name: 'Remove hotel image 1' }));
     expect(within(stays[1]!).queryByAltText('Hotel Bravo')).not.toBeInTheDocument();
     expect(within(stays[0]!).getAllByAltText('Hotel Alpha')).toHaveLength(2);
 
@@ -8866,8 +8902,16 @@ describe('Phase 14 master selectors', () => {
     expect(body.hotels).toHaveLength(2);
     expect(body.hotels[0].hotelName).toBe('Hotel Alpha');
     expect(body.hotels[0].images).toEqual([
-      { url: 'https://cdn.example/a-2.jpg', thumbnailUrl: 'https://cdn.example/a-2-th.jpg', alt: 'Hotel Alpha' },
-      { url: 'https://cdn.example/a-1.jpg', thumbnailUrl: 'https://cdn.example/a-1-th.jpg', alt: 'Hotel Alpha' },
+      {
+        url: 'https://cdn.example/a-2.jpg',
+        thumbnailUrl: 'https://cdn.example/a-2-th.jpg',
+        alt: 'Hotel Alpha',
+      },
+      {
+        url: 'https://cdn.example/a-1.jpg',
+        thumbnailUrl: 'https://cdn.example/a-1-th.jpg',
+        alt: 'Hotel Alpha',
+      },
     ]);
     // The PDF selection follows the image (a-1), now in 2nd position.
     expect(body.hotels[0].pdfImageUrl).toBe('https://cdn.example/a-1.jpg');
@@ -8890,14 +8934,22 @@ describe('Phase 14 master selectors', () => {
       title: 'Append Hotel',
       currency: 'INR',
       createdAt: '2026-08-17T10:00:00.000Z',
-      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-12', rooms: 1, currency: 'INR' },
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-12',
+        rooms: 1,
+        currency: 'INR',
+      },
       snapshot: {
         hotel: {
           name: 'The Append Hotel',
           city: 'Chennai',
           stars: 4,
           images: [
-            { original: 'https://cdn.example/append-1.jpg', thumbnail: 'https://cdn.example/append-1-th.jpg' },
+            {
+              original: 'https://cdn.example/append-1.jpg',
+              thumbnail: 'https://cdn.example/append-1-th.jpg',
+            },
           ],
         },
       },
@@ -8927,12 +8979,7 @@ describe('Phase 14 master selectors', () => {
   });
 
   it('reorders hotel stays with Up/Down and persists the new order on save + reopen', async () => {
-    const mk = (
-      code: string,
-      name: string,
-      city: string,
-      img: string,
-    ) => ({
+    const mk = (code: string, name: string, city: string, img: string) => ({
       id: `bm-${code}`,
       type: 'HOTEL',
       provider: 'SEARCHAPI',
@@ -8979,7 +9026,9 @@ describe('Phase 14 master selectors', () => {
     const names = () =>
       screen
         .getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })
-        .map((button) => (button.closest('article') as HTMLElement).querySelector('h4')!.textContent);
+        .map(
+          (button) => (button.closest('article') as HTMLElement).querySelector('h4')!.textContent,
+        );
     expect(names()).toEqual(['Hotel Alpha', 'Hotel Bravo', 'Hotel Charlie']);
 
     // First stay ↑ disabled, last stay ↓ disabled.
@@ -9092,13 +9141,8 @@ describe('Phase 14 master selectors', () => {
 
     // Order is preserved: the second photo renders before the first.
     const srcs = () =>
-      screen
-        .getAllByAltText(/Second photo|First photo/)
-        .map((img) => img.getAttribute('src'));
-    expect(srcs()).toEqual([
-      'https://cdn.example/second.jpg',
-      'https://cdn.example/first.jpg',
-    ]);
+      screen.getAllByAltText(/Second photo|First photo/).map((img) => img.getAttribute('src'));
+    expect(srcs()).toEqual(['https://cdn.example/second.jpg', 'https://cdn.example/first.jpg']);
     // The saved PDF selection (first.jpg, now the 2nd image) stays checked.
     expect(screen.getByLabelText('Use hotel image 2 in PDF')).toBeChecked();
   });
@@ -9657,7 +9701,9 @@ describe('Phase 14 master selectors', () => {
 
     expect(await screen.findByText('Hotel Options')).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(1),
+      expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(
+        1,
+      ),
     );
     expect(screen.queryByText('Default Hotel Option')).not.toBeInTheDocument();
     expect(screen.queryByText('Hotel for Default Option')).not.toBeInTheDocument();
@@ -9858,8 +9904,7 @@ describe('Phase 14 master selectors', () => {
     // No master value may be created from custom text.
     expect(
       fetchMock.mock.calls.some(
-        ([url, options]) =>
-          options?.method === 'POST' && String(url).includes('/masters/hotels/'),
+        ([url, options]) => options?.method === 'POST' && String(url).includes('/masters/hotels/'),
       ),
     ).toBe(false);
   });

@@ -104,6 +104,18 @@ export const quotationsController = {
       'Weblink settings updated.',
     );
   },
+  async updateWeblinkName(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await quotationsService.updateWeblinkName(
+        auth(req),
+        req.params.quotationId!,
+        req.body,
+        context(req),
+      ),
+      'Weblink name updated.',
+    );
+  },
   async finalize(req: Request, res: Response) {
     sendSuccess(
       res,

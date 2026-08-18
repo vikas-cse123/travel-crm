@@ -4,6 +4,9 @@ import {
   flightDetailsSchema,
   sightseeingDetailsSchema,
   PERMISSIONS,
+  normalizePublicSlug,
+  isReservedPublicSlug,
+  PUBLIC_SLUG_MAX_LENGTH,
   type QuotationInput,
   type QuotationSendInput,
   type QuotationUpdate,
@@ -29,7 +32,10 @@ import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs } from './master-refs.service.js';
 import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
 import { renderStylishQuotationPdf } from './stylish-pdf.service.js';
-import { preferredPublicAppBaseUrl } from '../custom-domains/custom-domain.service.js';
+import {
+  preferredPublicAppBaseUrl,
+  friendlyPublicSlugBaseUrl,
+} from '../custom-domains/custom-domain.service.js';
 import { loadCompanyBranding } from '../../services/pdf/company-branding.js';
 import { webpToPng } from '../../services/pdf/webp-to-png.js';
 import {
@@ -184,6 +190,29 @@ const quotationInclude = {
 } as const;
 type FullQuotation = Prisma.QuotationGetPayload<{ include: typeof quotationInclude }>;
 type FullVersion = Prisma.QuotationVersionGetPayload<{ include: typeof versionInclude }>;
+
+/** Include for the anonymous public renderer: quotationInclude plus the safe
+ *  company branding fields surfaced on the public page/footer. */
+const publicQuotationInclude = {
+  ...quotationInclude,
+  company: {
+    select: {
+      name: true,
+      email: true,
+      phone: true,
+      website: true,
+      address: true,
+      primaryColor: true,
+      operatingSinceYear: true,
+      tripsSold: true,
+      tan: true,
+      taxRegistrationNumber: true,
+      logoObjectKey: true,
+      logoConfirmedAt: true,
+    },
+  },
+} as const;
+type PublicQuotation = Prisma.QuotationGetPayload<{ include: typeof publicQuotationInclude }>;
 
 const decimal = (value: { toString(): string } | null | undefined) => value?.toString() ?? null;
 
@@ -1206,7 +1235,13 @@ export const quotationsService = {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
-    return { ...presentQuotation(quotation, costing), activityTimeline };
+    return {
+      ...presentQuotation(quotation, costing),
+      activityTimeline,
+      // Resolved friendly-slug base for the Weblink Name preview (custom domain
+      // when ACTIVE, else the apex domain).
+      publicSlugBaseUrl: await friendlyPublicSlugBaseUrl(auth.companyId),
+    };
   },
 
   async create(auth: AuthContext, input: QuotationInput, context: RequestContext) {
@@ -1692,6 +1727,63 @@ export const quotationsService = {
     return presentVersion(result, costing);
   },
 
+  /**
+   * Set, change or clear the friendly weblink name (publicSlug). The slug is a
+   * customer-facing alias for the existing public token: updating it never
+   * touches publicToken/publicTokenHash, and it is globally unique across every
+   * tenant because all slugs share `travelagencycrm.in/<slug>`.
+   */
+  async updateWeblinkName(
+    auth: AuthContext,
+    id: string,
+    input: { publicSlug?: string | null },
+    context: RequestContext,
+  ) {
+    await getQuotation(auth, id);
+
+    const raw = (input.publicSlug ?? '').trim();
+    // Blank clears the friendly name; the permanent token URL stays intact.
+    if (!raw) {
+      await prisma.$transaction([
+        prisma.quotation.update({ where: { id }, data: { publicSlug: null } }),
+        prisma.activityLog.create({
+          data: quotationAudit(auth, 'QUOTATION_UPDATED', 'Quotation', id, context, {
+            publicSlug: null,
+          }),
+        }),
+      ]);
+      return { publicSlug: null };
+    }
+
+    const slug = normalizePublicSlug(raw);
+    if (!slug) throw new ValidationError('Enter a valid Weblink name.');
+    if (slug.length > PUBLIC_SLUG_MAX_LENGTH)
+      throw new ValidationError(
+        `Weblink name must be at most ${PUBLIC_SLUG_MAX_LENGTH} characters.`,
+      );
+    if (isReservedPublicSlug(slug))
+      throw new ValidationError('This Weblink Name is reserved. Choose another name.');
+
+    // Global uniqueness (matches the DB unique index: soft-deleted rows still
+    // hold their slug). `id: { not: id }` lets the same quotation keep its slug.
+    const conflict = await prisma.quotation.findFirst({
+      where: { publicSlug: slug, id: { not: id } },
+      select: { id: true },
+    });
+    if (conflict)
+      throw new ConflictError('This Weblink Name is already in use. Choose another name.');
+
+    await prisma.$transaction([
+      prisma.quotation.update({ where: { id }, data: { publicSlug: slug } }),
+      prisma.activityLog.create({
+        data: quotationAudit(auth, 'QUOTATION_UPDATED', 'Quotation', id, context, {
+          publicSlug: slug,
+        }),
+      }),
+    ]);
+    return { publicSlug: slug };
+  },
+
   async finalize(auth: AuthContext, id: string, versionId: string, context: RequestContext) {
     const quotation = await getQuotation(auth, id);
     const version = await getVersion(auth, id, versionId);
@@ -1853,12 +1945,15 @@ export const quotationsService = {
           }
         | null
         | undefined;
-      const stayImagesFor = (h: (typeof version.hotels)[number]): Array<{
+      const stayImagesFor = (
+        h: (typeof version.hotels)[number],
+      ): Array<{
         url?: string;
         thumbnailUrl?: string | null;
       }> => {
         const stayImages = Array.isArray(h.images) ? h.images : [];
-        if (stayImages.length) return stayImages as Array<{ url?: string; thumbnailUrl?: string | null }>;
+        if (stayImages.length)
+          return stayImages as Array<{ url?: string; thumbnailUrl?: string | null }>;
         // Legacy: a single-bookmark quotation stored its gallery on hotelDetails.
         return hotelDetailsRaw?.images ?? [];
       };
@@ -1891,7 +1986,10 @@ export const quotationsService = {
         const masterImage = h.hotelId ? (hotelImageMap.get(h.hotelId) ?? null) : null;
         if (masterImage) return masterImage;
         const images = stayImagesFor(h);
-        const selected = resolvePdfHotelImageUrl(images, h.pdfImageUrl ?? hotelDetailsRaw?.pdfImageUrl);
+        const selected = resolvePdfHotelImageUrl(
+          images,
+          h.pdfImageUrl ?? hotelDetailsRaw?.pdfImageUrl,
+        );
         if (selected) {
           const selectedBytes = snapshotImageMap.get(selected);
           if (selectedBytes) return selectedBytes;
@@ -2455,7 +2553,9 @@ export const quotationsService = {
         });
       }
       return {
-        url: `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${quotation.publicToken}`,
+        url: quotation.publicSlug
+          ? `${await friendlyPublicSlugBaseUrl(auth.companyId)}/${quotation.publicSlug}`
+          : `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${quotation.publicToken}`,
         expiresAt: quotation.publicTokenExpiresAt,
         versionId: quotation.publicVersionId ?? selected.id,
         reused: true,
@@ -2480,7 +2580,9 @@ export const quotationsService = {
       }),
     ]);
     return {
-      url: `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${token}`,
+      url: quotation.publicSlug
+        ? `${await friendlyPublicSlugBaseUrl(auth.companyId)}/${quotation.publicSlug}`
+        : `${await preferredPublicAppBaseUrl(auth.companyId)}/q/${token}`,
       expiresAt: expiresAt ?? quotation.validUntil,
       versionId: selected.id,
       reused: false,
@@ -2497,6 +2599,7 @@ export const quotationsService = {
           publicTokenHash: null,
           publicTokenExpiresAt: null,
           publicVersionId: null,
+          publicSlug: null,
         },
       }),
       prisma.activityLog.create({
@@ -2646,28 +2749,46 @@ export const quotationsService = {
   ) {
     const quotation = await prisma.quotation.findFirst({
       where: { publicTokenHash: hashToken(token), deletedAt: null },
-      include: {
-        ...quotationInclude,
-        company: {
-          select: {
-            name: true,
-            email: true,
-            phone: true,
-            website: true,
-            address: true,
-            primaryColor: true,
-            // Company Settings values surfaced on the public footer/favicon.
-            operatingSinceYear: true,
-            tripsSold: true,
-            tan: true,
-            taxRegistrationNumber: true,
-            logoObjectKey: true,
-            logoConfirmedAt: true,
-          },
-        },
-      },
+      include: publicQuotationInclude,
     });
     if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
+    return this.renderPublicQuotation(quotation, options ?? {});
+  },
+
+  /**
+   * Resolve a friendly public slug (`travelagencycrm.in/<slug>`) to the exact
+   * same sanitized public payload as the token lookup. Unknown slugs return the
+   * same generic not-found, revealing nothing about private/tenant records.
+   */
+  async publicViewBySlug(
+    slug: string,
+    options?: {
+      userAgent?: string | null;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
+  ) {
+    const normalized = slug.trim().toLowerCase();
+    const quotation = normalized
+      ? await prisma.quotation.findFirst({
+          where: { publicSlug: normalized, deletedAt: null },
+          include: publicQuotationInclude,
+        })
+      : null;
+    if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
+    return this.renderPublicQuotation(quotation, options ?? {});
+  },
+
+  async renderPublicQuotation(
+    quotation: PublicQuotation,
+    options: {
+      userAgent?: string | null;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
+  ) {
     // When the request arrives through an ACTIVE custom domain, the quotation
     // must belong to that domain's company. A token is never exposed through
     // another tenant's custom domain — safe not-found behavior.
@@ -2930,6 +3051,40 @@ export const quotationsService = {
       select: { id: true, companyId: true },
     });
     if (!quotation) return { ok: false };
+    return this.trackWeblinkVisitForQuotation(quotation, input, meta);
+  },
+
+  async trackWeblinkVisitBySlug(
+    slug: string,
+    input: QuotationTrackInput,
+    meta: {
+      userAgent?: string | null;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
+  ) {
+    const normalized = slug.trim().toLowerCase();
+    const quotation = normalized
+      ? await prisma.quotation.findFirst({
+          where: { publicSlug: normalized, deletedAt: null },
+          select: { id: true, companyId: true },
+        })
+      : null;
+    if (!quotation) return { ok: false };
+    return this.trackWeblinkVisitForQuotation(quotation, input, meta);
+  },
+
+  async trackWeblinkVisitForQuotation(
+    quotation: { id: string; companyId: string },
+    input: QuotationTrackInput,
+    meta: {
+      userAgent?: string | null;
+      ip?: string | null;
+      authCompanyId?: string | null;
+      customDomainCompanyId?: string | null;
+    },
+  ) {
     if (meta.customDomainCompanyId && quotation.companyId !== meta.customDomainCompanyId)
       return { ok: false };
     const ua = meta.userAgent ?? '';
@@ -3039,49 +3194,73 @@ export const quotationsService = {
       include: quotationInclude,
     });
     if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
-    if (['ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(quotation.status))
-      throw new ConflictError('A final response has already been recorded.');
-    const version =
-      quotation.versions.find((row) => row.id === quotation.currentVersionId) ??
-      quotation.versions.find((row) => row.id === quotation.publicVersionId);
-    if (!version || version.status === 'DRAFT')
-      throw new ConflictError('The linked version is not finalized.');
-    const now = new Date();
-    await prisma.$transaction(async (tx) => {
-      if (decision === 'accept') {
-        await tx.quotation.update({
-          where: { id: quotation.id },
-          data: { status: 'ACCEPTED', acceptedAt: now, acceptedVersionId: version.id },
-        });
-        await tx.query.update({
-          where: { id: quotation.queryId },
-          data: { leadStage: 'READY_TO_BOOK' },
-        });
-        await tx.activityLog.create({
-          data: {
-            companyId: quotation.companyId,
-            action: 'QUOTATION_ACCEPTED',
-            entityType: 'Quotation',
-            entityId: quotation.id,
-            metadata: { versionId: version.id, customerName: input.customerName, note: input.note },
-          },
-        });
-      } else {
-        await tx.quotation.update({
-          where: { id: quotation.id },
-          data: { status: 'REJECTED', rejectedAt: now, rejectionReason: input.reason ?? null },
-        });
-        await tx.activityLog.create({
-          data: {
-            companyId: quotation.companyId,
-            action: 'QUOTATION_REJECTED',
-            entityType: 'Quotation',
-            entityId: quotation.id,
-            metadata: { versionId: version.id, reason: input.reason, note: input.note },
-          },
-        });
-      }
-    });
-    return { status: decision === 'accept' ? 'ACCEPTED' : 'REJECTED', recordedAt: now };
+    return recordPublicDecision(quotation, decision, input);
+  },
+
+  async publicDecisionBySlug(
+    slug: string,
+    decision: 'accept' | 'reject',
+    input: { customerName?: string; reason?: string; note?: string },
+  ) {
+    const normalized = slug.trim().toLowerCase();
+    const quotation = normalized
+      ? await prisma.quotation.findFirst({
+          where: { publicSlug: normalized, deletedAt: null },
+          include: quotationInclude,
+        })
+      : null;
+    if (!quotation) throw new NotFoundError('This quotation link is invalid or expired.');
+    return recordPublicDecision(quotation, decision, input);
   },
 };
+
+async function recordPublicDecision(
+  quotation: FullQuotation,
+  decision: 'accept' | 'reject',
+  input: { customerName?: string; reason?: string; note?: string },
+) {
+  if (['ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(quotation.status))
+    throw new ConflictError('A final response has already been recorded.');
+  const version =
+    quotation.versions.find((row) => row.id === quotation.currentVersionId) ??
+    quotation.versions.find((row) => row.id === quotation.publicVersionId);
+  if (!version || version.status === 'DRAFT')
+    throw new ConflictError('The linked version is not finalized.');
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    if (decision === 'accept') {
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { status: 'ACCEPTED', acceptedAt: now, acceptedVersionId: version.id },
+      });
+      await tx.query.update({
+        where: { id: quotation.queryId },
+        data: { leadStage: 'READY_TO_BOOK' },
+      });
+      await tx.activityLog.create({
+        data: {
+          companyId: quotation.companyId,
+          action: 'QUOTATION_ACCEPTED',
+          entityType: 'Quotation',
+          entityId: quotation.id,
+          metadata: { versionId: version.id, customerName: input.customerName, note: input.note },
+        },
+      });
+    } else {
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { status: 'REJECTED', rejectedAt: now, rejectionReason: input.reason ?? null },
+      });
+      await tx.activityLog.create({
+        data: {
+          companyId: quotation.companyId,
+          action: 'QUOTATION_REJECTED',
+          entityType: 'Quotation',
+          entityId: quotation.id,
+          metadata: { versionId: version.id, reason: input.reason, note: input.note },
+        },
+      });
+    }
+  });
+  return { status: decision === 'accept' ? 'ACCEPTED' : 'REJECTED', recordedAt: now };
+}

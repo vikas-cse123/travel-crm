@@ -22,6 +22,7 @@ export * from './users.js';
 export * from './administration.js';
 export * from './queries.js';
 export * from './quotations.js';
+export * from './public-slug.js';
 export * from './bookings.js';
 export * from './customers.js';
 export * from './vendors.js';

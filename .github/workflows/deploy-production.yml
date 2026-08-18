@@ -1,7 +1,11 @@
 name: Deploy Production
 
 on:
-  push:
+  # Deploy only AFTER the main CI workflow succeeds for the same commit. This
+  # replaces the previous `push` trigger so a red CI run never reaches prod.
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -27,8 +31,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Wait for CI success
+    runs-on: ubuntu-latest
+    # workflow_dispatch bypasses the CI gate intentionally; workflow_run must be
+    # a successful CI completion. Any other outcome skips this job and, because
+    # `detect` needs it, the whole production deployment.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve deploy SHA
+        id: resolve
+        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
   detect:
     name: Detect deployment scope
+    needs: gate
     runs-on: ubuntu-latest
     outputs:
       deploy_frontend: ${{ steps.scope.outputs.deploy_frontend }}
@@ -40,6 +59,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Deploy the exact commit that passed CI, never the current main tip.
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
 
       - name: Compute scope
@@ -54,7 +75,7 @@ jobs:
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_BEFORE: ${{ github.event.before }}
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ needs.gate.outputs.sha }}
           DEPLOY_SCOPE_INPUT: ${{ inputs.deploy_scope }}
           RUN_MIGRATIONS_INPUT: ${{ inputs.run_migrations }}
 
@@ -69,13 +90,15 @@ jobs:
 
   deploy-frontend:
     name: Deploy frontend
-    needs: detect
+    needs: [detect, gate]
     if: needs.detect.outputs.deploy_frontend == 'true'
     environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -100,7 +123,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: VITE_API_URL=/api
-          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=frontend-production
           cache-to: type=gha,mode=max,scope=frontend-production
 
@@ -119,7 +142,7 @@ jobs:
           chmod +x .github/scripts/prepare-ecs-task-definition.sh
           ./.github/scripts/prepare-ecs-task-definition.sh \
             "${{ vars.FRONTEND_ECS_SERVICE }}" \
-            "${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}" \
             /tmp/frontend-taskdef.json
 
       - name: Register frontend task definition
@@ -177,8 +200,8 @@ jobs:
         run: |
           {
             echo "## Frontend deployment"
-            echo "**commit:** ${{ github.sha }}"
-            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}"
+            echo "**commit:** ${{ needs.gate.outputs.sha }}"
+            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.FRONTEND_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}"
             echo "**digest:** ${{ steps.build.outputs.digest }}"
             echo "**previous task def:** ${{ steps.previous.outputs.previous_task_def }}"
             echo "**new task def:** ${{ steps.register.outputs.new_task_def }}"
@@ -197,13 +220,15 @@ jobs:
 
   deploy-api:
     name: Deploy API
-    needs: detect
+    needs: [detect, gate]
     if: needs.detect.outputs.deploy_api == 'true'
     environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -233,7 +258,7 @@ jobs:
           file: apps/api/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=api-production
           cache-to: type=gha,mode=max,scope=api-production
 
@@ -246,7 +271,7 @@ jobs:
           target: builder
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ github.sha }}
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=api-production
           cache-to: type=gha,mode=max,scope=api-production
 
@@ -265,7 +290,7 @@ jobs:
           chmod +x .github/scripts/prepare-ecs-task-definition.sh
           ./.github/scripts/prepare-ecs-task-definition.sh \
             "${{ vars.API_ECS_SERVICE }}" \
-            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}" \
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}" \
             /tmp/api-taskdef.json
 
       - name: Register API task definition
@@ -284,7 +309,7 @@ jobs:
           ./.github/scripts/run-ecs-migration.sh \
             "${{ vars.ECS_CLUSTER }}" \
             "${{ vars.API_ECS_SERVICE }}" \
-            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ github.sha }}"
+            "${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:migrate-${{ needs.gate.outputs.sha }}"
 
       - name: Update API service
         id: update
@@ -333,8 +358,8 @@ jobs:
         run: |
           {
             echo "## API deployment"
-            echo "**commit:** ${{ github.sha }}"
-            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ github.sha }}"
+            echo "**commit:** ${{ needs.gate.outputs.sha }}"
+            echo "**image:** ${{ steps.ecr-login.outputs.registry }}/${{ vars.API_ECR_REPOSITORY }}:${{ needs.gate.outputs.sha }}"
             echo "**digest:** ${{ steps.build.outputs.digest }}"
             echo "**migrations executed:** ${{ needs.detect.outputs.run_migrations }}"
             echo "**previous task def:** ${{ steps.previous.outputs.previous_task_def }}"

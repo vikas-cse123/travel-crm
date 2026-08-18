@@ -597,10 +597,21 @@ describe('flight bookmark airline resolution', () => {
       }),
     );
 
-    const existing = airline({ id: 'existing-indigo', name: 'IndiGo', iataCode: '6E', hasLogo: false });
+    const existing = airline({
+      id: 'existing-indigo',
+      name: 'IndiGo',
+      iataCode: '6E',
+      hasLogo: false,
+    });
     const create = vi.fn();
     const refs: FlightSegmentAirlineRef[] = [
-      { leg: 'outbound', segmentIndex: 0, name: 'IndiGo', iataCode: '6E', logoUrl: 'https://img/indigo.png' },
+      {
+        leg: 'outbound',
+        segmentIndex: 0,
+        name: 'IndiGo',
+        iataCode: '6E',
+        logoUrl: 'https://img/indigo.png',
+      },
     ];
 
     const resolved = await resolveFlightSegmentAirlines(refs, {
@@ -627,9 +638,20 @@ describe('flight bookmark airline resolution', () => {
       }),
     );
 
-    const existing = airline({ id: 'existing-indigo', name: 'IndiGo', iataCode: '6E', hasLogo: true });
+    const existing = airline({
+      id: 'existing-indigo',
+      name: 'IndiGo',
+      iataCode: '6E',
+      hasLogo: true,
+    });
     const refs: FlightSegmentAirlineRef[] = [
-      { leg: 'outbound', segmentIndex: 0, name: 'IndiGo', iataCode: '6E', logoUrl: 'https://img/indigo.png' },
+      {
+        leg: 'outbound',
+        segmentIndex: 0,
+        name: 'IndiGo',
+        iataCode: '6E',
+        logoUrl: 'https://img/indigo.png',
+      },
     ];
 
     const resolved = await resolveFlightSegmentAirlines(refs, {
@@ -658,7 +680,10 @@ describe('flight bookmark airline resolution', () => {
             json: async () => ({
               success: false,
               data: null,
-              error: { code: 'VALIDATION', message: 'The remote airline logo could not be downloaded.' },
+              error: {
+                code: 'VALIDATION',
+                message: 'The remote airline logo could not be downloaded.',
+              },
             }),
           };
         }
@@ -668,7 +693,13 @@ describe('flight bookmark airline resolution', () => {
 
     const created = airline({ id: 'new-air', name: 'IndiGo', iataCode: '6E' });
     const refs: FlightSegmentAirlineRef[] = [
-      { leg: 'outbound', segmentIndex: 0, name: 'IndiGo', iataCode: '6E', logoUrl: 'https://img/indigo.png' },
+      {
+        leg: 'outbound',
+        segmentIndex: 0,
+        name: 'IndiGo',
+        iataCode: '6E',
+        logoUrl: 'https://img/indigo.png',
+      },
     ];
 
     const resolved = await resolveFlightSegmentAirlines(refs, {
@@ -699,7 +730,13 @@ describe('flight bookmark airline resolution', () => {
     const created = airline({ id: 'created-indigo', name: 'IndiGo', iataCode: '6E' });
     const create = vi.fn(async () => created);
     const refs: FlightSegmentAirlineRef[] = [
-      { leg: 'outbound', segmentIndex: 0, name: 'IndiGo', iataCode: '6E', logoUrl: 'https://img/indigo.png' },
+      {
+        leg: 'outbound',
+        segmentIndex: 0,
+        name: 'IndiGo',
+        iataCode: '6E',
+        logoUrl: 'https://img/indigo.png',
+      },
     ];
 
     // First load: airline is created and its logo imported once.
@@ -896,27 +933,23 @@ describe('BookmarkLoadField', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
-        if (url.includes('/by-code/HTL-000023')) return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
-        if (url.includes('/by-code/HTL-000045')) return success(hotelBookmark({ bookmarkCode: 'HTL-000045', id: 'bm-b' }));
-        if (url.includes('/by-code/HTL-000067')) return success(hotelBookmark({ bookmarkCode: 'HTL-000067', id: 'bm-c' }));
+        if (url.includes('/by-code/HTL-000023'))
+          return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
+        if (url.includes('/by-code/HTL-000045'))
+          return success(hotelBookmark({ bookmarkCode: 'HTL-000045', id: 'bm-b' }));
+        if (url.includes('/by-code/HTL-000067'))
+          return success(hotelBookmark({ bookmarkCode: 'HTL-000067', id: 'bm-c' }));
         return notFound();
       }),
     );
 
-    await user.type(
-      screen.getByLabelText('Bookmark ID'),
-      'HTL-000023, HTL-000045, HTL-000067',
-    );
+    await user.type(screen.getByLabelText('Bookmark ID'), 'HTL-000023, HTL-000045, HTL-000067');
     await user.click(screen.getByRole('button', { name: 'Load' }));
 
     await waitFor(() => {
       expect(onLoaded).toHaveBeenCalledTimes(1);
       const [loaded] = onLoaded.mock.calls[0] as [LiveSearchBookmark[]];
-      expect(loaded.map((b) => b.bookmarkCode)).toEqual([
-        'HTL-000023',
-        'HTL-000045',
-        'HTL-000067',
-      ]);
+      expect(loaded.map((b) => b.bookmarkCode)).toEqual(['HTL-000023', 'HTL-000045', 'HTL-000067']);
     });
     expect(
       await screen.findByText('✓ Loaded from HTL-000023, HTL-000045, HTL-000067'),
@@ -929,7 +962,8 @@ describe('BookmarkLoadField', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input.toString();
-        if (url.includes('/by-code/HTL-000023')) return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
+        if (url.includes('/by-code/HTL-000023'))
+          return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
         return notFound();
       }),
     );
@@ -997,9 +1031,7 @@ describe('BookmarkLoadField', () => {
     await user.type(screen.getByLabelText('Bookmark ID'), 'not-a-code');
     await user.click(screen.getByRole('button', { name: 'Load' }));
 
-    expect(
-      await screen.findByText('Invalid bookmark ID: NOT-A-CODE.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Invalid bookmark ID: NOT-A-CODE.')).toBeInTheDocument();
     expect(onLoaded).not.toHaveBeenCalled();
     // No by-code lookup request was made for a malformed ID.
     expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/by-code/'))).toBe(false);
@@ -1013,7 +1045,9 @@ describe('HotelBookmarkListField', () => {
     return { user, onLoaded, ...utils };
   }
 
-  function stubBookmarks(map: Record<string, ReturnType<typeof success> | ReturnType<typeof notFound>>) {
+  function stubBookmarks(
+    map: Record<string, ReturnType<typeof success> | ReturnType<typeof notFound>>,
+  ) {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {

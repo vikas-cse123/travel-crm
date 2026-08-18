@@ -2,7 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
 import { hashToken } from '../src/utils/crypto.js';
-import { preferredPublicAppBaseUrl } from '../src/modules/custom-domains/custom-domain.service.js';
+import {
+  preferredPublicAppBaseUrl,
+  friendlyPublicSlugBaseUrl,
+} from '../src/modules/custom-domains/custom-domain.service.js';
 import { quotationsService } from '../src/modules/quotations/quotations.service.js';
 import { env } from '../src/config/env.js';
 
@@ -163,6 +166,102 @@ describe('createPublicLink', () => {
     expect(result.url).toMatch(
       new RegExp(`^${env.WEB_URL.replace(/\/$/, '')}/q/[A-Za-z0-9_-]{32,}$`),
     );
+  });
+
+  it('returns a custom-domain friendly URL when the quotation has publicSlug', async () => {
+    const { companyId, userId, quotationId, versionId } = await seedQuotation('slug-easy', {
+      hostname: 'trips.rahultravels.com',
+      status: 'ACTIVE',
+    });
+    await db.quotation.update({
+      where: { id: quotationId },
+      data: { publicSlug: 'singapore' },
+    });
+    const result = await quotationsService.createPublicLink(
+      auth(companyId, userId),
+      quotationId,
+      versionId,
+      null,
+      REQUEST_CONTEXT,
+    );
+    expect(result.url).toBe('https://trips.rahultravels.com/singapore');
+  });
+
+  it('returns the apex friendly URL when no custom domain exists', async () => {
+    const { companyId, userId, quotationId, versionId } = await seedQuotation('slug-no-domain');
+    await db.quotation.update({
+      where: { id: quotationId },
+      data: { publicSlug: 'singapore' },
+    });
+    const result = await quotationsService.createPublicLink(
+      auth(companyId, userId),
+      quotationId,
+      versionId,
+      null,
+      REQUEST_CONTEXT,
+    );
+    expect(result.url).toBe(`${env.PUBLIC_SLUG_BASE_URL.replace(/\/$/, '')}/singapore`);
+  });
+});
+
+describe('friendlyPublicSlugBaseUrl', () => {
+  it('uses the ACTIVE custom domain for a slug', async () => {
+    const { companyId } = await seedQuotation('slug-base-active', {
+      hostname: 'trips.rahultravels.com',
+      status: 'ACTIVE',
+    });
+    expect(await friendlyPublicSlugBaseUrl(companyId)).toBe('https://trips.rahultravels.com');
+  });
+
+  it('falls back to the apex domain without a custom domain', async () => {
+    const { companyId } = await seedQuotation('slug-base-none');
+    expect(await friendlyPublicSlugBaseUrl(companyId)).toBe(
+      env.PUBLIC_SLUG_BASE_URL.replace(/\/$/, ''),
+    );
+  });
+
+  it('falls back to the apex domain for a PENDING domain', async () => {
+    const { companyId } = await seedQuotation('slug-base-pending', {
+      hostname: 'pending.example.com',
+      status: 'PENDING',
+    });
+    expect(await friendlyPublicSlugBaseUrl(companyId)).toBe(
+      env.PUBLIC_SLUG_BASE_URL.replace(/\/$/, ''),
+    );
+  });
+});
+
+describe('publicViewBySlug cross-tenant protection', () => {
+  it('resolves the slug on the matching custom domain', async () => {
+    const { companyId, quotationId, versionId } = await seedQuotation('slug-tenant', {
+      hostname: 'trips.rahultravels.com',
+      status: 'ACTIVE',
+    });
+    await db.quotation.update({
+      where: { id: quotationId },
+      data: { publicSlug: 'singapore', publicVersionId: versionId },
+    });
+    const result = await quotationsService.publicViewBySlug('singapore', {
+      customDomainCompanyId: companyId,
+    });
+    expect(result.quotation.quotationNumber).toBe('QT-1');
+  });
+
+  it('rejects a slug through another company custom domain (safe not-found)', async () => {
+    const { quotationId, versionId } = await seedQuotation('slug-tenant-other', {
+      hostname: 'trips.rahultravels.com',
+      status: 'ACTIVE',
+    });
+    await db.quotation.update({
+      where: { id: quotationId },
+      data: { publicSlug: 'singapore', publicVersionId: versionId },
+    });
+    const other = await db.company.create({
+      data: { name: 'Other Co', slug: 'slug-other-co', email: 'other@co.local', status: 'ACTIVE' },
+    });
+    await expect(
+      quotationsService.publicViewBySlug('singapore', { customDomainCompanyId: other.id }),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

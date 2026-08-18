@@ -20,11 +20,16 @@ export interface MarketingServiceStackProps extends StackProps {
  * and additive listener rules/certificates for travelagencycrm.in.
  *
  * Listener priorities in use on the shared HTTPS listener:
- *   10  origin-protection (X-Origin-Verify -> API)   [preserved]
- *   20  app host + /api -> API                       [preserved]
- *   30  app host -> CRM frontend                     [preserved]
- *   40  www host -> 301 redirect to root domain      [this stack]
- *   50  root host -> marketing target group          [this stack]
+ *   10  origin-protection (X-Origin-Verify -> API)      [preserved]
+ *   20  app host + /api -> API                          [preserved]
+ *   30  app host -> CRM frontend                        [preserved]
+ *   40  www host -> 301 redirect to root domain         [this stack]
+ *   45  root host + marketing pages -> marketing        [this stack]
+ *   46  root host + marketing assets -> marketing       [this stack]
+ *   47  root host + marketing SEO files -> marketing    [this stack]
+ *   48  root host + marketing 404/html -> marketing     [this stack]
+ *   49  root host + /api -> API (friendly-slug page)    [this stack]
+ *   50  root host -> CRM frontend (friendly slug pages) [this stack]
  */
 export class MarketingServiceStack extends Stack {
   readonly marketingTargetGroupArn: string;
@@ -73,6 +78,22 @@ export class MarketingServiceStack extends Stack {
       this,
       'MarketingCertificate',
       config.marketingCertArn,
+    );
+
+    // The friendly `travelagencycrm.in/<publicSlug>` page is rendered by the CRM
+    // frontend (the SPA already hosts PublicQuotationPage), and its API calls
+    // are served same-origin, so the marketing host needs the API and frontend
+    // target groups imported here. Both are pre-existing resources referenced by
+    // ARN, mirroring how AlbFrontendStack imports the API target group.
+    const apiTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(
+      this,
+      'ApiTargetGroup',
+      { targetGroupArn: config.apiTargetGroupArn },
+    );
+    const frontendTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(
+      this,
+      'FrontendTargetGroup',
+      { targetGroupArn: config.frontendTargetGroupArn },
     );
 
     // ------------------------------------------------ Marketing security
@@ -186,7 +207,15 @@ export class MarketingServiceStack extends Stack {
 
     // ------------------------------------------------ Listener rules
     // Priority 40: www -> permanent 301 redirect to the root domain, preserving
-    // path and query. Priority 50: root host -> marketing target group.
+    // path and query.
+    //
+    // Priority 45-50 route the root domain:
+    //   - 45/46/47: the real marketing website paths and static assets stay on
+    //     the marketing container (split across three rules because ALB allows
+    //     at most 5 condition values per rule).
+    //   - 48: same-origin /api for the friendly quotation page.
+    //   - 50: everything else (extensionless friendly slugs) -> CRM frontend,
+    //     where PublicQuotationPage resolves `/:slug`.
     // Host-based conditions make these mutually exclusive with the app rules.
     listener.addAction('MarketingWwwRedirectRule', {
       priority: 40,
@@ -199,10 +228,61 @@ export class MarketingServiceStack extends Stack {
         permanent: true,
       }),
     });
+    const marketingHost = () => elbv2.ListenerCondition.hostHeaders([config.marketingDomain]);
+    const marketingForward = () => elbv2.ListenerAction.forward([targetGroup]);
+    listener.addAction('MarketingReservedPagesRule', {
+      priority: 45,
+      conditions: [
+        marketingHost(),
+        elbv2.ListenerCondition.pathPatterns(['/', '/privacy', '/terms', '/healthz']),
+      ],
+      action: marketingForward(),
+    });
+    listener.addAction('MarketingReservedAssetsRule', {
+      priority: 46,
+      conditions: [
+        marketingHost(),
+        elbv2.ListenerCondition.pathPatterns(['/assets', '/assets/*', '/favicon.svg', '/logo.svg']),
+      ],
+      action: marketingForward(),
+    });
+    listener.addAction('MarketingReservedSeoRule', {
+      priority: 47,
+      conditions: [
+        marketingHost(),
+        elbv2.ListenerCondition.pathPatterns([
+          '/og-image.png',
+          '/og-image.svg',
+          '/robots.txt',
+          '/sitemap.xml',
+        ]),
+      ],
+      action: marketingForward(),
+    });
+    // Canonical 404 route (`/404` -> 404.html via try_files) plus the raw HTML
+    // entry points that the marketing nginx serves directly for crawlers.
+    listener.addAction('MarketingReservedHtmlRule', {
+      priority: 48,
+      conditions: [
+        marketingHost(),
+        elbv2.ListenerCondition.pathPatterns([
+          '/404',
+          '/index.html',
+          '/privacy.html',
+          '/terms.html',
+        ]),
+      ],
+      action: marketingForward(),
+    });
+    listener.addAction('MarketingApiRule', {
+      priority: 49,
+      conditions: [marketingHost(), elbv2.ListenerCondition.pathPatterns(['/api', '/api/*'])],
+      action: elbv2.ListenerAction.forward([apiTargetGroup]),
+    });
     listener.addAction('MarketingRootRule', {
       priority: 50,
-      conditions: [elbv2.ListenerCondition.hostHeaders([config.marketingDomain])],
-      action: elbv2.ListenerAction.forward([targetGroup]),
+      conditions: [marketingHost()],
+      action: elbv2.ListenerAction.forward([frontendTargetGroup]),
     });
 
     this.marketingTargetGroupArn = targetGroup.targetGroupArn;

@@ -43,6 +43,8 @@ export interface DeployConfig {
   albSecurityGroupId: string;
   /** Existing API target-group ARN. */
   apiTargetGroupArn: string;
+  /** Existing frontend target-group ARN (created by the frontend stack). */
+  frontendTargetGroupArn: string;
   /** Existing ECS cluster name. */
   clusterName: string;
   /** Existing ECS cluster ARN. */
@@ -133,6 +135,7 @@ export const config: DeployConfig = {
   listenerArn: process.env.LISTENER_ARN ?? '',
   albSecurityGroupId: process.env.ALB_SG_ID ?? '',
   apiTargetGroupArn: process.env.API_TG_ARN ?? '',
+  frontendTargetGroupArn: process.env.FRONTEND_TG_ARN ?? '',
   clusterName: process.env.ECS_CLUSTER_NAME ?? '',
   clusterArn: process.env.ECS_CLUSTER_ARN ?? '',
   vpcId: process.env.VPC_ID ?? '',
