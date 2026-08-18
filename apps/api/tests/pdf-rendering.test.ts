@@ -1481,6 +1481,144 @@ describe('PDF rendering with long content', () => {
     expect(b.footerTop).toBeCloseTo(footerDividerY, 4);
   });
 
+  it('keeps long/sparse content out of the footer and packs days efficiently', async () => {
+    // One itinerary day carries a description far longer than a page so its
+    // bullets must split across page-safe blocks; the rest are sparse so the
+    // days must pack onto shared pages instead of wasting one page each.
+    const longDescription = Array.from(
+      { length: 30 },
+      (_, index) =>
+        `Highlight bullet number ${index + 1} describing a genuine detail of this activity in full sentences.`,
+    ).join('\n');
+    const days = Array.from({ length: 20 }, (_, index) => ({
+      dayNumber: index + 1,
+      title: `Day ${index + 1} itinerary heading`,
+      date: new Date(`2026-11-${String(index + 1).padStart(2, '0')}`),
+      meals: { breakfast: true },
+      activities:
+        index === 10
+          ? [
+              {
+                name: 'Long activity with extensive detail',
+                description: longDescription,
+                startTime: '09:00',
+                dailyTransfer: 'PRIVATE',
+              },
+            ]
+          : [
+              {
+                name: `Morning activity ${index + 1}`,
+                description: 'A short description.',
+                startTime: '09:00',
+                dailyTransfer: 'PRIVATE',
+              },
+            ],
+    }));
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: {
+        quotationNumber: 'QT-PAGINATION-0001',
+        customerName: 'Pagination Test',
+        customerEmail: null,
+        customerPhone: '+91 90000 00000',
+        destinationSummary: 'Singapore',
+        travelStartDate: new Date('2026-11-13'),
+        travelEndDate: new Date('2026-11-18'),
+        adults: 2,
+        childrenWithBed: 1,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+      },
+      version: {
+        versionNumber: 1,
+        title: 'Singapore Pagination Package',
+        introduction: null,
+        currency: 'INR',
+        finalAmount: '80000',
+        notes: null,
+        perAdultPrice: '35000',
+        perChildWithBedPrice: '10000',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+        taxNote: 'Inclusive of all taxes, excluding TCS',
+        initialPaymentAmount: '20000',
+        paymentLink: null,
+        inclusionsHtml: '<ul><li>Transfers</li><li>Breakfast</li></ul>',
+        exclusionsHtml: null,
+        paymentPolicies: '<p>Pay early.</p>',
+        cancellationPolicies: '<p>Cancellation applies.</p>',
+        bookingTerms: null,
+        includeVisa: false,
+        visaSectionTitle: null,
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+        flightDetails: null,
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Tours',
+          amount: 0,
+          description: null,
+          days,
+        },
+        hotels: [
+          {
+            city: 'Singapore',
+            hotelName: 'Marina Bay Sands',
+            category: '5 Star',
+            roomType: 'Deluxe',
+            mealPlan: 'BB',
+            rooms: 1,
+            nights: 5,
+            selected: true,
+            checkInDate: new Date('2026-11-13'),
+            checkOutDate: new Date('2026-11-18'),
+            notes: null,
+          },
+        ],
+        itinerary: [],
+        services: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+    });
+    expect(isPdf(pdf)).toBe(true);
+    // Footer pass added no pages: the internal page-count guard passed, and the
+    // rendered buffer contains exactly the planned pages.
+    const pages = pageWordBoxes(pdf);
+    const count = pageCount(pdf);
+    expect(count).toBe(pages.length);
+    // No blank or mostly-empty intermediate pages anywhere.
+    for (const page of pages) {
+      expect(page.words.length).toBeGreaterThan(0);
+    }
+    // Zero body/footer overlap: nothing is drawn in the safe-gap band directly
+    // above the footer divider (body stops at CONTENT_BOTTOM_LIMIT, a POST_GAP
+    // above the divider; footer text starts below it).
+    for (const page of pages) {
+      const footerTop = page.height - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
+      const inBand = page.words.filter(
+        (word) => Math.abs(word.yMax - footerTop) < PDF_POST_CONTENT_GAP,
+      );
+      expect(inBand).toEqual([]);
+    }
+    // Long description bullets split safely across pages — the final bullet is
+    // fully present in the rendered PDF rather than clipped into the footer.
+    const text = pdfText(pdf);
+    expect(text).toContain('Highlight bullet number 30');
+    expect(text).toContain('describing a genuine detail of this activity');
+    // The private transfer badge renders with its activity, never alone.
+    expect(text).toContain('Private Transfer');
+    // The thank-you page remains the final page — zero trailing blank pages.
+    expect(pdfTextPage(pdf, count)).toContain('THANK');
+  });
+
   it('renders hotel cards that keep every field inside the rounded border', async () => {
     // Long hotel titles / room types that previously overflowed the fixed 150pt
     // card border. The card must size itself to the content and keep Check-out

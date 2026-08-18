@@ -553,16 +553,12 @@ class PagePlanner {
       if (this.current.length > 0) {
         this.flush();
       }
-      if (keptHeight + block.height <= PDF_MAX_CONTENT_HEIGHT) {
-        this.current = kept;
-        this.currentHeight = keptHeight;
-      } else if (kept.length > 0) {
-        // Defensive fallback for unsplittable blocks: never let a retained
-        // heading group make the measured page taller than the body budget.
-        this.current = kept;
-        this.currentHeight = keptHeight;
-        this.flush();
-      }
+      // Keep the retained heading group with the following block. A kept
+      // group must never be flushed onto its own mostly-empty page (orphaned
+      // heading / wasted space); callers pre-split oversized content so the
+      // combined group stays within the page budget in practice.
+      this.current = kept;
+      this.currentHeight = keptHeight;
     }
     this.current.push(block);
     this.currentHeight += block.height;
@@ -873,6 +869,110 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
    * text, preserve normal PDF text layout while drawing the supported emoji as
    * small embedded colour PNGs at the same inline positions.
    */
+  type InlinePart = { value: string; width: number; bold: boolean; emoji?: Buffer };
+  type LineLayout = {
+    rows: InlinePart[][];
+    lineHeight: number;
+    emojiSize: number;
+    height: number;
+  };
+
+  /**
+   * Lay out a single rich-text line into inline rows (emoji-aware) using the
+   * exact measurement the render pass will use. Shared by the single-block and
+   * page-splitting flow builders so measured and drawn text always match.
+   */
+  const layoutRichLine = (line: PdfRichTextLine, width: number, size: number, gap: number): LineLayout => {
+    const parts: Array<{ value: string; bold: boolean; emoji?: Buffer }> = [];
+    for (const run of line) {
+      let cursor = 0;
+      const matches = run.text.matchAll(
+        /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
+      );
+      for (const match of matches) {
+        if (match.index === undefined) continue;
+        if (match.index > cursor) {
+          run.text
+            .slice(cursor, match.index)
+            .split(/(\s+)/)
+            .filter(Boolean)
+            .forEach((value) => parts.push({ value, bold: run.bold }));
+        }
+        const png = colorEmojiPng(match[0]);
+        parts.push({ value: match[0], bold: run.bold, ...(png ? { emoji: png } : {}) });
+        cursor = match.index + match[0].length;
+      }
+      if (cursor < run.text.length) {
+        run.text
+          .slice(cursor)
+          .split(/(\s+)/)
+          .filter(Boolean)
+          .forEach((value) => parts.push({ value, bold: run.bold }));
+      }
+    }
+
+    doc.font('Body').fontSize(size);
+    const lineHeight = doc.heightOfString('Ag', { width });
+    const emojiSize = Math.min(lineHeight * 0.94, size * 1.2);
+
+    const measured = parts.map<InlinePart>((part) => ({
+      ...part,
+      width: part.emoji
+        ? emojiSize
+        : doc
+            .font(part.bold ? 'Bold' : 'Body')
+            .fontSize(size)
+            .widthOfString(part.value),
+    }));
+    const rows: InlinePart[][] = [];
+    let row: InlinePart[] = [];
+    let rowWidth = 0;
+    const finishRow = () => {
+      while (row.length && /^\s+$/.test(row[row.length - 1]!.value)) row.pop();
+      if (row.length) rows.push(row);
+      row = [];
+      rowWidth = 0;
+    };
+    const addPart = (part: InlinePart) => {
+      const whitespace = /^\s+$/.test(part.value);
+      if (whitespace && row.length === 0) return;
+      if (row.length && rowWidth + part.width > width) finishRow();
+      if (whitespace && row.length === 0) return;
+      row.push(part);
+      rowWidth += part.width;
+    };
+
+    for (const part of measured) {
+      if (part.emoji || part.width <= width) {
+        addPart(part);
+        continue;
+      }
+      // Keep unusually long unbroken text inside the column.
+      let chunk = '';
+      let chunkWidth = 0;
+      doc.font(part.bold ? 'Bold' : 'Body').fontSize(size);
+      for (const character of Array.from(part.value)) {
+        const characterWidth = doc.widthOfString(character);
+        if (chunk && chunkWidth + characterWidth > width) {
+          addPart({ value: chunk, width: chunkWidth, bold: part.bold });
+          chunk = '';
+          chunkWidth = 0;
+        }
+        chunk += character;
+        chunkWidth += characterWidth;
+      }
+      if (chunk) addPart({ value: chunk, width: chunkWidth, bold: part.bold });
+    }
+    finishRow();
+
+    return {
+      rows,
+      lineHeight,
+      emojiSize,
+      height: rows.length * lineHeight + gap,
+    };
+  };
+
   const colorEmojiFlowBlock = (
     lines: PdfRichTextLine[],
     x: number,
@@ -881,104 +981,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     gap: number,
     color = '#333',
   ): PdfBlock => {
-    type InlinePart = { value: string; width: number; bold: boolean; emoji?: Buffer };
-    type LineLayout = {
-      rows: InlinePart[][];
-      lineHeight: number;
-      emojiSize: number;
-      height: number;
-    };
-
-    doc.font('Body').fontSize(size);
-    const lineHeight = doc.heightOfString('Ag', { width });
-    const emojiSize = Math.min(lineHeight * 0.94, size * 1.2);
-
-    const layouts: LineLayout[] = lines.map((line) => {
-      const parts: Array<{ value: string; bold: boolean; emoji?: Buffer }> = [];
-      for (const run of line) {
-        let cursor = 0;
-        const matches = run.text.matchAll(
-          /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
-        );
-        for (const match of matches) {
-          if (match.index === undefined) continue;
-          if (match.index > cursor) {
-            run.text
-              .slice(cursor, match.index)
-              .split(/(\s+)/)
-              .filter(Boolean)
-              .forEach((value) => parts.push({ value, bold: run.bold }));
-          }
-          const png = colorEmojiPng(match[0]);
-          parts.push({ value: match[0], bold: run.bold, ...(png ? { emoji: png } : {}) });
-          cursor = match.index + match[0].length;
-        }
-        if (cursor < run.text.length) {
-          run.text
-            .slice(cursor)
-            .split(/(\s+)/)
-            .filter(Boolean)
-            .forEach((value) => parts.push({ value, bold: run.bold }));
-        }
-      }
-
-      const measured = parts.map<InlinePart>((part) => ({
-        ...part,
-        width: part.emoji
-          ? emojiSize
-          : doc
-              .font(part.bold ? 'Bold' : 'Body')
-              .fontSize(size)
-              .widthOfString(part.value),
-      }));
-      const rows: InlinePart[][] = [];
-      let row: InlinePart[] = [];
-      let rowWidth = 0;
-      const finishRow = () => {
-        while (row.length && /^\s+$/.test(row[row.length - 1]!.value)) row.pop();
-        if (row.length) rows.push(row);
-        row = [];
-        rowWidth = 0;
-      };
-      const addPart = (part: InlinePart) => {
-        const whitespace = /^\s+$/.test(part.value);
-        if (whitespace && row.length === 0) return;
-        if (row.length && rowWidth + part.width > width) finishRow();
-        if (whitespace && row.length === 0) return;
-        row.push(part);
-        rowWidth += part.width;
-      };
-
-      for (const part of measured) {
-        if (part.emoji || part.width <= width) {
-          addPart(part);
-          continue;
-        }
-        // Keep unusually long unbroken text inside the column.
-        let chunk = '';
-        let chunkWidth = 0;
-        doc.font(part.bold ? 'Bold' : 'Body').fontSize(size);
-        for (const character of Array.from(part.value)) {
-          const characterWidth = doc.widthOfString(character);
-          if (chunk && chunkWidth + characterWidth > width) {
-            addPart({ value: chunk, width: chunkWidth, bold: part.bold });
-            chunk = '';
-            chunkWidth = 0;
-          }
-          chunk += character;
-          chunkWidth += characterWidth;
-        }
-        if (chunk) addPart({ value: chunk, width: chunkWidth, bold: part.bold });
-      }
-      finishRow();
-
-      return {
-        rows,
-        lineHeight,
-        emojiSize,
-        height: rows.length * lineHeight + gap,
-      };
-    });
+    const layouts: LineLayout[] = lines.map((line) => layoutRichLine(line, width, size, gap));
 
     return {
       height: layouts.reduce((sum, layout) => sum + layout.height, 0),
@@ -1021,6 +1024,39 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         return yy;
       },
     };
+  };
+
+  /**
+   * Split rich-text lines into page-safe flow blocks, each at most `maxHeight`
+   * tall. Long activity descriptions split at line/bullet boundaries so text
+   * flows onto the next page instead of entering the footer area.
+   */
+  const colorEmojiFlowBlocks = (
+    lines: PdfRichTextLine[],
+    x: number,
+    width: number,
+    size: number,
+    gap: number,
+    maxHeight = PDF_MAX_CONTENT_HEIGHT,
+    color = '#333',
+  ): PdfBlock[] => {
+    if (!lines.length) return [];
+    const budget = Math.min(PDF_MAX_CONTENT_HEIGHT, maxHeight);
+    const chunks: PdfRichTextLine[][] = [];
+    let current: PdfRichTextLine[] = [];
+    let currentHeight = 0;
+    for (const line of lines) {
+      const lineHeight = layoutRichLine(line, width, size, gap).height;
+      if (current.length && currentHeight + lineHeight > budget) {
+        chunks.push(current);
+        current = [];
+        currentHeight = 0;
+      }
+      current.push(line);
+      currentHeight += lineHeight;
+    }
+    if (current.length) chunks.push(current);
+    return chunks.map((chunk) => colorEmojiFlowBlock(chunk, x, width, size, gap, color));
   };
 
   /** Split wrapped lines into page-safe flow blocks. */
@@ -1951,6 +1987,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // TOUR ITINERARY — day heading once, then one self-contained block per
   // activity with that activity's own image and transfer.
   if (sightDays.length) {
+    // The itinerary section starts on a fresh page; individual days flow
+    // continuously so sparse days share pages instead of wasting a page each.
+    planner.pageBreak();
+    planner.add(sectionHeaderBlock('Tour Itinerary'));
     sightDays.forEach((day, i) => {
       const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
       const dayTitle = formatItineraryDayTitle(day.dayNumber ?? i + 1, day.title);
@@ -1974,9 +2014,6 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
         destination: images.cover,
       });
-
-      planner.pageBreak();
-      if (i === 0) planner.add(sectionHeaderBlock('Tour Itinerary'));
 
       // Day heading: title + date + day-level meals, kept with the first
       // activity so a heading is never orphaned at the bottom of a page.
@@ -2050,12 +2087,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         let imgColH = imgW + 8;
         if (aMeta) imgColH += 22 + 8;
 
-        let textColH = 0;
-        if (a.name) textColH += hOf(a.name, 12, contentW, 'Bold') + 3;
+        const titleH = a.name ? hOf(a.name, 12, contentW, 'Bold') + 3 : 0;
         const descLines = htmlToRichTextLines(a.description);
         const descBlock = colorEmojiFlowBlock(descLines, contentX, contentW, 10.5, 2);
-        textColH += descBlock.height;
-        if (aTransfer) textColH += 6 + 20 + 6;
+        const transferH = aTransfer ? 6 + 20 + 6 : 0;
 
         // Informational prices use a compact two-column grid. The shared
         // measurement below is also used for rendering, so a wrapped label can
@@ -2089,83 +2124,111 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         const pricingGridH =
           pricingRowHeights.reduce((sum, height) => sum + height, 0) +
           Math.max(0, pricingRowHeights.length - 1) * pricingGap;
-        if (aPrices.length) textColH += 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH;
+        const pricingH = aPrices.length
+          ? 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH
+          : 0;
 
+        const textColH = titleH + descBlock.height + transferH + pricingH;
         const blockH = Math.max(imgColH, textColH);
 
-        planner.add({
-          height: blockH + 10,
-          render: (y0) => {
-            const top = y0;
-            drawImage(aImg, imgX, top, imgW, imgW, 'Activity');
-            let underY = top + imgW + 8;
-            if (aMeta) {
-              doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
-              doc
-                .fillColor(DARK)
-                .font('Bold')
-                .fontSize(10)
-                .text(aMeta, imgX, underY + 6, {
-                  width: imgW,
-                  align: 'center',
-                });
-              underY += 30;
-            }
-            let yy = top;
-            if (a.name) {
-              doc
-                .font('Bold')
-                .fontSize(12)
-                .fillColor(DARK)
-                .text(a.name, contentX, yy, { width: contentW });
-              yy = doc.y + 3;
-            }
-            yy = descBlock.render(yy);
-            if (aTransfer) {
-              yy += 6;
-              badge(aTransfer, contentX, yy, AMBER, DARK);
-              yy += 26;
-            }
-            if (aPrices.length) {
-              yy += 10;
-              doc
-                .font('Bold')
-                .fontSize(9)
-                .fillColor(MUTED)
-                .text('PRICING', contentX, yy, { width: contentW });
-              yy = doc.y + 4;
-              pricingRows.forEach((row, rowIndex) => {
-                const rowH = pricingRowHeights[rowIndex]!;
-                row.forEach((price, colIndex) => {
-                  const x = contentX + colIndex * (pricingBoxW + pricingGap);
-                  doc
-                    .save()
-                    .roundedRect(x, yy, pricingBoxW, rowH, 3)
-                    .fill('#F7F8FA')
-                    .stroke(BORDER)
-                    .restore();
-                  doc
-                    .font('Body')
-                    .fontSize(8.5)
-                    .fillColor(MUTED)
-                    .text(price.label, x + pricingPadX, yy + pricingPadY, {
-                      width: pricingInnerW,
-                    });
-                  const priceY = doc.y + 2;
-                  doc
-                    .font('Bold')
-                    .fontSize(10)
-                    .fillColor(DARK)
-                    .text(money(price.price), x + pricingPadX, priceY, {
-                      width: pricingInnerW,
-                    });
-                });
-                yy += rowH + pricingGap;
+        // Shared body drawing: image, start time, title, optional inline
+        // description, transfer badge and pricing. `height` is the measured
+        // block height this render is drawn for, so the next y always matches
+        // the planned layout and nothing is drawn past the block boundary.
+        const drawActivityBody = (y0: number, withDesc: boolean, height: number): number => {
+          const top = y0;
+          drawImage(aImg, imgX, top, imgW, imgW, 'Activity');
+          let underY = top + imgW + 8;
+          if (aMeta) {
+            doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
+            doc
+              .fillColor(DARK)
+              .font('Bold')
+              .fontSize(10)
+              .text(aMeta, imgX, underY + 6, {
+                width: imgW,
+                align: 'center',
               });
-            }
-            return y0 + blockH + 10;
-          },
+            underY += 30;
+          }
+          let yy = top;
+          if (a.name) {
+            doc
+              .font('Bold')
+              .fontSize(12)
+              .fillColor(DARK)
+              .text(a.name, contentX, yy, { width: contentW });
+            yy = doc.y + 3;
+          }
+          if (withDesc) yy = descBlock.render(yy);
+          if (aTransfer) {
+            yy += 6;
+            badge(aTransfer, contentX, yy, AMBER, DARK);
+            yy += 26;
+          }
+          if (aPrices.length) {
+            yy += 10;
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor(MUTED)
+              .text('PRICING', contentX, yy, { width: contentW });
+            yy = doc.y + 4;
+            pricingRows.forEach((row, rowIndex) => {
+              const rowH = pricingRowHeights[rowIndex]!;
+              row.forEach((price, colIndex) => {
+                const x = contentX + colIndex * (pricingBoxW + pricingGap);
+                doc
+                  .save()
+                  .roundedRect(x, yy, pricingBoxW, rowH, 3)
+                  .fill('#F7F8FA')
+                  .stroke(BORDER)
+                  .restore();
+                doc
+                  .font('Body')
+                  .fontSize(8.5)
+                  .fillColor(MUTED)
+                  .text(price.label, x + pricingPadX, yy + pricingPadY, {
+                    width: pricingInnerW,
+                  });
+                const priceY = doc.y + 2;
+                doc
+                  .font('Bold')
+                  .fontSize(10)
+                  .fillColor(DARK)
+                  .text(money(price.price), x + pricingPadX, priceY, {
+                    width: pricingInnerW,
+                  });
+              });
+              yy += rowH + pricingGap;
+            });
+          }
+          return y0 + height;
+        };
+
+        // The whole activity fits one page: keep the atomic layout unchanged.
+        if (blockH + 10 <= PDF_MAX_CONTENT_HEIGHT) {
+          planner.add({
+            height: blockH + 10,
+            render: (y0) => drawActivityBody(y0, true, blockH + 10),
+          });
+          return;
+        }
+        // The description is longer than a page. Keep the image + title +
+        // transfer + pricing together as a self-contained header (it sits with
+        // the day heading, so the activity title and transfer badge are never
+        // orphaned) and let the description bullets flow across page-safe
+        // blocks. The header deliberately has NO keepWithNext: chaining it to
+        // the first description chunk would overfill the page budget and push
+        // bullets below the footer divider.
+        const headerH = Math.max(imgColH, titleH + transferH + pricingH) + 10;
+        planner.add({
+          height: headerH,
+          render: (y0) => drawActivityBody(y0, false, headerH),
         });
+        colorEmojiFlowBlocks(descLines, contentX, contentW, 10.5, 2).forEach((block) =>
+          planner.add(block),
+        );
       });
     });
   }
