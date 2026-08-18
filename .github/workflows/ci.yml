@@ -79,6 +79,9 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Install poppler-utils (pdftotext for PDF tests)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: API tests
         run: npm run test:api
 
