@@ -3361,6 +3361,7 @@ model QuotationVersionHotelOption {
   selected           Boolean          @default(true)
   notes              String?          @db.VarChar(2000)
   images             Json?            @db.Json
+  pdfImageUrl        String?          @db.VarChar(1000)
   sequence           Int
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

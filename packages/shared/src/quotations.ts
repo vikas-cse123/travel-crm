@@ -244,6 +244,12 @@ export const quotationHotelSchema = z
         )
         .max(12),
     ),
+    /**
+     * The image (a URL from `images`) chosen as this stay's single PDF photo
+     * via "Use in PDF". Absent, or pointing at a removed image, the PDF falls
+     * back to the first image in the stay's saved order.
+     */
+    pdfImageUrl: optionalText(1000),
   })
   .refine((v) => !v.checkInDate || !v.checkOutDate || v.checkInDate <= v.checkOutDate, {
     message: 'Check-out must be on or after check-in.',

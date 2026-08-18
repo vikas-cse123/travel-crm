@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   hotelStayNights,
   type AirlineInput,
@@ -9,7 +9,7 @@ import {
   type SearchApiFlightSegment,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
-import { useBookmarkByCode } from '@/features/search/search.api';
+import { apiClient } from '@/api/client';
 import { normalizeHotelImages } from '@/features/search/hotel-images';
 import { importAirlineLogoFromUrl, type Airline } from '@/features/masters/masters.api';
 
@@ -375,6 +375,8 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       sequence: 1,
       // Store per-stay images instead of section-level images
       images: images.length ? images : [],
+      // Per-stay PDF selection: default to the first saved image.
+      pdfImageUrl: images[0]?.url ?? null,
     },
     hotelDetails: {
       include: true,
@@ -395,8 +397,10 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
 /**
  * A small "Bookmark ID (optional) [ Load ]" field for a quotation section.
  *
- * Verifies the bookmark exists, belongs to the caller's tenant, and matches the
- * requested type before calling `onLoaded`. Never touches SearchAPI.
+ * Accepts a single ID or a comma/newline-separated list of IDs (e.g.
+ * "HTL-000023, HTL-000045" / "HTL-000067"). Each resolved bookmark is verified
+ * to belong to the caller's tenant and match the requested type before being
+ * passed to `onLoaded` in the entered order. Never touches SearchAPI.
  */
 export function BookmarkLoadField({
   type,
@@ -405,43 +409,69 @@ export function BookmarkLoadField({
 }: {
   type: 'FLIGHT' | 'HOTEL';
   placeholder: string;
-  onLoaded: (bookmark: LiveSearchBookmark) => void;
+  onLoaded: (bookmarks: LiveSearchBookmark[]) => void;
 }) {
   const [code, setCode] = useState('');
-  const [submitted, setSubmitted] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [loadedCode, setLoadedCode] = useState<string | null>(null);
-  const { data, isFetching, isError, refetch } = useBookmarkByCode(submitted);
+  const [loadedCodes, setLoadedCodes] = useState<string[]>([]);
+  const [failedCodes, setFailedCodes] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // A resolved bookmark of the wrong type must not be loaded into this section.
-    if (!submitted || isFetching || isError || !data) return;
-    if (data.type !== type) {
-      setError(
-        type === 'HOTEL'
-          ? 'This is a flight bookmark. Enter a hotel bookmark ID.'
-          : 'This is a hotel bookmark. Enter a flight bookmark ID.',
-      );
-      setLoadedCode(null);
+  const load = async () => {
+    // Split on commas and newlines; trim and uppercase each token.
+    const ids = Array.from(
+      new Set(
+        code
+          .split(/[,\n]/)
+          .map((part) => part.trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    );
+    if (!ids.length) {
+      setError('Enter a bookmark ID (e.g. HTL-000123 or FLT-000456).');
+      setLoadedCodes([]);
+      setFailedCodes([]);
+      return;
+    }
+    const invalid = ids.filter((id) => !/^[A-Z]{3}-\d{6}$/.test(id));
+    if (invalid.length) {
+      setError(`Invalid bookmark ID${invalid.length > 1 ? 's' : ''}: ${invalid.join(', ')}.`);
+      setLoadedCodes([]);
+      setFailedCodes([]);
       return;
     }
     setError(null);
-    setLoadedCode(data.bookmarkCode);
-    onLoaded(data);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitted, data, isFetching, isError, type]);
-
-  const load = () => {
-    const trimmed = code.trim().toUpperCase();
-    if (!/^[A-Z]{3}-\d{6}$/.test(trimmed)) {
-      setError('Enter a valid bookmark ID (e.g. HTL-000123 or FLT-000456).');
-      setLoadedCode(null);
-      return;
+    setLoading(true);
+    setFailedCodes([]);
+    const loaded: LiveSearchBookmark[] = [];
+    const failed: string[] = [];
+    // Resolve each ID from the DB snapshot only (never SearchAPI).
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const bookmark = await apiClient.get<LiveSearchBookmark>(
+            `/search/bookmarks/by-code/${encodeURIComponent(id)}`,
+          );
+          if (bookmark.type !== type) {
+            failed.push(id);
+            return;
+          }
+          loaded.push(bookmark);
+        } catch {
+          failed.push(id);
+        }
+      }),
+    );
+    setLoading(false);
+    // Preserve the entered ID order for the successfully loaded bookmarks.
+    loaded.sort((a, b) => ids.indexOf(a.bookmarkCode) - ids.indexOf(b.bookmarkCode));
+    setFailedCodes(failed);
+    if (loaded.length) {
+      setLoadedCodes(loaded.map((bookmark) => bookmark.bookmarkCode));
+      onLoaded(loaded);
+    } else {
+      setLoadedCodes([]);
     }
-    setError(null);
-    setLoadedCode(null);
-    setSubmitted(trimmed);
-    void refetch();
   };
 
   return (
@@ -458,23 +488,102 @@ export function BookmarkLoadField({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
-                load();
+                void load();
               }
             }}
           />
-          <Button type="button" size="sm" variant="secondary" onClick={load} disabled={isFetching}>
-            {isFetching ? 'Loading…' : 'Load'}
+          <Button type="button" size="sm" variant="secondary" onClick={load} disabled={loading}>
+            {loading ? 'Loading…' : 'Load'}
           </Button>
         </div>
       </label>
 
-      {loadedCode ? (
-        <p className="text-sm font-medium text-emerald-600">✓ Loaded from {loadedCode}</p>
+      {loadedCodes.length ? (
+        <p className="text-sm font-medium text-emerald-600">
+          ✓ Loaded from {loadedCodes.join(', ')}
+        </p>
+      ) : null}
+      {failedCodes.length ? (
+        <p className="text-xs text-red-600">
+          Not found or no access: {failedCodes.join(', ')}
+        </p>
       ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
-      {isError ? (
-        <p className="text-xs text-red-600">
-          {submitted ? 'Bookmark not found or you do not have access.' : ''}
+    </div>
+  );
+}
+
+/**
+ * Hotel Bookmark ID importer. A single input: type/paste one HTL ID and press
+ * ENTER. The hotel is imported immediately from the EXISTING DB bookmark
+ * snapshot only (never SearchAPI), appended as a new independent Hotel Stay,
+ * and the input is cleared so another ID can be entered the same way. A failed
+ * lookup keeps the typed ID for correction and never affects existing stays.
+ * Duplicate ENTER presses are ignored while a request is in flight.
+ */
+export function HotelBookmarkListField({
+  onLoaded,
+}: {
+  onLoaded: (bookmarks: LiveSearchBookmark[]) => void;
+}) {
+  const [code, setCode] = useState('');
+  const [status, setStatus] = useState<{ code: string; ok: boolean } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const importOne = async () => {
+    const id = code.trim().toUpperCase();
+    if (!id || loading) return;
+    if (!/^[A-Z]{3}-\d{6}$/.test(id)) {
+      setStatus({ code: id, ok: false });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const bookmark = await apiClient.get<LiveSearchBookmark>(
+        `/search/bookmarks/by-code/${encodeURIComponent(id)}`,
+      );
+      if (bookmark.type !== 'HOTEL') {
+        setStatus({ code: id, ok: false });
+      } else {
+        setStatus({ code: id, ok: true });
+        setCode(''); // Clear so another ID can be entered.
+        onLoaded([bookmark]);
+      }
+    } catch {
+      // Keep the typed ID so the user can correct it.
+      setStatus({ code: id, ok: false });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-sm font-semibold text-slate-800">
+        Hotel Bookmark ID
+        <input
+          aria-label="Hotel Bookmark ID"
+          className="mt-1 w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
+          placeholder="HTL-000123"
+          value={code}
+          disabled={loading}
+          onChange={(event) => setCode(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void importOne();
+            }
+          }}
+        />
+      </label>
+      {status ? (
+        <p
+          className={
+            status.ok ? 'text-sm font-medium text-emerald-600' : 'text-xs text-red-600'
+          }
+        >
+          {status.ok ? `✓ Loaded ${status.code}` : `Bookmark not found: ${status.code}`}
         </p>
       ) : null}
     </div>

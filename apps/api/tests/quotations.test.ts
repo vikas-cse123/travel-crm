@@ -145,6 +145,65 @@ describe('pdf hotel image selection', () => {
     expect(resolvePdfHotelImageUrl(null, 'https://cdn.example/a.jpg')).toBeNull();
     expect(resolvePdfHotelImageUrl([{ url: '' }], null)).toBeNull();
   });
+
+  it('persists per-stay hotel images and PDF selection, and falls back on save/reload', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const versionId = quotation.versions[0].id;
+
+    // Two independent stays, each with its own images and "Use in PDF".
+    const res = await client.patch(`/api/quotations/${quotation.id}/versions/${versionId}`, {
+      hotels: [
+        {
+          city: 'Goa',
+          hotelName: 'Taj Exotica Goa',
+          rooms: 1,
+          nights: 4,
+          selected: true,
+          sequence: 1,
+          images: [
+            { url: 'https://img/a.jpg', alt: 'Taj' },
+            { url: 'https://img/b.jpg', alt: 'Taj' },
+          ],
+          pdfImageUrl: 'https://img/b.jpg',
+        },
+        {
+          city: 'Puri',
+          hotelName: 'Mayfair Lagoon',
+          rooms: 1,
+          nights: 2,
+          selected: true,
+          sequence: 2,
+          images: [{ url: 'https://img/c.jpg', alt: 'Mayfair' }],
+          pdfImageUrl: 'https://img/c.jpg',
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.hotels[0].images).toEqual([
+      { url: 'https://img/a.jpg', alt: 'Taj' },
+      { url: 'https://img/b.jpg', alt: 'Taj' },
+    ]);
+    expect(res.body.data.hotels[0].pdfImageUrl).toBe('https://img/b.jpg');
+    expect(res.body.data.hotels[1].pdfImageUrl).toBe('https://img/c.jpg');
+
+    // Reload keeps the per-stay order and selections.
+    const reloaded = await client.get(`/api/quotations/${quotation.id}`);
+    expect(reloaded.status).toBe(200);
+    const version = reloaded.body.data.versions[0];
+    expect(version.hotels[0].images.map((image: { url: string }) => image.url)).toEqual([
+      'https://img/a.jpg',
+      'https://img/b.jpg',
+    ]);
+    expect(version.hotels[0].pdfImageUrl).toBe('https://img/b.jpg');
+    // A removed selection falls back to the first saved image at render time.
+    expect(resolvePdfHotelImageUrl(version.hotels[1].images, null)).toBe('https://img/c.jpg');
+    expect(resolvePdfHotelImageUrl(version.hotels[0].images, 'https://img/missing.jpg')).toBe(
+      'https://img/a.jpg',
+    );
+  });
 });
 
 async function setup() {

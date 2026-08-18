@@ -66,6 +66,7 @@ export interface TemplateHotel extends MasterHotelRefs {
     thumbnailUrl?: string | null;
     alt?: string | null;
   }>;
+  pdfImageUrl?: string | null;
 }
 export interface TemplateService extends MasterServiceRefs {
   id: string;

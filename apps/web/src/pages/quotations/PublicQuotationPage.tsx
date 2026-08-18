@@ -1719,8 +1719,16 @@ export function PublicQuotationPage() {
                   const presentation = data.hotelPresentations?.[hotel.id];
                   // One image source: the stored quotation hotel gallery
                   // (bookmark snapshots), rendered inside each hotel card — no
-                  // separate large gallery above the cards.
-                  const snapshotImages = hotel.images ?? [];
+                  // separate large gallery above the cards. Newer quotations
+                  // store per-stay images; older ones stored a single
+                  // section-level gallery on hotelDetails, honoured here as a
+                  // fallback for the (single) hotel stay.
+                  const perStayImages = Array.isArray(hotel.images) ? hotel.images : [];
+                  const sectionImages = Array.isArray(v.hotelDetails?.images)
+                    ? v.hotelDetails.images
+                    : [];
+                  const snapshotImages =
+                    perStayImages.length > 0 ? perStayImages : sectionImages;
                   const snapshotImageUrl = snapshotImages[0]?.url ?? null;
                   const cardImageUrl = presentation?.imageUrl ?? snapshotImageUrl;
                   // Star rating comes from Hotel Master only (0–5). Never fall back

@@ -1841,6 +1841,11 @@ export const quotationsService = {
           hotelImageMap.set(h.id, await fetchImage(h.imageObjectKey));
         }
       }
+      // Per-stay bookmark snapshot images. Each hotel stay stores its own image
+      // list plus its own "Use in PDF" selection; older quotations stored a
+      // single section-level gallery on hotelDetails, which is honoured as a
+      // fallback when the stay carries no images. Snapshot URLs are fetched
+      // server-side (they may be presigned/private and can be WebP).
       const hotelDetailsRaw = version.hotelDetails as
         | {
             images?: Array<{ url?: string; thumbnailUrl?: string | null }> | null;
@@ -1848,9 +1853,19 @@ export const quotationsService = {
           }
         | null
         | undefined;
+      const stayImagesFor = (h: (typeof version.hotels)[number]): Array<{
+        url?: string;
+        thumbnailUrl?: string | null;
+      }> => {
+        const stayImages = Array.isArray(h.images) ? h.images : [];
+        if (stayImages.length) return stayImages as Array<{ url?: string; thumbnailUrl?: string | null }>;
+        // Legacy: a single-bookmark quotation stored its gallery on hotelDetails.
+        return hotelDetailsRaw?.images ?? [];
+      };
       const snapshotUrls = [
         ...new Set(
-          (hotelDetailsRaw?.images ?? [])
+          version.hotels
+            .flatMap((h) => stayImagesFor(h))
             .flatMap((image) => [image.url, image.thumbnailUrl])
             .filter((url): url is string => Boolean(url)),
         ),
@@ -1875,10 +1890,8 @@ export const quotationsService = {
       const hotelImages = version.hotels.map((h) => {
         const masterImage = h.hotelId ? (hotelImageMap.get(h.hotelId) ?? null) : null;
         if (masterImage) return masterImage;
-        const selected = resolvePdfHotelImageUrl(
-          hotelDetailsRaw?.images,
-          hotelDetailsRaw?.pdfImageUrl,
-        );
+        const images = stayImagesFor(h);
+        const selected = resolvePdfHotelImageUrl(images, h.pdfImageUrl ?? hotelDetailsRaw?.pdfImageUrl);
         if (selected) {
           const selectedBytes = snapshotImageMap.get(selected);
           if (selectedBytes) return selectedBytes;
@@ -1886,7 +1899,7 @@ export const quotationsService = {
         // The selected/"Use in PDF" URL failed to render — fall back to the
         // first image (or its thumbnail candidate) that actually fetched, the
         // same candidate order the bookmark carousel uses.
-        for (const image of hotelDetailsRaw?.images ?? []) {
+        for (const image of images) {
           if (image.url && snapshotImageMap.has(image.url)) return snapshotImageMap.get(image.url)!;
           if (image.thumbnailUrl && snapshotImageMap.has(image.thumbnailUrl))
             return snapshotImageMap.get(image.thumbnailUrl)!;

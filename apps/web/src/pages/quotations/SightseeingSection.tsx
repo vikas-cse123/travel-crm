@@ -328,7 +328,7 @@ function DayCard({
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [uploadingActivity, setUploadingActivity] = useState<number | null>(null);
   const [imageError, setImageError] = useState('');
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const savedDocumentIds = useMemo(
     () =>
       activities.fields

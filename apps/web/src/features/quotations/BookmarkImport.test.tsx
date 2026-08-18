@@ -7,6 +7,7 @@ import { QueryProvider } from '@/providers/QueryProvider';
 import type { Airline } from '@/features/masters/masters.api';
 import {
   BookmarkLoadField,
+  HotelBookmarkListField,
   deriveAirlineIataCode,
   findMatchingAirline,
   flightBookmarkSegmentAirlines,
@@ -768,19 +769,22 @@ describe('hotelBookmarkToDetails', () => {
     expect(hotelRow.checkOutTime).toBe('11:00');
     expect(hotelRow.notes).toBe('Luxury beach resort.');
     expect(hotelDetails.amount).toBe(29156);
-    // Images copied from the saved snapshot (no SearchAPI). The bookmark's
-    // preferred URL is preserved verbatim and its thumbnail candidate is kept
-    // as the fallback for the same image.
-    expect(hotelDetails.images).toHaveLength(2);
-    expect(hotelDetails.images![0]!.url).toBe('https://img/a-orig.jpg');
-    expect(hotelDetails.images![0]!.thumbnailUrl).toBe('https://img/a.jpg');
-    expect(hotelDetails.images![1]!.url).toBe('https://img/b.jpg');
-    expect(hotelDetails.images![1]!.thumbnailUrl).toBeNull();
+    // Images copied from the saved snapshot (no SearchAPI). Per-stay storage:
+    // the bookmark's preferred URL is preserved verbatim and its thumbnail
+    // candidate is kept as the fallback for the same image.
+    expect(hotelRow.images).toHaveLength(2);
+    expect(hotelRow.images![0]!.url).toBe('https://img/a-orig.jpg');
+    expect(hotelRow.images![0]!.thumbnailUrl).toBe('https://img/a.jpg');
+    expect(hotelRow.images![1]!.url).toBe('https://img/b.jpg');
+    expect(hotelRow.images![1]!.thumbnailUrl).toBeNull();
+    expect(hotelRow.pdfImageUrl).toBe('https://img/a-orig.jpg');
+    // Section-level images stay empty; the gallery lives on the stay now.
+    expect(hotelDetails.images).toEqual([]);
     expect(primaryImageUrl).toBe('https://img/a-orig.jpg');
   });
 
   it('keeps every valid bookmark image in order, dropping only unusable values and exact duplicates', () => {
-    const { hotelDetails } = hotelBookmarkToDetails(
+    const { hotelRow } = hotelBookmarkToDetails(
       hotelBookmark({
         snapshot: {
           hotel: {
@@ -805,7 +809,7 @@ describe('hotelBookmarkToDetails', () => {
       }),
     );
 
-    expect(hotelDetails.images).toEqual([
+    expect(hotelRow.images).toEqual([
       { url: 'https://img/1.jpg', thumbnailUrl: 'https://img/1-thumb.jpg', alt: 'Taj Exotica Goa' },
       { url: 'https://img/2-thumb.jpg', thumbnailUrl: null, alt: 'Taj Exotica Goa' },
       {
@@ -814,7 +818,6 @@ describe('hotelBookmarkToDetails', () => {
         alt: 'Taj Exotica Goa',
       },
     ]);
-    expect(hotelDetails.pdfImageUrl).toBe('https://img/1.jpg');
   });
 
   it('falls back to per-night price when no total price is saved', () => {
@@ -871,7 +874,7 @@ describe('BookmarkLoadField', () => {
     );
   }
 
-  it('loads a valid hotel bookmark and calls onLoaded once', async () => {
+  it('loads a valid hotel bookmark and calls onLoaded with the resolved bookmark', async () => {
     const { user, onLoaded } = renderField('HOTEL');
     stubBookmarkLookup(success(hotelBookmark()));
 
@@ -880,11 +883,66 @@ describe('BookmarkLoadField', () => {
 
     await waitFor(() => {
       expect(onLoaded).toHaveBeenCalledTimes(1);
-      expect(onLoaded).toHaveBeenCalledWith(
+      expect(onLoaded).toHaveBeenCalledWith([
         expect.objectContaining({ bookmarkCode: 'HTL-000123' }),
-      );
+      ]);
     });
     expect(await screen.findByText('✓ Loaded from HTL-000123')).toBeInTheDocument();
+  });
+
+  it('loads multiple comma/newline-separated hotel bookmark IDs in entered order', async () => {
+    const { user, onLoaded } = renderField('HOTEL');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/by-code/HTL-000023')) return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
+        if (url.includes('/by-code/HTL-000045')) return success(hotelBookmark({ bookmarkCode: 'HTL-000045', id: 'bm-b' }));
+        if (url.includes('/by-code/HTL-000067')) return success(hotelBookmark({ bookmarkCode: 'HTL-000067', id: 'bm-c' }));
+        return notFound();
+      }),
+    );
+
+    await user.type(
+      screen.getByLabelText('Bookmark ID'),
+      'HTL-000023, HTL-000045, HTL-000067',
+    );
+    await user.click(screen.getByRole('button', { name: 'Load' }));
+
+    await waitFor(() => {
+      expect(onLoaded).toHaveBeenCalledTimes(1);
+      const [loaded] = onLoaded.mock.calls[0] as [LiveSearchBookmark[]];
+      expect(loaded.map((b) => b.bookmarkCode)).toEqual([
+        'HTL-000023',
+        'HTL-000045',
+        'HTL-000067',
+      ]);
+    });
+    expect(
+      await screen.findByText('✓ Loaded from HTL-000023, HTL-000045, HTL-000067'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps successfully loaded hotels and reports the failed ID', async () => {
+    const { user, onLoaded } = renderField('HOTEL');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/by-code/HTL-000023')) return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
+        return notFound();
+      }),
+    );
+
+    await user.type(screen.getByLabelText('Bookmark ID'), 'HTL-000023, HTL-999999');
+    await user.click(screen.getByRole('button', { name: 'Load' }));
+
+    await waitFor(() => {
+      expect(onLoaded).toHaveBeenCalledTimes(1);
+      const [loaded] = onLoaded.mock.calls[0] as [LiveSearchBookmark[]];
+      expect(loaded.map((b) => b.bookmarkCode)).toEqual(['HTL-000023']);
+    });
+    expect(await screen.findByText(/Not found or no access: HTL-999999/)).toBeInTheDocument();
   });
 
   it('rejects a flight bookmark in the hotel section with a clear message', async () => {
@@ -896,9 +954,7 @@ describe('BookmarkLoadField', () => {
 
     await waitFor(() => {
       expect(onLoaded).not.toHaveBeenCalled();
-      expect(
-        screen.getByText('This is a flight bookmark. Enter a hotel bookmark ID.'),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Not found or no access: FLT-000456/)).toBeInTheDocument();
     });
   });
 
@@ -911,9 +967,7 @@ describe('BookmarkLoadField', () => {
 
     await waitFor(() => {
       expect(onLoaded).not.toHaveBeenCalled();
-      expect(
-        screen.getByText('This is a hotel bookmark. Enter a flight bookmark ID.'),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Not found or no access: HTL-000123/)).toBeInTheDocument();
     });
   });
 
@@ -926,7 +980,7 @@ describe('BookmarkLoadField', () => {
 
     await waitFor(() => {
       expect(onLoaded).not.toHaveBeenCalled();
-      expect(screen.getByText('Bookmark not found or you do not have access.')).toBeInTheDocument();
+      expect(screen.getByText(/Not found or no access: HTL-999999/)).toBeInTheDocument();
     });
   });
 
@@ -944,10 +998,110 @@ describe('BookmarkLoadField', () => {
     await user.click(screen.getByRole('button', { name: 'Load' }));
 
     expect(
-      await screen.findByText('Enter a valid bookmark ID (e.g. HTL-000123 or FLT-000456).'),
+      await screen.findByText('Invalid bookmark ID: NOT-A-CODE.'),
     ).toBeInTheDocument();
     expect(onLoaded).not.toHaveBeenCalled();
     // No by-code lookup request was made for a malformed ID.
     expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/by-code/'))).toBe(false);
+  });
+});
+
+describe('HotelBookmarkListField', () => {
+  function renderList(onLoaded = vi.fn()) {
+    const user = userEvent.setup();
+    const utils = render(<HotelBookmarkListField onLoaded={onLoaded} />);
+    return { user, onLoaded, ...utils };
+  }
+
+  function stubBookmarks(map: Record<string, ReturnType<typeof success> | ReturnType<typeof notFound>>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const match = Object.keys(map).find((code) => url.includes(`/by-code/${code}`));
+        if (match) return map[match]!;
+        return notFound();
+      }),
+    );
+  }
+
+  it('shows a single Hotel Bookmark ID input with no add/remove/load-hotels controls', () => {
+    renderList();
+    expect(screen.getByLabelText('Hotel Bookmark ID')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Hotel ID' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load Hotels' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Remove hotel ID/ })).not.toBeInTheDocument();
+  });
+
+  it('imports a hotel on ENTER, appends it and clears the input', async () => {
+    const { user, onLoaded } = renderList();
+    stubBookmarks({
+      'HTL-000023': success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' })),
+    });
+
+    const input = screen.getByLabelText('Hotel Bookmark ID');
+    await user.type(input, 'HTL-000023{enter}');
+
+    await waitFor(() => {
+      expect(onLoaded).toHaveBeenCalledTimes(1);
+      const [loaded] = onLoaded.mock.calls[0] as [LiveSearchBookmark[]];
+      expect(loaded.map((b) => b.bookmarkCode)).toEqual(['HTL-000023']);
+    });
+    expect(await screen.findByText('✓ Loaded HTL-000023')).toBeInTheDocument();
+    // Input is cleared for the next entry.
+    expect(screen.getByLabelText('Hotel Bookmark ID')).toHaveValue('');
+  });
+
+  it('imports hotels one-by-one in the order entered, appending each', async () => {
+    const { user, onLoaded } = renderList();
+    stubBookmarks({
+      'HTL-000023': success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' })),
+      'HTL-000045': success(hotelBookmark({ bookmarkCode: 'HTL-000045', id: 'bm-b' })),
+    });
+
+    const input = screen.getByLabelText('Hotel Bookmark ID');
+    await user.type(input, 'HTL-000023{enter}');
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(1));
+    await user.type(input, 'HTL-000045{enter}');
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(2));
+
+    const first = onLoaded.mock.calls[0]![0] as LiveSearchBookmark[];
+    const second = onLoaded.mock.calls[1]![0] as LiveSearchBookmark[];
+    expect(first[0]!.bookmarkCode).toBe('HTL-000023');
+    expect(second[0]!.bookmarkCode).toBe('HTL-000045');
+  });
+
+  it('keeps the typed ID and reports an error for an invalid/not-found ID', async () => {
+    const { user, onLoaded } = renderList();
+    stubBookmarks({});
+
+    const input = screen.getByLabelText('Hotel Bookmark ID');
+    await user.type(input, 'HTL-999999{enter}');
+
+    expect(await screen.findByText('Bookmark not found: HTL-999999')).toBeInTheDocument();
+    expect(onLoaded).not.toHaveBeenCalled();
+    // The typed ID is kept so the user can correct it.
+    expect(input).toHaveValue('HTL-999999');
+  });
+
+  it('makes zero SearchAPI calls when loading a hotel bookmark', async () => {
+    const { user, onLoaded } = renderList();
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/by-code/HTL-000023'))
+        return success(hotelBookmark({ bookmarkCode: 'HTL-000023', id: 'bm-a' }));
+      return notFound();
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await user.type(screen.getByLabelText('Hotel Bookmark ID'), 'HTL-000023{enter}');
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(1));
+
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+    expect(urls.some((u) => u.includes('/search/flights') || u.includes('/search/hotels'))).toBe(
+      false,
+    );
+    // Only the DB by-code endpoint was hit.
+    expect(urls.every((u) => u.includes('/api/search/bookmarks/by-code/'))).toBe(true);
   });
 });

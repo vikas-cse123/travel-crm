@@ -8303,6 +8303,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     expect(screen.getByLabelText('Hotel master')).toBeEnabled();
     // Unlinked hotels (e.g. bookmark imports) support manual text entry —
     // no Hotel Master selection is required.
@@ -8325,13 +8326,16 @@ describe('Phase 14 master selectors', () => {
     expect(screen.queryByText(/Choose hotels from your master/)).not.toBeInTheDocument();
   });
 
-  it('keeps the manual Bookmark ID control in the Hotel section', async () => {
+  it('keeps the manual Bookmark ID controls in the Hotel section', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
-    expect(screen.getByText('Bookmark ID (optional)')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Load' })).toBeInTheDocument();
+    expect(screen.getByText('Hotel Bookmark ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('Hotel Bookmark ID')).toBeInTheDocument();
+    // Single input only — no multi-row add/remove or Load Hotels controls.
+    expect(screen.queryByRole('button', { name: 'Add Hotel ID' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load Hotels' })).not.toBeInTheDocument();
   });
 
   it('imports a hotel bookmark into the Hotel section with zero SearchAPI calls', async () => {
@@ -8375,17 +8379,17 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
 
     // 1. The Hotel Bookmark ID field is visible.
-    expect(screen.getByText('Bookmark ID (optional)')).toBeInTheDocument();
-    const idField = screen.getByLabelText('Bookmark ID');
-    await userEvent.type(idField, 'HTL-000123');
-    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
+    expect(screen.getByText('Hotel Bookmark ID')).toBeInTheDocument();
+    const idField = screen.getByLabelText('Hotel Bookmark ID');
+    await userEvent.type(idField, 'HTL-000123{enter}');
 
     // 2 + 3. The HTL bookmark loads through the existing logic and the saved
     // snapshot populates the hotel form (name, city, nights, dates, times, rooms).
-    expect(await screen.findByText('✓ Loaded from HTL-000123')).toBeInTheDocument();
+    expect(await screen.findByText('✓ Loaded HTL-000123')).toBeInTheDocument();
+    // Expand the imported (appended) hotel stay to edit its fields.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     expect(screen.getByLabelText('Hotel master')).toHaveValue('The Lalit Grand Palace Srinagar');
     expect(screen.getByLabelText('Hotel city')).toHaveValue('Srinagar');
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('2');
@@ -8403,7 +8407,7 @@ describe('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel description')).toHaveTextContent('');
 
     // Exactly ONE hotel stay is created from one bookmarked hotel.
-    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay 1$/ })).toHaveLength(1);
 
     // 4. The existing bookmarked hotel image populates from the snapshot, and
     // the first image is the default "Use in PDF" photo.
@@ -8428,7 +8432,7 @@ describe('Phase 14 master selectors', () => {
     // 7. Manual hotel entry still works after the import.
     expect(screen.getByRole('button', { name: 'Add hotel stay after stay 1' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Add hotel stay after stay 1' }));
-    expect(screen.getAllByText('Hotel Stay').length).toBe(2);
+    expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(2);
   });
 
   it('imports the exact Holiday Inn Lucknow Airport bookmark and persists it after save + refresh', async () => {
@@ -8476,14 +8480,14 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
 
-    await userEvent.type(screen.getByLabelText('Bookmark ID'), 'HTL-000777');
-    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
-    await screen.findByText('✓ Loaded from HTL-000777');
+    await userEvent.type(screen.getByLabelText('Hotel Bookmark ID'), 'HTL-000777{enter}');
+    await screen.findByText('✓ Loaded HTL-000777');
 
     // 1. Exactly ONE hotel stay is created from the one bookmarked hotel.
-    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Expand hotel stay 1/ })).toHaveLength(1);
+    // Expand the imported (appended) stay to edit its fields.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     // 2. Every bookmark field populates the normal hotel stay row.
     expect(screen.getByLabelText('Hotel master')).toHaveValue(
@@ -8543,7 +8547,7 @@ describe('Phase 14 master selectors', () => {
       'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
     );
     expect(body.hotelDetails.description).toBeNull();
-    expect(body.hotelDetails.images).toEqual([
+    expect(body.hotels[0].images).toEqual([
       {
         url: 'https://cdn.example/holiday-inn-1.jpg',
         thumbnailUrl: 'https://cdn.example/holiday-inn-1-thumb.jpg',
@@ -8555,6 +8559,7 @@ describe('Phase 14 master selectors', () => {
         alt: 'Holiday Inn Lucknow Airport by IHG',
       },
     ]);
+    expect(body.hotels[0].pdfImageUrl).toBe('https://cdn.example/holiday-inn-1.jpg');
 
     // 6. After a refresh the imported data (name, dates, rooms, room type /
     // meal plan, images) is still populated — nothing is cleared.
@@ -8607,7 +8612,8 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', masterFetch(saved));
     renderBuilderPage();
     await openTab('Hotel');
-    expect(screen.getAllByText('Hotel Stay')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Expand hotel stay 1/ })).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     expect(screen.getByLabelText('Hotel master')).toHaveValue(
       'Holiday Inn Lucknow Airport by IHG',
     );
@@ -8683,11 +8689,11 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
-    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
 
-    await userEvent.type(screen.getByLabelText('Bookmark ID'), 'HTL-000456');
-    await userEvent.click(screen.getByRole('button', { name: 'Load' }));
-    await screen.findByText('✓ Loaded from HTL-000456');
+    await userEvent.type(screen.getByLabelText('Hotel Bookmark ID'), 'HTL-000456{enter}');
+    await screen.findByText('✓ Loaded HTL-000456');
+    // Expand the imported stay to interact with its image manager.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     // 1. ALL bookmark images load, in saved order.
     const imageSrcs = () =>
@@ -8730,7 +8736,7 @@ describe('Phase 14 master selectors', () => {
     });
     const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
     const body = JSON.parse(String(patch![1]!.body));
-    expect(body.hotelDetails.images).toEqual([
+    expect(body.hotels[0].images).toEqual([
       {
         url: 'https://cdn.example/hotel-2.jpg',
         thumbnailUrl: 'https://cdn.example/hotel-2-thumb.jpg',
@@ -8742,7 +8748,7 @@ describe('Phase 14 master selectors', () => {
         alt: 'Grand Bay Resort',
       },
     ]);
-    expect(body.hotelDetails.pdfImageUrl).toBe('https://cdn.example/hotel-3.jpg');
+    expect(body.hotels[0].pdfImageUrl).toBe('https://cdn.example/hotel-3.jpg');
     // No hotel master was created and ZERO SearchAPI requests were made.
     expect(
       fetchMock.mock.calls.some(
@@ -8754,6 +8760,292 @@ describe('Phase 14 master selectors', () => {
     expect(
       urls.some((url) => url.includes('/search/flights') || url.includes('/search/hotels')),
     ).toBe(false);
+  });
+
+  it('imports multiple hotel bookmark IDs into independent stays, each with its own image manager', async () => {
+    const hotelA = {
+      id: 'bm-a',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-a',
+      bookmarkCode: 'HTL-000023',
+      title: 'Hotel Alpha',
+      currency: 'INR',
+      createdAt: '2026-08-17T10:00:00.000Z',
+      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-13', rooms: 1, currency: 'INR' },
+      snapshot: {
+        hotel: {
+          name: 'Hotel Alpha',
+          city: 'Lucknow',
+          stars: 4,
+          images: [
+            { original: 'https://cdn.example/a-1.jpg', thumbnail: 'https://cdn.example/a-1-th.jpg' },
+            { original: 'https://cdn.example/a-2.jpg', thumbnail: 'https://cdn.example/a-2-th.jpg' },
+          ],
+        },
+      },
+    };
+    const hotelB = {
+      id: 'bm-b',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-b',
+      bookmarkCode: 'HTL-000045',
+      title: 'Hotel Bravo',
+      currency: 'INR',
+      createdAt: '2026-08-17T10:00:00.000Z',
+      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-12', rooms: 1, currency: 'INR' },
+      snapshot: {
+        hotel: {
+          name: 'Hotel Bravo',
+          city: 'Puri',
+          stars: 5,
+          images: [
+            { original: 'https://cdn.example/b-1.jpg', thumbnail: 'https://cdn.example/b-1-th.jpg' },
+          ],
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/HTL-000023': hotelA,
+      '/api/search/bookmarks/by-code/HTL-000045': hotelB,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    // Import two hotels one-by-one via the single input + ENTER.
+    const idField = screen.getByLabelText('Hotel Bookmark ID');
+    await userEvent.type(idField, 'HTL-000023{enter}');
+    await screen.findByText('✓ Loaded HTL-000023');
+    await userEvent.type(idField, 'HTL-000045{enter}');
+    await screen.findByText('✓ Loaded HTL-000045');
+
+    // Two independent stays are created in the entered order. Expand both to
+    // interact with their fields/images.
+    const expandButtons = screen.getAllByRole('button', { name: /Expand hotel stay/ });
+    expect(expandButtons).toHaveLength(2);
+    const stays = expandButtons.map((button) => button.closest('article') as HTMLElement);
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 2' }));
+    expect(within(stays[0]!).getByLabelText('Hotel master')).toHaveValue('Hotel Alpha');
+    expect(within(stays[1]!).getByLabelText('Hotel master')).toHaveValue('Hotel Bravo');
+
+    // Each stay shows only its own images.
+    expect(within(stays[0]!).getAllByAltText('Hotel Alpha')).toHaveLength(2);
+    expect(within(stays[1]!).getAllByAltText('Hotel Bravo')).toHaveLength(1);
+    // Each stay has its own PDF radio group, first image checked by default.
+    expect(within(stays[0]!).getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+    expect(within(stays[1]!).getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
+
+    // Move works only for that stay: reorder Alpha's images, Bravo untouched.
+    await userEvent.click(
+      within(stays[0]!).getByRole('button', { name: 'Move hotel image 1 right' }),
+    );
+    expect(
+      within(stays[0]!).getAllByAltText('Hotel Alpha').map((img) => img.getAttribute('src')),
+    ).toEqual(['https://cdn.example/a-2.jpg', 'https://cdn.example/a-1.jpg']);
+    expect(
+      within(stays[1]!).getAllByAltText('Hotel Bravo').map((img) => img.getAttribute('src')),
+    ).toEqual(['https://cdn.example/b-1.jpg']);
+
+    // Remove works only for that stay: remove Bravo's only image.
+    await userEvent.click(
+      within(stays[1]!).getByRole('button', { name: 'Remove hotel image 1' }),
+    );
+    expect(within(stays[1]!).queryByAltText('Hotel Bravo')).not.toBeInTheDocument();
+    expect(within(stays[0]!).getAllByAltText('Hotel Alpha')).toHaveLength(2);
+
+    // Save: both stays persist with independent images and PDF selections.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.hotels).toHaveLength(2);
+    expect(body.hotels[0].hotelName).toBe('Hotel Alpha');
+    expect(body.hotels[0].images).toEqual([
+      { url: 'https://cdn.example/a-2.jpg', thumbnailUrl: 'https://cdn.example/a-2-th.jpg', alt: 'Hotel Alpha' },
+      { url: 'https://cdn.example/a-1.jpg', thumbnailUrl: 'https://cdn.example/a-1-th.jpg', alt: 'Hotel Alpha' },
+    ]);
+    // The PDF selection follows the image (a-1), now in 2nd position.
+    expect(body.hotels[0].pdfImageUrl).toBe('https://cdn.example/a-1.jpg');
+    expect(body.hotels[1].hotelName).toBe('Hotel Bravo');
+    expect(body.hotels[1].images).toEqual([]);
+    // ZERO SearchAPI requests.
+    const allUrls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      allUrls.some((url) => url.includes('/search/flights') || url.includes('/search/hotels')),
+    ).toBe(false);
+  });
+
+  it('appends imported hotels without overwriting existing hotel stays', async () => {
+    const hotelBookmark = {
+      id: 'bm-append',
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: 'fp-append',
+      bookmarkCode: 'HTL-000088',
+      title: 'Append Hotel',
+      currency: 'INR',
+      createdAt: '2026-08-17T10:00:00.000Z',
+      searchParams: { check_in_date: '2026-09-10', check_out_date: '2026-09-12', rooms: 1, currency: 'INR' },
+      snapshot: {
+        hotel: {
+          name: 'The Append Hotel',
+          city: 'Chennai',
+          stars: 4,
+          images: [
+            { original: 'https://cdn.example/append-1.jpg', thumbnail: 'https://cdn.example/append-1-th.jpg' },
+          ],
+        },
+      },
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/HTL-000088': hotelBookmark,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    // An existing manual stay is already present.
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    const before = screen.getAllByRole('button', { name: /Expand hotel stay/ }).length;
+    expect(before).toBeGreaterThan(0);
+
+    // Import one hotel → it is appended, not replacing the existing stay.
+    await userEvent.type(screen.getByLabelText('Hotel Bookmark ID'), 'HTL-000088{enter}');
+    await screen.findByText('✓ Loaded HTL-000088');
+    const after = screen.getAllByRole('button', { name: /Expand hotel stay/ }).length;
+    expect(after).toBe(before + 1);
+    // Expand the imported (last) stay and verify its data (appended after the
+    // manual stay, which is never overwritten).
+    await userEvent.click(screen.getByRole('button', { name: `Expand hotel stay ${after}` }));
+    const masters = screen.getAllByLabelText('Hotel master');
+    expect(masters[masters.length - 1]).toHaveValue('The Append Hotel');
+  });
+
+  it('reorders hotel stays with Up/Down and persists the new order on save + reopen', async () => {
+    const mk = (
+      code: string,
+      name: string,
+      city: string,
+      img: string,
+    ) => ({
+      id: `bm-${code}`,
+      type: 'HOTEL',
+      provider: 'SEARCHAPI',
+      fingerprint: `fp-${code}`,
+      bookmarkCode: code,
+      title: name,
+      currency: 'INR',
+      createdAt: '2026-08-17T10:00:00.000Z',
+      searchParams: {
+        check_in_date: '2026-09-10',
+        check_out_date: '2026-09-12',
+        rooms: 1,
+        currency: 'INR',
+      },
+      snapshot: {
+        hotel: {
+          name,
+          city,
+          stars: 4,
+          images: [{ original: img, thumbnail: `${img}-th` }],
+        },
+      },
+    });
+    const hotelA = mk('HTL-000023', 'Hotel Alpha', 'Lucknow', 'https://cdn.example/a.jpg');
+    const hotelB = mk('HTL-000045', 'Hotel Bravo', 'Puri', 'https://cdn.example/b.jpg');
+    const hotelC = mk('HTL-000067', 'Hotel Charlie', 'Goa', 'https://cdn.example/c.jpg');
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/api/search/bookmarks/by-code/HTL-000023': hotelA,
+      '/api/search/bookmarks/by-code/HTL-000045': hotelB,
+      '/api/search/bookmarks/by-code/HTL-000067': hotelC,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Hotel');
+
+    const idField = screen.getByLabelText('Hotel Bookmark ID');
+    await userEvent.type(idField, 'HTL-000023{enter}');
+    await screen.findByText('✓ Loaded HTL-000023');
+    await userEvent.type(idField, 'HTL-000045{enter}');
+    await screen.findByText('✓ Loaded HTL-000045');
+    await userEvent.type(idField, 'HTL-000067{enter}');
+    await screen.findByText('✓ Loaded HTL-000067');
+
+    const names = () =>
+      screen
+        .getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })
+        .map((button) => (button.closest('article') as HTMLElement).querySelector('h4')!.textContent);
+    expect(names()).toEqual(['Hotel Alpha', 'Hotel Bravo', 'Hotel Charlie']);
+
+    // First stay ↑ disabled, last stay ↓ disabled.
+    expect(screen.getByRole('button', { name: 'Move hotel stay 1 up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move hotel stay 3 down' })).toBeDisabled();
+
+    // Move middle (Bravo) down → [Alpha, Charlie, Bravo], then back up.
+    await userEvent.click(screen.getByRole('button', { name: 'Move hotel stay 2 down' }));
+    expect(names()).toEqual(['Hotel Alpha', 'Hotel Charlie', 'Hotel Bravo']);
+    await userEvent.click(screen.getByRole('button', { name: 'Move hotel stay 3 up' }));
+    expect(names()).toEqual(['Hotel Alpha', 'Hotel Bravo', 'Hotel Charlie']);
+
+    // Reorder to a stable different order: [Charlie, Alpha, Bravo].
+    await userEvent.click(screen.getByRole('button', { name: 'Move hotel stay 3 up' }));
+    expect(names()).toEqual(['Hotel Alpha', 'Hotel Charlie', 'Hotel Bravo']);
+    await userEvent.click(screen.getByRole('button', { name: 'Move hotel stay 2 up' }));
+    expect(names()).toEqual(['Hotel Charlie', 'Hotel Alpha', 'Hotel Bravo']);
+
+    // Each hotel keeps its own data/images/pdfImageUrl after reordering.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 2' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 3' }));
+    const stayCards = screen
+      .getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })
+      .map((button) => button.closest('article') as HTMLElement);
+    expect(within(stayCards[0]!).getByLabelText('Hotel master')).toHaveValue('Hotel Charlie');
+    expect(within(stayCards[0]!).getByAltText('Hotel Charlie')).toHaveAttribute(
+      'src',
+      'https://cdn.example/c.jpg',
+    );
+    expect(within(stayCards[1]!).getByLabelText('Hotel master')).toHaveValue('Hotel Alpha');
+    expect(within(stayCards[1]!).getByAltText('Hotel Alpha')).toHaveAttribute(
+      'src',
+      'https://cdn.example/a.jpg',
+    );
+    expect(within(stayCards[2]!).getByLabelText('Hotel master')).toHaveValue('Hotel Bravo');
+    expect(within(stayCards[2]!).getByAltText('Hotel Bravo')).toHaveAttribute(
+      'src',
+      'https://cdn.example/b.jpg',
+    );
+
+    // Save → payload order reflects the reorder, with each hotel's data intact.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true);
+    });
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.hotels.map((h: { hotelName: string }) => h.hotelName)).toEqual([
+      'Hotel Charlie',
+      'Hotel Alpha',
+      'Hotel Bravo',
+    ]);
+    expect(body.hotels[0].city).toBe('Goa');
+    expect(body.hotels[0].images[0].url).toBe('https://cdn.example/c.jpg');
+    expect(body.hotels[0].pdfImageUrl).toBe('https://cdn.example/c.jpg');
+
+    // Reopen → hotels appear in the saved order.
+    const saved = builderQuotation({ hotels: body.hotels });
+    vi.stubGlobal('fetch', masterFetch(saved));
+    renderBuilderPage();
+    await openTab('Hotel');
+    const reopenedNames = screen
+      .getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })
+      .map((button) => (button.closest('article') as HTMLElement).querySelector('h4')!.textContent);
+    expect(reopenedNames).toEqual(['Hotel Charlie', 'Hotel Alpha', 'Hotel Bravo']);
   });
 
   it('preserves the saved hotel image order and PDF selection when the quotation is reopened', async () => {
@@ -8796,6 +9088,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', masterFetch(quotation));
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     // Order is preserved: the second photo renders before the first.
     const srcs = () =>
@@ -8945,6 +9238,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     const rooms = await screen.findByLabelText('Hotel number of rooms');
     const checkInToggle = screen.getByRole('checkbox', {
@@ -9317,6 +9611,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', masterFetch(quotation));
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     expect(await screen.findByLabelText('Hotel city')).toHaveValue('Baku');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
@@ -9361,10 +9656,13 @@ describe('Phase 14 master selectors', () => {
     await openTab('Hotel');
 
     expect(await screen.findByText('Hotel Options')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText('Hotel Stay').length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /^(Expand|Collapse) hotel stay/ })).toHaveLength(1),
+    );
     expect(screen.queryByText('Default Hotel Option')).not.toBeInTheDocument();
     expect(screen.queryByText('Hotel for Default Option')).not.toBeInTheDocument();
     // The default hotel is still auto-prefilled into the Hotel Stay card.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
   });
 
@@ -9454,6 +9752,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', masterFetch(quotation));
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     expect(await screen.findByLabelText('Hotel section title')).toHaveValue('Your Hotels');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
@@ -9491,6 +9790,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', masterFetch(quotation));
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     expect(await screen.findByLabelText('Hotel check-in')).toHaveValue('2026-08-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-08-16');
@@ -9501,6 +9801,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
 
     await waitFor(() =>
@@ -9528,6 +9829,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
 
@@ -9568,9 +9870,9 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
-
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
     await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Only');
     await waitFor(() =>
@@ -9625,6 +9927,7 @@ describe('Phase 14 master selectors', () => {
     );
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     expect(screen.getByLabelText('Room type master')).toHaveValue('Super Deluxe Valley View');
     expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast + Dinner');
@@ -9636,6 +9939,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
@@ -12056,6 +12360,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
     await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
@@ -12307,6 +12612,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     await openTab('Hotel');
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
@@ -12349,6 +12655,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
     // 10 Aug → 12 Aug = 2 nights, overriding the stored (wrong) value of 4.
     expect(await screen.findByLabelText('Hotel nights')).toHaveValue('2');
@@ -12458,6 +12765,7 @@ describe('Phase 14 master selectors', () => {
     renderBuilderPage();
     // The Hotel tab loads its preloaded hotel master link and enabled room type.
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
     );
@@ -12525,6 +12833,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue(
         'Aloft Singapore Novena by Marriott',
@@ -12554,6 +12863,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue(
         'Aloft Singapore Novena by Marriott',
@@ -12568,6 +12878,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() => expect(screen.getByLabelText('Hotel master')).toHaveValue(''));
   });
 
@@ -12582,6 +12893,8 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 2' }));
     await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(2));
     const masters = screen.getAllByLabelText('Hotel master');
     expect(masters[0]).toHaveValue('Aloft Singapore Novena by Marriott');
@@ -12596,6 +12909,8 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', partialMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 2' }));
     await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(2));
     const m2 = screen.getAllByLabelText('Hotel master');
     expect(m2[0]).toHaveValue('Aloft Singapore Novena by Marriott');
@@ -12634,6 +12949,7 @@ describe('Phase 14 master selectors', () => {
     );
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     // Exactly one Hotel Stay row despite Singapore appearing twice
     expect(await screen.findAllByLabelText('Hotel master')).toHaveLength(1);
     expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
@@ -12673,6 +12989,7 @@ describe('Phase 14 master selectors', () => {
     );
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     expect(await screen.findAllByLabelText('Hotel master')).toHaveLength(1);
     expect(screen.getByLabelText('Hotel master')).toHaveValue('Aloft Singapore Novena by Marriott');
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('6');
@@ -12731,6 +13048,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue(
         'Aloft Singapore Novena by Marriott',
@@ -12738,6 +13056,7 @@ describe('Phase 14 master selectors', () => {
     );
     // Adding another hotel row for the same destination must not duplicate the default.
     await userEvent.click(screen.getByRole('button', { name: 'Add hotel stay after stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 2' }));
     await waitFor(() => expect(screen.getAllByLabelText('Hotel master').length).toBe(2));
     expect(screen.getAllByLabelText('Hotel master')[1]).toHaveValue('');
   });
@@ -12756,6 +13075,7 @@ describe('Phase 14 master selectors', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue(
         'Aloft Singapore Novena by Marriott',
