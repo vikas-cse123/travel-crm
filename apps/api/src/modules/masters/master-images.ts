@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 export interface StoredMasterImage {
   id: string;

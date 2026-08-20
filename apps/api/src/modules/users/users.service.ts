@@ -526,7 +526,9 @@ export const usersService = {
     if (existing.pendingProfileImageObjectKey) {
       try {
         await storageService.deleteObject(existing.pendingProfileImageObjectKey);
-      } catch {}
+      } catch {
+        // best-effort cleanup — ignore if pending object already deleted
+      }
     }
     await prisma.user.update({
       where: { id: userId },
@@ -589,7 +591,9 @@ export const usersService = {
     if (oldKey && oldKey !== user.pendingProfileImageObjectKey) {
       try {
         await storageService.deleteObject(oldKey);
-      } catch {}
+      } catch {
+        // best-effort cleanup — ignore if old object already deleted
+      }
     }
     return this.details(auth, userId);
   },
