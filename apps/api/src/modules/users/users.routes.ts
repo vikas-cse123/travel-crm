@@ -99,6 +99,23 @@ router.patch(
   validateRequest({ params: id, body: updateUserSchema }),
   asyncHandler(usersController.update),
 );
+const profileImageUpload = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/jpg']),
+  fileSize: z.coerce.number().int().positive().max(5 * 1024 * 1024),
+});
+router.post(
+  '/:userId/profile-image/upload',
+  requirePermission(PERMISSIONS.USERS_UPDATE),
+  validateRequest({ params: id, body: profileImageUpload }),
+  asyncHandler(usersController.prepareProfileImage),
+);
+router.post(
+  '/:userId/profile-image/confirm',
+  requirePermission(PERMISSIONS.USERS_UPDATE),
+  validateRequest({ params: id }),
+  asyncHandler(usersController.confirmProfileImage),
+);
 router.delete(
   '/:userId',
   requirePermission(PERMISSIONS.USERS_ARCHIVE),

@@ -1081,7 +1081,7 @@ describe('Phase 8 quotation pages', () => {
     expect(statusLabel).toBeNull();
   });
 
-  it('hides empty hotel Room Type and Meal Plan on the detail page without dangling separators', async () => {
+  it('no longer renders the customer preview section on the detail page', async () => {
     const hotel = (overrides: Record<string, unknown>) => ({
       id: `h-${String(overrides.id ?? 'x')}`,
       city: 'Goa',
@@ -1128,18 +1128,13 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Version 1');
 
-    // Both populated: joined with a clean separator.
-    expect(screen.getByText('Goa · 3 nights · Deluxe · Breakfast')).toBeInTheDocument();
-    // Only room type: meal plan omitted.
-    expect(screen.getByText('Goa · 3 nights · Superior')).toBeInTheDocument();
-    // Only meal plan: room type omitted.
-    expect(screen.getByText('Goa · 3 nights · Half Board')).toBeInTheDocument();
-    // Neither: city + nights only, no placeholders and no trailing separator.
-    expect(screen.getByText('Goa · 3 nights')).toBeInTheDocument();
-    expect(screen.queryByText(/Room open/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Meal plan open/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/· ·/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/·\s*$/)).not.toBeInTheDocument();
+    // The customer preview section was removed: no preview header, hotels,
+    // itinerary, inclusions/exclusions/terms, or final amount block.
+    expect(screen.queryByText('Customer preview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Beach Resort')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Goa · 3 nights/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Final quotation amount')).not.toBeInTheDocument();
+    expect(screen.queryByText('Internal margin')).not.toBeInTheDocument();
   });
 
   it('copy public link shows a Copy icon, a Copied! tooltip on success, and resets', async () => {
@@ -1860,6 +1855,229 @@ describe('Phase 8 quotation pages', () => {
     // No live-search/SearchAPI request is made by the public page.
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => url.includes('/search/'))).toBe(false);
+  });
+
+  it('renders quotation-owned activity, vehicle and cruise galleries in saved order', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000003',
+        customerName: 'Aarav Mehta',
+        destinationSummary: 'Maldives',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Snapshot galleries',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+        hotels: [],
+        services: [
+          {
+            id: 'vehicle-snapshot',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Island SUV',
+            description: null,
+            dayNumber: null,
+            city: 'SUV',
+            quantity: '1',
+            unitSellingPrice: '100',
+            totalSellingPrice: '100',
+            sellingPrice: '100',
+            taxCategory: 'Transportation',
+            notes: null,
+            sequence: 1,
+            images: [
+              { id: 'vehicle-c', url: 'https://cdn.example/vehicle-c.jpg', alt: 'Vehicle C' },
+              { id: 'vehicle-a', url: 'https://cdn.example/vehicle-a.jpg', alt: 'Vehicle A' },
+            ],
+          },
+          {
+            id: 'cruise-snapshot',
+            serviceType: 'CRUISE',
+            name: 'Ocean Dream',
+            description: null,
+            dayNumber: null,
+            city: null,
+            quantity: '1',
+            unitSellingPrice: '100',
+            totalSellingPrice: '100',
+            sellingPrice: '100',
+            taxCategory: 'Cruise Details',
+            notes: null,
+            sequence: 2,
+            images: [
+              { id: 'cruise-1', url: 'https://cdn.example/cruise-1.jpg', alt: 'Cruise 1' },
+              { id: 'cruise-2', url: 'https://cdn.example/cruise-2.jpg', alt: 'Cruise 2' },
+            ],
+          },
+          {
+            id: 'vehicle-images-removed',
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Removed Gallery Van',
+            description: null,
+            dayNumber: null,
+            city: 'Van',
+            quantity: '1',
+            unitSellingPrice: '100',
+            totalSellingPrice: '100',
+            sellingPrice: '100',
+            taxCategory: 'Transportation',
+            notes: null,
+            sequence: 3,
+            images: [],
+            imageSnapshotPresent: true,
+          },
+        ],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Reef walk',
+              city: 'Malé',
+              activities: [
+                {
+                  name: 'Reef walk',
+                  description: null,
+                  sightseeingId: 'sightseeing-1',
+                  imageUrl: null,
+                  images: [
+                    {
+                      id: 'activity-2',
+                      url: 'https://cdn.example/activity-2.jpg',
+                      alt: 'Activity 2',
+                    },
+                    {
+                      id: 'activity-1',
+                      url: 'https://cdn.example/activity-1.jpg',
+                      alt: 'Activity 1',
+                    },
+                  ],
+                },
+                {
+                  name: 'No-image activity',
+                  description: null,
+                  sightseeingId: 'sightseeing-removed',
+                  imageUrl: null,
+                  images: [],
+                  imageSnapshotPresent: true,
+                },
+                {
+                  name: 'Legacy lagoon visit',
+                  description: null,
+                  sightseeingId: 'sightseeing-legacy',
+                  imageUrl: null,
+                },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      // Live presentations deliberately disagree: quotation snapshots win.
+      vehiclePresentations: {
+        'vehicle-snapshot': {
+          imageUrl: 'https://cdn.example/live-vehicle.jpg',
+          name: 'Island SUV',
+          vehicleType: 'SUV',
+          capacity: 6,
+        },
+        'vehicle-images-removed': {
+          imageUrl: 'https://cdn.example/live-removed-vehicle.jpg',
+          name: 'Removed Gallery Van',
+          vehicleType: 'Van',
+          capacity: 8,
+        },
+      },
+      cruisePresentations: {
+        'cruise-snapshot': {
+          imageUrl: 'https://cdn.example/live-cruise.jpg',
+          name: 'Ocean Dream',
+          roomTypeName: null,
+        },
+      },
+      sightseeingPresentations: {
+        'sightseeing-1': { imageUrl: 'https://cdn.example/live-activity.jpg' },
+        'sightseeing-removed': { imageUrl: 'https://cdn.example/live-removed-activity.jpg' },
+        'sightseeing-legacy': { imageUrl: 'https://cdn.example/legacy-activity.jpg' },
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Snapshot galleries');
+
+    expect(screen.getByAltText('Activity 2')).toHaveAttribute(
+      'src',
+      'https://cdn.example/activity-2.jpg',
+    );
+    expect(screen.getByAltText('Vehicle C')).toHaveAttribute(
+      'src',
+      'https://cdn.example/vehicle-c.jpg',
+    );
+    expect(screen.getByAltText('Cruise 1')).toHaveAttribute(
+      'src',
+      'https://cdn.example/cruise-1.jpg',
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next vehicle image' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next cruise image' }));
+    expect(screen.getByAltText('Activity 1')).toBeInTheDocument();
+    expect(screen.getByAltText('Vehicle A')).toBeInTheDocument();
+    expect(screen.getByAltText('Cruise 2')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
+    expect(
+      screen
+        .getAllByAltText('Legacy lagoon visit')
+        .some((image) => image.getAttribute('src') === 'https://cdn.example/legacy-activity.jpg'),
+    ).toBe(true);
+
+    // Removed snapshot images and newer live-Master images never leak back in.
+    for (const url of [
+      'https://cdn.example/vehicle-b.jpg',
+      'https://cdn.example/live-vehicle.jpg',
+      'https://cdn.example/live-cruise.jpg',
+      'https://cdn.example/live-activity.jpg',
+      'https://cdn.example/live-removed-vehicle.jpg',
+      'https://cdn.example/live-removed-activity.jpg',
+    ]) {
+      expect(document.querySelector(`img[src="${url}"]`)).toBeNull();
+    }
+
+    // The existing responsive layout remains stacked on small screens.
+    expect(screen.getByText('Reef walk').closest('article')?.className).toContain('flex-col');
   });
 
   it('shows a single saved hotel image plainly without carousel navigation', async () => {
@@ -8185,6 +8403,7 @@ function sightseeingActivitiesFrom(data: { data: unknown[] }) {
       estimatedHours: row.estimatedHours ?? null,
       suggestedStartTime: row.suggestedStartTime ?? null,
       description: row.description ?? null,
+      images: row.images ?? [],
       destination: row.destination,
       city: row.city,
     })),
@@ -14642,5 +14861,257 @@ describe('Public weblink — activity pricing', () => {
     expect(screen.queryByText('₹10,500')).not.toBeInTheDocument();
     expect(screen.queryByText('₹16,000')).not.toBeInTheDocument();
     expect(screen.getAllByText('₹100').length).toBeGreaterThan(0);
+  });
+});
+
+describe('Quotation Builder — Sightseeing Master gallery snapshot', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
+  });
+
+  it('imports three images, reorders/removes/selects one for PDF, saves, and reloads', async () => {
+    const legacy = {
+      id: '11111111-1111-4111-8111-111111111110',
+      title: 'Legacy Walk',
+      sequence: 1,
+      status: 'ACTIVE',
+      images: [],
+      destination: { id: 'dest-sg', name: 'Singapore', countryName: 'Singapore' },
+      city: { id: 'city-sg', name: 'Singapore' },
+    };
+    const gallery = {
+      ...legacy,
+      id: '11111111-1111-4111-8111-111111111111',
+      title: 'Gallery Tour',
+      sequence: 2,
+      images: [{ id: 'image-a' }, { id: 'image-b' }, { id: 'image-c' }],
+    };
+    const presentations = {
+      [gallery.id]: {
+        imageUrl: 'https://preview.test/image-a.jpg',
+        images: [
+          { id: 'image-a', url: 'https://preview.test/image-a.jpg' },
+          { id: 'image-b', url: 'https://preview.test/image-b.jpg' },
+          { id: 'image-c', url: 'https://preview.test/image-c.jpg' },
+        ],
+      },
+    };
+    const initialSightseeingDetails = {
+      include: true,
+      sectionTitle: 'Sightseeing & Experiences',
+      amount: 0,
+      description: null,
+      days: [
+        {
+          dayNumber: 1,
+          title: 'Day 1',
+          city: 'Singapore',
+          date: null,
+          meals: { breakfast: true, lunch: false, dinner: false },
+          mealMode: 'INCLUDE_AT_HOTEL',
+          dailyTransfer: 'SHARED',
+          activities: [
+            {
+              sightseeingId: null,
+              imageDocumentId: null,
+              name: null,
+              startTime: null,
+              showTime: false,
+              duration: null,
+              city: 'Singapore',
+              description: null,
+              imageUrl: null,
+              images: [],
+              imageSnapshotPresent: false,
+              pdfImageUrl: null,
+              dailyTransfer: null,
+              pricingOptions: [],
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+    };
+    const fetchMock = masterFetch(
+      builderQuotation({
+        destinationSummary: 'Singapore',
+        sightseeingDetails: initialSightseeingDetails,
+      }),
+      {
+        '/masters/sightseeing': page([legacy, gallery]),
+        '/masters/sightseeing/presentations': presentations,
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await userEvent.click(await screen.findByRole('button', { name: 'Expand day 1' }));
+
+    const picker = await screen.findByLabelText('Day 1 activity 1');
+    await openActivityPicker(picker, 'Gallery Tour');
+    fireEvent.change(picker, { target: { value: 'Gallery Tour' } });
+    expect(await screen.findByText(/Activity Images \(3\)/)).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Move sightseeing image 1 right on day 1 activity 1',
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove sightseeing image 3 on day 1 activity 1',
+      }),
+    );
+    await userEvent.click(
+      screen.getByLabelText('Use sightseeing image 2 in PDF on day 1 activity 1'),
+    );
+    expect(screen.getByText(/Activity Images \(2\)/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const saved = JSON.parse(String(patchCall![1]!.body));
+    const activity = saved.sightseeingDetails.days[0].activities[0];
+    expect(activity.images).toEqual([
+      expect.objectContaining({ masterImageId: 'image-b' }),
+      expect.objectContaining({ masterImageId: 'image-a' }),
+    ]);
+    expect(activity.imageSnapshotPresent).toBe(true);
+    expect(activity.pdfImageUrl).toBe('image-a');
+    expect(JSON.stringify(activity.images)).not.toContain('preview.test');
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, options]) =>
+          options?.method === 'DELETE' && String(input).includes('/masters/sightseeing'),
+      ),
+    ).toBe(false);
+
+    cleanup();
+    const reloadedDetails = {
+      ...saved.sightseeingDetails,
+      days: saved.sightseeingDetails.days.map((day: Record<string, unknown>) => ({
+        ...day,
+        activities: (day.activities as Array<Record<string, unknown>>).map((row) => ({
+          ...row,
+          images: [
+            { id: 'image-b', url: 'https://fresh.test/image-b.jpg' },
+            { id: 'image-a', url: 'https://fresh.test/image-a.jpg' },
+          ],
+        })),
+      })),
+    };
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(
+        builderQuotation({ destinationSummary: 'Singapore', sightseeingDetails: reloadedDetails }),
+        {
+          '/masters/sightseeing': page([legacy, gallery]),
+          '/masters/sightseeing/presentations': presentations,
+        },
+      ),
+    );
+    renderBuilderPage();
+    await openTab('Sightseeing');
+    await userEvent.click(await screen.findByRole('button', { name: 'Expand day 1' }));
+    expect(await screen.findByText(/Activity Images \(2\)/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Use sightseeing image 2 in PDF on day 1 activity 1'),
+    ).toBeChecked();
+  });
+
+  it('keeps a Vehicle remove-all gallery authoritative without deleting Master images', async () => {
+    const galleryVehicle = {
+      ...vehicle,
+      images: [{ id: 'vehicle-image-a' }, { id: 'vehicle-image-b' }, { id: 'vehicle-image-c' }],
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/masters/vehicles': page([galleryVehicle]),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Vehicle');
+
+    await userEvent.selectOptions(await screen.findByLabelText('Vehicle type'), 'Standard MPV');
+    await userEvent.selectOptions(await screen.findByLabelText('Vehicle model'), galleryVehicle.id);
+    expect(
+      await screen.findByRole('button', { name: 'Remove vehicle image 1' }),
+    ).toBeInTheDocument();
+
+    for (let remaining = 3; remaining > 0; remaining -= 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Remove vehicle image 1' }));
+    }
+    expect(
+      screen.queryByRole('button', { name: 'Remove vehicle image 1' }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const saved = JSON.parse(String(patchCall![1]!.body));
+    const vehicleRow = saved.services.find(
+      (row: { serviceType: string }) => row.serviceType === 'VEHICLE_TRANSFER',
+    );
+    expect(vehicleRow).toMatchObject({
+      vehicleId: galleryVehicle.id,
+      images: [],
+      imageSnapshotPresent: true,
+      pdfImageUrl: null,
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, options]) =>
+          options?.method === 'DELETE' && String(input).includes('/masters/vehicles'),
+      ),
+    ).toBe(false);
+  });
+
+  it('uses the Cruise-specific selector to persist quotation-only order and PDF choice', async () => {
+    const galleryCruise = {
+      ...cruise,
+      images: [{ id: 'cruise-image-a' }, { id: 'cruise-image-b' }, { id: 'cruise-image-c' }],
+    };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/masters/cruises': page([galleryCruise]),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Cruise');
+    await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
+    await userEvent.type(await screen.findByLabelText('Cruise master'), galleryCruise.name);
+
+    expect(
+      await screen.findByRole('button', { name: 'Move cruise-0 image 1 right' }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Move cruise-0 image 1 right' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove cruise-0 image 3' }));
+    await userEvent.click(screen.getByLabelText('Use cruise-0 image 2 in PDF'));
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const saved = JSON.parse(String(patchCall![1]!.body));
+    const cruiseRow = saved.services.find(
+      (row: { serviceType: string }) => row.serviceType === 'CRUISE',
+    );
+    expect(cruiseRow.images).toEqual([
+      expect.objectContaining({ masterImageId: 'cruise-image-b' }),
+      expect.objectContaining({ masterImageId: 'cruise-image-a' }),
+    ]);
+    expect(cruiseRow.imageSnapshotPresent).toBe(true);
+    expect(cruiseRow.pdfImageUrl).toBe('cruise-image-a');
+    expect(JSON.stringify(cruiseRow.images)).not.toContain('preview');
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, options]) =>
+          options?.method === 'DELETE' && String(input).includes('/masters/cruises'),
+      ),
+    ).toBe(false);
   });
 });

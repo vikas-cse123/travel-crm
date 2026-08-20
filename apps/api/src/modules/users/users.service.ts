@@ -1,13 +1,15 @@
-import type { ActivityAction, Prisma, UserStatus } from '@prisma/client';
+import type { ActivityAction, Prisma, UserStatus, UserGender } from '@prisma/client';
 import {
   ACTIVITY_ACTION,
   ENTITY_TYPE,
   type CreateUserInput,
   type UpdateUserInput,
 } from '@interscale/shared';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
+import { storageService, userProfileImageObjectKey } from '../../services/storage/storage.service.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -106,6 +108,41 @@ function auditData(
   };
 }
 
+async function userProfileImageUrl(user: {
+  profileImageObjectKey: string | null;
+  profileImageConfirmedAt: Date | null;
+}): Promise<string | null> {
+  if (!user.profileImageObjectKey || !user.profileImageConfirmedAt) return null;
+  try {
+    return await storageService.createDownloadUrl(
+      user.profileImageObjectKey,
+      'profile-image',
+      env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function presentUser<T extends { profileImageObjectKey: string | null; profileImageConfirmedAt: Date | null }>(
+  user: T,
+): Promise<T & { profileImageUrl: string | null }> {
+  const url = await userProfileImageUrl(user);
+  return { ...user, profileImageUrl: url };
+}
+
+const PROFILE_IMAGE_MAX_MB = 5;
+const PROFILE_PRESIGN_TTL = 600;
+
+function profileImageKey(companyId: string, userId: string, fileName: string) {
+  return userProfileImageObjectKey({
+    companyId,
+    userId,
+    imageId: randomUUID(),
+    fileName,
+  });
+}
+
 export const usersService = {
   async list(
     auth: AuthContext,
@@ -121,15 +158,18 @@ export const usersService = {
       createdTo?: Date;
     },
   ) {
-    return usersRepository.list(auth.tenant, query, resolvePagination(query), {
+    const result = await usersRepository.list(auth.tenant, query, resolvePagination(query), {
       sortBy: query.sortBy ?? 'createdAt',
       sortOrder: query.sortOrder ?? 'desc',
     });
+    const data = await Promise.all(result.data.map((u) => presentUser(u)));
+    return { ...result, data };
   },
 
   async details(auth: AuthContext, id: string) {
     const user = await usersRepository.findById(auth.tenant, id);
     if (!user) throw new NotFoundError('User not found.');
+    const presented = await presentUser(user);
     const effectivePermissions = await permissionsService.resolveForUser(id);
     const recentActivity = await prisma.activityLog.findMany({
       where: {
@@ -145,8 +185,8 @@ export const usersService = {
       select: { id: true, action: true, createdAt: true },
     });
     return {
-      ...user,
-      emailVerified: user.emailVerifiedAt !== null,
+      ...presented,
+      emailVerified: presented.emailVerifiedAt !== null,
       effectivePermissions,
       recentActivity,
     };
@@ -202,6 +242,14 @@ export const usersService = {
             status: input.status,
             emailVerifiedAt: new Date(),
             mustChangePassword: input.mustChangePassword,
+            gender: (input.gender as unknown as UserGender) ?? null,
+            jobTitle: input.jobTitle ?? null,
+            bio: input.bio ?? null,
+            specialization: input.specialization ?? null,
+            yearsOfExperience: input.yearsOfExperience ?? null,
+            tripsPlanned: input.tripsPlanned ?? null,
+            languages: input.languages ?? null,
+            whatsappNumber: input.whatsappNumber ?? null,
           },
           select: { id: true },
         });
@@ -270,6 +318,14 @@ export const usersService = {
           ...(input.mustChangePassword !== undefined
             ? { mustChangePassword: input.mustChangePassword }
             : {}),
+          ...(input.gender !== undefined ? { gender: (input.gender as unknown as UserGender) ?? null } : {}),
+          ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle ?? null } : {}),
+          ...(input.bio !== undefined ? { bio: input.bio ?? null } : {}),
+          ...(input.specialization !== undefined ? { specialization: input.specialization ?? null } : {}),
+          ...(input.yearsOfExperience !== undefined ? { yearsOfExperience: input.yearsOfExperience ?? null } : {}),
+          ...(input.tripsPlanned !== undefined ? { tripsPlanned: input.tripsPlanned ?? null } : {}),
+          ...(input.languages !== undefined ? { languages: input.languages ?? null } : {}),
+          ...(input.whatsappNumber !== undefined ? { whatsappNumber: input.whatsappNumber ?? null } : {}),
         },
       });
       await tx.activityLog.create({
@@ -447,6 +503,95 @@ export const usersService = {
       });
     });
     return { updated: true };
+  },
+
+  async prepareProfileImageUpload(
+    auth: AuthContext,
+    userId: string,
+    input: { fileName: string; mimeType: string; fileSize: number },
+    _context: UserRequestContext,
+  ) {
+    const target = await targetOr404(auth, userId);
+    assertCanModify(await caller(auth), target);
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowed.includes(input.mimeType))
+      throw new ValidationError('Profile photo must be JPEG, PNG or WebP.');
+    const max = PROFILE_IMAGE_MAX_MB * 1024 * 1024;
+    if (input.fileSize > max) throw new ValidationError(`Profile photo must be ${PROFILE_IMAGE_MAX_MB} MB or smaller.`);
+    const key = profileImageKey(auth.companyId, userId, input.fileName);
+    const existing = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { pendingProfileImageObjectKey: true },
+    });
+    if (existing.pendingProfileImageObjectKey) {
+      try {
+        await storageService.deleteObject(existing.pendingProfileImageObjectKey);
+      } catch {}
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        pendingProfileImageObjectKey: key,
+        pendingProfileImageFileName: input.fileName,
+        pendingProfileImageMimeType: input.mimeType,
+        pendingProfileImageFileSize: input.fileSize,
+      },
+    });
+    const uploadUrl = await storageService.createUploadUrl(key, input.mimeType, input.fileSize, PROFILE_PRESIGN_TTL);
+    return { uploadUrl, key, expiresInSeconds: PROFILE_PRESIGN_TTL };
+  },
+
+  async confirmProfileImage(auth: AuthContext, userId: string, context: UserRequestContext) {
+    const target = await targetOr404(auth, userId);
+    assertCanModify(await caller(auth), target);
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        pendingProfileImageObjectKey: true,
+        pendingProfileImageFileName: true,
+        pendingProfileImageMimeType: true,
+        pendingProfileImageFileSize: true,
+        profileImageObjectKey: true,
+      },
+    });
+    if (
+      !user.pendingProfileImageObjectKey ||
+      !user.pendingProfileImageFileName ||
+      !user.pendingProfileImageMimeType ||
+      !user.pendingProfileImageFileSize
+    )
+      throw new ValidationError('No profile photo upload is awaiting confirmation.');
+    const meta = await storageService.headObject(user.pendingProfileImageObjectKey);
+    if (!meta) throw new ValidationError('Uploaded profile photo not found.');
+    if (meta.size !== user.pendingProfileImageFileSize || meta.contentType !== user.pendingProfileImageMimeType)
+      throw new ValidationError('Uploaded file does not match approved file.');
+    const oldKey = user.profileImageObjectKey;
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          profileImageObjectKey: user.pendingProfileImageObjectKey,
+          profileImageBucket: storageService.bucket,
+          profileImageStorageProvider: storageService.provider,
+          profileImageMimeType: user.pendingProfileImageMimeType,
+          profileImageFileSize: user.pendingProfileImageFileSize,
+          profileImageConfirmedAt: new Date(),
+          pendingProfileImageObjectKey: null,
+          pendingProfileImageFileName: null,
+          pendingProfileImageMimeType: null,
+          pendingProfileImageFileSize: null,
+        },
+      });
+      await tx.activityLog.create({
+        data: auditData(auth, userId, ACTIVITY_ACTION.USER_UPDATED, context, { profileImageUpdated: true }),
+      });
+    });
+    if (oldKey && oldKey !== user.pendingProfileImageObjectKey) {
+      try {
+        await storageService.deleteObject(oldKey);
+      } catch {}
+    }
+    return this.details(auth, userId);
   },
 
   async activity(

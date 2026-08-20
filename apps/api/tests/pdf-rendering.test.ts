@@ -19,6 +19,8 @@ import {
   computePageHeight,
   htmlToLines,
   htmlToRichTextLines,
+  pdfActivityImageOrCover,
+  pdfDayAllowsDestinationFallback,
   renderQuotationPdf,
 } from '../src/modules/quotations/pdf.service.js';
 import { renderStylishQuotationPdf } from '../src/modules/quotations/stylish-pdf.service.js';
@@ -2006,6 +2008,24 @@ describe('PDF rendering with long content', () => {
     );
     expect(resolveItineraryDayImage([{ imageUrl: 'missing' }], source)).toBe('destination-value');
     expect(resolveItineraryActivityImage({ imageUrl: 'missing' }, source)).toBeNull();
+  });
+
+  it('does not replace an explicitly emptied activity gallery with destination art', () => {
+    expect(pdfDayAllowsDestinationFallback([{ imageSnapshotPresent: true }])).toBe(false);
+    expect(pdfDayAllowsDestinationFallback([{ imageSnapshotPresent: false }, {}])).toBe(true);
+    expect(
+      pdfActivityImageOrCover({ imageSnapshotPresent: true }, null, 'destination-cover'),
+    ).toBeNull();
+    expect(
+      pdfActivityImageOrCover(
+        { imageSnapshotPresent: true },
+        'quotation-selected-image',
+        'destination-cover',
+      ),
+    ).toBe('quotation-selected-image');
+    expect(
+      pdfActivityImageOrCover({ imageSnapshotPresent: false }, null, 'destination-cover'),
+    ).toBe('destination-cover');
   });
 
   it('replaces stale and repeated day-number prefixes with the current day number', () => {

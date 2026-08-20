@@ -1,14 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { createTestPrismaClient, truncateAll } from './helpers/test-database.js';
 import { createAuthClient, registrationPayload } from './helpers/auth-client.js';
 import { getMemoryEmailProvider } from '../src/services/email/email.service.js';
 import { storageService } from '../src/services/storage/storage.service.js';
+import { runSystemMastersBootstrap } from '../src/modules/system-masters/system-masters-bootstrap.service.js';
+import { resetSystemCompanyIdCache } from '../src/modules/masters/master-visibility.js';
 import {
   resolveItineraryNights,
   resolvePdfHotelImageUrl,
+  resolvePdfSnapshotImage,
 } from '../src/modules/quotations/quotations.service.js';
 import { PERMISSIONS } from '@interscale/shared';
 
@@ -22,12 +25,26 @@ afterAll(async () => db.$disconnect());
 beforeEach(async () => {
   await truncateAll(db);
   getMemoryEmailProvider()?.clear();
+  resetSystemCompanyIdCache();
 });
 
 async function owner(email = 'owner@alpha.test', companyName = 'Alpha Travel') {
   const client = createAuthClient(app);
   await client.post('/api/auth/register', registrationPayload({ email, companyName }));
   await client.post('/api/auth/verify-email', { otp: getMemoryEmailProvider()?.lastOtp(email) });
+  return client;
+}
+
+async function systemAdmin() {
+  await runSystemMastersBootstrap();
+  const client = createAuthClient(app);
+  const login = await client.post('/api/auth/login', {
+    email: process.env.SYSTEM_ADMIN_EMAIL ?? 'system.admin@interscale.test',
+    password: process.env.SYSTEM_ADMIN_PASSWORD ?? 'System@2026Bootstrap',
+    rememberMe: false,
+    loginMode: 'COMPANY_ADMIN',
+  });
+  expect(login.status).toBe(200);
   return client;
 }
 
@@ -209,6 +226,31 @@ describe('pdf hotel image selection', () => {
   });
 });
 
+describe('PDF quotation snapshot selection', () => {
+  const images = [
+    { id: 'master-image-a', objectKey: 'companies/a.jpg' },
+    { id: 'master-image-b', objectKey: 'companies/b.jpg' },
+    { id: 'master-image-c', objectKey: 'companies/c.jpg' },
+  ];
+
+  it('selects a storage-backed image by its stable opaque id', () => {
+    expect(resolvePdfSnapshotImage(images, 'master-image-b')).toEqual(images[1]);
+  });
+
+  it('falls back to the first saved image after the selected image is removed', () => {
+    expect(resolvePdfSnapshotImage(images, 'removed-image')).toEqual(images[0]);
+  });
+
+  it('keeps legacy URL-only selection and empty-gallery behavior', () => {
+    const legacy = [
+      { url: 'https://images.example/first.jpg' },
+      { url: 'https://images.example/second.jpg' },
+    ];
+    expect(resolvePdfSnapshotImage(legacy, legacy[1]!.url)?.url).toBe(legacy[1]!.url);
+    expect(resolvePdfSnapshotImage([], null)).toBeNull();
+  });
+});
+
 async function setup() {
   const client = await owner();
   const lead = await client.post('/api/queries', leadPayload());
@@ -381,6 +423,53 @@ describe('Phase 8 customer quotations', () => {
     const b2 = await beta.post('/api/quotations', { queryId: leadBeta.id });
     expect(a2.body.data.quotationNumber).toBe('QT-001001');
     expect(b2.body.data.quotationNumber).toBe('QT-001001');
+  });
+
+  it('defaults quickNavSticky to true on a brand-new quotation and preserves saved values', async () => {
+    const { client, lead } = await setup();
+    // Brand-new quotation, no version payload: sticky must default ON and the
+    // details-page read path must see true.
+    const created = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    expect(created.versions[0].quickNavSticky).toBe(true);
+    const detail = (await client.get(`/api/quotations/${created.id}`)).body.data;
+    expect(detail.versions[0].quickNavSticky).toBe(true);
+
+    // Explicitly saved false -> stays false.
+    await client.patch(
+      `/api/quotations/${created.id}/versions/${created.versions[0].id}`,
+      { quickNavSticky: false },
+    );
+    expect(
+      (await client.get(`/api/quotations/${created.id}`)).body.data.versions[0].quickNavSticky,
+    ).toBe(false);
+
+    // Explicitly saved true -> stays true.
+    await client.patch(
+      `/api/quotations/${created.id}/versions/${created.versions[0].id}`,
+      { quickNavSticky: true },
+    );
+    expect(
+      (await client.get(`/api/quotations/${created.id}`)).body.data.versions[0].quickNavSticky,
+    ).toBe(true);
+
+    // Revision of a sticky-true version preserves true.
+    const revision = (
+      await client.post(`/api/quotations/${created.id}/versions`, {
+        sourceVersionId: created.versions[0].id,
+      })
+    ).body.data;
+    expect(revision.quickNavSticky).toBe(true);
+
+    // Revision of a sticky-false version preserves false.
+    await client.patch(`/api/quotations/${created.id}/versions/${revision.id}`, {
+      quickNavSticky: false,
+    });
+    const revisionFromFalse = (
+      await client.post(`/api/quotations/${created.id}/versions`, {
+        sourceVersionId: revision.id,
+      })
+    ).body.data;
+    expect(revisionFromFalse.quickNavSticky).toBe(false);
   });
 
   it('finalizes immutable versions and creates revisions without overwriting history', async () => {
@@ -1268,6 +1357,44 @@ async function masters(client: Client, suffix = '') {
   };
 }
 
+async function seedGlobalGalleries(m: Awaited<ReturnType<typeof masters>>) {
+  const owner = await db.hotel.findUniqueOrThrow({
+    where: { id: m.hotel.id },
+    select: { companyId: true },
+  });
+  const gallery = (type: string, masterId: string) =>
+    ['a', 'b'].map((suffix, index) => ({
+      id: `global-${type}-${suffix}`,
+      objectKey: `companies/${owner.companyId}/masters/${type}/${masterId}/${suffix}.png`,
+      fileName: `${type}-${suffix}.png`,
+      mimeType: 'image/png',
+      fileSize: PNG_1PX.length,
+      confirmedAt: new Date(Date.UTC(2026, 7, 20, 12, index)).toISOString(),
+    }));
+  const galleries = {
+    hotel: gallery('hotels', m.hotel.id),
+    cruise: gallery('cruises', m.cruise.id),
+    vehicle: gallery('vehicles', m.vehicle.id),
+    sightseeing: gallery('sightseeing', m.sightseeing.id),
+  };
+  for (const image of Object.values(galleries).flat())
+    await storageService.putObject({
+      key: image.objectKey,
+      body: PNG_1PX,
+      contentType: image.mimeType,
+    });
+  await Promise.all([
+    db.hotel.update({ where: { id: m.hotel.id }, data: { images: galleries.hotel } }),
+    db.cruise.update({ where: { id: m.cruise.id }, data: { images: galleries.cruise } }),
+    db.vehicle.update({ where: { id: m.vehicle.id }, data: { images: galleries.vehicle } }),
+    db.sightseeing.update({
+      where: { id: m.sightseeing.id },
+      data: { images: galleries.sightseeing },
+    }),
+  ]);
+  return galleries;
+}
+
 /** A version body whose every row carries its matching master reference. */
 function linkedVersion(m: Awaited<ReturnType<typeof masters>>) {
   return {
@@ -1345,6 +1472,405 @@ const SERVICE_FK = [
 ] as const;
 
 describe('Phase 14 quotation master references', () => {
+  it('links visible System Global masters through templates and snapshots every gallery', async () => {
+    const sys = await systemAdmin();
+    const global = await masters(sys, ' Global');
+    const galleries = await seedGlobalGalleries(global);
+    const client = await owner('global@tenant.test', 'Global Tenant Travel');
+    const linked = linkedVersion(global);
+
+    const template = await client.post('/api/quotation-templates', {
+      ...templatePayload('System Global linked template'),
+      hotels: linked.hotels,
+      services: linked.services,
+    });
+    expect(template.status, JSON.stringify(template.body)).toBe(201);
+
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const created = await client.post('/api/quotations', {
+      queryId: lead.id,
+      templateId: template.body.data.id,
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const versionId = created.body.data.versions[0].id as string;
+    const storedHotel = await db.quotationVersionHotelOption.findFirstOrThrow({
+      where: { quotationVersionId: versionId, hotelId: global.hotel.id },
+    });
+    expect((storedHotel.images as Array<{ id: string }>).map((image) => image.id)).toEqual(
+      galleries.hotel.map((image) => image.id),
+    );
+    const storedServices = await db.quotationVersionService.findMany({
+      where: { quotationVersionId: versionId },
+    });
+    const galleryFor = (masterId: string) =>
+      storedServices.find(
+        (row) =>
+          row.cruiseId === masterId || row.vehicleId === masterId || row.sightseeingId === masterId,
+      )?.images as Array<{ id: string }>;
+    expect(galleryFor(global.cruise.id).map((image) => image.id)).toEqual(
+      galleries.cruise.map((image) => image.id),
+    );
+    expect(galleryFor(global.vehicle.id).map((image) => image.id)).toEqual(
+      galleries.vehicle.map((image) => image.id),
+    );
+    expect(galleryFor(global.sightseeing.id).map((image) => image.id)).toEqual(
+      galleries.sightseeing.map((image) => image.id),
+    );
+
+    const detail = await client.get(`/api/quotations/${created.body.data.id}`);
+    expect(detail.status).toBe(200);
+    expect(JSON.stringify(detail.body.data)).not.toContain('objectKey');
+    expect(detail.body.data.versions[0].hotels[0].images).toHaveLength(2);
+    const linkedFlight = await client.patch(
+      `/api/quotations/${created.body.data.id}/versions/${versionId}`,
+      {
+        flightDetails: {
+          include: true,
+          sectionTitle: 'Flight Details',
+          entryMode: 'MANUAL',
+          journeyType: 'ONEWAY_OUTBOUND',
+          outbound: {
+            segments: [{ airlineId: global.airline.id, airlineName: global.airline.name }],
+          },
+          returnJourney: { segments: [] },
+        },
+      },
+    );
+    expect(linkedFlight.status, JSON.stringify(linkedFlight.body)).toBe(200);
+
+    expect(
+      (await client.post(`/api/quotations/${created.body.data.id}/versions/${versionId}/finalize`))
+        .status,
+    ).toBe(200);
+    const publicLink = await client.post(`/api/quotations/${created.body.data.id}/public-link`, {
+      quotationVersionId: versionId,
+    });
+    const token = publicLink.body.data.url.split('/q/')[1];
+    const publicView = await createAuthClient(app).get(`/api/public/quotations/${token}`);
+    expect(publicView.status).toBe(200);
+    expect(
+      publicView.body.data.version.hotels[0].images.map((image: { id: string }) => image.id),
+    ).toEqual(galleries.hotel.map((image) => image.id));
+    expect(Object.keys(publicView.body.data.hotelPresentations)).toHaveLength(1);
+    expect(publicView.body.data.airlinePresentations[global.airline.id].name).toBe(
+      global.airline.name,
+    );
+  });
+
+  it('rejects hidden System Global refs for fresh templates and sightseeing activities', async () => {
+    const sys = await systemAdmin();
+    const global = await masters(sys, ' Hidden');
+    const client = await owner('hidden@tenant.test', 'Hidden Tenant Travel');
+    expect((await client.post(`/api/masters/VEHICLE/${global.vehicle.id}/hide`)).status).toBe(200);
+    expect(
+      (await client.post(`/api/masters/SIGHTSEEING/${global.sightseeing.id}/hide`)).status,
+    ).toBe(200);
+    expect((await client.post(`/api/masters/AIRLINE/${global.airline.id}/hide`)).status).toBe(200);
+
+    const hiddenTemplate = await client.post('/api/quotation-templates', {
+      ...templatePayload('Hidden global template'),
+      hotels: [],
+      services: [
+        {
+          serviceType: 'VEHICLE_TRANSFER',
+          name: 'Hidden vehicle',
+          quantity: 1,
+          sellingPrice: 100,
+          sequence: 1,
+          vehicleId: global.vehicle.id,
+        },
+      ],
+    });
+    expect(hiddenTemplate.status).toBe(400);
+    expect(hiddenTemplate.body.error.message).toBe('The selected vehicle is not available.');
+
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
+    const hiddenActivity = await client.patch(
+      `/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}`,
+      {
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Departure',
+              city: 'Baku',
+              meals: { breakfast: false, lunch: false, dinner: false },
+              mealMode: 'INCLUDE_AT_HOTEL',
+              dailyTransfer: 'SHARED',
+              activities: [
+                {
+                  name: 'Departure transfer',
+                  dailyTransfer: 'SHARED',
+                  sightseeingId: global.sightseeing.id,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    );
+    expect(hiddenActivity.status).toBe(400);
+    expect(hiddenActivity.body.error.message).toBe('The selected sightseeing is not available.');
+
+    const hiddenFlight = await client.patch(
+      `/api/quotations/${quotation.id}/versions/${quotation.versions[0].id}`,
+      {
+        flightDetails: {
+          include: true,
+          sectionTitle: 'Flight Details',
+          entryMode: 'MANUAL',
+          journeyType: 'ONEWAY_OUTBOUND',
+          outbound: { segments: [{ airlineId: global.airline.id, airlineName: 'Hidden Air' }] },
+          returnJourney: { segments: [] },
+        },
+      },
+    );
+    expect(hiddenFlight.status).toBe(400);
+    expect(hiddenFlight.body.error.message).toBe('The selected airline is not available.');
+  });
+
+  it('retains linked System Global refs and snapshots after tenant hide, archive and revision', async () => {
+    const sys = await systemAdmin();
+    const global = await masters(sys, ' Retained');
+    const galleries = await seedGlobalGalleries(global);
+    const client = await owner('retained@tenant.test', 'Retained Tenant Travel');
+    const linked = linkedVersion(global);
+    const template = await client.post('/api/quotation-templates', {
+      ...templatePayload('Retained global template'),
+      hotels: linked.hotels,
+      services: linked.services,
+    });
+    expect(template.status, JSON.stringify(template.body)).toBe(201);
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const quotation = (await client.post('/api/quotations', { queryId: lead.id, version: linked }))
+      .body.data;
+    const first = quotation.versions[0];
+
+    expect((await client.post(`/api/masters/VEHICLE/${global.vehicle.id}/hide`)).status).toBe(200);
+    expect((await sys.delete(`/api/masters/cruises/${global.cruise.id}`)).status).toBe(200);
+
+    const edited = await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
+      title: 'Retained after hide and archive',
+    });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    expect(edited.body.data.services).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleId: global.vehicle.id }),
+        expect.objectContaining({ cruiseId: global.cruise.id }),
+      ]),
+    );
+
+    const updatedTemplate = await client.patch(
+      `/api/quotation-templates/${template.body.data.id}`,
+      {
+        services: linked.services,
+      },
+    );
+    expect(updatedTemplate.status, JSON.stringify(updatedTemplate.body)).toBe(200);
+    const secondLead = (await client.post('/api/queries', leadPayload('+91 98765 43211'))).body
+      .data;
+    const appliedRetainedTemplate = await client.post('/api/quotations', {
+      queryId: secondLead.id,
+      templateId: template.body.data.id,
+    });
+    expect(appliedRetainedTemplate.status, JSON.stringify(appliedRetainedTemplate.body)).toBe(201);
+    expect(
+      appliedRetainedTemplate.body.data.versions[0].services.find(
+        (row: { vehicleId?: string | null }) => row.vehicleId === global.vehicle.id,
+      ).images,
+    ).toHaveLength(2);
+
+    await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`);
+    const revision = await client.post(`/api/quotations/${quotation.id}/versions`, {
+      sourceVersionId: first.id,
+    });
+    expect(revision.status, JSON.stringify(revision.body)).toBe(201);
+    const revisedVehicle = revision.body.data.services.find(
+      (row: { vehicleId?: string | null }) => row.vehicleId === global.vehicle.id,
+    );
+    const revisedCruise = revision.body.data.services.find(
+      (row: { cruiseId?: string | null }) => row.cruiseId === global.cruise.id,
+    );
+    expect(revisedVehicle.images.map((image: { id: string }) => image.id)).toEqual(
+      galleries.vehicle.map((image) => image.id),
+    );
+    expect(revisedCruise.images.map((image: { id: string }) => image.id)).toEqual(
+      galleries.cruise.map((image) => image.id),
+    );
+  });
+
+  it('snapshots a linked Vehicle gallery, preserves Master order, reloads, and keeps remove-all', async () => {
+    const client = await owner();
+    const m = await masters(client);
+    const vehicleRow = await db.vehicle.findUniqueOrThrow({ where: { id: m.vehicle.id } });
+    const masterImages = ['a', 'b', 'c'].map((suffix, index) => ({
+      id: `vehicle-image-${suffix}`,
+      objectKey: `companies/${vehicleRow.companyId}/masters/vehicles/${m.vehicle.id}/${suffix}.png`,
+      fileName: `${suffix}.png`,
+      mimeType: 'image/png',
+      fileSize: PNG_1PX.length,
+      confirmedAt: new Date(Date.UTC(2026, 7, 20, 10, index)).toISOString(),
+    }));
+    for (const image of masterImages)
+      await storageService.putObject({
+        key: image.objectKey,
+        body: PNG_1PX,
+        contentType: image.mimeType,
+      });
+    await db.vehicle.update({
+      where: { id: m.vehicle.id },
+      data: { images: masterImages },
+    });
+
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const vehicleService = linkedVersion(m).services[2]!;
+    const created = await client.post('/api/quotations', {
+      queryId: lead.id,
+      version: { title: 'Vehicle gallery', hotels: [], services: [vehicleService] },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const quotation = created.body.data;
+    const versionId = quotation.versions[0].id;
+    const initialStored = await db.quotationVersionService.findFirstOrThrow({
+      where: { quotationVersionId: versionId, vehicleId: m.vehicle.id },
+    });
+    expect((initialStored.images as Array<{ id: string }>).map((image) => image.id)).toEqual([
+      'vehicle-image-a',
+      'vehicle-image-b',
+      'vehicle-image-c',
+    ]);
+
+    const reordered = await client.patch(`/api/quotations/${quotation.id}/versions/${versionId}`, {
+      services: [
+        {
+          ...vehicleService,
+          images: [{ id: 'vehicle-image-c' }, { id: 'vehicle-image-a' }],
+          imageSnapshotPresent: true,
+          pdfImageUrl: 'vehicle-image-a',
+        },
+      ],
+    });
+    expect(reordered.status, JSON.stringify(reordered.body)).toBe(200);
+    expect(reordered.body.data.services[0]).toMatchObject({
+      imageSnapshotPresent: true,
+      pdfImageUrl: 'vehicle-image-a',
+    });
+    expect(reordered.body.data.services[0].images.map((image: { id: string }) => image.id)).toEqual(
+      ['vehicle-image-c', 'vehicle-image-a'],
+    );
+
+    const saved = await db.quotationVersionService.findFirstOrThrow({
+      where: { quotationVersionId: versionId, vehicleId: m.vehicle.id },
+    });
+    expect((saved.images as Array<{ id: string }>).map((image) => image.id)).toEqual([
+      'vehicle-image-c',
+      'vehicle-image-a',
+    ]);
+    expect(saved.pdfImageUrl).toBe('vehicle-image-a');
+    const unchangedMaster = await db.vehicle.findUniqueOrThrow({ where: { id: m.vehicle.id } });
+    expect((unchangedMaster.images as Array<{ id: string }>).map((image) => image.id)).toEqual([
+      'vehicle-image-a',
+      'vehicle-image-b',
+      'vehicle-image-c',
+    ]);
+
+    const reloaded = await client.get(`/api/quotations/${quotation.id}`);
+    expect(
+      reloaded.body.data.versions[0].services[0].images.map((image: { id: string }) => image.id),
+    ).toEqual(['vehicle-image-c', 'vehicle-image-a']);
+    expect(reloaded.body.data.versions[0].services[0].pdfImageUrl).toBe('vehicle-image-a');
+
+    const emptied = await client.patch(`/api/quotations/${quotation.id}/versions/${versionId}`, {
+      services: [
+        {
+          ...vehicleService,
+          images: [],
+          imageSnapshotPresent: true,
+          pdfImageUrl: null,
+        },
+      ],
+    });
+    expect(emptied.status, JSON.stringify(emptied.body)).toBe(200);
+    expect(emptied.body.data.services[0]).toMatchObject({
+      images: [],
+      imageSnapshotPresent: true,
+      pdfImageUrl: null,
+    });
+    expect(
+      (
+        await db.quotationVersionService.findFirstOrThrow({
+          where: { quotationVersionId: versionId, vehicleId: m.vehicle.id },
+        })
+      ).images,
+    ).toEqual([]);
+  });
+
+  it('keeps the pre-feature linked Hotel image fallback when section images is empty', async () => {
+    const client = await owner();
+    const m = await masters(client);
+    const hotel = await db.hotel.findUniqueOrThrow({ where: { id: m.hotel.id } });
+    const objectKey = `companies/${hotel.companyId}/masters/hotels/${hotel.id}/legacy.png`;
+    await storageService.putObject({
+      key: objectKey,
+      body: PNG_1PX,
+      contentType: 'image/png',
+    });
+    await db.hotel.update({
+      where: { id: hotel.id },
+      data: {
+        images: Prisma.DbNull,
+        imageObjectKey: objectKey,
+        imageFileName: 'legacy.png',
+        imageMimeType: 'image/png',
+        imageFileSize: PNG_1PX.length,
+        imageConfirmedAt: new Date(),
+      },
+    });
+
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const linked = linkedVersion(m);
+    const created = await client.post('/api/quotations', {
+      queryId: lead.id,
+      version: {
+        ...linked,
+        hotelDetails: {
+          include: true,
+          sectionTitle: 'Your Hotels',
+          amount: 0,
+          description: null,
+          images: [],
+        },
+        services: [],
+      },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const quotation = created.body.data;
+    const versionId = quotation.versions[0].id as string;
+
+    // Reproduce a pre-feature row: no per-stay snapshot, while hotelDetails
+    // carries the long-standing schema default `images: []`.
+    await db.quotationVersionHotelOption.updateMany({
+      where: { quotationVersionId: versionId },
+      data: { images: Prisma.DbNull, pdfImageUrl: null },
+    });
+    await client.post(`/api/quotations/${quotation.id}/versions/${versionId}/finalize`);
+    const generated = await client.post(
+      `/api/quotations/${quotation.id}/versions/${versionId}/generate-pdf`,
+      { force: true, style: 'CLASSIC' },
+    );
+    expect(generated.status, JSON.stringify(generated.body)).toBe(200);
+    const pdfDocument = await db.quotationDocument.findUniqueOrThrow({
+      where: { id: generated.body.data.id },
+    });
+    const pdf = await storageService.getObject(pdfDocument.objectKey);
+    expect(pdf?.toString('latin1')).toMatch(/\/Subtype\s*\/Image/);
+  });
+
   it('persists every hotel and service master reference on version creation', async () => {
     const client = await owner();
     const m = await masters(client);

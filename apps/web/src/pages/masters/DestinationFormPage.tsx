@@ -3,7 +3,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   ArrowDown,
   ArrowUp,
-  ImagePlus,
   MapPin,
   Minus,
   Move,
@@ -24,15 +23,16 @@ import {
   confirmDestinationImage,
   deleteDestinationImage,
   destinationImageUrl,
+  reorderDestinationImages,
   useCreateDestination,
   useDestination,
   useMasterLookups,
   useUpdateDestination,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
+import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const DESTINATION_IMAGE_MAX_MB = 4;
-const DESTINATION_IMAGE_MAX_BYTES = DESTINATION_IMAGE_MAX_MB * 1024 * 1024;
 
 const schema = z.object({
   countryCode: z.string().length(2, 'Select a country.'),
@@ -69,18 +69,27 @@ export function DestinationFormPage() {
   const { hasPermission } = useAuth();
   const canManageImages = hasPermission(PERMISSIONS.MASTER_DESTINATIONS_MANAGE_IMAGES);
   const [citySearch, setCitySearch] = useState('');
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
-  const [existingImageUrl, setExistingImageUrl] = useState('');
-  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageError, setImageError] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [formError, setFormError] = useState('');
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: initial });
   const country = form.watch('countryCode');
   const selectedIds = useWatch({ control: form.control, name: 'cityIds' }) ?? [];
   const countryLookups = useMasterLookups();
   const lookups = useMasterLookups(country, citySearch);
   const allCountryCities = useMasterLookups(country);
+  const imageGallery = useMasterImageGallery({
+    masterId: destinationId,
+    entity: destination.data,
+    allowedMimeTypes: DESTINATION_IMAGE_MIME_TYPES,
+    maxSizeMb: DESTINATION_IMAGE_MAX_MB,
+    api: {
+      approve: approveDestinationImage,
+      confirm: confirmDestinationImage,
+      download: destinationImageUrl,
+      remove: deleteDestinationImage,
+      reorder: reorderDestinationImages,
+    },
+    onExistingChange: destination.refetch,
+  });
 
   useEffect(() => {
     if (!destination.data) return;
@@ -98,40 +107,12 @@ export function DestinationFormPage() {
     });
   }, [destination.data, form]);
   useEffect(() => {
-    if (!destinationId || !destination.data?.hasImage) {
-      setExistingImageUrl('');
-      return;
-    }
-    let active = true;
-    void destinationImageUrl(destinationId)
-      .then((result) => {
-        if (active) setExistingImageUrl(result.url);
-      })
-      .catch(() => setExistingImageUrl(''));
-    return () => {
-      active = false;
-    };
-  }, [destination.data?.hasImage, destinationId]);
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl('');
-      return;
-    }
-    if (typeof URL.createObjectURL !== 'function') {
-      setImagePreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL?.(url);
-  }, [image]);
-  useEffect(() => {
     const leave = (event: BeforeUnloadEvent) => {
-      if (form.formState.isDirty || image) event.preventDefault();
+      if (form.formState.isDirty || imageGallery.pendingCount > 0) event.preventDefault();
     };
     window.addEventListener('beforeunload', leave);
     return () => window.removeEventListener('beforeunload', leave);
-  }, [form.formState.isDirty, image]);
+  }, [form.formState.isDirty, imageGallery.pendingCount]);
 
   const cityById = useMemo(() => {
     const map = new Map((allCountryCities.data?.cities ?? []).map((city) => [city.id, city]));
@@ -155,53 +136,8 @@ export function DestinationFormPage() {
     [next[index], next[target]] = [next[target]!, next[index]!];
     form.setValue('cityIds', next, { shouldDirty: true });
   };
-  const validateImage = (file?: File) => {
-    setImageError('');
-    if (!file) return setImage(null);
-    if (
-      !DESTINATION_IMAGE_MIME_TYPES.includes(
-        file.type as (typeof DESTINATION_IMAGE_MIME_TYPES)[number],
-      )
-    ) {
-      setImageError('Use a JPEG, PNG, or WebP image.');
-      return;
-    }
-    if (file.size > DESTINATION_IMAGE_MAX_BYTES) {
-      setImageError(`Image must be ${DESTINATION_IMAGE_MAX_MB} MB or smaller.`);
-      return;
-    }
-    setImage(file);
-    setImageEditorOpen(true);
-  };
-  const applyEditedImage = (file: File) => {
-    if (file.size > DESTINATION_IMAGE_MAX_BYTES) {
-      setImageError(`Edited image must be ${DESTINATION_IMAGE_MAX_MB} MB or smaller.`);
-      return;
-    }
-    setImageError('');
-    setImage(file);
-    setImageEditorOpen(false);
-  };
-  const uploadImage = async (id: string, file: File) => {
-    const approval = await approveDestinationImage(id, {
-      fileName: file.name,
-      mimeType: file.type as (typeof DESTINATION_IMAGE_MIME_TYPES)[number],
-      fileSize: file.size,
-    });
-    if (!approval.uploadUrl.startsWith('http')) {
-      throw new Error(
-        'Local memory storage has no browser upload transport. Configure S3 to upload destination images.',
-      );
-    }
-    const response = await fetch(approval.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
-    if (!response.ok) throw new Error('The image upload failed. Please try again.');
-    await confirmDestinationImage(id);
-  };
   const submit = async (values: Values) => {
+    setFormError('');
     const payload: DestinationInput = {
       ...values,
       inclusions: values.inclusions || null,
@@ -214,10 +150,9 @@ export function DestinationFormPage() {
       const saved = destinationId
         ? await update.mutateAsync(payload)
         : await create.mutateAsync(payload);
-      if (image && canManageImages) {
+      if (canManageImages) {
         try {
-          setUploading(true);
-          await uploadImage(saved.id, image);
+          await imageGallery.persist(saved.id);
         } catch {
           const message =
             'Destination saved, but the image upload failed. Please check AWS S3 credentials and upload the image again from Edit Destination.';
@@ -228,16 +163,13 @@ export function DestinationFormPage() {
             });
             return;
           }
-          setImageError(message);
+          setFormError(message);
           return;
         }
       }
       navigate(`/masters/destinations/${saved.id}`);
     } catch (error) {
-      if (error instanceof Error && !(error as { code?: string }).code)
-        setImageError(error.message);
-    } finally {
-      setUploading(false);
+      if (error instanceof Error && !(error as { code?: string }).code) setFormError(error.message);
     }
   };
 
@@ -249,9 +181,9 @@ export function DestinationFormPage() {
         current={destinationId ? 'Edit Destination' : 'Create Destination'}
       />
       <form onSubmit={form.handleSubmit(submit)} className="space-y-5">
-        {(mutation.error || imageError) && (
+        {(mutation.error || formError) && (
           <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            {imageError || mutation.error?.message}
+            {formError || mutation.error?.message}
           </div>
         )}
         <div className="grid gap-5 xl:grid-cols-2">
@@ -307,82 +239,21 @@ export function DestinationFormPage() {
                 </div>
               </fieldset>
               {canManageImages && (
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium">Destination Image</span>
-                    <span className="text-xs text-slate-500">JPEG, PNG or WebP up to 4 MB</span>
-                  </div>
-                  <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600 hover:bg-slate-50">
-                    <ImagePlus className="h-5 w-5" />
-                    {image?.name ??
-                      (destination.data?.hasImage
-                        ? `Replace ${destination.data.imageFileName}`
-                        : 'Choose JPEG, PNG or WebP')}
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(event) => validateImage(event.target.files?.[0])}
+                <MasterImageGalleryField
+                  label="Destination Images"
+                  controller={imageGallery}
+                  accept="image/jpeg,image/png,image/webp"
+                  maxSizeMb={DESTINATION_IMAGE_MAX_MB}
+                  renderEditor={({ file, imageUrl, onCancel, onApply }) => (
+                    <DestinationImageEditor
+                      file={file}
+                      imageUrl={imageUrl}
+                      isOpen
+                      onCancel={onCancel}
+                      onApply={onApply}
                     />
-                  </label>
-                  {(imagePreviewUrl || existingImageUrl) && (
-                    <div className="mt-3 overflow-hidden rounded-lg border bg-slate-50">
-                      <img
-                        src={imagePreviewUrl || existingImageUrl}
-                        alt="Destination preview"
-                        className="h-56 w-full bg-slate-50 object-contain"
-                      />
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
-                        <p className="min-w-0 truncate text-sm text-slate-600">
-                          {image?.name ?? destination.data?.imageFileName ?? 'Destination image'}
-                        </p>
-                        <div className="flex gap-2">
-                          {image && (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => setImageEditorOpen(true)}
-                              >
-                                Edit image
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  setImage(null);
-                                  setImageError('');
-                                  setImageEditorOpen(false);
-                                }}
-                              >
-                                Remove
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
                   )}
-                  {destinationId && destination.data?.hasImage && (
-                    <Button
-                      className="mt-2"
-                      type="button"
-                      size="sm"
-                      variant="danger"
-                      onClick={async () => {
-                        if (window.confirm('Delete this destination image?')) {
-                          await deleteDestinationImage(destinationId);
-                          setExistingImageUrl('');
-                          await destination.refetch();
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" /> Delete image
-                    </Button>
-                  )}
-                </div>
+                />
               )}
               <div>
                 <label className="text-sm font-medium" htmlFor="city-search">
@@ -526,22 +397,13 @@ export function DestinationFormPage() {
             </div>
           </section>
         </div>
-        {image && imagePreviewUrl && (
-          <DestinationImageEditor
-            file={image}
-            imageUrl={imagePreviewUrl}
-            isOpen={isImageEditorOpen}
-            onCancel={() => setImageEditorOpen(false)}
-            onApply={applyEditedImage}
-          />
-        )}
         <div className="sticky bottom-0 flex justify-end gap-2 rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
           <Link
             to={destinationId ? `/masters/destinations/${destinationId}` : '/masters/destinations'}
           >
             <Button variant="secondary">Cancel</Button>
           </Link>
-          <Button type="submit" isLoading={mutation.isPending || uploading}>
+          <Button type="submit" isLoading={mutation.isPending || imageGallery.isBusy}>
             {destinationId ? 'Update Destination' : 'Create Destination'}
           </Button>
         </div>

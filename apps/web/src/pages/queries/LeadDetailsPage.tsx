@@ -3,10 +3,17 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Archive,
   ArrowLeft,
+  CalendarClock,
   CalendarPlus,
+  CheckCircle2,
+  CircleAlert,
   Edit3,
   FileText,
+  Mail,
   MessageSquarePlus,
+  Phone,
+  StickyNote,
+  UserRound,
   UserRoundCog,
 } from 'lucide-react';
 import {
@@ -35,10 +42,21 @@ const localDateTimeValue = (value: string) => {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
-const Info = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div>
+const Info = ({
+  label,
+  children,
+  icon,
+}: {
+  label: string;
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+}) => (
+  <div className="min-w-0">
     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-    <dd className="mt-1 text-sm text-slate-900">{children || '—'}</dd>
+    <dd className="mt-1 flex min-w-0 items-start gap-2 text-sm font-medium text-slate-900">
+      {icon && <span className="mt-0.5 shrink-0 text-slate-400">{icon}</span>}
+      <span className="min-w-0 break-words">{children || '—'}</span>
+    </dd>
   </div>
 );
 
@@ -127,17 +145,32 @@ export function LeadDetailsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link to="/queries" className="rounded-lg p-2 hover:bg-card">
+      <header className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Link to="/queries" className="shrink-0 rounded-lg p-2 hover:bg-slate-50">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <div>
-            <p className="text-sm text-slate-500">Leads / {q.queryNumber}</p>
-            <h1 className="text-2xl font-semibold">{q.customerName}</h1>
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Lead details
+            </p>
+            <h1 className="mt-1 break-words text-2xl font-semibold text-slate-950">
+              {q.customerName}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium text-slate-700">{q.queryNumber}</span>
+              <span aria-hidden="true">•</span>
+              <span>Created {dateTime(q.createdAt)}</span>
+              <span className="rounded-full bg-brand-50 px-2.5 py-1 font-semibold text-brand-700">
+                {labelForLookup(q.leadStage)}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
+                {labelForLookup(q.priority)} priority
+              </span>
+            </div>
             {q.customer && (
               <Link
-                className="text-xs font-medium text-brand-700 hover:underline"
+                className="mt-2 inline-block text-xs font-medium text-brand-700 hover:underline"
                 to={`/customers/${q.customer.id}`}
               >
                 View {q.customer.customerNumber} customer profile
@@ -145,7 +178,7 @@ export function LeadDetailsPage() {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2 sm:pl-11 lg:pl-0">
           {allowed.canEdit && (
             <Link to={`/queries/${q.id}/edit`}>
               <Button variant="secondary">
@@ -169,7 +202,7 @@ export function LeadDetailsPage() {
             </Button>
           )}
         </div>
-      </div>
+      </header>
 
       <nav
         className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
@@ -190,149 +223,221 @@ export function LeadDetailsPage() {
 
       {tab === 'overview' && (
         <div className="space-y-5">
-          {workspace.data.operationalSummary.requiresAttention && (
-            <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" role="status">
-              <h2 className="font-semibold text-amber-900">This lead needs attention</h2>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {workspace.data.indicators.map((indicator) => (
-                  <span
-                    key={indicator}
-                    className="rounded-full bg-card px-2.5 py-1 text-xs font-medium text-amber-800"
-                  >
-                    {labelForLookup(indicator)}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-          <section className="grid gap-3 sm:grid-cols-4" aria-label="Lead operational summary">
+          <section
+            className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+            aria-label="Lead operational summary"
+          >
             {[
-              ['Pending follow-ups', workspace.data.operationalSummary.pendingFollowUpCount],
-              ['Overdue', workspace.data.operationalSummary.overdueFollowUpCount],
-              ['Completed', workspace.data.operationalSummary.completedFollowUpCount],
-              ['Notes', workspace.data.operationalSummary.notesCount],
-            ].map(([label, value]) => (
-              <article key={label} className="rounded-xl border bg-card p-4 shadow-sm">
-                <p className="text-2xl font-semibold">{value}</p>
-                <p className="text-xs text-slate-500">{label}</p>
+              {
+                label: 'Pending follow-ups',
+                value: workspace.data.operationalSummary.pendingFollowUpCount,
+                icon: CalendarClock,
+                tone: 'bg-blue-50 text-blue-700',
+              },
+              {
+                label: 'Overdue',
+                value: workspace.data.operationalSummary.overdueFollowUpCount,
+                icon: CircleAlert,
+                tone: 'bg-red-50 text-red-700',
+              },
+              {
+                label: 'Completed',
+                value: workspace.data.operationalSummary.completedFollowUpCount,
+                icon: CheckCircle2,
+                tone: 'bg-emerald-50 text-emerald-700',
+              },
+              {
+                label: 'Notes',
+                value: workspace.data.operationalSummary.notesCount,
+                icon: StickyNote,
+                tone: 'bg-slate-100 text-slate-700',
+              },
+            ].map(({ label, value, icon: Icon, tone }) => (
+              <article
+                key={label}
+                className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3 shadow-sm sm:p-4"
+              >
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold leading-none text-slate-950">{value}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{label}</p>
+                </div>
               </article>
             ))}
           </section>
-          <div className="grid gap-5 xl:grid-cols-3">
-            <section className={`${card} xl:col-span-2`}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-                    {labelForLookup(q.leadStage)}
-                  </span>
-                  <span className="ml-2 rounded-full bg-slate-100 px-3 py-1 text-sm">
-                    {labelForLookup(q.leadType)} · {labelForLookup(q.priority)}
-                  </span>
-                </div>
-                <span className="text-sm text-slate-500">Created {dateTime(q.createdAt)}</span>
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+              <div className="border-b px-4 py-3 sm:px-5">
+                <h2 className="font-semibold text-slate-950">Lead information</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Contact, source, ownership and timing
+                </p>
               </div>
-              <dl className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                <Info label="Lead ID">{q.queryNumber}</Info>
-                <Info label="Phone">{q.phone}</Info>
-                <Info label="Email">{q.email}</Info>
-                <Info label="Lead source">{labelForLookup(q.leadSource)}</Info>
-                <Info label="Assignee">{q.assignedTo?.fullName ?? 'Unassigned'}</Info>
-                <Info label="Creator">{q.createdBy.fullName}</Info>
-                <Info label="Last contacted">
-                  {q.lastContactedAt ? dateTime(q.lastContactedAt) : 'Never'}
-                </Info>
-                <Info label="Next follow-up">
-                  {q.nextFollowUpAt ? dateTime(q.nextFollowUpAt) : 'None'}
-                </Info>
-              </dl>
+              <div className="grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                <div className="space-y-5 p-4 sm:p-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Contact</h3>
+                    <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <Info label="Phone" icon={<Phone className="h-4 w-4" />}>
+                        {q.phone}
+                      </Info>
+                      <Info label="Email" icon={<Mail className="h-4 w-4" />}>
+                        {q.email}
+                      </Info>
+                    </dl>
+                  </div>
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800">Lead</h3>
+                    <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <Info label="Lead ID">{q.queryNumber}</Info>
+                      <Info label="Lead source">{labelForLookup(q.leadSource)}</Info>
+                      <Info label="Stage">{labelForLookup(q.leadStage)}</Info>
+                      <Info label="Priority">{labelForLookup(q.priority)}</Info>
+                    </dl>
+                  </div>
+                </div>
+                <div className="space-y-5 p-4 sm:p-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Ownership</h3>
+                    <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <Info label="Assignee" icon={<UserRound className="h-4 w-4" />}>
+                        {q.assignedTo?.fullName ?? 'Unassigned'}
+                      </Info>
+                      <Info label="Creator" icon={<UserRound className="h-4 w-4" />}>
+                        {q.createdBy.fullName}
+                      </Info>
+                    </dl>
+                  </div>
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800">Timing</h3>
+                    <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <Info label="Created">{dateTime(q.createdAt)}</Info>
+                      <Info label="Last contacted">
+                        {q.lastContactedAt ? dateTime(q.lastContactedAt) : 'Never'}
+                      </Info>
+                      <Info label="Next follow-up">
+                        {q.nextFollowUpAt ? dateTime(q.nextFollowUpAt) : 'None scheduled'}
+                      </Info>
+                    </dl>
+                  </div>
+                </div>
+              </div>
             </section>
-            <aside className="space-y-5">
-              <section className={card}>
-                <h2 className="font-semibold">Lead actions</h2>
-                {allowed.canChangeStage && (
-                  <div className="mt-4 space-y-3">
-                    <select
-                      aria-label="New stage"
-                      className={inputClass}
-                      value={stage}
-                      onChange={(e) => setStage(e.target.value)}
-                    >
-                      <option value="">Change stage…</option>
-                      {lookups.data?.leadStages.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
-                    {['LOST', 'CANCELLED', 'INVALID'].includes(stage) && (
-                      <input
-                        aria-label="Stage reason"
+            <aside>
+              <section className="rounded-xl border bg-card shadow-sm">
+                <div className="border-b px-4 py-3">
+                  <h2 className="font-semibold text-slate-950">Lead actions</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Update ownership and progress</p>
+                </div>
+                <div className="p-4">
+                  {allowed.canChangeStage && (
+                    <div className="space-y-3">
+                      <div>
+                        <label htmlFor="lead-stage" className="text-sm font-medium text-slate-700">
+                          Change stage
+                        </label>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Current:{' '}
+                          <span className="font-medium text-slate-700">
+                            {labelForLookup(q.leadStage)}
+                          </span>
+                        </p>
+                      </div>
+                      <select
+                        id="lead-stage"
+                        aria-label="New stage"
                         className={inputClass}
-                        placeholder="Reason required"
-                        value={stageReason}
-                        onChange={(e) => setStageReason(e.target.value)}
-                      />
-                    )}
-                    <Button
-                      fullWidth
-                      disabled={
-                        !stage || (['LOST', 'CANCELLED', 'INVALID'].includes(stage) && !stageReason)
-                      }
-                      isLoading={action.isPending}
-                      onClick={() =>
-                        action.mutate(
-                          {
-                            path: 'stage',
-                            body: {
-                              stage,
-                              reason: stageReason || undefined,
-                              lostReason: stage === 'LOST' ? stageReason : undefined,
+                        value={stage}
+                        onChange={(e) => setStage(e.target.value)}
+                      >
+                        <option value="">Change stage…</option>
+                        {lookups.data?.leadStages.map((s) => (
+                          <option key={s.value} value={s.value}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      {['LOST', 'CANCELLED', 'INVALID'].includes(stage) && (
+                        <input
+                          aria-label="Stage reason"
+                          className={inputClass}
+                          placeholder="Reason required"
+                          value={stageReason}
+                          onChange={(e) => setStageReason(e.target.value)}
+                        />
+                      )}
+                      <Button
+                        fullWidth
+                        disabled={
+                          !stage ||
+                          (['LOST', 'CANCELLED', 'INVALID'].includes(stage) && !stageReason)
+                        }
+                        isLoading={action.isPending}
+                        onClick={() =>
+                          action.mutate(
+                            {
+                              path: 'stage',
+                              body: {
+                                stage,
+                                reason: stageReason || undefined,
+                                lostReason: stage === 'LOST' ? stageReason : undefined,
+                              },
                             },
-                          },
-                          {
-                            onSuccess: () => {
-                              setStage('');
-                              setStageReason('');
+                            {
+                              onSuccess: () => {
+                                setStage('');
+                                setStageReason('');
+                              },
                             },
-                          },
-                        )
-                      }
-                    >
-                      Update stage
-                    </Button>
-                  </div>
-                )}
-                {allowed.canAssign && (
-                  <div className="mt-5 border-t pt-4">
-                    <label className="text-sm font-medium">Reassign lead</label>
-                    <select
-                      className={`${inputClass} mt-2`}
-                      value={assignee || q.assignedToId || ''}
-                      onChange={(e) => setAssignee(e.target.value)}
-                    >
-                      <option value="">Unassigned</option>
-                      {lookups.data?.assignableUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.fullName}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      className="mt-2"
-                      fullWidth
-                      variant="secondary"
-                      onClick={() =>
-                        action.mutate({
-                          path: 'assignment',
-                          body: { assignedToId: assignee || null, movePendingFollowUps: true },
-                        })
-                      }
-                    >
-                      <UserRoundCog className="h-4 w-4" />
-                      Assign
-                    </Button>
-                  </div>
-                )}
+                          )
+                        }
+                      >
+                        Update stage
+                      </Button>
+                    </div>
+                  )}
+                  {allowed.canAssign && (
+                    <div className="mt-5 border-t pt-4">
+                      <label className="text-sm font-medium text-slate-700">Reassign lead</label>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Current: {q.assignedTo?.fullName ?? 'Unassigned'}
+                      </p>
+                      <select
+                        className={`${inputClass} mt-2`}
+                        value={assignee || q.assignedToId || ''}
+                        onChange={(e) => setAssignee(e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {lookups.data?.assignableUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        className="mt-2"
+                        fullWidth
+                        variant="secondary"
+                        onClick={() =>
+                          action.mutate({
+                            path: 'assignment',
+                            body: { assignedToId: assignee || null, movePendingFollowUps: true },
+                          })
+                        }
+                      >
+                        <UserRoundCog className="h-4 w-4" />
+                        Assign
+                      </Button>
+                    </div>
+                  )}
+                  {!allowed.canChangeStage && !allowed.canAssign && (
+                    <p className="text-sm text-slate-500">No lead actions are available.</p>
+                  )}
+                </div>
               </section>
             </aside>
           </div>

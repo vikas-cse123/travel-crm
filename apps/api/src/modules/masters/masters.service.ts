@@ -34,6 +34,14 @@ import {
   resolveMasterScope,
   type MasterScope,
 } from './master-visibility.js';
+import {
+  appendMasterImage,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 export type MastersRequestContext = { ipAddress: string | null; userAgent: string | null };
 const userSelect = { id: true, fullName: true } as const;
@@ -173,6 +181,7 @@ function presentDestination<T extends Record<string, unknown>>(row: T, scope: Ma
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     cities: safeCities,
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
 }
 
@@ -892,19 +901,24 @@ export const destinationsService = {
       metadata.contentType !== destination.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = destination.imageObjectKey;
-    const action = oldKey ? 'DESTINATION_IMAGE_REPLACED' : 'DESTINATION_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      destination,
+      {
+        objectKey: key,
+        fileName: destination.pendingImageFileName,
+        mimeType: destination.pendingImageMimeType,
+        fileSize: destination.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.destination.update({
         where: { id: destination.id },
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: destination.pendingImageFileName,
-          imageMimeType: destination.pendingImageMimeType,
-          imageFileSize: destination.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -913,61 +927,84 @@ export const destinationsService = {
         include: destinationInclude,
       });
       await tx.activityLog.create({
-        data: audit(auth, action, 'Destination', destination.id, context, {
-          mimeType: row.imageMimeType,
-          fileSize: row.imageFileSize,
+        data: audit(auth, 'DESTINATION_IMAGE_UPLOADED', 'Destination', destination.id, context, {
+          imageId: images.at(-1)!.id,
+          mimeType: destination.pendingImageMimeType,
+          fileSize: destination.pendingImageFileSize,
         }),
       });
       return row;
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return presentDestination(updated as unknown as Record<string, unknown>, scope);
   },
 
-  async imageDownload(auth: AuthContext, destinationId: string) {
+  async imageDownload(auth: AuthContext, destinationId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
     const destination = await getDestination(auth, destinationId, scope);
-    if (!destination.imageObjectKey || !destination.imageFileName || !destination.imageConfirmedAt)
-      throw new NotFoundError('Destination image not found.');
+    const image = findMasterImage(destination, imageId);
+    if (!image) throw new NotFoundError('Destination image not found.');
     return {
       url: await storageService.createDownloadUrl(
-        destination.imageObjectKey,
-        destination.imageFileName,
+        image.objectKey,
+        image.fileName,
         env.DESTINATION_IMAGE_PRESIGNED_URL_EXPIRY_SECONDS,
       ),
       expiresInSeconds: env.DESTINATION_IMAGE_PRESIGNED_URL_EXPIRY_SECONDS,
     };
   },
 
-  async deleteImage(auth: AuthContext, destinationId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    destinationId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
     const destination = await getDestination(auth, destinationId, scope);
     assertCanModifyMaster(destination, scope);
-    const keys = [destination.imageObjectKey, destination.pendingImageObjectKey].filter(
-      (value): value is string => Boolean(value),
-    );
+    const removed = removeMasterImage(destination, imageId);
+    if (!removed) throw new NotFoundError('Destination image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.destination.update({
         where: { id: destination.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? destination.imageStorageProvider : null,
+          imageBucket: removed.images.length ? destination.imageBucket : null,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'DESTINATION_IMAGE_DELETED', 'Destination', destination.id, context),
+        data: audit(auth, 'DESTINATION_IMAGE_DELETED', 'Destination', destination.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+  async reorderImages(
+    auth: AuthContext,
+    destinationId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.DESTINATION);
+    const destination = await getDestination(auth, destinationId, scope);
+    assertCanModifyMaster(destination, scope);
+    const images = reorderMasterImages(destination, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.destination.update({
+        where: { id: destination.id },
+        data: masterImageWriteData(images),
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'DESTINATION_UPDATED', 'Destination', destination.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, destinationId);
   },
 };

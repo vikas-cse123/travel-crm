@@ -1,15 +1,5 @@
-import { useState } from 'react';
-import {
-  ChevronDown,
-  ChevronUp,
-  ClipboardList,
-  Eye,
-  NotebookPen,
-  Phone,
-  Plus,
-  Search,
-  UserRound,
-} from 'lucide-react';
+import { useMemo } from 'react';
+import { Eye, NotebookPen, Phone, Plus, Search, UserRound, StickyNote } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import {
@@ -22,124 +12,93 @@ import { formatDateTime, NoteStatCards, StagePill } from './NotesUi';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { cn } from '@/utils/cn';
 import './notes.css';
 
-/** Map a lead stage to the deterministic card accent/tint classes. */
-function cardAccent(stage: string | null): string {
-  if (!stage) return 'notes-card--new-lead';
-  return `notes-card--${stage.toLowerCase().replace(/_/g, '-')}`;
-}
-
-function NoteBlock({ note, muted = false }: { note: Note; muted?: boolean }) {
+function NoteContent({ content }: { content: string }) {
   return (
-    <div className={muted ? 'rounded-md bg-slate-50 p-3' : ''}>
-      <div className="flex items-center justify-between gap-2">
-        <StagePill stage={note.leadStage} />
-        <span className="text-xs text-slate-500">{formatDateTime(note.createdAt)}</span>
-      </div>
-      <p className="mt-2 whitespace-pre-wrap break-words border-l-2 border-brand-300 pl-3 text-sm text-slate-800">
-        {note.content}
-      </p>
-      <p className="mt-1 pl-3 text-xs text-slate-500">{note.authorUser.fullName}</p>
+    <div className="notes-card-note-block">
+      <p className="notes-card-note-text">{content}</p>
     </div>
   );
 }
 
 function LeadNoteCard({ lead }: { lead: NotesOverviewLead }) {
-  const [showPrevious, setShowPrevious] = useState(false);
   const latest = lead.latestNote;
-  const accent = cardAccent(lead.leadStage);
   return (
-    <article className={cn('note-card', accent)}>
-      {/* Tinted header zone */}
-      <div className="note-card-header">
-        <div className="note-card-name-row">
-          <h3 className="note-card-name">{lead.customerName}</h3>
+    <article className="note-card">
+      <div className="note-card-top">
+        <div className="note-card-title-row">
+          <h3 className="note-card-name" title={lead.customerName}>
+            {lead.customerName}
+          </h3>
           <StagePill stage={lead.leadStage} />
         </div>
-        <p className="note-card-phone">
-          <Phone aria-hidden="true" /> {lead.phone}
-        </p>
-        <p className="note-card-count">
-          <NotebookPen aria-hidden="true" />
+        <div className="note-card-count-badge">
+          <StickyNote aria-hidden="true" className="h-3.5 w-3.5" />
           {lead.noteCount} {lead.noteCount === 1 ? 'note' : 'notes'}
-        </p>
+        </div>
       </div>
 
-      {/* White body */}
-      <div className="note-card-body">
-        {latest ? (
-          <>
-            <div className="note-card-meta-row">
-              <span className="note-card-meta-label">Latest Note:</span>
-              <span className="note-card-meta-time">{formatDateTime(latest.createdAt)}</span>
-            </div>
-            <div className="note-card-panel">{latest.content}</div>
-            <p className="note-card-author">
-              <UserRound aria-hidden="true" /> {latest.authorUser.fullName}
-            </p>
-          </>
-        ) : (
-          <div className="note-card-no-notes">No notes yet.</div>
+      <div className="note-card-secondary">
+        <span className="note-card-secondary-item">
+          <Phone className="h-3.5 w-3.5" aria-hidden="true" />
+          {lead.phone}
+        </span>
+        {lead.assignedTo && (
+          <span className="note-card-secondary-item">
+            <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+            {lead.assignedTo.fullName}
+          </span>
         )}
       </div>
 
-      {lead.previousNotes.length > 0 && (
-        <>
-          <hr className="note-card-divider" />
-          <div className="note-card-previous">
-            <span className="note-card-previous-label">Previous Notes:</span>
-            <button
-              type="button"
-              onClick={() => setShowPrevious((value) => !value)}
-              className="note-card-show-all"
-            >
-              {showPrevious ? (
-                <>
-                  Hide <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                </>
-              ) : (
-                <>
-                  Show All <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                </>
-              )}
-            </button>
-          </div>
-          {showPrevious && (
-            <div className="note-card-previous-list space-y-2">
-              {lead.previousNotes.map((note) => (
-                <NoteBlock key={note.id} note={note} muted />
-              ))}
-            </div>
-          )}
-        </>
-      )}
+      <div className="note-card-latest">
+        <p className="note-card-latest-label">Latest note</p>
+        {latest ? (
+          <>
+            <NoteContent content={latest.content} />
+            <p className="note-card-meta">
+              Added by {latest.authorUser.fullName} • {formatDateTime(latest.createdAt)}
+            </p>
+          </>
+        ) : (
+          <p className="note-card-empty-note">No notes yet.</p>
+        )}
+      </div>
 
-      {/* Bottom action area */}
       <div className="note-card-actions">
+        <Link
+          to={`/queries/${lead.id}`}
+          aria-label={`View lead for ${lead.customerName}`}
+          title={`View lead for ${lead.customerName}`}
+          className="note-card-action note-card-action--secondary"
+        >
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+          View Lead
+        </Link>
         <Link
           to={`/queries/${lead.id}/notes`}
           aria-label={`View notes for ${lead.customerName}`}
           title={`View notes for ${lead.customerName}`}
-          className="note-action-btn note-action-btn--view"
+          className="note-card-action note-card-action--secondary"
         >
-          <Eye aria-hidden="true" />
+          <NotebookPen className="h-3.5 w-3.5" aria-hidden="true" />
+          View Notes
         </Link>
         <Link
           to={`/queries/${lead.id}/notes/new`}
           aria-label={`Add note for ${lead.customerName}`}
           title={`Add note for ${lead.customerName}`}
-          className="note-action-btn note-action-btn--add"
+          className="note-card-action note-card-action--primary"
         >
-          <Plus aria-hidden="true" />
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          Add Note
         </Link>
       </div>
     </article>
   );
 }
 
-/** Four-colour statistics tiles for the All Notes dashboard. */
 export function AllNotesPage() {
   const [params, setParams] = useSearchParams();
   const overview = useNotesOverview(params);
@@ -159,18 +118,82 @@ export function AllNotesPage() {
   const pageSize = overview.data?.pageSize ?? 12;
   const totalEntries = overview.data?.stats.totalLeadsWithNotes ?? 0;
 
+  const sortOption = params.get('sort') ?? 'latest';
+  const dateFilter = params.get('dateRange') ?? '';
+
+  const rawLeads = overview.data?.leads ?? [];
+
+  const filteredAndSortedLeads = useMemo(() => {
+    let filtered = [...rawLeads];
+
+    if (dateFilter) {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfWeek = new Date(startOfDay);
+      startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      filtered = filtered.filter((lead) => {
+        if (!lead.latestNote) return false;
+        const d = new Date(lead.latestNote.createdAt);
+        if (dateFilter === 'today') return d >= startOfDay;
+        if (dateFilter === 'week') return d >= startOfWeek;
+        if (dateFilter === 'month') return d >= startOfMonth;
+        return true;
+      });
+    }
+
+    if (sortOption === 'oldest') {
+      filtered.sort((a, b) => {
+        if (!a.latestNote) return 1;
+        if (!b.latestNote) return -1;
+        return new Date(a.latestNote.createdAt).getTime() - new Date(b.latestNote.createdAt).getTime();
+      });
+    } else if (sortOption === 'name') {
+      filtered.sort((a, b) => a.customerName.localeCompare(b.customerName));
+    } else if (sortOption === 'most') {
+      filtered.sort((a, b) => b.noteCount - a.noteCount);
+    } else {
+      filtered.sort((a, b) => {
+        if (!a.latestNote) return 1;
+        if (!b.latestNote) return -1;
+        return new Date(b.latestNote.createdAt).getTime() - new Date(a.latestNote.createdAt).getTime();
+      });
+    }
+
+    return filtered;
+  }, [rawLeads, dateFilter, sortOption]);
+
+  const stats = overview.data?.stats;
+  const allNotes = useMemo(() => {
+    const notes: Note[] = [];
+    for (const lead of rawLeads) {
+      if (lead.latestNote) notes.push(lead.latestNote);
+      notes.push(...lead.previousNotes);
+    }
+    return notes;
+  }, [rawLeads]);
+
+  const notesToday = useMemo(() => {
+    const today = new Date().toDateString();
+    return allNotes.filter((n) => new Date(n.createdAt).toDateString() === today).length;
+  }, [allNotes]);
+
+  const notesThisWeek = useMemo(() => {
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    return allNotes.filter((n) => new Date(n.createdAt) >= startOfWeek).length;
+  }, [allNotes]);
+
   return (
     <div className="notes-page">
       <div className="notes-page-header">
         <div>
-          <p className="notes-page-breadcrumb">Notes</p>
           <h1 className="notes-page-title">Lead Notes</h1>
-          <p className="notes-page-desc">
-            Every note logged across your leads, grouped by lead with follow-up reminders.
-          </p>
+          <p className="notes-page-desc">View and manage notes across your leads.</p>
         </div>
-        {/* Gated on the permission the POST route itself requires, so the button
-            is never offered to someone the server would reject. */}
         {hasPermission(PERMISSIONS.QUERIES_UPDATE) && (
           <Link to="/notes/new">
             <Button>
@@ -181,20 +204,21 @@ export function AllNotesPage() {
       </div>
 
       <NoteStatCards
-        totalNotes={overview.data?.stats.totalNotes ?? 0}
-        totalLeads={overview.data?.stats.totalLeads ?? 0}
-        totalPages={totalPages}
+        totalNotes={stats?.totalNotes ?? 0}
+        leadsWithNotes={stats?.totalLeadsWithNotes ?? 0}
+        notesToday={notesToday}
+        notesThisWeek={notesThisWeek}
       />
 
       <section className="notes-filter-bar" aria-label="Filter notes">
-        <label className="notes-filter-field">
+        <label className="notes-filter-field notes-filter-field--search">
           <Search className="notes-filter-icon" aria-hidden="true" />
           <input
             aria-label="Search notes"
             className="notes-filter-input"
             value={params.get('search') ?? ''}
             onChange={(event) => update('search', event.target.value)}
-            placeholder="Search in leads or comments…"
+            placeholder="Search lead name, phone or note..."
           />
         </label>
         <select
@@ -223,6 +247,28 @@ export function AllNotesPage() {
             </option>
           ))}
         </select>
+        <select
+          aria-label="Filter date"
+          className="notes-filter-select"
+          value={dateFilter}
+          onChange={(event) => update('dateRange', event.target.value)}
+        >
+          <option value="">All Dates</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+        </select>
+        <select
+          aria-label="Sort notes"
+          className="notes-filter-select"
+          value={sortOption}
+          onChange={(event) => update('sort', event.target.value)}
+        >
+          <option value="latest">Latest Note First</option>
+          <option value="oldest">Oldest Note First</option>
+          <option value="name">Lead Name A–Z</option>
+          <option value="most">Most Notes</option>
+        </select>
       </section>
 
       {overview.isPending ? (
@@ -233,23 +279,32 @@ export function AllNotesPage() {
         <div role="alert" className="notes-error">
           Could not load notes.
         </div>
-      ) : !overview.data?.leads.length ? (
+      ) : !filteredAndSortedLeads.length ? (
         <div className="notes-empty">
-          <ClipboardList className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
+          <StickyNote className="mx-auto h-10 w-10 text-slate-300" aria-hidden="true" />
           <h2 className="notes-empty-title">No notes found</h2>
           <p className="notes-empty-text">
-            Adjust the filters, or add a note from a lead to see it here.
+            {params.toString()
+              ? 'No notes match your filters. Try adjusting search or filters.'
+              : 'Add a note to a lead to start tracking important conversations and updates.'}
           </p>
+          {hasPermission(PERMISSIONS.QUERIES_UPDATE) && (
+            <Link to="/notes/new" className="notes-empty-cta">
+              <Button>
+                <Plus className="h-4 w-4" aria-hidden="true" /> Add Note
+              </Button>
+            </Link>
+          )}
         </div>
       ) : (
         <div className="notes-grid">
-          {overview.data.leads.map((lead) => (
+          {filteredAndSortedLeads.map((lead) => (
             <LeadNoteCard key={lead.id} lead={lead} />
           ))}
         </div>
       )}
 
-      {!overview.isPending && !overview.isError && (
+      {!overview.isPending && !overview.isError && filteredAndSortedLeads.length > 0 && (
         <div className="notes-pagination">
           <Pagination
             page={page}

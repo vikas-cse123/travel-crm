@@ -2,9 +2,47 @@ import { describe, expect, it } from 'vitest';
 import {
   hasPolicyHtml,
   leadRequestedTabs,
+  masterGallerySnapshot,
+  mergeMasterGalleryPreviews,
   policyValue,
   serviceTypeToTabKey,
 } from '@/pages/quotations/QuotationBuilderPage';
+
+describe('QuotationBuilder — Master gallery snapshots', () => {
+  it('creates ordered opaque refs synchronously without persisting preview URLs', () => {
+    const snapshot = masterGallerySnapshot(
+      [{ id: 'image-a' }, { id: 'image-b' }, { id: 'image-c' }] as Parameters<
+        typeof masterGallerySnapshot
+      >[0],
+      'Harbour Hotel',
+    );
+
+    expect(snapshot).toEqual([
+      { masterImageId: 'image-a', alt: 'Harbour Hotel image 1' },
+      { masterImageId: 'image-b', alt: 'Harbour Hotel image 2' },
+      { masterImageId: 'image-c', alt: 'Harbour Hotel image 3' },
+    ]);
+  });
+
+  it('merges delayed preview URLs into the current order without restoring removals', () => {
+    const imported = masterGallerySnapshot(
+      [{ id: 'image-a' }, { id: 'image-b' }, { id: 'image-c' }] as Parameters<
+        typeof masterGallerySnapshot
+      >[0],
+      'Harbour Hotel',
+    );
+    const current = [imported[2]!, imported[0]!];
+    const previewed = imported.map((image) => ({
+      ...image,
+      url: `https://preview.test/${image.masterImageId}.jpg`,
+    }));
+
+    expect(mergeMasterGalleryPreviews(current, previewed)).toEqual([
+      { ...imported[2], url: 'https://preview.test/image-c.jpg' },
+      { ...imported[0], url: 'https://preview.test/image-a.jpg' },
+    ]);
+  });
+});
 
 describe('QuotationBuilder — lead service → quotation tab mapping', () => {
   it('maps every Lead service type to its quotation tab', () => {

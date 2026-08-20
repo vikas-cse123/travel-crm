@@ -46,6 +46,10 @@ export default defineConfig(({ mode }) => {
     preview: { port: 5173 },
     build: {
       outDir: 'dist',
+      // `crm-assets` instead of the default `assets`: the apex ALB forwards
+      // `/assets/*` to the marketing site, so the CRM bundle must live under a
+      // path that the apex host routes to the CRM frontend target group.
+      assetsDir: 'crm-assets',
       sourcemap: true,
     },
     test: {

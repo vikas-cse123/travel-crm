@@ -10,6 +10,8 @@ import {
   approveSightseeingImage,
   confirmSightseeingImage,
   deleteSightseeingImage,
+  reorderSightseeingImages,
+  sightseeingImageUrl,
   useCreateSightseeing,
   useDestination,
   useDestinations,
@@ -18,8 +20,7 @@ import {
   useUpdateSightseeing,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
-import { MasterImageField } from './MasterImageField';
-import { MasterImageEditor } from './MasterImageEditor';
+import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 const MAX_IMAGE_MB = 5;
@@ -62,10 +63,6 @@ export function SightseeingFormPage() {
   const { hasPermission } = useAuth();
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA);
 
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
-  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageError, setImageError] = useState('');
   const [formError, setFormError] = useState('');
   const [archivedDuplicate, setArchivedDuplicate] = useState<ArchivedDuplicateInfo | null>(null);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -91,6 +88,20 @@ export function SightseeingFormPage() {
   const destinationId = form.watch('destinationId');
   const destination = useDestination(destinationId || undefined);
   const cityOptions = (destination.data?.cities ?? []).map((link) => link.city);
+  const imageGallery = useMasterImageGallery({
+    masterId: sightseeingId,
+    entity: record.data,
+    allowedMimeTypes: SIGHTSEEING_IMAGE_MIME_TYPES,
+    maxSizeMb: MAX_IMAGE_MB,
+    api: {
+      approve: approveSightseeingImage,
+      confirm: confirmSightseeingImage,
+      download: sightseeingImageUrl,
+      remove: deleteSightseeingImage,
+      reorder: reorderSightseeingImages,
+    },
+    onExistingChange: record.refetch,
+  });
 
   useEffect(() => {
     const value = record.data;
@@ -108,73 +119,12 @@ export function SightseeingFormPage() {
     });
   }, [record.data, form]);
 
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
-
   if (sightseeingId && record.isError) return <Navigate to="/masters/sightseeing" replace />;
   const mutation = sightseeingId ? update : create;
 
   const destinationField = form.register('destinationId', {
     required: 'Select a destination.',
   });
-
-  const validateImage = (file?: File) => {
-    setImageError('');
-    if (!file) {
-      setImage(null);
-      setImageEditorOpen(false);
-      return;
-    }
-    if (
-      !SIGHTSEEING_IMAGE_MIME_TYPES.includes(
-        file.type as (typeof SIGHTSEEING_IMAGE_MIME_TYPES)[number],
-      )
-    ) {
-      setImageError('Use a JPEG, PNG, WebP, or GIF image.');
-      return;
-    }
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
-      return;
-    }
-    setImage(file);
-    setImageEditorOpen(true);
-  };
-  const applyEditedImage = (file: File) => {
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
-      return;
-    }
-    setImageError('');
-    setImage(file);
-    setImageEditorOpen(false);
-  };
-
-  const uploadImage = async (id: string, file: File) => {
-    const approval = await approveSightseeingImage(id, {
-      fileName: file.name,
-      mimeType: file.type as (typeof SIGHTSEEING_IMAGE_MIME_TYPES)[number],
-      fileSize: file.size,
-    });
-    if (!approval.uploadUrl.startsWith('http'))
-      throw new Error(
-        'Local memory storage has no browser upload transport. Configure S3 to upload images.',
-      );
-    const response = await fetch(approval.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
-    if (!response.ok) throw new Error('The image upload failed. Please try again.');
-    await confirmSightseeingImage(id);
-  };
 
   const submit = form.handleSubmit(async (values) => {
     setFormError('');
@@ -194,7 +144,7 @@ export function SightseeingFormPage() {
       const saved = sightseeingId
         ? await update.mutateAsync(payload)
         : await create.mutateAsync(payload);
-      if (image && canManageMedia) await uploadImage(saved.id, image);
+      if (canManageMedia) await imageGallery.persist(saved.id);
       navigate(`/masters/sightseeing/${saved.id}`);
     } catch (error) {
       if (
@@ -425,20 +375,11 @@ export function SightseeingFormPage() {
               </div>
 
               {canManageMedia && (
-                <MasterImageField
-                  label="Image"
+                <MasterImageGalleryField
+                  label="Sightseeing Images"
+                  controller={imageGallery}
                   accept="image/jpeg,image/png,image/webp,image/gif"
                   maxSizeMb={MAX_IMAGE_MB}
-                  error={imageError}
-                  editing={Boolean(sightseeingId)}
-                  hasExisting={Boolean(record.data?.hasImage)}
-                  onSelect={validateImage}
-                  onDelete={async () => {
-                    if (sightseeingId && window.confirm('Delete this sightseeing image?')) {
-                      await deleteSightseeingImage(sightseeingId);
-                      await record.refetch();
-                    }
-                  }}
                 />
               )}
 
@@ -476,23 +417,15 @@ export function SightseeingFormPage() {
           <Button variant="secondary" onClick={() => navigate('/masters/sightseeing')}>
             <X className="h-4 w-4" /> Cancel
           </Button>
-          <Button type="submit" isLoading={mutation.isPending || form.formState.isSubmitting}>
+          <Button
+            type="submit"
+            isLoading={mutation.isPending || form.formState.isSubmitting || imageGallery.isBusy}
+          >
             <Save className="h-4 w-4" />{' '}
             {sightseeingId ? 'Update Sightseeing' : 'Create Sightseeing'}
           </Button>
         </div>
       </form>
-      {image && imagePreviewUrl && (
-        <MasterImageEditor
-          file={image}
-          imageUrl={imagePreviewUrl}
-          isOpen={isImageEditorOpen}
-          title="Edit Sightseeing Image"
-          onCancel={() => setImageEditorOpen(false)}
-          onApply={applyEditedImage}
-        />
-      )}
-
       {showRestoreConfirm && archivedDuplicate && (
         <div
           role="dialog"

@@ -474,6 +474,8 @@ type FlightDetails = {
 type SightActivity = {
   sightseeingId?: string | null;
   imageDocumentId?: string | null;
+  /** True when the quotation owns this gallery, including an intentional empty one. */
+  imageSnapshotPresent?: boolean;
   name?: string | null;
   description?: string | null;
   startTime?: string | null;
@@ -502,6 +504,22 @@ type SightDay = {
   dailyTransfer?: string | null;
   activities?: SightActivity[];
 };
+
+/** Destination art is a legacy fallback, never a replacement for an emptied snapshot. */
+export function pdfDayAllowsDestinationFallback(
+  activities: readonly { imageSnapshotPresent?: boolean }[],
+): boolean {
+  return !activities.some((activity) => activity.imageSnapshotPresent === true);
+}
+
+/** Per-activity equivalent used by the Stylish renderer. */
+export function pdfActivityImageOrCover<T>(
+  activity: { imageSnapshotPresent?: boolean },
+  image: T | null | undefined,
+  cover: T | null | undefined,
+): T | null {
+  return image ?? (activity.imageSnapshotPresent === true ? null : (cover ?? null));
+}
 
 // ---- Page layout helpers (pure; exported for tests) -----------------------
 export interface PdfPageLayout {
@@ -2017,7 +2035,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         document: (documentId) => images.itineraryDocuments?.[documentId],
         snapshot: (imageUrl) => images.itinerary?.[imageUrl],
         sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
-        destination: images.cover,
+        // An explicitly emptied quotation gallery must render the normal
+        // placeholder, not silently replace the removed activity image with
+        // the unrelated destination cover.
+        destination: pdfDayAllowsDestinationFallback(day.activities ?? []) ? images.cover : null,
       });
 
       // Day heading: title + date + day-level meals, kept with the first

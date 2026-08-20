@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, Globe2, MapPin, Pencil, Plane } from 'lucide-react';
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { destinationImageUrl, useDestination } from '@/features/masters/masters.api';
+import { MasterImageGalleryView } from './MasterImageGallery';
 import { formatMasterDate, LoadingCard, MasterHeader, SafeRichText, StatusBadge } from './MasterUi';
 
 const tabs = [
@@ -21,19 +22,6 @@ export function DestinationDetailsPage() {
   const destination = useDestination(destinationId);
   const { hasPermission } = useAuth();
   const [tab, setTab] = useState<(typeof tabs)[number][0]>('inclusions');
-  const [imageUrl, setImageUrl] = useState('');
-  useEffect(() => {
-    if (!destinationId || !destination.data?.hasImage) return;
-    let active = true;
-    void destinationImageUrl(destinationId)
-      .then((result) => {
-        if (active) setImageUrl(result.url);
-      })
-      .catch(() => setImageUrl(''));
-    return () => {
-      active = false;
-    };
-  }, [destination.data?.hasImage, destinationId]);
   if (destination.isError) return <Navigate to="/masters/destinations" replace />;
   if (!destination.data) return <LoadingCard />;
   const value = destination.data;
@@ -72,12 +60,13 @@ export function DestinationDetailsPage() {
       )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          {imageUrl ? (
-            <div className="flex h-64 items-center justify-center bg-slate-50">
-              <img
-                src={imageUrl}
+          {value.hasImage ? (
+            <div className="bg-slate-50 p-3">
+              <MasterImageGalleryView
+                masterId={value.id}
+                entity={value}
+                download={destinationImageUrl}
                 alt={value.name}
-                className="max-h-full max-w-full object-contain"
               />
             </div>
           ) : (

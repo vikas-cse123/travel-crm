@@ -375,6 +375,9 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       sequence: 1,
       // Store per-stay images instead of section-level images
       images: images.length ? images : [],
+      // An imported bookmark owns this snapshot even when the provider had no
+      // images, so removing/absence never falls through to a live Master.
+      imageSnapshotPresent: true,
       // Per-stay PDF selection: default to the first saved image.
       pdfImageUrl: images[0]?.url ?? null,
     },

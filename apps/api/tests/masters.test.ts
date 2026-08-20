@@ -304,6 +304,7 @@ describe('Phase 13A cities and destinations masters', () => {
       `/api/masters/destinations/${destination.id}/image/confirm`,
     );
     expect(confirmed.body.data).toMatchObject({ hasImage: true, imageMimeType: 'image/png' });
+    expect(confirmed.body.data.images).toHaveLength(1);
     expect(confirmed.body.data).not.toHaveProperty('imageObjectKey');
     const download = await client.get(
       `/api/masters/destinations/${destination.id}/image/download-url`,
@@ -312,12 +313,63 @@ describe('Phase 13A cities and destinations masters', () => {
     expect((await client.delete(`/api/masters/destinations/${destination.id}/image`)).status).toBe(
       200,
     );
-    expect(
-      (storageService as MemoryStorageService).read(pending.pendingImageObjectKey!),
-    ).toBeUndefined();
+    // Confirmed objects are retained because an older quotation snapshot may
+    // still reference them after the master removes the image.
+    expect((storageService as MemoryStorageService).read(pending.pendingImageObjectKey!)).toEqual(
+      body,
+    );
   });
 
-  it('rejects unsafe image metadata and preserves the active image until replacement confirms', async () => {
+  it('presents and downloads a sparse legacy single-image row as a one-image gallery', async () => {
+    const client = await owner();
+    const city = await createCity(client);
+    const destination = await createDestination(client, [city.id]);
+    const stored = await db.destination.findUniqueOrThrow({ where: { id: destination.id } });
+    const objectKey = `companies/${stored.companyId}/masters/destinations/${destination.id}/images/legacy.jpg`;
+    const body = Buffer.from('legacy-image');
+    await (storageService as MemoryStorageService).putObject({
+      key: objectKey,
+      body,
+      contentType: 'image/jpeg',
+    });
+    await db.destination.update({
+      where: { id: destination.id },
+      data: {
+        imageObjectKey: objectKey,
+        imageFileName: 'legacy.jpg',
+        imageMimeType: null,
+        imageFileSize: null,
+        imageConfirmedAt: new Date('2026-08-20T10:00:00.000Z'),
+      },
+    });
+
+    const detail = await client.get(`/api/masters/destinations/${destination.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.images).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^legacy-[a-f0-9]{32}$/),
+        fileName: 'legacy.jpg',
+        mimeType: 'image/jpeg',
+        fileSize: 0,
+        isPrimary: true,
+      }),
+    ]);
+    expect(JSON.stringify(detail.body.data)).not.toContain(objectKey);
+    const imageId = detail.body.data.images[0].id as string;
+
+    const defaultDownload = await client.get(
+      `/api/masters/destinations/${destination.id}/image/download-url`,
+    );
+    expect(defaultDownload.status).toBe(200);
+    expect(defaultDownload.body.data.url).toMatch(/^memory:\/\/download\//);
+    const selectedDownload = await client.get(
+      `/api/masters/destinations/${destination.id}/image/download-url?imageId=${imageId}`,
+    );
+    expect(selectedDownload.status).toBe(200);
+    expect(selectedDownload.body.data.url).toMatch(/^memory:\/\/download\//);
+  });
+
+  it('appends, reorders and removes images without replacing storage or crossing tenants', async () => {
     const client = await owner();
     const city = await createCity(client);
     const destination = await createDestination(client, [city.id]);
@@ -353,7 +405,10 @@ describe('Phase 13A cities and destinations masters', () => {
       body: firstBody,
       contentType: 'image/png',
     });
-    await client.post(`/api/masters/destinations/${destination.id}/image/confirm`);
+    const firstConfirmed = await client.post(
+      `/api/masters/destinations/${destination.id}/image/confirm`,
+    );
+    const firstImageId = firstConfirmed.body.data.images[0].id as string;
 
     const secondBody = Buffer.from('second-image');
     await client.post(`/api/masters/destinations/${destination.id}/image/upload`, {
@@ -369,8 +424,63 @@ describe('Phase 13A cities and destinations masters', () => {
       body: secondBody,
       contentType: 'image/webp',
     });
-    await client.post(`/api/masters/destinations/${destination.id}/image/confirm`);
-    expect((storageService as MemoryStorageService).read(firstKey)).toBeUndefined();
+    const secondKey = row.pendingImageObjectKey!;
+    const secondConfirmed = await client.post(
+      `/api/masters/destinations/${destination.id}/image/confirm`,
+    );
+    expect(secondConfirmed.status).toBe(200);
+    expect(
+      secondConfirmed.body.data.images.map((image: { fileName: string }) => image.fileName),
+    ).toEqual(['first.png', 'second.webp']);
+    const secondImageId = secondConfirmed.body.data.images[1].id as string;
+    expect((storageService as MemoryStorageService).read(firstKey)).toEqual(firstBody);
+
+    // The ordered gallery is quotation-facing; the retained single-image
+    // columns mirror its first entry for legacy callers.
+    const reordered = await client.patch(
+      `/api/masters/destinations/${destination.id}/images/order`,
+      { imageIds: [secondImageId, firstImageId] },
+    );
+    expect(reordered.status).toBe(200);
+    expect(reordered.body.data.images.map((image: { id: string }) => image.id)).toEqual([
+      secondImageId,
+      firstImageId,
+    ]);
+    row = await db.destination.findUniqueOrThrow({ where: { id: destination.id } });
+    expect(row.imageObjectKey).toBe(secondKey);
+
+    const reloaded = await client.get(`/api/masters/destinations/${destination.id}`);
+    expect(reloaded.body.data.images.map((image: { id: string }) => image.id)).toEqual([
+      secondImageId,
+      firstImageId,
+    ]);
+
+    const other = await owner('other@masters.test', 'Other Masters');
+    expect(
+      (
+        await other.get(
+          `/api/masters/destinations/${destination.id}/image/download-url?imageId=${secondImageId}`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await other.patch(`/api/masters/destinations/${destination.id}/images/order`, {
+          imageIds: [secondImageId, firstImageId],
+        })
+      ).status,
+    ).toBe(404);
+
+    const removed = await client.delete(
+      `/api/masters/destinations/${destination.id}/image?imageId=${secondImageId}`,
+    );
+    expect(removed.status).toBe(200);
+    const afterRemoval = await client.get(`/api/masters/destinations/${destination.id}`);
+    expect(afterRemoval.body.data.images.map((image: { id: string }) => image.id)).toEqual([
+      firstImageId,
+    ]);
+    expect((storageService as MemoryStorageService).read(secondKey)).toEqual(secondBody);
+    expect((storageService as MemoryStorageService).read(firstKey)).toEqual(firstBody);
   });
 
   it('records city, destination, link and image changes in the audit log', async () => {

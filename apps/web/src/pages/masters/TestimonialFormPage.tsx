@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ImagePlus, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -13,12 +12,14 @@ import {
   approveTestimonialImage,
   confirmTestimonialImage,
   deleteTestimonialImage,
+  reorderTestimonialImages,
+  testimonialImageUrl,
   useCreateTestimonial,
   useTestimonial,
   useUpdateTestimonial,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader } from './MasterUi';
-import { MasterImageEditor } from './MasterImageEditor';
+import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 interface FormValues {
   clientName: string;
@@ -44,12 +45,22 @@ export function TestimonialFormPage() {
   const update = useUpdateTestimonial(testimonialId ?? '');
   const { hasPermission } = useAuth();
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA);
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
-  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageError, setImageError] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [formError, setFormError] = useState('');
   const form = useForm<FormValues>({ defaultValues: empty });
+  const imageGallery = useMasterImageGallery({
+    masterId: testimonialId,
+    entity: testimonial.data,
+    allowedMimeTypes: TESTIMONIAL_IMAGE_MIME_TYPES,
+    maxSizeMb: 2,
+    api: {
+      approve: approveTestimonialImage,
+      confirm: confirmTestimonialImage,
+      download: testimonialImageUrl,
+      remove: deleteTestimonialImage,
+      reorder: reorderTestimonialImages,
+    },
+    onExistingChange: testimonial.refetch,
+  });
 
   useEffect(() => {
     if (!testimonial.data) return;
@@ -62,68 +73,8 @@ export function TestimonialFormPage() {
     });
   }, [testimonial.data, form]);
 
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
-
   if (testimonialId && testimonial.isError) return <Navigate to="/masters/testimonials" replace />;
   const mutation = testimonialId ? update : create;
-
-  const validateImage = (file?: File) => {
-    setImageError('');
-    if (!file) {
-      setImage(null);
-      setImageEditorOpen(false);
-      return;
-    }
-    if (
-      !TESTIMONIAL_IMAGE_MIME_TYPES.includes(
-        file.type as (typeof TESTIMONIAL_IMAGE_MIME_TYPES)[number],
-      )
-    ) {
-      setImageError('Use a JPEG, PNG, or WebP image.');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setImageError('Image must be 2 MB or smaller.');
-      return;
-    }
-    setImage(file);
-    setImageEditorOpen(true);
-  };
-  const applyEditedImage = (file: File) => {
-    if (file.size > 2 * 1024 * 1024) {
-      setImageError('Image must be 2 MB or smaller.');
-      return;
-    }
-    setImageError('');
-    setImage(file);
-    setImageEditorOpen(false);
-  };
-  const uploadImage = async (id: string, file: File) => {
-    const approval = await approveTestimonialImage(id, {
-      fileName: file.name,
-      mimeType: file.type as (typeof TESTIMONIAL_IMAGE_MIME_TYPES)[number],
-      fileSize: file.size,
-    });
-    if (!approval.uploadUrl.startsWith('http'))
-      throw new Error(
-        'Local memory storage has no browser upload transport. Configure S3 to upload images.',
-      );
-    const response = await fetch(approval.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
-    if (!response.ok) throw new Error('The image upload failed. Please try again.');
-    await confirmTestimonialImage(id);
-  };
 
   const submit = form.handleSubmit(async (values) => {
     if (values.destinationName.trim().length < 1) {
@@ -142,19 +93,14 @@ export function TestimonialFormPage() {
       status: values.isActive ? 'ACTIVE' : 'INACTIVE',
     };
     try {
+      setFormError('');
       const saved = testimonialId
         ? await update.mutateAsync(payload)
         : await create.mutateAsync(payload);
-      if (image && canManageMedia) {
-        setUploading(true);
-        await uploadImage(saved.id, image);
-      }
+      if (canManageMedia) await imageGallery.persist(saved.id);
       navigate(`/masters/testimonials/${saved.id}`);
     } catch (error) {
-      if (error instanceof Error && !(error as { code?: string }).code)
-        setImageError(error.message);
-    } finally {
-      setUploading(false);
+      if (error instanceof Error && !(error as { code?: string }).code) setFormError(error.message);
     }
   });
 
@@ -166,9 +112,9 @@ export function TestimonialFormPage() {
         current={testimonialId ? 'Edit Testimonial' : 'Create Testimonial'}
       />
       <form onSubmit={submit} className="space-y-5">
-        {(mutation.error || imageError) && (
+        {(mutation.error || formError) && (
           <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            {imageError || mutation.error?.message}
+            {formError || mutation.error?.message}
           </div>
         )}
         <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -202,73 +148,12 @@ export function TestimonialFormPage() {
                 )}
               </label>
               {canManageMedia && (
-                <div>
-                  <span className="text-sm font-medium">Client Image</span>
-                  <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600 hover:bg-slate-50">
-                    <ImagePlus className="h-5 w-5" />
-                    {image?.name ??
-                      (testimonial.data?.hasImage
-                        ? `Replace ${testimonial.data.imageFileName}`
-                        : 'Choose JPEG, PNG or WebP')}
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(event) => validateImage(event.target.files?.[0])}
-                    />
-                  </label>
-                  <p className="mt-1 text-xs text-slate-500">Recommended 150×150 px. Max 2 MB.</p>
-                  {imagePreviewUrl && (
-                    <div className="mt-3 overflow-hidden rounded-lg border bg-slate-50">
-                      <img
-                        src={imagePreviewUrl}
-                        alt="Testimonial image preview"
-                        className="h-36 w-full bg-slate-50 object-contain"
-                      />
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
-                        <p className="min-w-0 truncate text-sm text-slate-600">{image?.name}</p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setImageEditorOpen(true)}
-                          >
-                            Edit image
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              setImage(null);
-                              setImageError('');
-                              setImageEditorOpen(false);
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {testimonialId && testimonial.data?.hasImage && (
-                    <Button
-                      className="mt-2"
-                      type="button"
-                      size="sm"
-                      variant="danger"
-                      onClick={async () => {
-                        if (window.confirm('Delete this image?')) {
-                          await deleteTestimonialImage(testimonialId);
-                          await testimonial.refetch();
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" /> Delete image
-                    </Button>
-                  )}
-                </div>
+                <MasterImageGalleryField
+                  label="Client Images"
+                  controller={imageGallery}
+                  accept="image/jpeg,image/png,image/webp"
+                  maxSizeMb={2}
+                />
               )}
             </div>
             <label className="block text-sm font-medium">
@@ -313,21 +198,11 @@ export function TestimonialFormPage() {
           >
             <Button variant="secondary">Cancel</Button>
           </Link>
-          <Button type="submit" isLoading={mutation.isPending || uploading}>
+          <Button type="submit" isLoading={mutation.isPending || imageGallery.isBusy}>
             {testimonialId ? 'Update Testimonial' : 'Create Testimonial'}
           </Button>
         </div>
       </form>
-      {image && imagePreviewUrl && (
-        <MasterImageEditor
-          file={image}
-          imageUrl={imagePreviewUrl}
-          isOpen={isImageEditorOpen}
-          title="Edit Testimonial Image"
-          onCancel={() => setImageEditorOpen(false)}
-          onApply={applyEditedImage}
-        />
-      )}
     </div>
   );
 }

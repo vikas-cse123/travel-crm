@@ -78,4 +78,18 @@ export const usersController = {
   async activity(req: Request, res: Response) {
     sendSuccess(res, await usersService.activity(auth(req), req.params.userId!, req.query));
   },
+  async prepareProfileImage(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await usersService.prepareProfileImageUpload(auth(req), req.params.userId!, req.body, context(req)),
+      'Profile image upload authorized.',
+    );
+  },
+  async confirmProfileImage(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await usersService.confirmProfileImage(auth(req), req.params.userId!, context(req)),
+      'Profile image confirmed.',
+    );
+  },
 };

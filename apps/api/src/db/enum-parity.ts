@@ -3,6 +3,7 @@ import type {
   CompanyStatus as PrismaCompanyStatus,
   TemplateStatus as PrismaTemplateStatus,
   UserStatus as PrismaUserStatus,
+  UserGender as PrismaUserGender,
   BookingStatus as PrismaBookingStatus,
   OperationalStatus as PrismaOperationalStatus,
   BookingPaymentStatus as PrismaBookingPaymentStatus,
@@ -29,6 +30,7 @@ import type {
   CompanyStatus as SharedCompanyStatus,
   TemplateStatus as SharedTemplateStatus,
   UserStatus as SharedUserStatus,
+  UserGender as SharedUserGender,
   BookingStatusValue,
   OperationalStatusValue,
   BookingPaymentStatusValue,
@@ -76,6 +78,7 @@ type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : ne
 
 const companyStatusParity: AssertEqual<SharedCompanyStatus, PrismaCompanyStatus> = true;
 const userStatusParity: AssertEqual<SharedUserStatus, PrismaUserStatus> = true;
+const userGenderParity: AssertEqual<SharedUserGender, PrismaUserGender> = true;
 const templateStatusParity: AssertEqual<SharedTemplateStatus, PrismaTemplateStatus> = true;
 const activityActionParity: AssertEqual<SharedActivityAction, PrismaActivityAction> = true;
 const bookingStatusParity: AssertEqual<BookingStatusValue, PrismaBookingStatus> = true;
@@ -128,6 +131,7 @@ const customerDocumentTypeParity: AssertEqual<
 export const ENUM_PARITY = {
   companyStatusParity,
   userStatusParity,
+  userGenderParity,
   templateStatusParity,
   activityActionParity,
   bookingStatusParity,

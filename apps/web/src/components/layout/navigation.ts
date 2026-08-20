@@ -417,6 +417,10 @@ export function isNavPathActive(
   to: string,
   matchPaths?: readonly string[],
 ): boolean {
+  // Live Search (/travel-search) should not stay active when on Bookmarks (/travel-search/bookmarks) – they are siblings
+  if (to === '/travel-search' && pathname.startsWith('/travel-search/bookmarks')) {
+    return false;
+  }
   const matches = (target: string) =>
     pathname === target || pathname.startsWith(target.endsWith('/') ? target : `${target}/`);
   if (matchPaths?.some(matches)) return true;

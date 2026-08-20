@@ -4,6 +4,7 @@ import { colorEmojiPng } from '../../services/pdf/color-emojis.js';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
 import {
   htmlToRichTextLines,
+  pdfActivityImageOrCover,
   type PdfRichTextLine,
   type QuotationPdfInput,
 } from './pdf.service.js';
@@ -76,6 +77,8 @@ const formatClock12Hour = (value: string) => {
 type SightActivity = {
   sightseeingId?: string | null;
   imageDocumentId?: string | null;
+  /** True when the quotation owns this gallery, including an intentional empty one. */
+  imageSnapshotPresent?: boolean;
   name?: string | null;
   description?: string | null;
   startTime?: string | null;
@@ -1261,13 +1264,13 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       addContentPage(activityPage === 0 ? 'Day Wise Itinerary' : undefined);
       const top = activityPage === 0 ? 132 : 85;
       topRule(top, NAVY);
-      const imageValue =
+      const activityImage =
         (activity.imageDocumentId
           ? input.images?.itineraryDocuments?.[activity.imageDocumentId]
           : null) ??
         (activity.imageUrl ? input.images?.itinerary?.[activity.imageUrl] : null) ??
-        (activity.sightseeingId ? input.images?.sightseeing?.[activity.sightseeingId] : null) ??
-        input.images?.cover;
+        (activity.sightseeingId ? input.images?.sightseeing?.[activity.sightseeingId] : null);
+      const imageValue = pdfActivityImageOrCover(activity, activityImage, input.images?.cover);
       if (!drawImage(imageValue, M + 11, top + 17, 165, 145)) {
         doc.roundedRect(M + 11, top + 17, 165, 145, 9).fill('#e3ebf3');
         drawEmoji('🌍', M + 73, top + 66, 42);

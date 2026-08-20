@@ -87,20 +87,20 @@ describe('Lead Notes dashboard (AllNotesPage)', () => {
     stubNotes();
     renderWithProviders(<AllNotesPage />);
     expect(await screen.findByRole('heading', { name: 'Lead Notes' })).toBeInTheDocument();
-    expect(screen.getByText(/Every note logged across your leads/)).toBeInTheDocument();
+    expect(screen.getByText(/View and manage notes across your leads/)).toBeInTheDocument();
   });
 
-  it('renders four statistics with unchanged values', async () => {
+  it('renders four statistics with clean white cards', async () => {
     stubNotes();
     renderWithProviders(<AllNotesPage />);
-    await screen.findByRole('heading', { name: 'Lead Notes' });
-    await screen.findByText('Total Notes');
-    expect(screen.getByText('Total Notes')).toBeInTheDocument();
-    expect(screen.getByText('Total Leads')).toBeInTheDocument();
-    expect(screen.getByText('Today')).toBeInTheDocument();
-    expect(screen.getByText('Total Pages')).toBeInTheDocument();
-    expect(screen.getByText('8')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(await screen.findByText('Total Notes')).toBeInTheDocument();
+    expect(screen.getByText('Leads With Notes')).toBeInTheDocument();
+    expect(screen.getByText('Notes Added Today')).toBeInTheDocument();
+    expect(screen.getByText('Notes This Week')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Total Notes').closest('.notes-stat-card')).toHaveTextContent('8');
+    });
+    expect(screen.getByText('Leads With Notes').closest('.notes-stat-card')).toHaveTextContent('3');
   });
 
   it('renders the search, stage and user filters', async () => {
@@ -152,21 +152,19 @@ describe('Lead Notes dashboard (AllNotesPage)', () => {
     expect(screen.getByText('+91 98765 43210')).toBeInTheDocument();
     expect(screen.getAllByText('New Lead').length).toBeGreaterThan(0);
     expect(screen.getByText('2 notes')).toBeInTheDocument();
-    expect(screen.getByText('Latest Note:')).toBeInTheDocument();
+    expect(document.querySelector('.note-card-latest-label')).toHaveTextContent(/Latest note/i);
     expect(screen.getByText('Customer prefers morning flights')).toBeInTheDocument();
     expect(screen.getAllByText('Owner').length).toBeGreaterThan(0);
   });
 
-  it('shows Previous Notes only when previous notes exist and Show All toggles', async () => {
+  it('does not show Previous Notes toggle in the clean card (use View Notes instead)', async () => {
     stubNotes();
     renderWithProviders(<AllNotesPage />);
     await screen.findByText('Aarav Mehta');
-    expect(screen.getByText('Previous Notes:')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Show All/ })).toBeInTheDocument();
-    // Before expanding, the previous note content is hidden.
+    expect(screen.queryByText('Previous Notes:')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show All/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View notes for Aarav Mehta' })).toBeInTheDocument();
     expect(screen.queryByText('Confirmed the hotel category')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Show All/ }));
-    expect(screen.getByText('Confirmed the hotel category')).toBeInTheDocument();
   });
 
   it('does not show a Previous Notes row when there are no previous notes', async () => {

@@ -529,7 +529,30 @@ describe('Sightseeing master', () => {
       body,
       contentType: 'image/png',
     });
-    await a.post(`/api/masters/sightseeing/${row.id}/image/confirm`);
+    const firstConfirmed = await a.post(`/api/masters/sightseeing/${row.id}/image/confirm`);
+    const firstImageId = firstConfirmed.body.data.images[0].id as string;
+
+    const secondBody = Buffer.from('sightseeing-image-2');
+    await a.post(`/api/masters/sightseeing/${row.id}/image/upload`, {
+      fileName: 'Tour-2.webp',
+      mimeType: 'image/webp',
+      fileSize: secondBody.length,
+    });
+    const secondPending = await db.sightseeing.findUniqueOrThrow({ where: { id: row.id } });
+    await (storageService as MemoryStorageService).putObject({
+      key: secondPending.pendingImageObjectKey!,
+      body: secondBody,
+      contentType: 'image/webp',
+    });
+    const secondConfirmed = await a.post(`/api/masters/sightseeing/${row.id}/image/confirm`);
+    const secondImageId = secondConfirmed.body.data.images[1].id as string;
+    expect(
+      (
+        await a.patch(`/api/masters/sightseeing/${row.id}/images/order`, {
+          imageIds: [secondImageId, firstImageId],
+        })
+      ).status,
+    ).toBe(200);
 
     // Batched presentation resolves a signed display URL; duplicates are harmless.
     const presentations = await a.get(
@@ -539,8 +562,25 @@ describe('Sightseeing master', () => {
     expect(typeof presentedUrl).toBe('string');
     expect(presentedUrl).toBeTruthy();
     expect(presentedUrl).toMatch(/^(https?|memory):\/\//);
+    expect(presentations.body.data[row.id].images.map((image: { id: string }) => image.id)).toEqual(
+      [secondImageId, firstImageId],
+    );
+    expect(presentations.body.data[row.id].imageUrl).toBe(
+      presentations.body.data[row.id].images[0].url,
+    );
     // The raw object-key database field is never exposed as its own field.
     expect(JSON.stringify(presentations.body.data)).not.toContain('imageObjectKey');
+    expect(JSON.stringify(presentations.body.data)).not.toContain('companies/');
+
+    const activities = await a.get('/api/masters/sightseeing/activities');
+    const activity = activities.body.data.activities.find(
+      (candidate: { id: string }) => candidate.id === row.id,
+    );
+    expect(activity.images.map((image: { id: string }) => image.id)).toEqual([
+      secondImageId,
+      firstImageId,
+    ]);
+    expect(JSON.stringify(activity)).not.toContain('companies/');
     // Other companies cannot resolve this tenant's image.
     const other = await b.get(`/api/masters/sightseeing/presentations?ids=${row.id}`);
     expect(other.body.data).toEqual({});

@@ -146,12 +146,34 @@ export const destinationsController = {
       'Destination image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await destinationsService.imageDownload(auth(req), req.params.destinationId!)),
+    sendSuccess(
+      res,
+      await destinationsService.imageDownload(
+        auth(req),
+        req.params.destinationId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await destinationsService.deleteImage(auth(req), req.params.destinationId!, context(req)),
+      await destinationsService.deleteImage(
+        auth(req),
+        req.params.destinationId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Destination image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await destinationsService.reorderImages(
+        auth(req),
+        req.params.destinationId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
 };
 
@@ -239,12 +261,34 @@ export const hotelsController = {
       'Hotel image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await hotelsService.imageDownload(auth(req), req.params.hotelId!)),
+    sendSuccess(
+      res,
+      await hotelsService.imageDownload(
+        auth(req),
+        req.params.hotelId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await hotelsService.deleteImage(auth(req), req.params.hotelId!, context(req)),
+      await hotelsService.deleteImage(
+        auth(req),
+        req.params.hotelId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Hotel image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.reorderImages(
+        auth(req),
+        req.params.hotelId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
 };
 
@@ -360,12 +404,34 @@ export const cruisesController = {
       'Cruise image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await cruisesService.imageDownload(auth(req), req.params.cruiseId!)),
+    sendSuccess(
+      res,
+      await cruisesService.imageDownload(
+        auth(req),
+        req.params.cruiseId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await cruisesService.deleteImage(auth(req), req.params.cruiseId!, context(req)),
+      await cruisesService.deleteImage(
+        auth(req),
+        req.params.cruiseId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Cruise image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await cruisesService.reorderImages(
+        auth(req),
+        req.params.cruiseId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
 };
 
@@ -417,12 +483,34 @@ export const vehiclesController = {
       'Vehicle image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await vehiclesService.imageDownload(auth(req), req.params.vehicleId!)),
+    sendSuccess(
+      res,
+      await vehiclesService.imageDownload(
+        auth(req),
+        req.params.vehicleId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await vehiclesService.deleteImage(auth(req), req.params.vehicleId!, context(req)),
+      await vehiclesService.deleteImage(
+        auth(req),
+        req.params.vehicleId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Vehicle image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await vehiclesService.reorderImages(
+        auth(req),
+        req.params.vehicleId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
 };
 
@@ -490,7 +578,14 @@ export const sightseeingController = {
       'Sightseeing image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await sightseeingService.imageDownload(auth(req), req.params.sightseeingId!)),
+    sendSuccess(
+      res,
+      await sightseeingService.imageDownload(
+        auth(req),
+        req.params.sightseeingId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   presentations: async (req: Request, res: Response) =>
     sendSuccess(
       res,
@@ -499,8 +594,23 @@ export const sightseeingController = {
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await sightseeingService.deleteImage(auth(req), req.params.sightseeingId!, context(req)),
+      await sightseeingService.deleteImage(
+        auth(req),
+        req.params.sightseeingId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Sightseeing image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await sightseeingService.reorderImages(
+        auth(req),
+        req.params.sightseeingId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
   activities: async (req: Request, res: Response) =>
     sendSuccess(
@@ -648,11 +758,33 @@ export const testimonialsController = {
       'Testimonial image confirmed.',
     ),
   imageDownload: async (req: Request, res: Response) =>
-    sendSuccess(res, await testimonialsService.imageDownload(auth(req), req.params.testimonialId!)),
+    sendSuccess(
+      res,
+      await testimonialsService.imageDownload(
+        auth(req),
+        req.params.testimonialId!,
+        req.query.imageId as string | undefined,
+      ),
+    ),
   imageDelete: async (req: Request, res: Response) =>
     sendSuccess(
       res,
-      await testimonialsService.deleteImage(auth(req), req.params.testimonialId!, context(req)),
+      await testimonialsService.deleteImage(
+        auth(req),
+        req.params.testimonialId!,
+        context(req),
+        req.query.imageId as string | undefined,
+      ),
       'Testimonial image deleted.',
+    ),
+  imageReorder: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await testimonialsService.reorderImages(
+        auth(req),
+        req.params.testimonialId!,
+        req.body.imageIds,
+        context(req),
+      ),
     ),
 };

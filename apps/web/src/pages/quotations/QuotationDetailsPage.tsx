@@ -17,8 +17,6 @@ import { Link, useParams } from 'react-router-dom';
 import {
   labelForLookup,
   PERMISSIONS,
-  hotelStayNights,
-  joinNonEmpty,
   normalizePublicSlug,
   isReservedPublicSlug,
 } from '@interscale/shared';
@@ -456,159 +454,88 @@ export function QuotationDetailsPage() {
           </div>
         </dl>
       </section>
-      {current && (
+      {current && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
         <section className="rounded-xl border bg-card p-6">
-          <div className="border-b pb-5">
-            <p className="text-sm text-brand-700">
-              Customer preview · Version {current.versionNumber}
-            </p>
-            <h2 className="mt-1 text-2xl font-semibold">{current.title}</h2>
-            <p className="mt-2 text-slate-600">{current.introduction}</p>
-
-            {hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
-              <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Weblink
-                </span>
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={current.showQuickNav ?? true}
-                    disabled={weblinkSettings.isPending}
-                    onChange={(event) =>
-                      weblinkSettings.mutate({
-                        versionId: current.id,
-                        showQuickNav: event.target.checked,
-                      })
-                    }
-                  />
-                  Show Quick Navigation
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Weblink
+            </span>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={current.showQuickNav ?? true}
+                disabled={weblinkSettings.isPending}
+                onChange={(event) =>
+                  weblinkSettings.mutate({
+                    versionId: current.id,
+                    showQuickNav: event.target.checked,
+                  })
+                }
+              />
+              Show Quick Navigation
+            </label>
+            <label
+              className={`flex items-center gap-2 text-sm font-medium ${
+                (current.showQuickNav ?? true) ? 'text-slate-700' : 'text-slate-400'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={current.quickNavSticky ?? true}
+                disabled={!(current.showQuickNav ?? true) || weblinkSettings.isPending}
+                onChange={(event) =>
+                  weblinkSettings.mutate({
+                    versionId: current.id,
+                    quickNavSticky: event.target.checked,
+                  })
+                }
+              />
+              Keep it sticky while scrolling
+            </label>
+            <div className="flex w-full flex-col gap-1 border-t border-slate-200 pt-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="weblink-name" className="text-sm font-semibold text-slate-700">
+                  Weblink Name
                 </label>
-                <label
-                  className={`flex items-center gap-2 text-sm font-medium ${
-                    (current.showQuickNav ?? true) ? 'text-slate-700' : 'text-slate-400'
-                  }`}
+                <input
+                  id="weblink-name"
+                  className="w-56 rounded-lg border border-slate-300 bg-card px-3 py-1.5 text-sm"
+                  type="text"
+                  placeholder="e.g. Mohan"
+                  value={weblinkNameValue}
+                  disabled={weblinkName.isPending}
+                  onChange={(event) => {
+                    setWeblinkNameValue(event.target.value);
+                    setWeblinkNameError('');
+                  }}
+                  onBlur={() => void saveWeblinkName()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={weblinkName.isPending}
+                  onClick={() => void saveWeblinkName()}
                 >
-                  <input
-                    type="checkbox"
-                    checked={current.quickNavSticky ?? false}
-                    disabled={!(current.showQuickNav ?? true) || weblinkSettings.isPending}
-                    onChange={(event) =>
-                      weblinkSettings.mutate({
-                        versionId: current.id,
-                        quickNavSticky: event.target.checked,
-                      })
-                    }
-                  />
-                  Keep it sticky while scrolling
-                </label>
-                <div className="flex w-full flex-col gap-1 border-t border-slate-200 pt-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label htmlFor="weblink-name" className="text-sm font-semibold text-slate-700">
-                      Weblink Name
-                    </label>
-                    <input
-                      id="weblink-name"
-                      className="w-56 rounded-lg border border-slate-300 bg-card px-3 py-1.5 text-sm"
-                      type="text"
-                      placeholder="e.g. Mohan"
-                      value={weblinkNameValue}
-                      disabled={weblinkName.isPending}
-                      onChange={(event) => {
-                        setWeblinkNameValue(event.target.value);
-                        setWeblinkNameError('');
-                      }}
-                      onBlur={() => void saveWeblinkName()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur();
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={weblinkName.isPending}
-                      onClick={() => void saveWeblinkName()}
-                    >
-                      Save name
-                    </Button>
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    Friendly link:{' '}
-                    {weblinkNamePreview ? (
-                      <span className="font-medium text-brand-700">{weblinkNamePreview}</span>
-                    ) : (
-                      '—'
-                    )}
-                  </p>
-                  {weblinkNameError && (
-                    <p role="alert" className="text-xs text-red-700">
-                      {weblinkNameError}
-                    </p>
-                  )}
-                </div>
+                  Save name
+                </Button>
               </div>
-            )}
-          </div>
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <div>
-              <h3 className="font-semibold">Hotels</h3>
-              <div className="mt-2 space-y-2">
-                {current.hotels.map((hotel) => (
-                  <article key={hotel.id} className="rounded-lg bg-slate-50 p-3">
-                    <strong>{hotel.hotelName}</strong>
-                    <p className="text-sm text-slate-600">
-                      {joinNonEmpty([
-                        hotel.city,
-                        `${hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights} nights`,
-                        hotel.roomType,
-                        hotel.mealPlan,
-                      ])}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="font-semibold">Itinerary</h3>
-              <div className="mt-2 space-y-3">
-                {current.itinerary.map((day) => (
-                  <article key={day.id} className="border-l-2 border-brand-300 pl-3">
-                    <strong>
-                      Day {day.dayNumber} · {day.title}
-                    </strong>
-                    <p className="text-sm text-slate-600">{day.description}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {[
-              ['Inclusions', current.inclusions],
-              ['Exclusions', current.exclusions],
-              ['Terms', current.terms],
-            ].map(([label, rows]) => (
-              <div key={label as string}>
-                <h3 className="font-semibold">{label as string}</h3>
-                <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  {(rows as typeof current.inclusions).map((row) => (
-                    <li key={row.id}>• {row.content}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 rounded-xl bg-panel p-5 text-panel-foreground">
-            <p className="text-sm text-panel-foreground/70">Final quotation amount</p>
-            <p className="mt-1 text-3xl font-semibold">
-              {money(current.finalAmount, current.currency)}
-            </p>
-            {current.marginAmount && (
-              <p className="mt-2 text-xs text-panel-foreground/60">
-                Internal margin: {money(current.marginAmount, current.currency)} ·{' '}
-                {current.marginPercentage}%
+              <p className="text-xs text-slate-500">
+                Friendly link:{' '}
+                {weblinkNamePreview ? (
+                  <span className="font-medium text-brand-700">{weblinkNamePreview}</span>
+                ) : (
+                  '—'
+                )}
               </p>
-            )}
+              {weblinkNameError && (
+                <p role="alert" className="text-xs text-red-700">
+                  {weblinkNameError}
+                </p>
+              )}
+            </div>
           </div>
         </section>
       )}

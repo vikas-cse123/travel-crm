@@ -35,18 +35,39 @@ function nestedRows(input: QuotationTemplateInput, companyId: string) {
       void _date;
       return { ...row, companyId };
     }),
-    hotels: input.hotels.map(({ images: _images, ...row }) => {
-      // Per-stay images exist only on quotation hotel options; the template
-      // table has no images column, so it must not be persisted there.
-      void _images;
-      return { ...row, companyId };
-    }),
-    services: input.services.map((row) => ({
-      ...row,
-      companyId,
-      internalCost: row.internalCost ?? 0,
-      sellingPrice: row.sellingPrice ?? 0,
-    })),
+    hotels: input.hotels.map(
+      ({
+        images: _images,
+        imageSnapshotPresent: _snapshotPresent,
+        pdfImageUrl: _pdfImageUrl,
+        ...row
+      }) => {
+        // Per-stay images exist only on quotation hotel options; the template
+        // table has no images column, so it must not be persisted there.
+        void _images;
+        void _snapshotPresent;
+        void _pdfImageUrl;
+        return { ...row, companyId };
+      },
+    ),
+    services: input.services.map(
+      ({
+        images: _images,
+        imageSnapshotPresent: _snapshotPresent,
+        pdfImageUrl: _pdfImageUrl,
+        ...row
+      }) => {
+        void _images;
+        void _snapshotPresent;
+        void _pdfImageUrl;
+        return {
+          ...row,
+          companyId,
+          internalCost: row.internalCost ?? 0,
+          sellingPrice: row.sellingPrice ?? 0,
+        };
+      },
+    ),
     inclusions: input.inclusions.map((row) => ({ ...row, companyId })),
     exclusions: input.exclusions.map((row) => ({ ...row, companyId })),
     terms: input.terms.map((row) => ({ ...row, companyId })),
@@ -209,7 +230,7 @@ export const quotationTemplatesService = {
   },
 
   async create(auth: AuthContext, input: QuotationTemplateInput, context: RequestContext) {
-    await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
+    await validateMasterRefs(auth, input.hotels ?? [], input.services ?? []);
     try {
       const value = await prisma.$transaction(async (tx) => {
         const templateCode = await nextCompanyNumber(tx, auth.companyId, 'template');
@@ -304,8 +325,11 @@ export const quotationTemplatesService = {
     input: QuotationTemplateUpdate,
     context: RequestContext,
   ) {
-    await get(auth, id);
-    await validateMasterRefs(auth.companyId, input.hotels ?? [], input.services ?? []);
+    const existing = await get(auth, id);
+    await validateMasterRefs(auth, input.hotels ?? [], input.services ?? [], {
+      hotels: existing.hotels,
+      services: existing.services,
+    });
     try {
       const value = await prisma.$transaction(async (tx) => {
         const scalar = {
@@ -350,15 +374,24 @@ export const quotationTemplatesService = {
           });
           if (input.hotels.length)
             await tx.quotationTemplateHotelOption.createMany({
-              data: input.hotels.map(({ images: _images, ...row }) => {
-                // See nestedRows: template hotel options have no images column.
-                void _images;
-                return {
-                  ...row,
-                  companyId: auth.companyId,
-                  templateId: id,
-                };
-              }) as Prisma.QuotationTemplateHotelOptionCreateManyInput[],
+              data: input.hotels.map(
+                ({
+                  images: _images,
+                  imageSnapshotPresent: _snapshotPresent,
+                  pdfImageUrl: _pdfImageUrl,
+                  ...row
+                }) => {
+                  // See nestedRows: template hotel options have no images column.
+                  void _images;
+                  void _snapshotPresent;
+                  void _pdfImageUrl;
+                  return {
+                    ...row,
+                    companyId: auth.companyId,
+                    templateId: id,
+                  };
+                },
+              ) as Prisma.QuotationTemplateHotelOptionCreateManyInput[],
             });
         }
         if (input.services !== undefined) {
@@ -367,13 +400,25 @@ export const quotationTemplatesService = {
           });
           if (input.services.length)
             await tx.quotationTemplateService.createMany({
-              data: input.services.map((row) => ({
-                ...row,
-                companyId: auth.companyId,
-                templateId: id,
-                internalCost: row.internalCost ?? 0,
-                sellingPrice: row.sellingPrice ?? 0,
-              })) as Prisma.QuotationTemplateServiceCreateManyInput[],
+              data: input.services.map(
+                ({
+                  images: _images,
+                  imageSnapshotPresent: _snapshotPresent,
+                  pdfImageUrl: _pdfImageUrl,
+                  ...row
+                }) => {
+                  void _images;
+                  void _snapshotPresent;
+                  void _pdfImageUrl;
+                  return {
+                    ...row,
+                    companyId: auth.companyId,
+                    templateId: id,
+                    internalCost: row.internalCost ?? 0,
+                    sellingPrice: row.sellingPrice ?? 0,
+                  };
+                },
+              ) as Prisma.QuotationTemplateServiceCreateManyInput[],
             });
         }
         if (input.inclusions !== undefined) {
@@ -504,6 +549,8 @@ export const quotationTemplatesService = {
           quantity: quantity.toNumber(),
           internalCost: internalCost?.toNumber(),
           sellingPrice: sellingPrice?.toNumber(),
+          images: [],
+          pdfImageUrl: null,
         }),
       ),
       inclusions: source.inclusions.map(

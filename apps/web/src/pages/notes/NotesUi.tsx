@@ -50,43 +50,41 @@ export function formatDate(value: string | null | undefined) {
 }
 
 /**
- * Four coloured stat tiles for the All Notes dashboard. Unlike the reminders
- * SummaryCards these accept a free-form string (so "Today" can show a date).
+ * Summary cards for the Notes workspace — subtle white cards with borders.
+ * Shows only useful KPIs: total notes, leads with notes, today, this week.
  */
 export function NoteStatCards({
   totalNotes,
-  totalLeads,
-  totalPages,
+  leadsWithNotes,
+  notesToday,
+  notesThisWeek,
 }: {
   totalNotes: number;
-  totalLeads: number;
-  totalPages: number;
+  leadsWithNotes: number;
+  notesToday: number;
+  notesThisWeek: number;
 }) {
-  const today = new Date().toLocaleDateString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
   const tiles = [
     {
       label: 'Total Notes',
       value: String(totalNotes),
-      tone: 'notes-stat--teal',
       Icon: ClipboardList,
     },
-    { label: 'Total Leads', value: String(totalLeads), tone: 'notes-stat--green', Icon: Layers3 },
-    { label: 'Today', value: today, tone: 'notes-stat--amber', Icon: CalendarDays },
-    { label: 'Total Pages', value: String(totalPages), tone: 'notes-stat--rose', Icon: Files },
+    { label: 'Leads With Notes', value: String(leadsWithNotes), Icon: Layers3 },
+    { label: 'Notes Added Today', value: String(notesToday), Icon: CalendarDays },
+    { label: 'Notes This Week', value: String(notesThisWeek), Icon: Files },
   ];
   return (
     <section className="notes-stats" aria-label="Notes statistics">
-      {tiles.map(({ label, value, tone, Icon }) => (
-        <article key={label} className={cn('notes-stat-card', tone)}>
+      {tiles.map(({ label, value, Icon }) => (
+        <article key={label} className="notes-stat-card">
+          <div className="notes-stat-icon-wrap" aria-hidden="true">
+            <Icon className="notes-stat-icon" />
+          </div>
           <div className="min-w-0">
             <p className="notes-stat-value">{value}</p>
             <p className="notes-stat-label">{label}</p>
           </div>
-          <Icon className="notes-stat-icon" aria-hidden="true" />
         </article>
       ))}
     </section>

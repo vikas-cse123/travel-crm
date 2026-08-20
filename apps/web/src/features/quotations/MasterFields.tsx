@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
+import type { QuotationVersionInput } from '@interscale/shared';
 import { MasterSelect, type MasterOption } from '@/components/ui/MasterSelect';
 import {
   useAddOnServices,
@@ -9,6 +10,7 @@ import {
   useHotels,
   useSightseeingList,
   useVehicles,
+  type MasterImageMeta,
 } from '@/features/masters/masters.api';
 
 /**
@@ -64,6 +66,9 @@ export interface HotelRowPatch {
   category?: string | null;
   internalCost?: number;
   sellingPrice?: number;
+  images?: QuotationVersionInput['hotels'][number]['images'];
+  imageSnapshotPresent?: boolean | undefined;
+  pdfImageUrl?: string | null;
 }
 
 interface HotelMasterFieldsProps {
@@ -83,6 +88,7 @@ interface HotelMasterFieldsProps {
    * when no Hotel Master is linked. */
   hotelNameText?: string | null | undefined;
   onChange: (patch: HotelRowPatch) => void;
+  onMasterSelect?: (hotelId: string, images: MasterImageMeta[] | undefined, name: string) => void;
 }
 
 export function HotelMasterFields({
@@ -94,6 +100,7 @@ export function HotelMasterFields({
   mealPlanText,
   hotelNameText,
   onChange,
+  onMasterSelect,
 }: HotelMasterFieldsProps) {
   const hotels = useHotels(ACTIVE());
   const detail = useHotel(value.hotelId ?? undefined);
@@ -171,6 +178,7 @@ export function HotelMasterFields({
                   }
                 : {}),
             });
+            if (selected) onMasterSelect?.(selected.id, selected.images, selected.name);
           }}
         />
       </FieldShell>
@@ -244,6 +252,9 @@ export interface ServiceRowPatch {
   city?: string | null;
   quantity?: number;
   internalCost?: number;
+  images?: QuotationVersionInput['services'][number]['images'];
+  imageSnapshotPresent?: boolean | undefined;
+  pdfImageUrl?: string | null;
 }
 
 export const SERVICE_MASTER_KEYS = [

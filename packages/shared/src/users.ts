@@ -17,6 +17,10 @@ const optionalPhoneSchema = z
   .optional();
 const optionalUuid = z.union([z.string().uuid(), z.null()]).optional();
 
+export const USER_GENDER_VALUES = ['MALE', 'FEMALE'] as const;
+const optionalGender = z.enum(USER_GENDER_VALUES).nullable().optional();
+const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
+
 export const createUserSchema = z
   .object({
     fullName: fullNameSchema,
@@ -29,6 +33,14 @@ export const createUserSchema = z
     temporaryPassword: passwordSchema,
     confirmTemporaryPassword: z.string(),
     mustChangePassword: z.boolean().default(true),
+    gender: optionalGender,
+    jobTitle: optionalText(120),
+    bio: optionalText(2000),
+    specialization: optionalText(200),
+    yearsOfExperience: z.coerce.number().int().min(0).max(100).nullable().optional(),
+    tripsPlanned: z.coerce.number().int().min(0).max(1000000).nullable().optional(),
+    languages: optionalText(200),
+    whatsappNumber: optionalPhoneSchema.nullable(),
   })
   .refine((v) => v.temporaryPassword === v.confirmTemporaryPassword, {
     path: ['confirmTemporaryPassword'],
@@ -44,6 +56,14 @@ export const updateUserSchema = z
     roleId: z.string().uuid().optional(),
     permissionTemplateId: optionalUuid,
     mustChangePassword: z.boolean().optional(),
+    gender: optionalGender,
+    jobTitle: optionalText(120),
+    bio: optionalText(2000),
+    specialization: optionalText(200),
+    yearsOfExperience: z.coerce.number().int().min(0).max(100).nullable().optional(),
+    tripsPlanned: z.coerce.number().int().min(0).max(1000000).nullable().optional(),
+    languages: optionalText(200),
+    whatsappNumber: optionalPhoneSchema.nullable(),
   })
   .refine((v) => Object.keys(v).length > 0, 'Provide at least one field');
 
@@ -77,6 +97,15 @@ export interface ManagedUser {
   role: { id: string; name: string; hierarchyLevel: number };
   permissionTemplate: { id: string; name: string } | null;
   effectivePermissions?: string[];
+  gender?: 'MALE' | 'FEMALE' | null;
+  jobTitle?: string | null;
+  bio?: string | null;
+  specialization?: string | null;
+  yearsOfExperience?: number | null;
+  tripsPlanned?: number | null;
+  languages?: string | null;
+  whatsappNumber?: string | null;
+  profileImageUrl?: string | null;
 }
 
 export interface UserListResult {

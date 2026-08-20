@@ -41,6 +41,15 @@ export interface MasterServiceRefs {
   sightseeingId?: string | null;
   addOnServiceId?: string | null;
 }
+export interface QuotationSnapshotImage {
+  /** Opaque id for a persisted snapshot image. */
+  id?: string | null;
+  /** Transient Master selector used only before the first save. */
+  masterImageId?: string | null;
+  url?: string | null;
+  thumbnailUrl?: string | null;
+  alt?: string | null;
+}
 export interface TemplateHotel extends MasterHotelRefs {
   id: string;
   city: string;
@@ -61,11 +70,8 @@ export interface TemplateHotel extends MasterHotelRefs {
   selected: boolean;
   notes: string | null;
   sequence: number;
-  images?: Array<{
-    url: string;
-    thumbnailUrl?: string | null;
-    alt?: string | null;
-  }>;
+  images?: QuotationSnapshotImage[];
+  imageSnapshotPresent?: boolean;
   pdfImageUrl?: string | null;
 }
 export interface TemplateService extends MasterServiceRefs {
@@ -80,6 +86,9 @@ export interface TemplateService extends MasterServiceRefs {
   sellingPrice: string | null;
   taxCategory: string | null;
   notes: string | null;
+  images?: QuotationSnapshotImage[];
+  imageSnapshotPresent?: boolean;
+  pdfImageUrl?: string | null;
   sequence: number;
 }
 export interface ContentRow {
@@ -176,6 +185,9 @@ export interface SightseeingActivity {
   city?: string | null;
   description?: string | null;
   imageUrl?: string | null;
+  images?: QuotationSnapshotImage[];
+  imageSnapshotPresent?: boolean;
+  pdfImageUrl?: string | null;
   /** Informational per-activity prices; absent on pre-feature snapshots. */
   pricingOptions?: Array<{ label: string; price: number }>;
   sequence?: number | null;
@@ -269,6 +281,21 @@ export interface QuotationVersion {
   addOnDetails: { include?: boolean; sectionTitle?: string | null } | null;
   // Reference "Sightseeing" — day-wise activity itinerary (JSON).
   sightseeingDetails: SightseeingDetails | null;
+  // Weblink customization — FAQs and custom section order.
+  faqs?: Array<{ question: string; answer: string }>;
+  weblinkSectionOrder?: string[] | null;
+  destinationExpertConfig?: {
+    enabled: boolean;
+    expertUserId?: string | null;
+    heading?: string | null;
+    customIntroduction?: string | null;
+    showWhatsapp?: boolean;
+    showCall?: boolean;
+    showEmail?: boolean;
+    showExperience?: boolean;
+    showTripsPlanned?: boolean;
+    showLanguages?: boolean;
+  } | null;
   notes: string | null;
   internalNotes?: string | null;
   status: string;

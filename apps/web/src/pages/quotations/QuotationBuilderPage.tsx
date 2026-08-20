@@ -29,7 +29,10 @@ import {
   hotelStayNights,
   labelForLookup,
   quotationVersionInputSchema,
+  quotationSnapshotImageIdentity,
   resolveTaxNoteChoice,
+  DEFAULT_WEBLINK_SECTION_ORDER,
+  resolveWeblinkSectionOrder,
   type LiveSearchBookmark,
   type QuotationVersionInput,
 } from '@interscale/shared';
@@ -51,6 +54,7 @@ import {
   useUpdateQuotationVersion,
 } from '@/features/quotations/quotations.api';
 import {
+  cruiseImageUrl,
   hotelImageUrl,
   useAddOnServices,
   useAirlines,
@@ -61,11 +65,14 @@ import {
   useHotels,
   useSightseeingList,
   useVehicles,
+  vehicleImageUrl,
+  type MasterImageMeta,
   type Airline,
   type Destination,
   type Page,
   type Sightseeing,
 } from '@/features/masters/masters.api';
+import { useUsers } from '@/features/users/users.api';
 import {
   CLEARED_SERVICE_MASTERS,
   HotelMasterFields,
@@ -84,6 +91,69 @@ import {
 } from '@/features/quotations/BookmarkImport';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
+
+type QuotationImage = NonNullable<QuotationVersionInput['services'][number]['images']>[number];
+
+/** Copy ordered, opaque Master image ids immediately (no preview network wait). */
+export function masterGallerySnapshot(
+  images: MasterImageMeta[] | null | undefined,
+  alt: string,
+): QuotationImage[] {
+  return (images ?? []).map((image, index) => ({
+    masterImageId: image.id,
+    alt: `${alt} image ${index + 1}`,
+  }));
+}
+
+/**
+ * `undefined` deliberately asks the API to import a linked Master gallery when
+ * talking to an older response shape that did not expose ordered image ids.
+ */
+function masterGalleryPresence(master: { images?: unknown } | null | undefined) {
+  if (!master) return false;
+  return Array.isArray(master.images) ? true : undefined;
+}
+
+/** Best-effort signed previews; opaque refs above remain the source of truth. */
+async function importMasterGalleryPreviews(
+  masterId: string,
+  snapshot: QuotationImage[],
+  download: (id: string, imageId?: string) => Promise<{ url: string }>,
+): Promise<QuotationImage[]> {
+  return Promise.all(
+    snapshot.map(async (image) => {
+      let url: string | undefined;
+      try {
+        url = (await download(masterId, image.masterImageId ?? image.id ?? undefined)).url;
+      } catch {
+        // The opaque Master image id is enough for the API to snapshot it.
+        // Preview URL failures must not drop otherwise valid images.
+      }
+      return {
+        ...image,
+        ...(url ? { url } : {}),
+      };
+    }),
+  );
+}
+
+/** Add finished preview URLs without restoring removed images or stale order. */
+export function mergeMasterGalleryPreviews(
+  current: QuotationImage[] | null | undefined,
+  previewed: QuotationImage[],
+): QuotationImage[] {
+  const urls = new Map(
+    previewed.flatMap((image) => {
+      const identity = quotationSnapshotImageIdentity(image);
+      return identity && image.url ? [[identity, image.url] as const] : [];
+    }),
+  );
+  return (current ?? []).map((image) => {
+    const identity = quotationSnapshotImageIdentity(image);
+    const url = identity ? urls.get(identity) : undefined;
+    return url ? { ...image, url } : image;
+  });
+}
 
 /**
  * Register options for money inputs: an empty field coerces to 0 instead of NaN,
@@ -225,6 +295,9 @@ interface VehicleDraft {
   vehicleModel: string;
   usage: string;
   description: string;
+  images: QuotationImage[];
+  imageSnapshotPresent: boolean | undefined;
+  pdfImageUrl: string | null;
 }
 
 const defaultVehicleDraft = (): VehicleDraft => ({
@@ -236,6 +309,9 @@ const defaultVehicleDraft = (): VehicleDraft => ({
   vehicleModel: '',
   usage: '',
   description: '',
+  images: [],
+  imageSnapshotPresent: false,
+  pdfImageUrl: null,
 });
 
 const hotelSectionTitle = (value: string | null | undefined) => {
@@ -252,8 +328,24 @@ const TABS: TabDef[] = [
   ...(SHOW_VISA_QUOTATION_TAB ? [{ key: 'visa', label: 'Visa' }] : []),
   { key: 'addon', label: 'Add-on Services', types: ADDON_TYPES },
   { key: 'inclusions', label: 'Inclusions & Exclusions' },
+  { key: 'faqs', label: 'FAQs' },
   { key: 'summary', label: 'Summary & Pricing' },
+  { key: 'setting', label: 'Setting' },
 ];
+
+const WEBLINK_SECTION_LABELS: Record<string, string> = {
+  services: 'Services Include',
+  destinationExpert: 'Destination Expert',
+  itinerary: 'Itinerary',
+  hotels: 'Hotels',
+  flights: 'Flight Details',
+  transportation: 'Transportation',
+  cruise: 'Cruise',
+  addons: 'Additional Services',
+  visa: 'Visa',
+  policies: 'Policies',
+  faqs: 'FAQs',
+};
 
 /**
  * Lead-requested services → quotation tab keys. The Lead's selected services are
@@ -315,7 +407,7 @@ const defaults: QuotationVersionInput = {
   hidePricing: false,
   showIndividualPricing: false,
   showQuickNav: true,
-  quickNavSticky: false,
+  quickNavSticky: true,
   inclusionsHtml: null,
   exclusionsHtml: null,
   paymentPolicies: null,
@@ -341,6 +433,9 @@ const defaults: QuotationVersionInput = {
   },
   notes: null,
   internalNotes: null,
+  faqs: [],
+  weblinkSectionOrder: null,
+  destinationExpertConfig: null,
   itinerary: [],
   hotels: [],
   services: [],
@@ -387,6 +482,7 @@ const emptyHotel = (
   notes: null,
   sequence,
   images: [],
+  imageSnapshotPresent: false,
   ...seed,
 });
 
@@ -407,6 +503,7 @@ type DefaultHotelMaster = {
   starCategory: number | null;
   city: { name: string };
   destination: { name: string };
+  images: MasterImageMeta[];
 };
 
 /** Segments that do not require hotel accommodation. */
@@ -480,6 +577,7 @@ const autoPrefillLeadRows = (
     const defaultHotel = matchDefaultHotel(cityName, masters);
     const bestHotel = defaultHotel ?? matchBestCityHotel(cityName, masters);
     const selected = bestHotel;
+    const images = masterGallerySnapshot(selected?.images, selected?.name ?? 'Hotel');
     built.push({
       ...row,
       hotelId: selected?.id ?? null,
@@ -488,6 +586,9 @@ const autoPrefillLeadRows = (
       hotelName: selected?.name ?? row.hotelName ?? '',
       city: selected ? selected.city.name : cityName,
       category: selected?.starCategory ? `${selected.starCategory} Star` : null,
+      images,
+      imageSnapshotPresent: masterGalleryPresence(selected),
+      pdfImageUrl: images[0] ? quotationSnapshotImageIdentity(images[0]) : null,
     });
   }
   return built;
@@ -506,6 +607,9 @@ const newCruiseServiceRow = (sequence: number) => ({
   sellingPrice: 0,
   taxCategory: 'Cruise Details',
   notes: null,
+  images: [],
+  imageSnapshotPresent: false,
+  pdfImageUrl: null,
   sequence,
 });
 
@@ -584,18 +688,21 @@ function HotelPreview({
   hotelId,
   snapshotImageUrl,
   snapshotThumbnailUrl,
+  snapshotAuthoritative,
 }: {
   hotelId?: string | null | undefined;
   /** First saved snapshot image, shown when the hotel has no Master link. */
   snapshotImageUrl?: string | null | undefined;
   /** Fallback candidate for the same image, used if the primary fails. */
   snapshotThumbnailUrl?: string | null | undefined;
+  /** True once this stay owns a gallery, including an intentional empty one. */
+  snapshotAuthoritative?: boolean | undefined;
 }) {
   const hotel = useHotel(hotelId ?? undefined);
   const image = useQuery({
     queryKey: ['masters', 'hotels', hotelId ?? '', 'quotation-preview'],
     queryFn: () => hotelImageUrl(hotelId!),
-    enabled: Boolean(hotelId && hotel.data?.hasImage),
+    enabled: Boolean(hotelId && hotel.data?.hasImage && !snapshotAuthoritative),
     staleTime: 4 * 60 * 1000,
   });
   const [previewFallback, setPreviewFallback] = useState(false);
@@ -605,7 +712,7 @@ function HotelPreview({
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
       <div className="flex h-36 items-center justify-center bg-slate-100">
-        {image.data?.url ? (
+        {!snapshotAuthoritative && image.data?.url ? (
           <img
             src={image.data.url}
             alt={hotel.data?.name ?? 'Hotel preview'}
@@ -661,12 +768,21 @@ function HotelPreview({
 function HotelImageThumb({
   image,
   alt,
+  fallbackUrl,
 }: {
-  image: { url: string; thumbnailUrl?: string | null | undefined };
+  image: QuotationImage;
   alt: string;
+  fallbackUrl?: string | null | undefined;
 }) {
   const [useThumbnail, setUseThumbnail] = useState(false);
-  const src = useThumbnail && image.thumbnailUrl ? image.thumbnailUrl : image.url;
+  const src =
+    (useThumbnail && image.thumbnailUrl ? image.thumbnailUrl : image.url) ?? fallbackUrl ?? null;
+  if (!src)
+    return (
+      <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-400">
+        <ImageIcon className="h-5 w-5" />
+      </div>
+    );
   return (
     <img
       src={src}
@@ -676,6 +792,102 @@ function HotelImageThumb({
         if (!useThumbnail && image.thumbnailUrl) setUseThumbnail(true);
       }}
     />
+  );
+}
+
+/** Shared quotation-only gallery controls for Hotel/Vehicle/Cruise images. */
+function QuotationImageManager({
+  label,
+  ariaPrefix,
+  images,
+  pdfImageUrl,
+  fallbackUrls,
+  onMove,
+  onRemove,
+  onSelectPdf,
+}: {
+  label: string;
+  ariaPrefix: string;
+  images: QuotationImage[];
+  pdfImageUrl?: string | null | undefined;
+  fallbackUrls?: Record<string, string | undefined>;
+  onMove: (index: number, direction: -1 | 1) => void;
+  onRemove: (index: number) => void;
+  onSelectPdf: (identity: string) => void;
+}) {
+  if (!images.length) return null;
+  const selected =
+    images.find((image) => quotationSnapshotImageIdentity(image) === pdfImageUrl) ?? images[0];
+  const selectedIdentity = selected ? quotationSnapshotImageIdentity(selected) : null;
+  return (
+    <div className="space-y-2.5 border-t border-slate-200 p-4">
+      <h4 className="text-sm font-semibold text-slate-800">
+        {label}{' '}
+        <span className="font-normal text-slate-400">
+          ({images.length}) · order saved with the quotation
+        </span>
+      </h4>
+      {images.map((image, imageIndex) => {
+        const identity = quotationSnapshotImageIdentity(image);
+        const fallbackUrl = identity ? fallbackUrls?.[identity] : undefined;
+        return (
+          <div
+            key={`${identity ?? 'image'}-${imageIndex}`}
+            className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5"
+          >
+            <HotelImageThumb
+              image={image}
+              fallbackUrl={fallbackUrl}
+              alt={image.alt ?? `${label} ${imageIndex + 1}`}
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={imageIndex === 0}
+                aria-label={`Move ${ariaPrefix} image ${imageIndex + 1} left`}
+                onClick={() => onMove(imageIndex, -1)}
+              >
+                <ArrowLeft className="h-4 w-4" /> Move Left
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={imageIndex === images.length - 1}
+                aria-label={`Move ${ariaPrefix} image ${imageIndex + 1} right`}
+                onClick={() => onMove(imageIndex, 1)}
+              >
+                Move Right <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                aria-label={`Remove ${ariaPrefix} image ${imageIndex + 1}`}
+                onClick={() => onRemove(imageIndex)}
+              >
+                <X className="h-4 w-4" /> Remove
+              </Button>
+            </div>
+            {identity && (
+              <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-sm">
+                <input
+                  type="radio"
+                  name={`${ariaPrefix}-pdf-image`}
+                  aria-label={`Use ${ariaPrefix} image ${imageIndex + 1} in PDF`}
+                  checked={identity === selectedIdentity}
+                  onChange={() => onSelectPdf(identity)}
+                  className="accent-brand-600"
+                />
+                Use in PDF
+              </label>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -706,6 +918,7 @@ export function QuotationBuilderPage() {
     userToggledHotel: false,
     enabledByAuto: false,
   });
+  const hotelPreviewImportsRef = useRef<Set<string>>(new Set());
   const vehicleMasters = useVehicles(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
@@ -721,6 +934,9 @@ export function QuotationBuilderPage() {
   // Local-only expand/collapse for Hotel Stay cards. UI state only — never
   // persisted. Every stay starts collapsed whenever the builder is opened.
   const [expandedHotels, setExpandedHotels] = useState<Record<string, boolean>>({});
+  // Local-only expand/collapse for the Weblink Section Order accordion. UI
+  // state only — never persisted. Always starts collapsed on every load.
+  const [sectionOrderOpen, setSectionOrderOpen] = useState(false);
   // Tracks whether the user has explicitly toggled a section's Include checkbox
   // so the init-time sync (from the lead's requested services) never re-enables
   // a section after a manual choice.
@@ -789,6 +1005,7 @@ export function QuotationBuilderPage() {
     setExcluded((prev) => ({ ...prev, hotel: false }));
   };
   const services = useFieldArray({ control: form.control, name: 'services' });
+  const faqs = useFieldArray({ control: form.control, name: 'faqs' });
   const outboundSegments = useFieldArray({
     control: form.control,
     name: 'flightDetails.outbound.segments',
@@ -802,6 +1019,8 @@ export function QuotationBuilderPage() {
   );
   const createAirline = useCreateAirline();
   const queryClient = useQueryClient();
+  const expertUsersQuery = useUsers(useMemo(() => new URLSearchParams({ pageSize: '100' }), []));
+  const watchedExpertConfig = useWatch({ control: form.control, name: 'destinationExpertConfig' });
   // Sightseeing master resolved by destinationId for each lead itinerary stay
   // instead of imprecise free-text search — guarantees complete city coverage.
   const destinationIdSet = useMemo(() => {
@@ -981,18 +1200,24 @@ export function QuotationBuilderPage() {
       }
       return next ?? null;
     };
-    const toActivity = (row: Sightseeing) => ({
-      sightseeingId: row.id,
-      name: row.title,
-      startTime: row.suggestedStartTime ?? null,
-      showTime: Boolean(row.suggestedStartTime),
-      duration: row.estimatedHours != null ? `${row.estimatedHours} hours` : null,
-      city: row.city?.name ?? null,
-      description: row.description ?? null,
-      imageUrl: null,
-      pricingOptions: emptySightseeingActivity().pricingOptions,
-      sequence: 1,
-    });
+    const toActivity = (row: Sightseeing) => {
+      const images = masterGallerySnapshot(row.images, row.title);
+      return {
+        sightseeingId: row.id,
+        name: row.title,
+        startTime: row.suggestedStartTime ?? null,
+        showTime: Boolean(row.suggestedStartTime),
+        duration: row.estimatedHours != null ? `${row.estimatedHours} hours` : null,
+        city: row.city?.name ?? null,
+        description: row.description ?? null,
+        imageUrl: null,
+        images,
+        imageSnapshotPresent: masterGalleryPresence(row),
+        pdfImageUrl: images[0] ? quotationSnapshotImageIdentity(images[0]) : null,
+        pricingOptions: emptySightseeingActivity().pricingOptions,
+        sequence: 1,
+      };
+    };
     const prefilledSightseeing = {
       include: true,
       sectionTitle: 'Sightseeing & Experiences',
@@ -1118,6 +1343,10 @@ export function QuotationBuilderPage() {
       vehicleModel: savedVehicle?.name ?? '',
       usage: savedVehicle?.notes ?? '',
       description: savedVehicle?.description ?? '',
+      images: savedVehicle?.images ?? [],
+      imageSnapshotPresent:
+        savedVehicle?.imageSnapshotPresent ?? Boolean(savedVehicle?.images?.length),
+      pdfImageUrl: savedVehicle?.pdfImageUrl ?? null,
     });
     const legacyTitle = version.title.trim().toLowerCase();
     const legacyDestinationTitle =
@@ -1167,7 +1396,7 @@ export function QuotationBuilderPage() {
       hidePricing: version.hidePricing ?? false,
       showIndividualPricing: version.showIndividualPricing ?? false,
       showQuickNav: version.showQuickNav ?? true,
-      quickNavSticky: version.quickNavSticky ?? false,
+      quickNavSticky: version.quickNavSticky ?? true,
       inclusionsHtml: policyValue(version.inclusionsHtml, destinationPolicyPrefill.inclusionsHtml),
       exclusionsHtml: policyValue(version.exclusionsHtml, destinationPolicyPrefill.exclusionsHtml),
       paymentPolicies: policyValue(
@@ -1271,9 +1500,11 @@ export function QuotationBuilderPage() {
               // the single hotel stay so the per-stay image manager and PDF
               // selection keep working. Rows that already carry their own
               // images (newer saves) are left untouched.
-              images: (Array.isArray(row.images) && row.images.length > 0
-                ? row.images
-                : version.hotels.length === 1 && Array.isArray(version.hotelDetails?.images)
+              images: (row.imageSnapshotPresent
+                ? (row.images ?? [])
+                : version.hotels.length === 1 &&
+                    Array.isArray(version.hotelDetails?.images) &&
+                    version.hotelDetails.images.length > 0
                   ? version.hotelDetails.images.map((image) => ({
                       url: image.url,
                       thumbnailUrl: null,
@@ -1282,6 +1513,11 @@ export function QuotationBuilderPage() {
                   : (row.images ?? [])) as NonNullable<
                 QuotationVersionInput['hotels']
               >[number]['images'],
+              imageSnapshotPresent:
+                (row.imageSnapshotPresent ?? Boolean(row.images?.length)) ||
+                (version.hotels.length === 1 &&
+                  Array.isArray(version.hotelDetails?.images) &&
+                  version.hotelDetails.images.length > 0),
               pdfImageUrl:
                 row.pdfImageUrl ??
                 (version.hotels.length === 1 ? (version.hotelDetails?.pdfImageUrl ?? null) : null),
@@ -1311,11 +1547,25 @@ export function QuotationBuilderPage() {
             ? 'Cruise Details'
             : row.taxCategory,
         notes: row.notes,
+        images: row.images ?? [],
+        imageSnapshotPresent: row.imageSnapshotPresent ?? Boolean(row.images?.length),
+        pdfImageUrl: row.pdfImageUrl ?? null,
         sequence: row.sequence,
       })),
       inclusions: version.inclusions,
       exclusions: version.exclusions,
       terms: version.terms,
+      faqs: Array.isArray((version as unknown as { faqs?: unknown }).faqs)
+        ? ((version as unknown as { faqs: Array<{ question: string; answer: string }> }).faqs ?? [])
+        : [],
+      weblinkSectionOrder: Array.isArray(
+        (version as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder,
+      )
+        ? ((version as unknown as { weblinkSectionOrder: string[] }).weblinkSectionOrder as string[])
+        : null,
+      destinationExpertConfig: (version as unknown as { destinationExpertConfig?: unknown }).destinationExpertConfig
+        ? ((version as unknown as { destinationExpertConfig: QuotationVersionInput['destinationExpertConfig'] }).destinationExpertConfig as QuotationVersionInput['destinationExpertConfig'])
+        : null,
     });
     // A brand-new quotation with a prefilled default hotel keeps the Hotel
     // section included unless the user explicitly turned it off. A saved
@@ -1397,17 +1647,37 @@ export function QuotationBuilderPage() {
   const applyService = (index: number, patch: ServiceRowPatch) =>
     applyPatch('services', index, patch);
 
+  // Unsaved Master refs deliberately carry no expiring URL. Enrich them for
+  // editing in the background, while merging into the latest order so delayed
+  // responses never restore images the user removed or moved.
+  useEffect(() => {
+    (watchedHotels ?? []).forEach((row, index) => {
+      const current = (row.images ?? []) as QuotationImage[];
+      if (!row.hotelId || !row.imageSnapshotPresent) return;
+      if (!current.some((image) => image.masterImageId && !image.url)) return;
+      const key = `${index}:${row.hotelId}:${current
+        .map((image) => quotationSnapshotImageIdentity(image) ?? '')
+        .join(',')}`;
+      if (hotelPreviewImportsRef.current.has(key)) return;
+      hotelPreviewImportsRef.current.add(key);
+      void importMasterGalleryPreviews(row.hotelId, current, hotelImageUrl).then((previewed) => {
+        if (form.getValues(`hotels.${index}.hotelId`) !== row.hotelId) return;
+        form.setValue(
+          `hotels.${index}.images`,
+          mergeMasterGalleryPreviews(form.getValues(`hotels.${index}.images`), previewed) as never,
+          { shouldDirty: false },
+        );
+      });
+    });
+  }, [watchedHotels, form]);
+
   // Per-stay bookmark snapshot image management. Every hotel stay owns its own
   // image list and its own "Use in PDF" selection. Reordering and removal only
   // edit this quotation's saved copy — the bookmark itself is never touched.
   // Removing the PDF-selected image moves the selection to the first remaining
   // image, matching the PDF's fallback rule.
   const moveHotelImage = (stayIndex: number, index: number, direction: -1 | 1) => {
-    const current = (watchedHotels?.[stayIndex]?.images ?? []) as Array<{
-      url: string;
-      thumbnailUrl?: string | null;
-      alt?: string | null;
-    }>;
+    const current = (watchedHotels?.[stayIndex]?.images ?? []) as QuotationImage[];
     const target = index + direction;
     if (target < 0 || target >= current.length) return;
     const next = [...current];
@@ -1416,26 +1686,93 @@ export function QuotationBuilderPage() {
       shouldDirty: true,
       shouldValidate: true,
     });
+    form.setValue(`hotels.${stayIndex}.imageSnapshotPresent`, true, { shouldDirty: true });
   };
   const removeHotelImage = (stayIndex: number, index: number) => {
-    const current = (watchedHotels?.[stayIndex]?.images ?? []) as Array<{
-      url: string;
-      thumbnailUrl?: string | null;
-      alt?: string | null;
-    }>;
+    const current = (watchedHotels?.[stayIndex]?.images ?? []) as QuotationImage[];
     const removed = current[index];
     const next = current.filter((_, imageIndex) => imageIndex !== index);
     form.setValue(`hotels.${stayIndex}.images`, next as never, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    if (removed && watchedHotels?.[stayIndex]?.pdfImageUrl === removed.url)
-      form.setValue(`hotels.${stayIndex}.pdfImageUrl`, next[0]?.url ?? null, {
-        shouldDirty: true,
-      });
+    form.setValue(`hotels.${stayIndex}.imageSnapshotPresent`, true, { shouldDirty: true });
+    if (
+      removed &&
+      watchedHotels?.[stayIndex]?.pdfImageUrl === quotationSnapshotImageIdentity(removed)
+    )
+      form.setValue(
+        `hotels.${stayIndex}.pdfImageUrl`,
+        next[0] ? quotationSnapshotImageIdentity(next[0]) : null,
+        {
+          shouldDirty: true,
+        },
+      );
   };
-  const setHotelPdfImage = (stayIndex: number, url: string) =>
-    form.setValue(`hotels.${stayIndex}.pdfImageUrl`, url, { shouldDirty: true });
+  const setHotelPdfImage = (stayIndex: number, identity: string) =>
+    form.setValue(`hotels.${stayIndex}.pdfImageUrl`, identity, { shouldDirty: true });
+
+  const moveServiceImage = (serviceIndex: number, imageIndex: number, direction: -1 | 1) => {
+    const current = (watchedServices?.[serviceIndex]?.images ?? []) as QuotationImage[];
+    const target = imageIndex + direction;
+    if (target < 0 || target >= current.length) return;
+    const next = [...current];
+    [next[imageIndex], next[target]] = [next[target]!, next[imageIndex]!];
+    form.setValue(`services.${serviceIndex}.images`, next, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue(`services.${serviceIndex}.imageSnapshotPresent`, true, { shouldDirty: true });
+  };
+  const removeServiceImage = (serviceIndex: number, imageIndex: number) => {
+    const current = (watchedServices?.[serviceIndex]?.images ?? []) as QuotationImage[];
+    const removed = current[imageIndex];
+    const next = current.filter((_, index) => index !== imageIndex);
+    form.setValue(`services.${serviceIndex}.images`, next, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue(`services.${serviceIndex}.imageSnapshotPresent`, true, { shouldDirty: true });
+    if (
+      removed &&
+      watchedServices?.[serviceIndex]?.pdfImageUrl === quotationSnapshotImageIdentity(removed)
+    )
+      form.setValue(
+        `services.${serviceIndex}.pdfImageUrl`,
+        next[0] ? quotationSnapshotImageIdentity(next[0]) : null,
+        { shouldDirty: true },
+      );
+  };
+  const setServicePdfImage = (serviceIndex: number, identity: string) =>
+    form.setValue(`services.${serviceIndex}.pdfImageUrl`, identity, { shouldDirty: true });
+
+  const moveVehicleImage = (imageIndex: number, direction: -1 | 1) => {
+    setVehicleDraft((current) => {
+      const target = imageIndex + direction;
+      if (target < 0 || target >= current.images.length) return current;
+      const images = [...current.images];
+      [images[imageIndex], images[target]] = [images[target]!, images[imageIndex]!];
+      return { ...current, images, imageSnapshotPresent: true };
+    });
+  };
+  const removeVehicleImage = (imageIndex: number) => {
+    setVehicleDraft((current) => {
+      const removed = current.images[imageIndex];
+      const images = current.images.filter((_, index) => index !== imageIndex);
+      const removedIdentity = removed ? quotationSnapshotImageIdentity(removed) : null;
+      return {
+        ...current,
+        images,
+        imageSnapshotPresent: true,
+        pdfImageUrl:
+          removedIdentity && current.pdfImageUrl === removedIdentity
+            ? images[0]
+              ? quotationSnapshotImageIdentity(images[0])
+              : null
+            : current.pdfImageUrl,
+      };
+    });
+  };
 
   // Prefill default hotels for untouched hotel rows that appear after
   // initialization (e.g. "Add Hotel"), without ever touching a row the user
@@ -1465,6 +1802,7 @@ export function QuotationBuilderPage() {
       const defaultHotel = matchDefaultHotel(row.city ?? '', hotelMasters.data?.data ?? []);
       if (!defaultHotel) return;
       matched = true;
+      const images = masterGallerySnapshot(defaultHotel.images, defaultHotel.name);
       // Same mapping as a manual master selection (see HotelMasterFields).
       for (const [key, patchValue] of Object.entries({
         hotelId: defaultHotel.id,
@@ -1473,6 +1811,9 @@ export function QuotationBuilderPage() {
         hotelName: defaultHotel.name,
         city: defaultHotel.city.name,
         category: defaultHotel.starCategory ? `${defaultHotel.starCategory} Star` : null,
+        images,
+        imageSnapshotPresent: masterGalleryPresence(defaultHotel),
+        pdfImageUrl: images[0] ? quotationSnapshotImageIdentity(images[0]) : null,
       })) {
         form.setValue(`hotels.${index}.${key}` as 'hotels.0.hotelName', patchValue as never, {
           shouldDirty: true,
@@ -1694,6 +2035,9 @@ export function QuotationBuilderPage() {
               // customer-safe snapshot fields.
               taxCategory: vehicleDraft.sectionTitle.trim() || 'Transportation',
               notes: vehicleDraft.usage.trim() || null,
+              images: vehicleDraft.images,
+              imageSnapshotPresent: vehicleDraft.imageSnapshotPresent,
+              pdfImageUrl: vehicleDraft.pdfImageUrl,
               sequence: nonVehicleServices.length + 1,
             }
           : null;
@@ -1753,6 +2097,29 @@ export function QuotationBuilderPage() {
           inclusions: seq(value.inclusions),
           exclusions: seq(value.exclusions),
           terms: seq(value.terms),
+          faqs: (value.faqs ?? [])
+            .map((row) => ({
+              question: (row.question ?? '').trim(),
+              answer: (row.answer ?? '').trim(),
+            }))
+            .filter((row) => row.question && row.answer),
+          weblinkSectionOrder: value.weblinkSectionOrder?.length
+            ? resolveWeblinkSectionOrder(value.weblinkSectionOrder)
+            : null,
+          destinationExpertConfig: value.destinationExpertConfig
+            ? {
+                enabled: Boolean(value.destinationExpertConfig.enabled),
+                expertUserId: value.destinationExpertConfig.expertUserId ?? null,
+                heading: (value.destinationExpertConfig.heading ?? '').trim() || null,
+                customIntroduction: (value.destinationExpertConfig.customIntroduction ?? '').trim() || null,
+                showWhatsapp: value.destinationExpertConfig.showWhatsapp !== false,
+                showCall: value.destinationExpertConfig.showCall !== false,
+                showEmail: value.destinationExpertConfig.showEmail !== false,
+                showExperience: value.destinationExpertConfig.showExperience !== false,
+                showTripsPlanned: value.destinationExpertConfig.showTripsPlanned !== false,
+                showLanguages: value.destinationExpertConfig.showLanguages !== false,
+              }
+            : null,
         },
         { onSuccess: () => navigate(`/quotations/${quotationId}`) },
       );
@@ -2059,6 +2426,9 @@ export function QuotationBuilderPage() {
                       vehicleType: event.target.value,
                       vehicleId: '',
                       vehicleModel: '',
+                      images: [],
+                      imageSnapshotPresent: false,
+                      pdfImageUrl: null,
                     }))
                   }
                   className={`${field} mt-1`}
@@ -2079,11 +2449,31 @@ export function QuotationBuilderPage() {
                   disabled={!vehicleDraft.vehicleType || vehicleMasters.isPending}
                   onChange={(event) => {
                     const master = masters.find((entry) => entry.id === event.target.value);
+                    const snapshot = masterGallerySnapshot(
+                      master?.images,
+                      master?.name ?? 'Vehicle',
+                    );
                     setVehicleDraft((current) => ({
                       ...current,
                       vehicleId: master?.id ?? '',
                       vehicleModel: master?.name ?? '',
+                      images: snapshot,
+                      imageSnapshotPresent: masterGalleryPresence(master),
+                      pdfImageUrl: snapshot[0] ? quotationSnapshotImageIdentity(snapshot[0]) : null,
                     }));
+                    if (master)
+                      void importMasterGalleryPreviews(master.id, snapshot, vehicleImageUrl).then(
+                        (images) => {
+                          setVehicleDraft((current) =>
+                            current.vehicleId === master.id
+                              ? {
+                                  ...current,
+                                  images: mergeMasterGalleryPreviews(current.images, images),
+                                }
+                              : current,
+                          );
+                        },
+                      );
                   }}
                   className={`${field} mt-1 disabled:bg-slate-100`}
                 >
@@ -2120,6 +2510,17 @@ export function QuotationBuilderPage() {
                 }
               />
             </div>
+            <QuotationImageManager
+              label="Vehicle Images"
+              ariaPrefix="vehicle"
+              images={vehicleDraft.images}
+              pdfImageUrl={vehicleDraft.pdfImageUrl}
+              onMove={moveVehicleImage}
+              onRemove={removeVehicleImage}
+              onSelectPdf={(identity) =>
+                setVehicleDraft((current) => ({ ...current, pdfImageUrl: identity }))
+              }
+            />
           </>
         )}
       </div>
@@ -2252,6 +2653,16 @@ export function QuotationBuilderPage() {
                     mealPlanText={hotel?.mealPlan}
                     hotelNameText={hotel?.hotelName}
                     onChange={(patch) => applyHotel(index, patch)}
+                    onMasterSelect={(_hotelId, masterImages, name) => {
+                      const snapshot = masterGallerySnapshot(masterImages, name);
+                      applyHotel(index, {
+                        images: snapshot,
+                        imageSnapshotPresent: Array.isArray(masterImages) ? true : undefined,
+                        pdfImageUrl: snapshot[0]
+                          ? quotationSnapshotImageIdentity(snapshot[0])
+                          : null,
+                      });
+                    }}
                   />
                 </div>
 
@@ -2399,74 +2810,19 @@ export function QuotationBuilderPage() {
                 snapshotThumbnailUrl={
                   hotel?.hotelName ? hotel?.images?.[0]?.thumbnailUrl : undefined
                 }
+                snapshotAuthoritative={hotel?.imageSnapshotPresent}
               />
             </div>
 
-            {/* Per-stay bookmark image manager: this hotel stay owns its own image
-            order and its own "Use in PDF" selection. */}
-            {Array.isArray(hotel?.images) && hotel.images.length > 0 && (
-              <div className="space-y-2.5 border-t border-slate-200 p-4">
-                <h4 className="text-sm font-semibold text-slate-800">
-                  Hotel Images{' '}
-                  <span className="font-normal text-slate-400">
-                    ({hotel.images.length}) · order saved with the quotation
-                  </span>
-                </h4>
-                {hotel.images.map((image, imageIndex) => (
-                  <div
-                    key={image.url}
-                    className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5"
-                  >
-                    <HotelImageThumb
-                      image={image}
-                      alt={image.alt ?? `Hotel image ${imageIndex + 1}`}
-                    />
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={imageIndex === 0}
-                        aria-label={`Move hotel image ${imageIndex + 1} left`}
-                        onClick={() => moveHotelImage(index, imageIndex, -1)}
-                      >
-                        <ArrowLeft className="h-4 w-4" /> Move Left
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={imageIndex === hotel.images.length - 1}
-                        aria-label={`Move hotel image ${imageIndex + 1} right`}
-                        onClick={() => moveHotelImage(index, imageIndex, 1)}
-                      >
-                        Move Right <ArrowRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        aria-label={`Remove hotel image ${imageIndex + 1}`}
-                        onClick={() => removeHotelImage(index, imageIndex)}
-                      >
-                        <X className="h-4 w-4" /> Remove
-                      </Button>
-                    </div>
-                    <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-sm">
-                      <input
-                        type="radio"
-                        name={`hotel-${index}-pdf-image`}
-                        aria-label={`Use hotel image ${imageIndex + 1} in PDF`}
-                        checked={hotel.pdfImageUrl === image.url}
-                        onChange={() => setHotelPdfImage(index, image.url)}
-                        className="accent-brand-600"
-                      />
-                      Use in PDF
-                    </label>
-                  </div>
-                ))}
-              </div>
-            )}
+            <QuotationImageManager
+              label="Hotel Images"
+              ariaPrefix={`hotel-${index}`}
+              images={(hotel?.images ?? []) as QuotationImage[]}
+              pdfImageUrl={hotel?.pdfImageUrl}
+              onMove={(imageIndex, direction) => moveHotelImage(index, imageIndex, direction)}
+              onRemove={(imageIndex) => removeHotelImage(index, imageIndex)}
+              onSelectPdf={(identity) => setHotelPdfImage(index, identity)}
+            />
           </>
         )}
       </article>
@@ -2583,13 +2939,43 @@ export function QuotationBuilderPage() {
                               value={cruise?.cruiseId}
                               loading={cruiseMasters.isPending}
                               fallbackLabel={masters.find((m) => m.id === cruise?.cruiseId)?.name}
-                              onSelect={(option) =>
+                              onSelect={(option) => {
+                                const selectedMaster = masters.find(
+                                  (master) => master.id === option?.id,
+                                );
+                                const snapshot = masterGallerySnapshot(
+                                  selectedMaster?.images,
+                                  selectedMaster?.name ?? 'Cruise',
+                                );
                                 applyService(index, {
                                   cruiseId: option?.id ?? null,
                                   cruiseRoomTypeId: null,
+                                  images: snapshot,
+                                  imageSnapshotPresent: masterGalleryPresence(selectedMaster),
+                                  pdfImageUrl: snapshot[0]
+                                    ? quotationSnapshotImageIdentity(snapshot[0])
+                                    : null,
                                   ...(option ? { name: option.label } : {}),
-                                })
-                              }
+                                });
+                                if (selectedMaster)
+                                  void importMasterGalleryPreviews(
+                                    selectedMaster.id,
+                                    snapshot,
+                                    cruiseImageUrl,
+                                  ).then((images) => {
+                                    if (
+                                      form.getValues(`services.${index}.cruiseId`) !==
+                                      selectedMaster.id
+                                    )
+                                      return;
+                                    applyService(index, {
+                                      images: mergeMasterGalleryPreviews(
+                                        form.getValues(`services.${index}.images`),
+                                        images,
+                                      ),
+                                    });
+                                  });
+                              }}
                             />
                           </div>
                         </label>
@@ -2650,6 +3036,17 @@ export function QuotationBuilderPage() {
                         </div>
                       </label>
                     </div>
+                    <QuotationImageManager
+                      label="Cruise Images"
+                      ariaPrefix={`cruise-${index}`}
+                      images={(cruise?.images ?? []) as QuotationImage[]}
+                      pdfImageUrl={cruise?.pdfImageUrl}
+                      onMove={(imageIndex, direction) =>
+                        moveServiceImage(index, imageIndex, direction)
+                      }
+                      onRemove={(imageIndex) => removeServiceImage(index, imageIndex)}
+                      onSelectPdf={(identity) => setServicePdfImage(index, identity)}
+                    />
                   </article>
                 );
               })}
@@ -3832,6 +4229,100 @@ export function QuotationBuilderPage() {
           </div>
         )}
 
+        {/* FAQs — quotation-level weblink content. */}
+        {activeTab === 'faqs' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-xl text-xs text-slate-500">
+                Add useful questions and answers for this quotation. They appear as an accordion on
+                the public weblink. Leave empty if not needed.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => faqs.append({ question: '', answer: '' })}
+              >
+                <Plus className="h-4 w-4" /> Add FAQ
+              </Button>
+            </div>
+            {faqs.fields.length === 0 && (
+              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-500">
+                No FAQs added yet. Click &quot;Add FAQ&quot; to create one.
+              </p>
+            )}
+            <div className="space-y-4">
+              {faqs.fields.map((row, index) => (
+                <div key={row.id} className="rounded-lg border bg-slate-50 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      FAQ {index + 1}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={index === 0}
+                        aria-label={`Move FAQ ${index + 1} up`}
+                        onClick={() => faqs.move(index, index - 1)}
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={index === faqs.fields.length - 1}
+                        aria-label={`Move FAQ ${index + 1} down`}
+                        onClick={() => faqs.move(index, index + 1)}
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Delete FAQ ${index + 1}`}
+                        onClick={() => faqs.remove(index)}
+                        className="text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" /> Remove FAQ
+                      </Button>
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-semibold text-slate-700">Question</span>
+                    <div className="mt-1">
+                      <RichTextEditor
+                        ariaLabel={`FAQ ${index + 1} question`}
+                        placeholder="e.g. Is breakfast included?"
+                        value={form.watch(`faqs.${index}.question`) ?? ''}
+                        onChange={(html) => {
+                          form.setValue(`faqs.${index}.question`, html, { shouldDirty: true });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <span className="block text-xs font-semibold text-slate-700">Answer</span>
+                    <div className="mt-1">
+                      <RichTextEditor
+                        ariaLabel={`FAQ ${index + 1} answer`}
+                        placeholder="e.g. Yes, daily breakfast is included at the hotel."
+                        value={form.watch(`faqs.${index}.answer`) ?? ''}
+                        onChange={(html) => {
+                          form.setValue(`faqs.${index}.answer`, html, { shouldDirty: true });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Summary & Pricing — per-passenger package pricing (reference layout). */}
         {activeTab === 'summary' && (
           <div className="space-y-5">
@@ -4068,11 +4559,149 @@ export function QuotationBuilderPage() {
                 </label>
               )}
             </section>
+           </div>
+         )}
+
+        {/* Setting — Weblink Customization */}
+        {activeTab === 'setting' && (
+          <div className="space-y-6">
+            {/* Section Order — collapsible accordion (collapsed by default). */}
+            <div className="overflow-hidden rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setSectionOrderOpen((open) => !open)}
+                aria-expanded={sectionOrderOpen}
+                aria-controls="weblink-section-order-panel"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-slate-800">Weblink Section Order</span>
+                  <span className="block text-xs text-slate-500">
+                    Choose the order in which sections appear on the public Weblink.
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${sectionOrderOpen ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                />
+              </button>
+              {sectionOrderOpen && (
+                <div id="weblink-section-order-panel" className="space-y-3 border-t px-4 py-3">
+                  <div className="space-y-2">
+                    {(() => {
+                      const saved = form.watch('weblinkSectionOrder');
+                      const order = resolveWeblinkSectionOrder(saved?.length ? saved : DEFAULT_WEBLINK_SECTION_ORDER);
+                      const move = (index: number, dir: -1 | 1) => {
+                        const next = [...order];
+                        const target = index + dir;
+                        if (target < 0 || target >= next.length) return;
+                        [next[index], next[target]] = [next[target]!, next[index]!];
+                        form.setValue('weblinkSectionOrder', next, { shouldDirty: true });
+                      };
+                      return order.map((sectionId, index) => (
+                        <div key={sectionId} className="flex items-center justify-between gap-2 rounded-lg border bg-slate-50 px-3 py-2">
+                          <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                            <span className="text-slate-400">☰</span>
+                            {WEBLINK_SECTION_LABELS[sectionId] ?? sectionId}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Button type="button" size="sm" variant="secondary" disabled={index === 0} aria-label={`Move ${sectionId} up`} onClick={() => move(index, -1)}>
+                              <ArrowUp className="h-4 w-4" />
+                            </Button>
+                            <Button type="button" size="sm" variant="secondary" disabled={index === order.length - 1} aria-label={`Move ${sectionId} down`} onClick={() => move(index, 1)}>
+                              <ArrowDown className="h-4 w-4" />
+                            </Button>
+                          </span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <button type="button" className="text-xs font-medium text-slate-500 hover:text-slate-700" onClick={() => form.setValue('weblinkSectionOrder', [...DEFAULT_WEBLINK_SECTION_ORDER], { shouldDirty: true })}>
+                    Reset to default order
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Destination Expert */}
+            <div className="space-y-4 border-t pt-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-800">Destination Expert</h3>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={Boolean(watchedExpertConfig?.enabled)} onChange={(e) => {
+                    const cur = form.getValues('destinationExpertConfig');
+                    const next = {
+                      enabled: e.target.checked,
+                      expertUserId: cur?.expertUserId ?? null,
+                      heading: cur?.heading ?? null,
+                      customIntroduction: cur?.customIntroduction ?? null,
+                      showWhatsapp: cur?.showWhatsapp ?? true,
+                      showCall: cur?.showCall ?? true,
+                      showEmail: cur?.showEmail ?? true,
+                      showExperience: cur?.showExperience ?? true,
+                      showTripsPlanned: cur?.showTripsPlanned ?? true,
+                      showLanguages: cur?.showLanguages ?? true,
+                    };
+                    form.setValue('destinationExpertConfig', next, { shouldDirty: true });
+                  }} />
+                  Show Destination Expert
+                </label>
+              </div>
+              {watchedExpertConfig?.enabled && (
+                <div className="space-y-4 rounded-lg border bg-slate-50 p-4">
+                  <label className="block text-sm font-semibold text-slate-800">
+                    Expert
+                    <select className={`${field} mt-1 bg-white`} value={watchedExpertConfig?.expertUserId ?? ''} onChange={(e) => {
+                      const cur = form.getValues('destinationExpertConfig');
+                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), expertUserId: e.target.value || null } as never, { shouldDirty: true });
+                    }}>
+                      <option value="">Select expert</option>
+                      {(expertUsersQuery.data?.data ?? []).map((u: { id: string; fullName: string }) => (
+                        <option key={u.id} value={u.id}>{u.fullName}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold text-slate-800">
+                    Heading
+                    <input className={`${field} mt-1 bg-white`} placeholder="e.g. Your Destination Expert" value={watchedExpertConfig?.heading ?? ''} onChange={(e) => {
+                      const cur = form.getValues('destinationExpertConfig');
+                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), heading: e.target.value || null } as never, { shouldDirty: true });
+                    }} />
+                  </label>
+                  <label className="block text-sm font-semibold text-slate-800">
+                    Custom introduction
+                    <textarea rows={3} className={`${field} mt-1 bg-white`} placeholder="Custom intro shown under expert details" value={watchedExpertConfig?.customIntroduction ?? ''} onChange={(e) => {
+                      const cur = form.getValues('destinationExpertConfig');
+                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), customIntroduction: e.target.value || null } as never, { shouldDirty: true });
+                    }} />
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ['showWhatsapp', 'Show WhatsApp'],
+                      ['showCall', 'Show Call'],
+                      ['showEmail', 'Show Email'],
+                      ['showExperience', 'Show Experience'],
+                      ['showTripsPlanned', 'Show Trips Planned'],
+                      ['showLanguages', 'Show Languages'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={Boolean((watchedExpertConfig as unknown as Record<string, unknown>)?.[key] ?? true)} onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue('destinationExpertConfig', { ...(cur ?? {}), [key]: e.target.checked } as never, { shouldDirty: true });
+                        }} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </section>
+       </section>
 
-      {/* Quotation Summary (always visible, like the reference) */}
+
+       {/* Quotation Summary (always visible, like the reference) */}
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="bg-emerald-600 px-5 py-3 font-semibold text-white">Quotation Summary</div>
         <div className="grid gap-0 p-0 md:grid-cols-2">

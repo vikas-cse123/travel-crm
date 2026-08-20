@@ -31,6 +31,14 @@ import {
   resolveMasterScope,
   type MasterScope,
 } from './master-visibility.js';
+import {
+  appendMasterImage,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 export type MastersRequestContext = { ipAddress: string | null; userAgent: string | null };
 
@@ -157,6 +165,7 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, sco
     latitude: num(safe.latitude as Prisma.Decimal | null),
     longitude: num(safe.longitude as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
     ...(Array.isArray(roomTypes)
       ? {
           roomTypes: roomTypes.map((r) =>
@@ -720,8 +729,17 @@ export const hotelsService = {
       metadata.contentType !== hotel.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = hotel.imageObjectKey;
-    const action = oldKey ? 'HOTEL_IMAGE_REPLACED' : 'HOTEL_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      hotel,
+      {
+        objectKey: key,
+        fileName: hotel.pendingImageFileName,
+        mimeType: hotel.pendingImageMimeType,
+        fileSize: hotel.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const canViewCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
     const updated = await prisma.$transaction(async (tx) => {
       await tx.hotel.update({
@@ -729,11 +747,7 @@ export const hotelsService = {
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: hotel.pendingImageFileName,
-          imageMimeType: hotel.pendingImageMimeType,
-          imageFileSize: hotel.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -741,62 +755,82 @@ export const hotelsService = {
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, action, 'Hotel', hotel.id, context, {
+        data: audit(auth, 'HOTEL_IMAGE_UPLOADED', 'Hotel', hotel.id, context, {
+          imageId: images.at(-1)!.id,
           mimeType: hotel.pendingImageMimeType,
           fileSize: hotel.pendingImageFileSize,
         }),
       });
       return tx.hotel.findUniqueOrThrow({ where: { id: hotel.id }, include: hotelDetailInclude });
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return presentHotel(updated as unknown as Record<string, unknown>, canViewCosting, scope);
   },
 
-  async imageDownload(auth: AuthContext, hotelId: string) {
+  async imageDownload(auth: AuthContext, hotelId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
     const hotel = await getHotel(auth, hotelId, scope);
-    if (!hotel.imageObjectKey || !hotel.imageFileName || !hotel.imageConfirmedAt)
-      throw new NotFoundError('Hotel image not found.');
+    const image = findMasterImage(hotel, imageId);
+    if (!image) throw new NotFoundError('Hotel image not found.');
     return {
-      url: await storageService.createDownloadUrl(
-        hotel.imageObjectKey,
-        hotel.imageFileName,
-        PRESIGN_TTL,
-      ),
+      url: await storageService.createDownloadUrl(image.objectKey, image.fileName, PRESIGN_TTL),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
 
-  async deleteImage(auth: AuthContext, hotelId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    hotelId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
     const hotel = await getHotel(auth, hotelId, scope, true);
     assertCanModifyMaster(hotel, scope);
-    const keys = [hotel.imageObjectKey, hotel.pendingImageObjectKey].filter(
-      (value): value is string => Boolean(value),
-    );
+    const removed = removeMasterImage(hotel, imageId);
+    if (!removed) throw new NotFoundError('Hotel image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.hotel.update({
         where: { id: hotel.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? hotel.imageStorageProvider : null,
+          imageBucket: removed.images.length ? hotel.imageBucket : null,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'HOTEL_IMAGE_DELETED', 'Hotel', hotel.id, context),
+        data: audit(auth, 'HOTEL_IMAGE_DELETED', 'Hotel', hotel.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+
+  async reorderImages(
+    auth: AuthContext,
+    hotelId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const images = reorderMasterImages(hotel, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotel.update({
+        where: { id: hotel.id },
+        data: masterImageWriteData(images),
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
   },
 };
 

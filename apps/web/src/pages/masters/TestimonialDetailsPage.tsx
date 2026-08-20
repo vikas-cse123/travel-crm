@@ -1,28 +1,16 @@
-import { useEffect, useState } from 'react';
 import { ArrowLeft, MessageSquareQuote, Pencil } from 'lucide-react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { testimonialImageUrl, useTestimonial } from '@/features/masters/masters.api';
+import { MasterImageGalleryView } from './MasterImageGallery';
 import { formatMasterDate, LoadingCard, MasterHeader, StatusBadge } from './MasterUi';
 
 export function TestimonialDetailsPage() {
   const { testimonialId } = useParams();
   const testimonial = useTestimonial(testimonialId);
   const { hasPermission } = useAuth();
-  const [imageUrl, setImageUrl] = useState('');
-
-  useEffect(() => {
-    if (!testimonialId || !testimonial.data?.hasImage) return;
-    let active = true;
-    void testimonialImageUrl(testimonialId)
-      .then((result) => active && setImageUrl(result.url))
-      .catch(() => setImageUrl(''));
-    return () => {
-      active = false;
-    };
-  }, [testimonial.data?.hasImage, testimonialId]);
 
   if (testimonial.isError) return <Navigate to="/masters/testimonials" replace />;
   if (!testimonial.data) return <LoadingCard />;
@@ -54,11 +42,18 @@ export function TestimonialDetailsPage() {
       />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center gap-4 border-b p-5">
-          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border bg-slate-50">
-            {imageUrl ? (
-              <img src={imageUrl} alt={clientName} className="h-full w-full object-cover" />
+          <div className="w-full max-w-xs overflow-hidden rounded-lg bg-slate-50 sm:w-56">
+            {value.hasImage ? (
+              <MasterImageGalleryView
+                masterId={value.id}
+                entity={value}
+                download={testimonialImageUrl}
+                alt={clientName}
+              />
             ) : (
-              <MessageSquareQuote className="h-7 w-7 text-slate-300" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border">
+                <MessageSquareQuote className="h-7 w-7 text-slate-300" />
+              </div>
             )}
           </div>
           <div>

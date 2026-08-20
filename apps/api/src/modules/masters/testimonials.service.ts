@@ -29,6 +29,14 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import {
+  appendMasterImage,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 /**
  * Testimonials Master.
@@ -94,6 +102,7 @@ function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) 
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
 }
 
@@ -354,19 +363,24 @@ export const testimonialsService = {
       metadata.contentType !== row.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = row.imageObjectKey;
-    const action = oldKey ? 'TESTIMONIAL_IMAGE_REPLACED' : 'TESTIMONIAL_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      row,
+      {
+        objectKey: key,
+        fileName: row.pendingImageFileName,
+        mimeType: row.pendingImageMimeType,
+        fileSize: row.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const updated = await prisma.$transaction(async (tx) => {
       const saved = await tx.testimonial.update({
         where: { id: row.id },
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: row.pendingImageFileName,
-          imageMimeType: row.pendingImageMimeType,
-          imageFileSize: row.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -376,62 +390,81 @@ export const testimonialsService = {
         include: testimonialInclude,
       });
       await tx.activityLog.create({
-        data: audit(auth, action, row.id, context, {
-          mimeType: saved.imageMimeType,
-          fileSize: saved.imageFileSize,
+        data: audit(auth, 'TESTIMONIAL_IMAGE_UPLOADED', row.id, context, {
+          imageId: images.at(-1)!.id,
+          mimeType: row.pendingImageMimeType,
+          fileSize: row.pendingImageFileSize,
         }),
       });
       return saved;
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return present(updated as unknown as Record<string, unknown>, scope);
   },
 
-  async imageDownload(auth: AuthContext, testimonialId: string) {
+  async imageDownload(auth: AuthContext, testimonialId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
     const row = await getTestimonial(auth, testimonialId, scope);
-    if (!row.imageObjectKey || !row.imageFileName || !row.imageConfirmedAt)
-      throw new NotFoundError('Testimonial image not found.');
+    const image = findMasterImage(row, imageId);
+    if (!image) throw new NotFoundError('Testimonial image not found.');
     return {
-      url: await storageService.createDownloadUrl(
-        row.imageObjectKey,
-        row.imageFileName,
-        PRESIGN_TTL,
-      ),
+      url: await storageService.createDownloadUrl(image.objectKey, image.fileName, PRESIGN_TTL),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
 
-  async deleteImage(auth: AuthContext, testimonialId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    testimonialId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
     const row = await getTestimonial(auth, testimonialId, scope, true);
     assertCanModifyMaster(row, scope);
-    const keys = [row.imageObjectKey, row.pendingImageObjectKey].filter((value): value is string =>
-      Boolean(value),
-    );
+    const removed = removeMasterImage(row, imageId);
+    if (!removed) throw new NotFoundError('Testimonial image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.testimonial.update({
         where: { id: row.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? row.imageStorageProvider : null,
+          imageBucket: removed.images.length ? row.imageBucket : null,
           updatedById: auth.userId,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'TESTIMONIAL_IMAGE_DELETED', row.id, context),
+        data: audit(auth, 'TESTIMONIAL_IMAGE_DELETED', row.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+  async reorderImages(
+    auth: AuthContext,
+    testimonialId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.TESTIMONIAL);
+    const row = await getTestimonial(auth, testimonialId, scope, true);
+    assertCanModifyMaster(row, scope);
+    const images = reorderMasterImages(row, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.testimonial.update({
+        where: { id: row.id },
+        data: { ...masterImageWriteData(images), updatedById: auth.userId },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'TESTIMONIAL_UPDATED', row.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, testimonialId);
   },
 };

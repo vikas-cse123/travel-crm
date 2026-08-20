@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, Building2, MapPin, Pencil, Star } from 'lucide-react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { hotelImageUrl, useHotel } from '@/features/masters/masters.api';
+import { MasterImageGalleryView } from './MasterImageGallery';
 import {
   formatMasterDate,
   LoadingCard,
@@ -27,18 +28,6 @@ export function HotelDetailsPage() {
   const { hasPermission } = useAuth();
   const canViewCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
   const [tab, setTab] = useState<(typeof tabs)[number][0]>('description');
-  const [imageUrl, setImageUrl] = useState('');
-
-  useEffect(() => {
-    if (!hotelId || !hotel.data?.hasImage) return;
-    let active = true;
-    void hotelImageUrl(hotelId)
-      .then((result) => active && setImageUrl(result.url))
-      .catch(() => setImageUrl(''));
-    return () => {
-      active = false;
-    };
-  }, [hotel.data?.hasImage, hotelId]);
 
   if (hotel.isError) return <Navigate to="/masters/hotels" replace />;
   if (!hotel.data) return <LoadingCard />;
@@ -69,8 +58,15 @@ export function HotelDetailsPage() {
       />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          {imageUrl ? (
-            <img src={imageUrl} alt={value.name} className="h-56 w-full object-cover" />
+          {value.hasImage ? (
+            <div className="bg-slate-50 p-3">
+              <MasterImageGalleryView
+                masterId={value.id}
+                entity={value}
+                download={hotelImageUrl}
+                alt={value.name}
+              />
+            </div>
           ) : (
             <div className="flex h-48 items-center justify-center bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 text-white">
               <Building2 className="h-16 w-16 opacity-80" />

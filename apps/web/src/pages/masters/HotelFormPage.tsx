@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ImagePlus, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -18,6 +17,8 @@ import {
   createMealPlan,
   createRoomType,
   deleteHotelImage,
+  hotelImageUrl,
+  reorderHotelImages,
   useCreateHotel,
   useDestination,
   useDestinations,
@@ -27,7 +28,7 @@ import {
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
 import { HotelPlansEditor } from './HotelPlansEditor';
 import { emptyPlanDraft, HotelPlanDraftPanel, type PlanDraft } from './HotelPlanDraftPanel';
-import { MasterImageEditor } from './MasterImageEditor';
+import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
@@ -115,16 +116,26 @@ export function HotelFormPage() {
   const { hasPermission } = useAuth();
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA);
   const canManageCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
-  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageError, setImageError] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [formError, setFormError] = useState('');
   const [roomDrafts, setRoomDrafts] = useState<PlanDraft[]>([emptyPlanDraft()]);
   const [mealDrafts, setMealDrafts] = useState<PlanDraft[]>([emptyPlanDraft()]);
   const form = useForm<FormValues>({ defaultValues: empty });
   const destinationId = form.watch('destinationId');
   const destinationDetail = useDestination(destinationId || undefined);
+  const imageGallery = useMasterImageGallery({
+    masterId: hotelId,
+    entity: hotel.data,
+    allowedMimeTypes: HOTEL_IMAGE_MIME_TYPES,
+    maxSizeMb: 10,
+    api: {
+      approve: approveHotelImage,
+      confirm: confirmHotelImage,
+      download: hotelImageUrl,
+      remove: deleteHotelImage,
+      reorder: reorderHotelImages,
+    },
+    onExistingChange: hotel.refetch,
+  });
 
   useEffect(() => {
     const destinationIdFromLink = searchParams.get('destinationId');
@@ -148,64 +159,8 @@ export function HotelFormPage() {
     });
   }, [hotel.data, form]);
 
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
-
   if (hotelId && hotel.isError) return <Navigate to="/masters/hotels" replace />;
   const mutation = hotelId ? update : create;
-
-  const validateImage = (file?: File) => {
-    setImageError('');
-    if (!file) {
-      setImage(null);
-      setImageEditorOpen(false);
-      return;
-    }
-    if (!HOTEL_IMAGE_MIME_TYPES.includes(file.type as (typeof HOTEL_IMAGE_MIME_TYPES)[number])) {
-      setImageError('Use a JPEG, PNG, or WebP image.');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setImageError('Image must be 10 MB or smaller.');
-      return;
-    }
-    setImage(file);
-    setImageEditorOpen(true);
-  };
-  const applyEditedImage = (file: File) => {
-    if (file.size > 10 * 1024 * 1024) {
-      setImageError('Image must be 10 MB or smaller.');
-      return;
-    }
-    setImageError('');
-    setImage(file);
-    setImageEditorOpen(false);
-  };
-  const uploadImage = async (id: string, file: File) => {
-    const approval = await approveHotelImage(id, {
-      fileName: file.name,
-      mimeType: file.type as (typeof HOTEL_IMAGE_MIME_TYPES)[number],
-      fileSize: file.size,
-    });
-    if (!approval.uploadUrl.startsWith('http'))
-      throw new Error(
-        'Local memory storage has no browser upload transport. Configure S3 to upload images.',
-      );
-    const response = await fetch(approval.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
-    if (!response.ok) throw new Error('The image upload failed. Please try again.');
-    await confirmHotelImage(id);
-  };
 
   const priceField = (draft: PlanDraft) =>
     canManageCosting && draft.price.trim() ? { sellingPrice: numberOrNull(draft.price) } : {};
@@ -235,7 +190,8 @@ export function HotelFormPage() {
   };
 
   const submit = form.handleSubmit(async (values) => {
-    setImageError('');
+    setFormError('');
+    imageGallery.clearError();
     if (!values.destinationId) {
       form.setError('destinationId', { message: 'Select a destination.' });
       return;
@@ -270,10 +226,7 @@ export function HotelFormPage() {
         ? await update.mutateAsync(base)
         : await create.mutateAsync({ ...base, status: 'ACTIVE' } as HotelInput);
       if (!hotelId) await persistDrafts(saved.id);
-      if (image && canManageMedia) {
-        setUploading(true);
-        await uploadImage(saved.id, image);
-      }
+      if (canManageMedia) await imageGallery.persist(saved.id);
       navigate(`/masters/hotels/${saved.id}`);
     } catch (error) {
       if (error instanceof ApiError && error.fields) {
@@ -284,17 +237,14 @@ export function HotelFormPage() {
             });
           }
         });
-        setImageError(
+        setFormError(
           Object.values(error.fields)
             .map((messages) => messages[0] ?? 'Please check this field.')
             .join(' '),
         );
         return;
       }
-      if (error instanceof Error && !(error as { code?: string }).code)
-        setImageError(error.message);
-    } finally {
-      setUploading(false);
+      if (error instanceof Error && !(error as { code?: string }).code) setFormError(error.message);
     }
   });
 
@@ -307,9 +257,9 @@ export function HotelFormPage() {
         current={hotelId ? 'Edit Hotel' : 'Create Hotel'}
       />
       <form onSubmit={submit} className="space-y-5">
-        {(mutation.error || imageError) && (
+        {(mutation.error || formError) && (
           <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            {imageError || mutation.error?.message}
+            {formError || mutation.error?.message}
           </div>
         )}
         <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -401,82 +351,12 @@ export function HotelFormPage() {
 
               <div className="space-y-4">
                 {canManageMedia && (
-                  <div>
-                    <span className="block text-sm font-medium text-slate-700">Hotel Image</span>
-                    <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600 hover:bg-slate-50">
-                      <ImagePlus className="h-5 w-5" />
-                      {image?.name ??
-                        (hotel.data?.hasImage
-                          ? `Replace ${hotel.data.imageFileName}`
-                          : 'Choose JPEG, PNG or WebP')}
-                      <input
-                        className="sr-only"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        onChange={(event) => validateImage(event.target.files?.[0])}
-                      />
-                    </label>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Recommended 800×600px. Allowed: JPG, PNG, WebP.
-                    </p>
-                    {/* <p className="mt-2 text-xs text-amber-700">
-                      ⚠️ Upload only royalty-free or owned images. Interscale is not liable for
-                      copyright issues.
-                    </p> */}
-                    {/* <p className="text-xs text-emerald-700">
-                      ✅ Use royalty-free photos only — Pexels / Pixabay / Unsplash.
-                    </p> */}
-                    {imagePreviewUrl && (
-                      <div className="mt-2 overflow-hidden rounded-lg border bg-slate-50">
-                        <img
-                          src={imagePreviewUrl}
-                          alt="Hotel image preview"
-                          className="h-44 w-full bg-slate-50 object-contain"
-                        />
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
-                          <p className="min-w-0 truncate text-sm text-slate-600">{image?.name}</p>
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setImageEditorOpen(true)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => {
-                                setImage(null);
-                                setImageError('');
-                                setImageEditorOpen(false);
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {hotelId && hotel.data?.hasImage && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="danger"
-                        className="mt-2"
-                        onClick={async () => {
-                          if (window.confirm('Delete this hotel image?')) {
-                            await deleteHotelImage(hotelId);
-                            await hotel.refetch();
-                          }
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" /> Delete image
-                      </Button>
-                    )}
-                  </div>
+                  <MasterImageGalleryField
+                    label="Hotel Images"
+                    controller={imageGallery}
+                    accept="image/jpeg,image/png,image/webp"
+                    maxSizeMb={10}
+                  />
                 )}
                 <Field label="Address">
                   <textarea
@@ -539,22 +419,11 @@ export function HotelFormPage() {
           <Link to={hotelId ? `/masters/hotels/${hotelId}` : '/masters/hotels'}>
             <Button variant="secondary">Cancel</Button>
           </Link>
-          <Button type="submit" isLoading={mutation.isPending || uploading}>
+          <Button type="submit" isLoading={mutation.isPending || imageGallery.isBusy}>
             {hotelId ? 'Update Hotel' : 'Create Hotel'}
           </Button>
         </div>
       </form>
-
-      {image && imagePreviewUrl && (
-        <MasterImageEditor
-          file={image}
-          imageUrl={imagePreviewUrl}
-          isOpen={isImageEditorOpen}
-          title="Edit Hotel Image"
-          onCancel={() => setImageEditorOpen(false)}
-          onApply={applyEditedImage}
-        />
-      )}
     </div>
   );
 }

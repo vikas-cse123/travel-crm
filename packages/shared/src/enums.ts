@@ -27,6 +27,13 @@ export const USER_STATUS = {
 
 export type UserStatus = (typeof USER_STATUS)[keyof typeof USER_STATUS];
 
+export const USER_GENDER = {
+  MALE: 'MALE',
+  FEMALE: 'FEMALE',
+} as const;
+
+export type UserGender = (typeof USER_GENDER)[keyof typeof USER_GENDER];
+
 /** Statuses that are permitted to authenticate. Everything else is refused. */
 export const LOGIN_ALLOWED_USER_STATUSES: readonly UserStatus[] = [USER_STATUS.ACTIVE];
 

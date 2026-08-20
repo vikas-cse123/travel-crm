@@ -651,6 +651,11 @@ enum MasterStatus {
   ARCHIVED
 }
 
+enum UserGender {
+  MALE
+  FEMALE
+}
+
 enum DestinationType {
   DOMESTIC
   INTERNATIONAL
@@ -1196,6 +1201,28 @@ model User {
   /// invalidating anything issued before a reset. Null for never-changed.
   passwordChangedAt DateTime?
 
+  // Destination Expert — explicit gender for default avatar + expert profile details.
+  // Gender is explicit; never inferred. Custom profile photo overrides gender avatar.
+  gender                UserGender?
+  jobTitle              String?          @db.VarChar(120)
+  bio                   String?          @db.Text
+  specialization        String?          @db.VarChar(200)
+  yearsOfExperience     Int?
+  tripsPlanned          Int?
+  languages             String?          @db.VarChar(200)
+  whatsappNumber        String?          @db.VarChar(32)
+  // Custom profile photo (two-phase upload, pending until confirmed)
+  profileImageObjectKey         String?          @db.VarChar(1000)
+  profileImageBucket            String?          @db.VarChar(255)
+  profileImageStorageProvider   StorageProvider?
+  profileImageMimeType          String?          @db.VarChar(120)
+  profileImageFileSize          Int?
+  profileImageConfirmedAt       DateTime?
+  pendingProfileImageObjectKey  String?          @db.VarChar(1000)
+  pendingProfileImageFileName   String?          @db.VarChar(255)
+  pendingProfileImageMimeType   String?          @db.VarChar(120)
+  pendingProfileImageFileSize   Int?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   /// Soft deletion. Non-null rows are excluded from normal reads.
@@ -1448,6 +1475,8 @@ model Destination {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
   inclusions            String?          @db.Text
   exclusions            String?          @db.Text
   paymentPolicies       String?          @db.Text
@@ -1533,6 +1562,8 @@ model Hotel {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
   status                MasterStatus     @default(ACTIVE)
   createdById           String           @db.Uuid
   createdAt             DateTime         @default(now())
@@ -1706,6 +1737,8 @@ model Sightseeing {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -1860,6 +1893,8 @@ model Testimonial {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -1906,6 +1941,8 @@ model Cruise {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -1989,6 +2026,8 @@ model Vehicle {
   pendingImageFileName  String?          @db.VarChar(255)
   pendingImageMimeType  String?          @db.VarChar(120)
   pendingImageFileSize  Int?
+  /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
+  images                Json?            @db.Json
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -3291,6 +3330,13 @@ model QuotationVersion {
   // Reference "Add-on Services" — top-level include flag (the individual
   // add-ons are persisted as service rows; unchecked rows are omitted).
   addOnDetails                 Json?
+  // Weblink customization: quotation-specific FAQs and custom section order.
+  // `faqs` is an ordered array of { question, answer }; `weblinkSectionOrder`
+  // is an ordered list of section ids. Both are nullable for backward compatibility.
+  faqs                       Json?                @db.Json
+  weblinkSectionOrder        Json?                @db.Json
+  // Destination Expert — per-quotation config (nullable for old quotations)
+  destinationExpertConfig Json?                @db.Json
   notes                        String?                @db.VarChar(4000)
   internalNotes                String?                @db.VarChar(4000)
   status                       QuotationVersionStatus @default(DRAFT)
@@ -3407,6 +3453,10 @@ model QuotationVersionService {
   totalSellingPrice  Decimal          @default(0) @db.Decimal(14, 2)
   taxCategory        String?          @db.VarChar(80)
   notes              String?          @db.VarChar(2000)
+  /// Ordered, quotation-owned image snapshot copied from a selected Master.
+  images             Json?            @db.Json
+  /// Exactly one saved image selected for PDF; falls back to the first image.
+  pdfImageUrl        String?          @db.VarChar(1000)
   sequence           Int
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

@@ -27,6 +27,14 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import {
+  appendMasterImage,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 /**
  * Vehicle Master.
@@ -95,6 +103,7 @@ function presentVehicle<T extends Record<string, unknown>>(row: T, scope: Master
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
 }
 
@@ -419,19 +428,24 @@ export const vehiclesService = {
       metadata.contentType !== vehicle.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = vehicle.imageObjectKey;
-    const action = oldKey ? 'VEHICLE_IMAGE_REPLACED' : 'VEHICLE_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      vehicle,
+      {
+        objectKey: key,
+        fileName: vehicle.pendingImageFileName,
+        mimeType: vehicle.pendingImageMimeType,
+        fileSize: vehicle.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.vehicle.update({
         where: { id: vehicle.id },
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: vehicle.pendingImageFileName,
-          imageMimeType: vehicle.pendingImageMimeType,
-          imageFileSize: vehicle.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -440,61 +454,80 @@ export const vehiclesService = {
         include: vehicleInclude,
       });
       await tx.activityLog.create({
-        data: audit(auth, action, vehicle.id, context, {
-          mimeType: row.imageMimeType,
-          fileSize: row.imageFileSize,
+        data: audit(auth, 'VEHICLE_IMAGE_UPLOADED', vehicle.id, context, {
+          imageId: images.at(-1)!.id,
+          mimeType: vehicle.pendingImageMimeType,
+          fileSize: vehicle.pendingImageFileSize,
         }),
       });
       return row;
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return presentVehicle(updated as unknown as Record<string, unknown>, scope);
   },
 
-  async imageDownload(auth: AuthContext, vehicleId: string) {
+  async imageDownload(auth: AuthContext, vehicleId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     const vehicle = await getVehicle(auth, vehicleId, scope);
-    if (!vehicle.imageObjectKey || !vehicle.imageFileName || !vehicle.imageConfirmedAt)
-      throw new NotFoundError('Vehicle image not found.');
+    const image = findMasterImage(vehicle, imageId);
+    if (!image) throw new NotFoundError('Vehicle image not found.');
     return {
-      url: await storageService.createDownloadUrl(
-        vehicle.imageObjectKey,
-        vehicle.imageFileName,
-        PRESIGN_TTL,
-      ),
+      url: await storageService.createDownloadUrl(image.objectKey, image.fileName, PRESIGN_TTL),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
 
-  async deleteImage(auth: AuthContext, vehicleId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    vehicleId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
     const vehicle = await getVehicle(auth, vehicleId, scope, true);
     assertCanModifyMaster(vehicle, scope);
-    const keys = [vehicle.imageObjectKey, vehicle.pendingImageObjectKey].filter(
-      (value): value is string => Boolean(value),
-    );
+    const removed = removeMasterImage(vehicle, imageId);
+    if (!removed) throw new NotFoundError('Vehicle image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.vehicle.update({
         where: { id: vehicle.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? vehicle.imageStorageProvider : null,
+          imageBucket: removed.images.length ? vehicle.imageBucket : null,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'VEHICLE_IMAGE_DELETED', vehicle.id, context),
+        data: audit(auth, 'VEHICLE_IMAGE_DELETED', vehicle.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+  async reorderImages(
+    auth: AuthContext,
+    vehicleId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.VEHICLE);
+    const vehicle = await getVehicle(auth, vehicleId, scope, true);
+    assertCanModifyMaster(vehicle, scope);
+    const images = reorderMasterImages(vehicle, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.vehicle.update({
+        where: { id: vehicle.id },
+        data: masterImageWriteData(images),
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'VEHICLE_UPDATED', vehicle.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, vehicleId);
   },
 };

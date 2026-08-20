@@ -50,6 +50,13 @@ export interface MasterVisibilityMeta {
   canRestore: boolean;
   source: MasterSource;
 }
+export interface MasterImageMeta {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  isPrimary: boolean;
+}
 
 export interface City extends MasterVisibilityMeta {
   id: string;
@@ -89,6 +96,7 @@ export interface Destination extends MasterVisibilityMeta {
   imageFileSize: number | null;
   imageConfirmedAt: string | null;
   hasImage: boolean;
+  images: MasterImageMeta[];
   cities: DestinationCityLink[];
   _count: { cities: number };
   createdAt: string;
@@ -241,14 +249,18 @@ export async function approveDestinationImage(id: string, input: DestinationImag
 export async function confirmDestinationImage(id: string) {
   return apiClient.post<Destination>(`/masters/destinations/${id}/image/confirm`);
 }
-export async function destinationImageUrl(id: string) {
+export async function destinationImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/destinations/${id}/image/download-url`,
+    `/masters/destinations/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteDestinationImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/destinations/${id}/image`);
+export async function deleteDestinationImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/destinations/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderDestinationImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Destination>(`/masters/destinations/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Hotels
@@ -304,6 +316,7 @@ export interface HotelSummary extends MasterVisibilityMeta {
   isDefaultForCity: boolean;
   isFeatured: boolean;
   hasImage: boolean;
+  images: MasterImageMeta[];
   updatedAt: string;
   createdAt: string;
   destination: { id: string; name: string };
@@ -436,14 +449,18 @@ export async function approveHotelImage(id: string, input: HotelImageUploadInput
 export async function confirmHotelImage(id: string) {
   return apiClient.post<Hotel>(`/masters/hotels/${id}/image/confirm`);
 }
-export async function hotelImageUrl(id: string) {
+export async function hotelImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/hotels/${id}/image/download-url`,
+    `/masters/hotels/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteHotelImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/hotels/${id}/image`);
+export async function deleteHotelImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/hotels/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderHotelImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Hotel>(`/masters/hotels/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Airlines
@@ -557,6 +574,7 @@ export interface Cruise extends MasterVisibilityMeta {
   description: string | null;
   status: string;
   hasImage: boolean;
+  images: MasterImageMeta[];
   imageFileName: string | null;
   imageMimeType: string | null;
   imageConfirmedAt: string | null;
@@ -634,14 +652,18 @@ export async function approveCruiseImage(id: string, input: CruiseImageUploadInp
 export async function confirmCruiseImage(id: string) {
   return apiClient.post<Cruise>(`/masters/cruises/${id}/image/confirm`);
 }
-export async function cruiseImageUrl(id: string) {
+export async function cruiseImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/cruises/${id}/image/download-url`,
+    `/masters/cruises/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteCruiseImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/cruises/${id}/image`);
+export async function deleteCruiseImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/cruises/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderCruiseImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Cruise>(`/masters/cruises/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Vehicles
@@ -655,6 +677,7 @@ export interface Vehicle extends MasterVisibilityMeta {
   description: string | null;
   status: string;
   hasImage: boolean;
+  images: MasterImageMeta[];
   imageFileName: string | null;
   imageMimeType: string | null;
   imageConfirmedAt: string | null;
@@ -736,14 +759,18 @@ export async function approveVehicleImage(id: string, input: VehicleImageUploadI
 export async function confirmVehicleImage(id: string) {
   return apiClient.post<Vehicle>(`/masters/vehicles/${id}/image/confirm`);
 }
-export async function vehicleImageUrl(id: string) {
+export async function vehicleImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/vehicles/${id}/image/download-url`,
+    `/masters/vehicles/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteVehicleImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/vehicles/${id}/image`);
+export async function deleteVehicleImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/vehicles/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderVehicleImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Vehicle>(`/masters/vehicles/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Sightseeing
@@ -759,6 +786,7 @@ export interface Sightseeing extends MasterVisibilityMeta {
   remarks: string | null;
   status: string;
   hasImage: boolean;
+  images: MasterImageMeta[];
   imageFileName: string | null;
   imageMimeType: string | null;
   imageConfirmedAt: string | null;
@@ -786,7 +814,13 @@ const sightseeingKeys = {
     ['masters', 'sightseeing', 'activities', destination, city] as const,
 };
 
-export type SightseeingPresentationMap = Record<string, { imageUrl: string | null }>;
+export type SightseeingPresentationMap = Record<
+  string,
+  {
+    imageUrl: string | null;
+    images: Array<{ id: string; url: string }>;
+  }
+>;
 
 /** Batch short-lived display URLs for sightseeing master ids (deduped). */
 export async function sightseeingPresentations(ids: Array<string | null | undefined>) {
@@ -816,6 +850,7 @@ export interface SightseeingActivity {
   estimatedHours: number | null;
   suggestedStartTime: string | null;
   description: string | null;
+  images: MasterImageMeta[];
   destination: { id: string; name: string };
   city: { id: string; name: string };
 }
@@ -927,14 +962,18 @@ export async function approveSightseeingImage(id: string, input: SightseeingImag
 export async function confirmSightseeingImage(id: string) {
   return apiClient.post<Sightseeing>(`/masters/sightseeing/${id}/image/confirm`);
 }
-export async function sightseeingImageUrl(id: string) {
+export async function sightseeingImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/sightseeing/${id}/image/download-url`,
+    `/masters/sightseeing/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteSightseeingImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/sightseeing/${id}/image`);
+export async function deleteSightseeingImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/sightseeing/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderSightseeingImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Sightseeing>(`/masters/sightseeing/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Add-On Services
@@ -1095,6 +1134,7 @@ export interface Testimonial extends MasterVisibilityMeta {
   isVisible: boolean;
   status: string;
   hasImage: boolean;
+  images: MasterImageMeta[];
   imageFileName: string | null;
   imageMimeType: string | null;
   imageConfirmedAt: string | null;
@@ -1159,14 +1199,18 @@ export async function approveTestimonialImage(id: string, input: TestimonialImag
 export async function confirmTestimonialImage(id: string) {
   return apiClient.post<Testimonial>(`/masters/testimonials/${id}/image/confirm`);
 }
-export async function testimonialImageUrl(id: string) {
+export async function testimonialImageUrl(id: string, imageId?: string) {
   return apiClient.get<{ url: string; expiresInSeconds: number }>(
-    `/masters/testimonials/${id}/image/download-url`,
+    `/masters/testimonials/${id}/image/download-url${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
   );
 }
-export async function deleteTestimonialImage(id: string) {
-  return apiClient.delete<{ deleted: true }>(`/masters/testimonials/${id}/image`);
+export async function deleteTestimonialImage(id: string, imageId?: string) {
+  return apiClient.delete<{ deleted: true }>(
+    `/masters/testimonials/${id}/image${imageId ? `?imageId=${encodeURIComponent(imageId)}` : ''}`,
+  );
 }
+export const reorderTestimonialImages = (id: string, imageIds: string[]) =>
+  apiClient.patch<Testimonial>(`/masters/testimonials/${id}/images/order`, { imageIds });
 
 // ---------------------------------------------------------------------------
 // Global records — hide / restore / hidden list

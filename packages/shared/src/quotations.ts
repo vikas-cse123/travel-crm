@@ -181,6 +181,52 @@ const sequence = z.coerce.number().int().min(1).max(500);
  */
 const optionalMasterId = z.string().uuid().nullable().optional();
 
+/**
+ * One image in a quotation-owned snapshot gallery.
+ *
+ * `url` keeps existing bookmark/legacy snapshots working. Master images use an
+ * opaque `masterImageId` while a draft is being edited; the API replaces that
+ * transient reference with its own immutable storage metadata before writing
+ * the snapshot. `id` is the stable, customer-safe identity returned on reload
+ * and is also what new rows store in the legacy-named `pdfImageUrl` column.
+ */
+export const quotationSnapshotImageSchema = z
+  .object({
+    id: optionalText(200),
+    masterImageId: optionalText(200),
+    url: z.string().trim().url().max(4000).nullable().optional(),
+    thumbnailUrl: z.string().trim().url().max(4000).nullable().optional(),
+    alt: optionalText(500),
+  })
+  .superRefine((image, ctx) => {
+    if (!image.id && !image.masterImageId && !image.url) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'An image must include a saved id, Master image id, or URL.',
+      });
+    }
+  });
+
+export type QuotationSnapshotImage = z.infer<typeof quotationSnapshotImageSchema>;
+
+/** Stable selection value for PDF choice: saved id first, legacy URL second. */
+export function quotationSnapshotImageIdentity(
+  image: Pick<QuotationSnapshotImage, 'id' | 'masterImageId' | 'url'>,
+): string | null {
+  return image.id?.trim() || image.masterImageId?.trim() || image.url?.trim() || null;
+}
+
+/** Explicit PDF image when valid, otherwise the first saved image in order. */
+export function resolveQuotationPdfImage<T extends QuotationSnapshotImage>(
+  images: readonly T[] | null | undefined,
+  selected: string | null | undefined,
+): T | null {
+  if (!images?.length) return null;
+  return (
+    images.find((image) => quotationSnapshotImageIdentity(image) === selected) ?? images[0] ?? null
+  );
+}
+
 export const quotationItinerarySchema = z.object({
   dayNumber: z.coerce.number().int().min(1).max(500),
   date: optionalDate,
@@ -234,16 +280,10 @@ export const quotationHotelSchema = z
     // empty array at the shared boundary — never a validation failure.
     images: z.preprocess(
       (value) => (value === null || value === undefined ? [] : value),
-      z
-        .array(
-          z.object({
-            url: z.string().url(),
-            thumbnailUrl: optionalText(1000),
-            alt: optionalText(500),
-          }),
-        )
-        .max(12),
+      z.array(quotationSnapshotImageSchema),
     ),
+    /** False only for a legacy NULL snapshot; true also preserves an explicit empty gallery. */
+    imageSnapshotPresent: z.boolean().optional(),
     /**
      * The image (a URL from `images`) chosen as this stay's single PDF photo
      * via "Use in PDF". Absent, or pointing at a removed image, the PDF falls
@@ -275,6 +315,16 @@ export const quotationServiceSchema = z.object({
   sellingPrice: optionalMoney,
   taxCategory: optionalText(80),
   notes: optionalText(2000),
+  // Ordered, quotation-owned snapshot. Legacy service rows normalize to [].
+  images: z
+    .preprocess(
+      (value) => (value === null || value === undefined ? [] : value),
+      z.array(quotationSnapshotImageSchema),
+    )
+    .optional(),
+  imageSnapshotPresent: z.boolean().optional(),
+  // One explicit PDF choice; renderers fall back to the first saved image.
+  pdfImageUrl: optionalText(1000),
   sequence,
 });
 
@@ -567,6 +617,15 @@ export const sightseeingActivitySchema = z.object({
   city: optionalText(120),
   description: optionalRichText(8000),
   imageUrl: optionalText(1000),
+  // Ordered gallery copied from the selected Sightseeing Master. The legacy
+  // single imageUrl/imageDocumentId fields remain valid for old quotations and
+  // custom uploads.
+  images: z.preprocess(
+    (value) => (value === null || value === undefined ? [] : value),
+    z.array(quotationSnapshotImageSchema),
+  ),
+  imageSnapshotPresent: z.boolean().optional(),
+  pdfImageUrl: optionalText(1000),
   // Per-activity transfer (PRIVATE/SHARED/NO_TRANSFER). Absent on legacy rows,
   // which fall back to the day-level dailyTransfer when displayed.
   dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).nullish(),
@@ -722,6 +781,33 @@ export const quotationVersionInputSchema = z
     addOnDetails: addOnDetailsSchema.nullable().optional(),
     // Reference "Sightseeing" — day-wise activity itinerary.
     sightseeingDetails: sightseeingDetailsSchema.nullable().optional(),
+    // Weblink customization — quotation-specific FAQs and custom section order.
+    faqs: z
+      .array(
+        z.object({
+          question: z.string().trim().min(1).max(500),
+          answer: z.string().trim().min(1).max(5000),
+        }),
+      )
+      .max(50)
+      .default([]),
+    weblinkSectionOrder: z.array(z.string().trim().min(1).max(80)).max(30).nullable().optional(),
+    // Destination Expert — per-quotation expert config
+    destinationExpertConfig: z
+      .object({
+        enabled: z.boolean().default(false),
+        expertUserId: z.string().uuid().nullable().optional(),
+        heading: optionalText(200),
+        customIntroduction: optionalText(2000),
+        showWhatsapp: z.boolean().default(true),
+        showCall: z.boolean().default(true),
+        showEmail: z.boolean().default(true),
+        showExperience: z.boolean().default(true),
+        showTripsPlanned: z.boolean().default(true),
+        showLanguages: z.boolean().default(true),
+      })
+      .nullable()
+      .optional(),
     notes: optionalText(4000),
     internalNotes: optionalText(4000),
     itinerary: z.array(quotationItinerarySchema).max(500).default([]),
@@ -754,6 +840,120 @@ export const quotationWeblinkSettingsSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'At least one setting must be supplied.');
 export type QuotationWeblinkSettings = z.infer<typeof quotationWeblinkSettingsSchema>;
+
+/**
+ * Weblink customization — reorderable sections for the public quotation page.
+ * These ids map one-to-one to the actual sections rendered by PublicQuotationPage.
+ * Do NOT add fictional sections here; the list must stay in sync with the renderer.
+ */
+export const WEBLINK_SECTION_IDS = [
+  'services',
+  'itinerary',
+  'hotels',
+  'flights',
+  'transportation',
+  'cruise',
+  'addons',
+  'visa',
+  'policies',
+  'destinationExpert',
+  'faqs',
+] as const;
+export type WeblinkSectionId = (typeof WEBLINK_SECTION_IDS)[number];
+export const DEFAULT_WEBLINK_SECTION_ORDER: WeblinkSectionId[] = [...WEBLINK_SECTION_IDS];
+
+/**
+ * Normalize a possibly-stale saved section order into a complete, deduped order.
+ * Unknown ids are dropped; missing known ids are appended in default order so
+ * new sections never disappear on old quotations.
+ */
+export function resolveWeblinkSectionOrder(
+  saved: unknown,
+  fallback: readonly string[] = DEFAULT_WEBLINK_SECTION_ORDER,
+): string[] {
+  const valid = new Set<string>(WEBLINK_SECTION_IDS as readonly string[]);
+  if (!Array.isArray(saved) || saved.length === 0) return [...fallback];
+  const normalized = (saved as unknown[])
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter((value) => value.length > 0 && valid.has(value));
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const id of normalized) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      deduped.push(id);
+    }
+  }
+  for (const id of fallback) {
+    if (!seen.has(id as string) && valid.has(id as string)) {
+      deduped.push(id as string);
+    }
+  }
+  // Append any brand-new known ids not yet in fallback (future-proof).
+  for (const id of WEBLINK_SECTION_IDS) {
+    if (!deduped.includes(id)) deduped.push(id);
+  }
+  return deduped;
+}
+
+/**
+ * Validate and normalize FAQs stored on a quotation version.
+ * Invalid entries are dropped so a single bad row never breaks public rendering.
+ */
+export function normalizeFaqs(value: unknown): Array<{ question: string; answer: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const row = entry as Record<string, unknown>;
+    const question = typeof row.question === 'string' ? row.question.trim() : '';
+    const answer = typeof row.answer === 'string' ? row.answer.trim() : '';
+    if (!question || !answer) return [];
+    return [{ question: question.slice(0, 500), answer: answer.slice(0, 5000) }];
+  });
+}
+
+export const destinationExpertConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    expertUserId: z.string().uuid().nullable().optional(),
+    heading: z.string().trim().max(200).nullable().optional(),
+    customIntroduction: z.string().trim().max(2000).nullable().optional(),
+    showWhatsapp: z.boolean().default(true),
+    showCall: z.boolean().default(true),
+    showEmail: z.boolean().default(true),
+    showExperience: z.boolean().default(true),
+    showTripsPlanned: z.boolean().default(true),
+    showLanguages: z.boolean().default(true),
+  })
+  .nullable()
+  .optional();
+
+export type DestinationExpertConfig = z.infer<typeof destinationExpertConfigSchema>;
+
+export function normalizeDestinationExpertConfig(value: unknown): DestinationExpertConfig {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  const enabled = row.enabled === true;
+  if (!enabled) return { enabled: false, expertUserId: null, heading: null, customIntroduction: null, showWhatsapp: true, showCall: true, showEmail: true, showExperience: true, showTripsPlanned: true, showLanguages: true } as DestinationExpertConfig;
+  const expertUserId = typeof row.expertUserId === 'string' && row.expertUserId.trim() ? row.expertUserId.trim() : null;
+  return {
+    enabled: true,
+    expertUserId,
+    heading: typeof row.heading === 'string' ? row.heading.trim().slice(0, 200) || null : null,
+    customIntroduction: typeof row.customIntroduction === 'string' ? row.customIntroduction.trim().slice(0, 2000) || null : null,
+    showWhatsapp: row.showWhatsapp !== false,
+    showCall: row.showCall !== false,
+    showEmail: row.showEmail !== false,
+    showExperience: row.showExperience !== false,
+    showTripsPlanned: row.showTripsPlanned !== false,
+    showLanguages: row.showLanguages !== false,
+  } as DestinationExpertConfig;
+}
+
+export function isDestinationExpertConfigValid(config: DestinationExpertConfig | null | undefined): boolean {
+  if (!config?.enabled || !config.expertUserId) return false;
+  return true;
+}
 
 /**
  * Public weblink visitor telemetry. Sent by the customer-facing page (no auth):

@@ -131,6 +131,8 @@ const visaTypeId = z.object({ visaTypeId: z.string().uuid() });
 const testimonialId = z.object({ testimonialId: z.string().uuid() });
 const destinationCityId = destinationId.extend({ cityId: z.string().uuid() });
 const bool = z.enum(['true', 'false']).transform((value) => value === 'true');
+const imageQuery = z.object({ imageId: z.string().min(1).max(100).optional() });
+const imageReorder = z.object({ imageIds: z.array(z.string().min(1).max(100)) });
 const commonList = {
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(100).optional(),
@@ -326,14 +328,20 @@ router.post(
 router.get(
   '/destinations/:destinationId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_DESTINATIONS_VIEW),
-  validateRequest({ params: destinationId }),
+  validateRequest({ params: destinationId, query: imageQuery }),
   asyncHandler(destinations.imageDownload),
 );
 router.delete(
   '/destinations/:destinationId/image',
   requirePermission(PERMISSIONS.MASTER_DESTINATIONS_MANAGE_IMAGES),
-  validateRequest({ params: destinationId }),
+  validateRequest({ params: destinationId, query: imageQuery }),
   asyncHandler(destinations.imageDelete),
+);
+router.patch(
+  '/destinations/:destinationId/images/order',
+  requirePermission(PERMISSIONS.MASTER_DESTINATIONS_MANAGE_IMAGES),
+  validateRequest({ params: destinationId, body: imageReorder }),
+  asyncHandler(destinations.imageReorder),
 );
 
 // ---------------------------------------------------------------------------
@@ -421,14 +429,20 @@ router.post(
 router.get(
   '/hotels/:hotelId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_HOTELS_VIEW),
-  validateRequest({ params: hotelId }),
+  validateRequest({ params: hotelId, query: imageQuery }),
   asyncHandler(hotels.imageDownload),
 );
 router.delete(
   '/hotels/:hotelId/image',
   requirePermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA),
-  validateRequest({ params: hotelId }),
+  validateRequest({ params: hotelId, query: imageQuery }),
   asyncHandler(hotels.imageDelete),
+);
+router.patch(
+  '/hotels/:hotelId/images/order',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA),
+  validateRequest({ params: hotelId, body: imageReorder }),
+  asyncHandler(hotels.imageReorder),
 );
 
 // ---------------------------------------------------------------------------
@@ -574,14 +588,20 @@ router.post(
 router.get(
   '/cruises/:cruiseId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_CRUISES_VIEW),
-  validateRequest({ params: cruiseId }),
+  validateRequest({ params: cruiseId, query: imageQuery }),
   asyncHandler(cruises.imageDownload),
 );
 router.delete(
   '/cruises/:cruiseId/image',
   requirePermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA),
-  validateRequest({ params: cruiseId }),
+  validateRequest({ params: cruiseId, query: imageQuery }),
   asyncHandler(cruises.imageDelete),
+);
+router.patch(
+  '/cruises/:cruiseId/images/order',
+  requirePermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA),
+  validateRequest({ params: cruiseId, body: imageReorder }),
+  asyncHandler(cruises.imageReorder),
 );
 
 // ---------------------------------------------------------------------------
@@ -656,14 +676,20 @@ router.post(
 router.get(
   '/vehicles/:vehicleId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_VEHICLES_VIEW),
-  validateRequest({ params: vehicleId }),
+  validateRequest({ params: vehicleId, query: imageQuery }),
   asyncHandler(vehicles.imageDownload),
 );
 router.delete(
   '/vehicles/:vehicleId/image',
   requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
-  validateRequest({ params: vehicleId }),
+  validateRequest({ params: vehicleId, query: imageQuery }),
   asyncHandler(vehicles.imageDelete),
+);
+router.patch(
+  '/vehicles/:vehicleId/images/order',
+  requirePermission(PERMISSIONS.MASTER_VEHICLES_MANAGE_MEDIA),
+  validateRequest({ params: vehicleId, body: imageReorder }),
+  asyncHandler(vehicles.imageReorder),
 );
 
 // ---------------------------------------------------------------------------
@@ -789,14 +815,20 @@ router.post(
 router.get(
   '/sightseeing/:sightseeingId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_VIEW),
-  validateRequest({ params: sightseeingId }),
+  validateRequest({ params: sightseeingId, query: imageQuery }),
   asyncHandler(sightseeing.imageDownload),
 );
 router.delete(
   '/sightseeing/:sightseeingId/image',
   requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA),
-  validateRequest({ params: sightseeingId }),
+  validateRequest({ params: sightseeingId, query: imageQuery }),
   asyncHandler(sightseeing.imageDelete),
+);
+router.patch(
+  '/sightseeing/:sightseeingId/images/order',
+  requirePermission(PERMISSIONS.MASTER_SIGHTSEEING_MANAGE_MEDIA),
+  validateRequest({ params: sightseeingId, body: imageReorder }),
+  asyncHandler(sightseeing.imageReorder),
 );
 
 // ---------------------------------------------------------------------------
@@ -962,14 +994,20 @@ router.post(
 router.get(
   '/testimonials/:testimonialId/image/download-url',
   requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_VIEW),
-  validateRequest({ params: testimonialId }),
+  validateRequest({ params: testimonialId, query: imageQuery }),
   asyncHandler(testimonials.imageDownload),
 );
 router.delete(
   '/testimonials/:testimonialId/image',
   requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
-  validateRequest({ params: testimonialId }),
+  validateRequest({ params: testimonialId, query: imageQuery }),
   asyncHandler(testimonials.imageDelete),
+);
+router.patch(
+  '/testimonials/:testimonialId/images/order',
+  requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
+  validateRequest({ params: testimonialId, body: imageReorder }),
+  asyncHandler(testimonials.imageReorder),
 );
 
 export { router as mastersRoutes };

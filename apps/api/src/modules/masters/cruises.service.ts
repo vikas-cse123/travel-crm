@@ -28,6 +28,14 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import {
+  appendMasterImage,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 /**
  * Cruise Master.
@@ -143,6 +151,7 @@ function presentCruise<T extends Record<string, unknown>>(
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
     ...(list
       ? {
           roomTypes: list.map((entry) => presentRoomType(entry, effectiveCanViewCosting)),
@@ -506,19 +515,24 @@ export const cruisesService = {
       metadata.contentType !== cruise.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = cruise.imageObjectKey;
-    const action = oldKey ? 'CRUISE_IMAGE_REPLACED' : 'CRUISE_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      cruise,
+      {
+        objectKey: key,
+        fileName: cruise.pendingImageFileName,
+        mimeType: cruise.pendingImageMimeType,
+        fileSize: cruise.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.cruise.update({
         where: { id: cruise.id },
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: cruise.pendingImageFileName,
-          imageMimeType: cruise.pendingImageMimeType,
-          imageFileSize: cruise.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -527,61 +541,80 @@ export const cruisesService = {
         include: cruiseInclude,
       });
       await tx.activityLog.create({
-        data: audit(auth, action, cruise.id, context, {
-          mimeType: row.imageMimeType,
-          fileSize: row.imageFileSize,
+        data: audit(auth, 'CRUISE_IMAGE_UPLOADED', cruise.id, context, {
+          imageId: images.at(-1)!.id,
+          mimeType: cruise.pendingImageMimeType,
+          fileSize: cruise.pendingImageFileSize,
         }),
       });
       return row;
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return presentCruise(updated as unknown as Record<string, unknown>, true, scope);
   },
 
-  async imageDownload(auth: AuthContext, cruiseId: string) {
+  async imageDownload(auth: AuthContext, cruiseId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const cruise = await getCruise(auth, cruiseId, scope);
-    if (!cruise.imageObjectKey || !cruise.imageFileName || !cruise.imageConfirmedAt)
-      throw new NotFoundError('Cruise image not found.');
+    const image = findMasterImage(cruise, imageId);
+    if (!image) throw new NotFoundError('Cruise image not found.');
     return {
-      url: await storageService.createDownloadUrl(
-        cruise.imageObjectKey,
-        cruise.imageFileName,
-        PRESIGN_TTL,
-      ),
+      url: await storageService.createDownloadUrl(image.objectKey, image.fileName, PRESIGN_TTL),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
 
-  async deleteImage(auth: AuthContext, cruiseId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    cruiseId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
     const cruise = await getCruise(auth, cruiseId, scope, true);
     assertCanModifyMaster(cruise, scope);
-    const keys = [cruise.imageObjectKey, cruise.pendingImageObjectKey].filter(
-      (value): value is string => Boolean(value),
-    );
+    const removed = removeMasterImage(cruise, imageId);
+    if (!removed) throw new NotFoundError('Cruise image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.cruise.update({
         where: { id: cruise.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? cruise.imageStorageProvider : null,
+          imageBucket: removed.images.length ? cruise.imageBucket : null,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'CRUISE_IMAGE_DELETED', cruise.id, context),
+        data: audit(auth, 'CRUISE_IMAGE_DELETED', cruise.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+  async reorderImages(
+    auth: AuthContext,
+    cruiseId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.CRUISE);
+    const cruise = await getCruise(auth, cruiseId, scope, true);
+    assertCanModifyMaster(cruise, scope);
+    const images = reorderMasterImages(cruise, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.cruise.update({
+        where: { id: cruise.id },
+        data: masterImageWriteData(images),
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'CRUISE_UPDATED', cruise.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, cruiseId);
   },
 };

@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFieldArray, useWatch, type FieldPath, type UseFormReturn } from 'react-hook-form';
-import { ChevronDown, Image as ImageIcon, Plus, Trash2, Upload } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  Image as ImageIcon,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import {
   SIGHTSEEING_DEFAULT_PRICE_LABELS,
   formatItineraryDayTitle,
+  quotationSnapshotImageIdentity,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -38,6 +48,7 @@ const labelCls = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
 type Form = UseFormReturn<QuotationVersionInput>;
 type SightDay = NonNullable<QuotationVersionInput['sightseeingDetails']>['days'][number];
 type SightActivity = SightDay['activities'][number];
+type SightImage = SightActivity['images'][number];
 
 type SightPriceRow = SightActivity['pricingOptions'][number];
 
@@ -82,10 +93,14 @@ export const withSightseeingPricingRows = <T,>(details: T): T => {
           pricingOptions?: SightPriceRow[] | null;
           startTime?: string | null;
           showTime?: boolean;
+          images?: SightImage[] | null;
+          imageSnapshotPresent?: boolean;
         };
         return {
           ...row,
           showTime: Boolean(row.startTime) && row.showTime !== false,
+          imageSnapshotPresent:
+            row.imageSnapshotPresent ?? (Array.isArray(row.images) && row.images.length > 0),
           pricingOptions: withDefaultPricingRows(row.pricingOptions),
         };
       }),
@@ -103,6 +118,9 @@ export const emptySightseeingActivity = (): SightActivity => ({
   city: null,
   description: null,
   imageUrl: null,
+  images: [],
+  imageSnapshotPresent: false,
+  pdfImageUrl: null,
   dailyTransfer: null,
   pricingOptions: emptyPricingRows(),
   sequence: null,
@@ -142,6 +160,87 @@ function ActivityThumb({ imageUrl }: { imageUrl?: string | null }) {
   return (
     <div className="flex h-full w-full items-center justify-center rounded-md bg-slate-100 text-slate-400">
       <ImageIcon className="h-6 w-6" />
+    </div>
+  );
+}
+
+function ActivityImageGallery({
+  dayIndex,
+  activityIndex,
+  images,
+  pdfImageUrl,
+  imageUrl,
+  onMove,
+  onRemove,
+  onSelectPdf,
+}: {
+  dayIndex: number;
+  activityIndex: number;
+  images: SightImage[];
+  pdfImageUrl?: string | null;
+  imageUrl: (image: SightImage) => string | null;
+  onMove: (index: number, direction: -1 | 1) => void;
+  onRemove: (index: number) => void;
+  onSelectPdf: (identity: string) => void;
+}) {
+  if (!images.length) return null;
+  const selected =
+    images.find((image) => quotationSnapshotImageIdentity(image) === pdfImageUrl) ?? images[0];
+  const selectedIdentity = quotationSnapshotImageIdentity(selected!);
+  return (
+    <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+      <p className={labelCls}>Activity Images ({images.length}) · order saved with the quotation</p>
+      {images.map((image, index) => {
+        const identity = quotationSnapshotImageIdentity(image);
+        return (
+          <div
+            key={`${identity ?? 'image'}-${index}`}
+            className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2"
+          >
+            <div className="h-14 w-20 shrink-0 overflow-hidden rounded-md">
+              <ActivityThumb imageUrl={imageUrl(image)} />
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={index === 0}
+              aria-label={`Move sightseeing image ${index + 1} left on day ${dayIndex + 1} activity ${activityIndex + 1}`}
+              onClick={() => onMove(index, -1)}
+            >
+              <ArrowLeft className="h-4 w-4" /> Move Left
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={index === images.length - 1}
+              aria-label={`Move sightseeing image ${index + 1} right on day ${dayIndex + 1} activity ${activityIndex + 1}`}
+              onClick={() => onMove(index, 1)}
+            >
+              Move Right <ArrowRight className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label={`Remove sightseeing image ${index + 1} on day ${dayIndex + 1} activity ${activityIndex + 1}`}
+              onClick={() => onRemove(index)}
+            >
+              <X className="h-4 w-4" /> Remove
+            </Button>
+            {identity && (
+              <label className="ml-auto flex items-center gap-1.5 text-sm">
+                <input
+                  type="radio"
+                  name={`sightseeing-${dayIndex}-${activityIndex}-pdf-image`}
+                  aria-label={`Use sightseeing image ${index + 1} in PDF on day ${dayIndex + 1} activity ${activityIndex + 1}`}
+                  checked={identity === selectedIdentity}
+                  onChange={() => onSelectPdf(identity)}
+                />
+                Use in PDF
+              </label>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -424,6 +523,9 @@ function DayCard({
     form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.images`), [] as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageSnapshotPresent`), false as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.pdfImageUrl`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.name`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.description`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.city`), null as never, { shouldDirty: true });
@@ -437,6 +539,9 @@ function DayCard({
     form.setValue(fp(`${abase}.sightseeingId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.images`), [] as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.imageSnapshotPresent`), false as never, { shouldDirty: true });
+    form.setValue(fp(`${abase}.pdfImageUrl`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.city`), (dayCity || null) as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.startTime`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.showTime`), false as never, { shouldDirty: true });
@@ -467,6 +572,21 @@ function DayCard({
     form.setValue(fp(`${abase}.name`), (picked?.title ?? null) as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageDocumentId`), null as never, { shouldDirty: true });
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+    const gallery = (picked?.images ?? []).map((image, index) => ({
+      masterImageId: image.id,
+      alt: `${picked?.title ?? 'Sightseeing'} image ${index + 1}`,
+    }));
+    form.setValue(fp(`${abase}.images`), gallery as never, { shouldDirty: true });
+    form.setValue(
+      fp(`${abase}.imageSnapshotPresent`),
+      (picked ? (Array.isArray(picked.images) ? true : undefined) : false) as never,
+      { shouldDirty: true },
+    );
+    form.setValue(
+      fp(`${abase}.pdfImageUrl`),
+      (gallery[0] ? quotationSnapshotImageIdentity(gallery[0]) : null) as never,
+      { shouldDirty: true },
+    );
     if (picked) {
       form.setValue(fp(`${abase}.description`), (picked.description ?? null) as never, {
         shouldDirty: true,
@@ -518,6 +638,9 @@ function DayCard({
         shouldDirty: true,
       });
       form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
+      form.setValue(fp(`${abase}.images`), [] as never, { shouldDirty: true });
+      form.setValue(fp(`${abase}.imageSnapshotPresent`), false as never, { shouldDirty: true });
+      form.setValue(fp(`${abase}.pdfImageUrl`), null as never, { shouldDirty: true });
       setDocumentPreviews((current) => ({ ...current, [documentId]: url }));
     } catch (error) {
       setImageError(
@@ -601,12 +724,56 @@ function DayCard({
               const sightseeingId =
                 (form.watch(fp(`${abase}.sightseeingId`)) as string | null) ?? null;
               const activityName = (form.watch(fp(`${abase}.name`)) as string | null) ?? null;
-              // Fresh master presentation first (never persisted); the saved
-              // snapshot is only a fallback for legacy/custom rows.
+              const activityImages =
+                (form.watch(fp(`${abase}.images`)) as SightImage[] | undefined) ?? [];
+              const imageSnapshotPresent =
+                (form.watch(fp(`${abase}.imageSnapshotPresent`)) as boolean | undefined) ?? false;
+              const pdfImageUrl =
+                (form.watch(fp(`${abase}.pdfImageUrl`)) as string | null | undefined) ?? null;
+              const imageUrlFor = (image: SightImage) => {
+                if (image.url) return image.url;
+                const identity = image.masterImageId ?? image.id;
+                return (
+                  presentations[sightseeingId ?? '']?.images.find(
+                    (presented) => presented.id === identity,
+                  )?.url ?? null
+                );
+              };
+              // A quotation gallery is authoritative once present. Legacy
+              // activities with no gallery retain document/single-Master
+              // fallbacks exactly as before.
               const resolvedUrl =
                 (imageDocumentId ? documentPreviews[imageDocumentId] : null) ??
-                (sightseeingId ? presentations[sightseeingId]?.imageUrl : null) ??
-                snapshotUrl;
+                (imageSnapshotPresent && activityImages.length
+                  ? imageUrlFor(activityImages[0]!)
+                  : null) ??
+                (!imageSnapshotPresent
+                  ? ((sightseeingId ? presentations[sightseeingId]?.imageUrl : null) ?? snapshotUrl)
+                  : null);
+              const moveImage = (imageIndex: number, direction: -1 | 1) => {
+                const target = imageIndex + direction;
+                if (target < 0 || target >= activityImages.length) return;
+                const next = [...activityImages];
+                [next[imageIndex], next[target]] = [next[target]!, next[imageIndex]!];
+                form.setValue(fp(`${abase}.images`), next as never, { shouldDirty: true });
+                form.setValue(fp(`${abase}.imageSnapshotPresent`), true as never, {
+                  shouldDirty: true,
+                });
+              };
+              const removeImage = (imageIndex: number) => {
+                const removed = activityImages[imageIndex];
+                const next = activityImages.filter((_, index) => index !== imageIndex);
+                form.setValue(fp(`${abase}.images`), next as never, { shouldDirty: true });
+                form.setValue(fp(`${abase}.imageSnapshotPresent`), true as never, {
+                  shouldDirty: true,
+                });
+                if (removed && pdfImageUrl === quotationSnapshotImageIdentity(removed))
+                  form.setValue(
+                    fp(`${abase}.pdfImageUrl`),
+                    (next[0] ? quotationSnapshotImageIdentity(next[0]) : null) as never,
+                    { shouldDirty: true },
+                  );
+              };
               const isUploading = uploadingActivity === aIndex;
               return (
                 <div
@@ -758,6 +925,20 @@ function DayCard({
                       dayIndex={dayIndex}
                       activityIndex={aIndex}
                       ariaPrefix={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
+                    />
+                    <ActivityImageGallery
+                      dayIndex={dayIndex}
+                      activityIndex={aIndex}
+                      images={activityImages}
+                      pdfImageUrl={pdfImageUrl}
+                      imageUrl={imageUrlFor}
+                      onMove={moveImage}
+                      onRemove={removeImage}
+                      onSelectPdf={(identity) =>
+                        form.setValue(fp(`${abase}.pdfImageUrl`), identity as never, {
+                          shouldDirty: true,
+                        })
+                      }
                     />
                     <div className="flex flex-wrap justify-end gap-2">
                       <Button

@@ -17,7 +17,9 @@ import {
   Image as ImageIcon,
   Info as InfoIcon,
   Lock,
+  Mail,
   MapPin,
+  MessageCircle,
   Phone,
   Ship,
   Plane,
@@ -31,8 +33,11 @@ import {
   formatItineraryDayTitle,
   hotelStayNights,
   isPublicTaxNote,
+  resolveItineraryActivityImage,
   resolveItineraryDayImage,
   stripItineraryDayPrefixes,
+  resolveWeblinkSectionOrder,
+  normalizeFaqs,
 } from '@interscale/shared';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
@@ -113,6 +118,32 @@ interface PublicQuotation {
     string,
     { imageUrl: string | null; name: string | null; roomTypeName: string | null }
   >;
+  destinationExpert?: {
+    id: string;
+    fullName: string;
+    email: string | null;
+    phone: string | null;
+    whatsappNumber: string | null;
+    jobTitle: string | null;
+    bio: string | null;
+    specialization: string | null;
+    yearsOfExperience: number | null;
+    tripsPlanned: number | null;
+    languages: string | null;
+    gender: string | null;
+    profileImageUrl: string | null;
+    avatarKind: string | null;
+    config: {
+      heading?: string | null;
+      customIntroduction?: string | null;
+      showWhatsapp: boolean;
+      showCall: boolean;
+      showEmail: boolean;
+      showExperience: boolean;
+      showTripsPlanned: boolean;
+      showLanguages: boolean;
+    };
+  } | null;
   downloadUrl: string | null;
 }
 interface Envelope<T> {
@@ -403,6 +434,215 @@ function SectionNav({ sticky }: { sticky: boolean }) {
   );
 }
 
+/** Destination Expert — premium editorial presentation. Hidden when not configured or incomplete. */
+function DestinationExpertSection({
+  expert,
+  customerName,
+  destinationSummary,
+  destinations,
+}: {
+  expert: {
+    fullName: string;
+    jobTitle?: string | null;
+    bio?: string | null;
+    specialization?: string | null;
+    yearsOfExperience?: number | null;
+    tripsPlanned?: number | null;
+    languages?: string | null;
+    phone?: string | null;
+    whatsappNumber?: string | null;
+    email?: string | null;
+    gender?: string | null;
+    profileImageUrl?: string | null;
+    avatarKind?: string | null;
+    config: {
+      heading?: string | null;
+      customIntroduction?: string | null;
+      showWhatsapp: boolean;
+      showCall: boolean;
+      showEmail: boolean;
+      showExperience: boolean;
+      showTripsPlanned: boolean;
+      showLanguages: boolean;
+    };
+  } | null;
+  customerName: string;
+  destinationSummary: string;
+  destinations?: string | null;
+}) {
+  if (!expert) return null;
+  const heading = expert.config.heading?.trim() || 'Know Your Destination Expert';
+  const firstName = (customerName || '').trim().split(/\s+/)[0] || '';
+  const greeting = firstName ? `Hi ${firstName}, I’m` : `Hi, I’m`;
+  const expertFirst = (expert.fullName || '').trim().split(/\s+/)[0] || expert.fullName || '';
+  const expertDisplay = expertFirst.toUpperCase();
+  const destList = (destinations || destinationSummary || '').split(/[•→,|]/).map((s) => s.trim()).filter(Boolean);
+  const destTitle =
+    destList.length === 1
+      ? `Your ${destList[0]} Destination Expert`
+      : destList.length > 1
+        ? 'Your Trip Destination Expert'
+        : 'Your Destination Expert';
+  const bio = expert.config.customIntroduction?.trim() || expert.bio?.trim() || '';
+  const showExp = expert.config.showExperience && expert.yearsOfExperience != null && expert.yearsOfExperience > 0;
+  const showTrips = expert.config.showTripsPlanned && expert.tripsPlanned != null && expert.tripsPlanned > 0;
+  const showLangs = expert.config.showLanguages && expert.languages?.trim();
+  const whatsappPhone = (expert.whatsappNumber || expert.phone || '').replace(/[^0-9]/g, '');
+  const phone = expert.phone?.trim() || null;
+  const email = expert.email?.trim() || null;
+  const avatarSrc =
+    expert.profileImageUrl ||
+    (expert.avatarKind === 'male' || expert.gender === 'MALE' ? '/destination-expert/male.png' : null) ||
+    (expert.avatarKind === 'female' || expert.gender === 'FEMALE' ? '/destination-expert/female.png' : null);
+  if (!avatarSrc) return null;
+  return (
+    <section>
+      <SectionTitle>{heading}</SectionTitle>
+      <div className="overflow-hidden rounded-[24px] border border-slate-200/60 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.06)]">
+        <div className="grid gap-8 p-7 sm:p-8 md:grid-cols-[320px_1fr] md:gap-10 md:p-10">
+          {/* LEFT — avatar + greeting */}
+          <div className="flex flex-col items-center text-center md:items-start md:text-left">
+            <div className="relative w-full max-w-[300px]">
+              <div className="absolute -inset-3 -z-10 hidden rounded-[28px] bg-gradient-to-br from-emerald-50 via-teal-50 to-sky-50 opacity-70 md:block" aria-hidden="true" />
+              <div className="overflow-hidden rounded-[20px] border border-slate-200/60 bg-white shadow-sm">
+                <div className="aspect-[4/5] w-full bg-gradient-to-b from-slate-50 to-white p-2">
+                  <img
+                    src={avatarSrc}
+                    alt={`${expert.fullName} avatar`}
+                    className="h-full w-full object-contain object-top"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="mt-7 w-full">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">{greeting}</p>
+              <p className="mt-2 text-[30px] font-extrabold tracking-tight text-slate-900 md:text-[34px] md:leading-none">{expertDisplay}</p>
+              {expert.jobTitle?.trim() ? (
+                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">{expert.jobTitle}</p>
+              ) : expert.specialization?.trim() ? (
+                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">{expert.specialization}</p>
+              ) : null}
+              {expert.specialization?.trim() && expert.jobTitle?.trim() ? (
+                <p className="mt-1 text-xs text-slate-500">{expert.specialization}</p>
+              ) : null}
+            </div>
+          </div>
+          {/* RIGHT — title + content */}
+          <div className="flex flex-col justify-center text-center md:text-left">
+            <div className="flex flex-col items-center md:items-start">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Destination Expert</p>
+              <h3 className="mt-2 max-w-[28ch] text-xl font-bold leading-tight tracking-tight text-slate-900 md:text-[24px]">{destTitle}</h3>
+              <div className="mt-3 h-1 w-10 rounded-full bg-emerald-600/15" aria-hidden="true" />
+            </div>
+
+            {(showExp || showTrips || showLangs) && (
+              <div className="mt-6 flex flex-wrap justify-center gap-2 md:justify-start">
+                {showExp && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                    <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" /> {expert.yearsOfExperience}+ Years
+                  </span>
+                )}
+                {showTrips && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                    <Building2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" /> {expert.tripsPlanned}+ Trips
+                  </span>
+                )}
+                {showLangs && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                    <Compass className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" /> {expert.languages}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {bio && (
+              <p className="mx-auto mt-6 max-w-[60ch] whitespace-pre-line break-words text-[15px] leading-7 text-slate-600 md:mx-0">{bio}</p>
+            )}
+
+            {(expert.config.showWhatsapp || expert.config.showCall || expert.config.showEmail) && (whatsappPhone || phone || email) && (
+              <div className="mt-8 flex flex-wrap justify-center gap-3 md:justify-start">
+                {expert.config.showWhatsapp && whatsappPhone && (
+                  <a
+                    href={`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hi ${expertFirst}, I'm interested in ${destList[0] || 'my trip'}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
+                  >
+                    <MessageCircle className="h-4 w-4" aria-hidden="true" /> WhatsApp
+                  </a>
+                )}
+                {expert.config.showCall && phone && (
+                  <a
+                    href={`tel:${phone}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+                  >
+                    <Phone className="h-4 w-4" aria-hidden="true" /> Call
+                  </a>
+                )}
+                {expert.config.showEmail && email && (
+                  <a
+                    href={`mailto:${email}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+                  >
+                    <Mail className="h-4 w-4" aria-hidden="true" /> Email
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** FAQs — polished accordion. Hidden entirely when no FAQs exist. */
+function FaqSection({ faqs }: { faqs: Array<{ question: string; answer: string }> }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  if (!faqs.length) return null;
+  return (
+    <section>
+      <SectionTitle>Frequently Asked Questions</SectionTitle>
+      <div className="space-y-2">
+        {faqs.map((faq, index) => {
+          const open = openIndex === index;
+          return (
+            <div
+              key={`${faq.question}-${index}`}
+              className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+            >
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={`faq-panel-${index}`}
+                onClick={() => setOpenIndex(open ? null : index)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span
+                  className="min-w-0 flex-1 whitespace-pre-line break-words text-sm font-semibold text-slate-800 [&_a]:text-blue-600 [&_a]:underline [&_li]:mb-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-0.5 [&_ul]:list-disc [&_ul]:pl-5"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(faq.question) }}
+                />
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                />
+              </button>
+{open && (
+                <div
+                  id={`faq-panel-${index}`}
+                  className="whitespace-pre-line break-words border-t px-4 py-3 text-sm leading-relaxed text-slate-600 [&_a]:text-blue-600 [&_a]:underline [&_li]:mb-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(faq.answer) }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /** A single flight journey (outbound or return) rendered as timeline cards. */
 function FlightJourneyView({
   title,
@@ -673,6 +913,9 @@ function normalizeItineraryDay(raw: unknown, fallbackNumber: number) {
     city: (entry.city ?? null) as string | null,
     description: (entry.description ?? null) as string | null,
     imageUrl: (entry.imageUrl ?? entry.image ?? null) as string | null,
+    images: entry.images,
+    pdfImageUrl: (entry.pdfImageUrl ?? null) as string | null,
+    imageSnapshotPresent: entry.imageSnapshotPresent === true,
     // Per-activity transfer; legacy rows fall back to the day-level value.
     dailyTransfer:
       TRANSFER_CANONICAL[String((entry as AnyRecord).dailyTransfer ?? '').toUpperCase()] ?? null,
@@ -904,6 +1147,25 @@ function SightseeingItineraryView({
               sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
               destination: destinationImage ?? null,
             });
+            const activityImages = validActivities.flatMap((activity) => {
+              const gallery = quotationGalleryImages(activity.images);
+              if (activity.imageSnapshotPresent || gallery.length) return gallery;
+              const legacy = resolveItineraryActivityImage(activity, {
+                document: (documentId) => documentImages[documentId]?.imageUrl ?? null,
+                snapshot: (imageUrl) => imageUrl,
+                sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
+              });
+              return legacy ? [{ url: legacy, alt: activity.name ?? title }] : [];
+            });
+            const hasQuotationGallery = validActivities.some(
+              (activity) =>
+                activity.imageSnapshotPresent || quotationGalleryImages(activity.images).length > 0,
+            );
+            const dayImages = activityImages.length
+              ? activityImages
+              : !hasQuotationGallery && image
+                ? [{ url: image, alt: title }]
+                : [];
             return (
               <div key={`${day.dayNumber}`} className="relative pl-10 md:pl-12">
                 <span
@@ -913,7 +1175,11 @@ function SightseeingItineraryView({
                 />
                 <article className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-card p-4 shadow-sm md:flex-row md:items-start md:gap-5 md:p-5">
                   <div className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-lg md:aspect-auto md:h-[180px] md:w-[285px]">
-                    <ItineraryImage src={image} alt={title} />
+                    {dayImages.length ? (
+                      <QuotationImageCarousel images={dayImages} label="Activity" />
+                    ) : (
+                      <ItineraryImage src={null} alt={title} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-bold text-slate-800">{title}</h3>
@@ -997,15 +1263,19 @@ function SightseeingItineraryView({
                           </p>
                           <div className="bg-white p-3">
                             {validActivities.map((activity, activityIndex) => {
+                              const gallery = quotationGalleryImages(activity.images);
                               const thumb =
-                                (activity.imageDocumentId
-                                  ? documentImages[activity.imageDocumentId]?.imageUrl
-                                  : null) ??
-                                activity.imageUrl ??
-                                (activity.sightseeingId
-                                  ? images[activity.sightseeingId]?.imageUrl
-                                  : null) ??
-                                null;
+                                gallery[0]?.url ??
+                                (activity.imageSnapshotPresent || gallery.length > 0
+                                  ? null
+                                  : ((activity.imageDocumentId
+                                      ? documentImages[activity.imageDocumentId]?.imageUrl
+                                      : null) ??
+                                    activity.imageUrl ??
+                                    (activity.sightseeingId
+                                      ? images[activity.sightseeingId]?.imageUrl
+                                      : null) ??
+                                    null));
                               const isLast = activityIndex === validActivities.length - 1;
                               return (
                                 <Fragment key={`${activity.sightseeingId ?? activityIndex}`}>
@@ -1104,15 +1374,41 @@ function SightseeingItineraryView({
 }
 
 /**
- * Hotel snapshot images carousel (from a hotel bookmark), rendered inside the
- * hotel's own card. Shows one image at a time in saved order with Previous/Next
- * navigation and a "1 / N" counter; a single image is shown plainly. Never
- * reloads the page. This is the ONLY place hotel images render on the weblink.
+ * View-only quotation snapshot carousel. It preserves the saved order inside
+ * each item card; a single image is shown plainly without editing controls.
  */
-function HotelImageCarousel({
+type QuotationGalleryImage = {
+  url: string;
+  thumbnailUrl?: string | null;
+  alt?: string | null;
+};
+
+function quotationGalleryImages(value: unknown): QuotationGalleryImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const image = candidate as Record<string, unknown>;
+    const url = typeof image.url === 'string' ? image.url.trim() : '';
+    if (!url) return [];
+    return [
+      {
+        url,
+        thumbnailUrl:
+          typeof image.thumbnailUrl === 'string' && image.thumbnailUrl.trim()
+            ? image.thumbnailUrl
+            : null,
+        alt: typeof image.alt === 'string' && image.alt.trim() ? image.alt : null,
+      },
+    ];
+  });
+}
+
+function QuotationImageCarousel({
   images,
+  label = 'Hotel',
 }: {
-  images: Array<{ url: string; thumbnailUrl?: string | null; alt?: string | null }>;
+  images: QuotationGalleryImage[];
+  label?: string;
 }) {
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -1121,7 +1417,7 @@ function HotelImageCarousel({
   const current = images[Math.min(active, count - 1)]!;
   const previous = () => setActive((index) => (index - 1 + count) % count);
   const next = () => setActive((index) => (index + 1) % count);
-  const alt = current.alt?.trim() || 'Hotel image';
+  const alt = current.alt?.trim() || `${label} image`;
   // Fall back to the same image's thumbnail candidate when the primary URL
   // fails, mirroring how the bookmark carousel resolves provider images.
   const currentUrl =
@@ -1156,7 +1452,7 @@ function HotelImageCarousel({
       <div className="absolute inset-y-0 left-0 flex items-center">
         <button
           type="button"
-          aria-label="Previous hotel image"
+          aria-label={`Previous ${label.toLowerCase()} image`}
           onClick={previous}
           className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
         >
@@ -1166,7 +1462,7 @@ function HotelImageCarousel({
       <div className="absolute inset-y-0 right-0 flex items-center">
         <button
           type="button"
-          aria-label="Next hotel image"
+          aria-label={`Next ${label.toLowerCase()} image`}
           onClick={next}
           className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
         >
@@ -1684,445 +1980,453 @@ export function PublicQuotationPage() {
           {/* Quick navigation to the sections present in this quotation. */}
           {v.showQuickNav !== false && <SectionNav sticky={v.quickNavSticky ?? false} />}
 
-          {/* Services Include */}
-          {includedServices.length > 0 && (
-            <section>
-              <SectionTitle>Services Include</SectionTitle>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {includedServices.map((service) => {
-                  const Icon = serviceCardIcon(service.key);
-                  return (
-                    <article
-                      key={service.key}
-                      className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
-                    >
-                      <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-                      <span className="font-medium text-slate-800">{service.label}</span>
-                      <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Your Itinerary — day-wise sightseeing activities. */}
-          {sightseeingDays.length > 0 && (
-            <SightseeingItineraryView
-              days={sightseeingDays}
-              color="#16a34a"
-              images={data.sightseeingPresentations ?? {}}
-              documentImages={data.sightseeingDocumentPresentations ?? {}}
-              description={v.sightseeingDetails?.description ?? null}
-              destinationImage={data.heroImageUrl ?? null}
-              fmt={fmt}
-            />
-          )}
-
-          {/* Hotels */}
-          {hotelIncluded && (
-            <section>
-              <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
-              <div className="grid gap-5">
-                {visibleHotels.map((hotel, hotelIndex) => {
-                  const presentation = data.hotelPresentations?.[hotel.id];
-                  // One image source: the stored quotation hotel gallery
-                  // (bookmark snapshots), rendered inside each hotel card — no
-                  // separate large gallery above the cards. Newer quotations
-                  // store per-stay images; older ones stored a single
-                  // section-level gallery on hotelDetails, honoured here as a
-                  // fallback for the (single) hotel stay.
-                  const perStayImages = Array.isArray(hotel.images) ? hotel.images : [];
-                  const sectionImages = Array.isArray(v.hotelDetails?.images)
-                    ? v.hotelDetails.images
-                    : [];
-                  const snapshotImages = perStayImages.length > 0 ? perStayImages : sectionImages;
-                  const snapshotImageUrl = snapshotImages[0]?.url ?? null;
-                  const cardImageUrl = presentation?.imageUrl ?? snapshotImageUrl;
-                  // Star rating comes from Hotel Master only (0–5). Never fall back
-                  // to the free-text category snapshot, which can say "5 Star" even
-                  // when the true rating is 0 or missing.
-                  const category = presentation?.starCategory ?? 0;
-                  // Review score is a separate Hotel Master decimal (e.g. 3.7).
-                  const reviewScore = Number(presentation?.starRating);
-                  const showScore = Number.isFinite(reviewScore) && reviewScore > 0;
-                  // Only a valid http(s) review URL renders a link.
-                  const rawReviewLink = presentation?.reviewLink?.trim() ?? '';
-                  const reviewUrl = /^https?:\/\//i.test(rawReviewLink) ? rawReviewLink : null;
-                  return (
-                    <article
-                      key={hotel.id}
-                      className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
-                    >
-                      <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
-                        {snapshotImages.length > 0 ? (
-                          <HotelImageCarousel images={snapshotImages} />
-                        ) : cardImageUrl ? (
-                          <img
-                            src={cardImageUrl}
-                            alt={hotel.hotelName}
-                            className="h-full w-full object-cover object-center"
-                          />
-                        ) : (
-                          <div className="text-center text-slate-400">
-                            <Building2 className="mx-auto h-12 w-12" />
-                            <p className="mt-2 text-xs">Hotel image unavailable</p>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-lg font-bold leading-tight text-slate-800">
-                            {hotel.hotelName}
-                          </h3>
-                          {(reviewUrl || showScore) && (
-                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                              {reviewUrl && (
-                                <a
-                                  href={reviewUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-blue-600 hover:underline"
-                                >
-                                  Hotel Review <ExternalLink className="inline h-3 w-3" />
-                                </a>
-                              )}
-                              {showScore && (
-                                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
-                                  {presentation?.starRating}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {category > 0 && (
-                          <div className="mt-2 flex gap-0.5" aria-label={`${category} star hotel`}>
-                            {Array.from({ length: Math.min(5, category) }, (_, index) => (
-                              <Star key={index} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                            ))}
-                          </div>
-                        )}
-                        <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
-                          <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-                          {hotel.city}
-                          {presentation?.country ? `, ${presentation.country}` : ''}
-                        </p>
-                        {presentation?.address?.trim() && (
-                          <p className="mt-1.5 text-sm text-slate-500">
-                            {presentation.address.trim()}
-                          </p>
-                        )}
-                        <div className="mt-5 space-y-1.5 text-sm text-slate-700">
-                          {hotel.roomType?.trim() ? (
-                            <p>
-                              <strong>Room Type:</strong> {hotel.roomType}
-                            </p>
-                          ) : null}
-                          {hotel.mealPlan?.trim() ? (
-                            <p>
-                              <strong>Meal Plan:</strong> {hotel.mealPlan}
-                            </p>
-                          ) : null}
-                          {hotel.rooms != null && (
-                            <p>
-                              <strong>Rooms:</strong> {hotel.rooms}
-                            </p>
-                          )}
-                          <p>
-                            <strong>Nights:</strong>{' '}
-                            <span className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">
-                              {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ??
-                                hotel.nights}
-                            </span>
-                          </p>
-                        </div>
-                        <div className="mt-4 space-y-1 text-xs text-slate-500">
-                          <p>
-                            Check-in: {dateShort(hotel.checkInDate) ?? '—'}
-                            {hotel.checkInTime && hotel.showCheckInTime !== false
-                              ? ` | ${formatTime12Hour(hotel.checkInTime)}`
-                              : ''}
-                          </p>
-                          <p>
-                            Check-out: {dateShort(hotel.checkOutDate) ?? '—'}
-                            {hotel.checkOutTime && hotel.showCheckOutTime !== false
-                              ? ` | ${formatTime12Hour(hotel.checkOutTime)}`
-                              : ''}
-                          </p>
-                        </div>
-                        {hotel.notes && (
-                          <p className="mt-3 text-xs italic text-slate-500">{hotel.notes}</p>
-                        )}
-                        {hotelIndex === 0 && v.hotelDetails?.description && (
-                          <div
-                            className="mt-4 flex items-start gap-2 border-t pt-3"
-                            aria-label="Hotel description"
-                          >
-                            <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                            <div className="min-w-0 flex-1 [&_p]:mr-4 [&_p]:inline-block">
-                              <RichHtml html={v.hotelDetails.description} />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Flight Details — structured journeys/segments. */}
-          {hasFlights && (
-            <section>
-              <SectionTitle>{fd?.sectionTitle || 'Flight Details'}</SectionTitle>
-              {fd?.entryMode === 'IMAGE' && (data.flightImages?.length || data.flightImageUrl) ? (
-                <FlightImageViewer
-                  images={
-                    data.flightImages?.length
-                      ? data.flightImages
-                      : [{ description: null, url: data.flightImageUrl! }]
-                  }
-                />
-              ) : (
-                <div className="space-y-4">
-                  {flightJourneys.map((leg) => (
-                    <FlightJourneyView
-                      key={leg.key}
-                      title={leg.title}
-                      journey={leg.journey}
-                      color={leg.color}
-                      airlinePresentations={data.airlinePresentations}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* Transportation — one reference-style card per configured vehicle. */}
-          {vehicles.length > 0 && (
-            <section>
-              <SectionTitle>{vehicles[0]?.taxCategory?.trim() || 'Transportation'}</SectionTitle>
-              <div className="grid gap-4 md:grid-cols-2">
-                {vehicles.map((vehicle) => {
-                  const presentation = data.vehiclePresentations?.[vehicle.id];
-                  return (
-                    <article
-                      key={vehicle.id}
-                      className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
-                    >
-                      <div className="flex min-h-56 items-center justify-center bg-slate-100">
-                        {presentation?.imageUrl ? (
-                          <img
-                            src={presentation.imageUrl}
-                            alt={vehicle.name}
-                            className="h-64 w-full object-cover"
-                          />
-                        ) : (
-                          <div className="text-center text-slate-400">
-                            <CarFront className="mx-auto h-14 w-14" />
-                            <p className="mt-2 text-xs">Vehicle image unavailable</p>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-3 p-5">
-                        <h3 className="text-xl font-bold text-slate-800">
-                          {vehicle.name || presentation?.name || 'Vehicle'}
-                        </h3>
-                        <div className="space-y-1 text-sm text-slate-600">
-                          <p>
-                            <strong className="text-slate-700">Type:</strong>{' '}
-                            {vehicle.city || presentation?.vehicleType || 'As selected'}
-                          </p>
-                          {vehicle.notes && (
-                            <p>
-                              <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
-                            </p>
-                          )}
-                        </div>
-                        {vehicle.description && <RichHtml html={vehicle.description} />}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {cruises.length > 0 && (
-            <section>
-              <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
-              <div className="grid gap-5 md:grid-cols-2">
-                {cruises.map((cruise) => {
-                  const presentation = data.cruisePresentations?.[cruise.id];
-                  const duration = cruise.notes?.trim();
-                  const roomType = presentation?.roomTypeName?.trim();
-                  // The old generic form could store a bare public/localhost URL
-                  // in the description; never surface that as cruise content.
-                  const rawDescription = cruise.description?.trim() ?? '';
-                  const descriptionHasText = Boolean(rawDescription.replace(/<[^>]*>/g, '').trim());
-                  const showDescription =
-                    Boolean(rawDescription) &&
-                    descriptionHasText &&
-                    !/^https?:\/\/\S+$/i.test(rawDescription);
-                  return (
-                    <article
-                      key={cruise.id}
-                      className="overflow-hidden rounded-xl border bg-card shadow-sm"
-                    >
-                      <div className="aspect-[16/9] bg-slate-100">
-                        {presentation?.imageUrl ? (
-                          <img
-                            src={presentation.imageUrl}
-                            alt={cruise.name}
-                            className="h-full w-full object-cover object-center"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
-                            <Ship className="h-10 w-10" />
-                            <p className="text-xs">Cruise image unavailable</p>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-2 p-5">
-                        <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
-                        {duration && (
-                          <p className="text-sm text-slate-600">
-                            <strong>Duration:</strong> {duration}
-                          </p>
-                        )}
-                        {roomType && (
-                          <p className="text-sm text-slate-600">
-                            <strong>Room Type:</strong> {roomType}
-                          </p>
-                        )}
-                        {showDescription && (
-                          <div className="border-t pt-3">
-                            <RichHtml html={rawDescription} />
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-          {/* Additional Services — included add-on services rendered as cards. */}
-          {addonServices.length > 0 && (
-            <section>
-              <SectionTitle>Additional Services</SectionTitle>
-              <div className="grid gap-4 md:grid-cols-2">
-                {addonServices.map((service) => {
-                  const plainText = (service.description ?? '')
-                    .replace(/<[^>]*>/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                  return (
-                    <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
-                      <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
-                      {plainText && (
-                        <div className="mt-2">
-                          <RichHtml html={service.description ?? ''} />
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Visa */}
-          {showVisa && (
-            <section className="rounded-2xl bg-card p-6 shadow-sm">
-              <h2 className="font-semibold text-slate-800">{v.visaSectionTitle || 'Visa'}</h2>
-              <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                {v.visaDestination && (
-                  <p>
-                    <span className="text-slate-400">Destination:</span> {v.visaDestination}
-                  </p>
-                )}
-                {v.visaType && (
-                  <p>
-                    <span className="text-slate-400">Visa type:</span> {v.visaType}
-                  </p>
-                )}
-                {Number(v.visaAmount ?? 0) > 0 && (
-                  <p>
-                    <span className="text-slate-400">Amount:</span> {fmt(Number(v.visaAmount))}
-                  </p>
-                )}
-                {(Number(v.visaServiceCharge ?? 0) > 0 || Number(v.visaVfsCharge ?? 0) > 0) && (
-                  <p>
-                    <span className="text-slate-400">Consolidated total:</span>{' '}
-                    {fmt(visaConsolidated)}
-                  </p>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Policies — compact accordion, one section open at a time. */}
+          {/* Weblink sections — rendered in custom order when configured, otherwise default order. Empty sections stay hidden. */}
           {(() => {
-            const visibleSections = policySections.filter((section) => section.visible);
-            if (!visibleSections.length) return null;
-            return (
+            const faqsNormalized = normalizeFaqs((v as unknown as { faqs?: unknown }).faqs);
+            const rawOrder = (v as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder;
+            const order = resolveWeblinkSectionOrder(rawOrder);
+            const nodes: Record<string, ReactNode> = {};
+            nodes['services'] = includedServices.length > 0 ? (
               <section>
-                <SectionTitle>Policies</SectionTitle>
-                <div className="space-y-2">
-                  {visibleSections.map((section) => {
-                    const open = openPolicy === section.key;
+                <SectionTitle>Services Include</SectionTitle>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {includedServices.map((service) => {
+                    const Icon = serviceCardIcon(service.key);
                     return (
-                      <div
-                        key={section.key}
-                        className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                      <article
+                        key={service.key}
+                        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
                       >
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          aria-controls={`policy-panel-${section.key}`}
-                          onClick={() => setOpenPolicy(open ? null : section.key)}
-                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                        >
-                          <span className="flex items-center gap-2 text-sm font-semibold text-blue-600">
-                            <section.Icon
-                              className={`h-4 w-4 shrink-0 ${section.iconClass}`}
-                              aria-hidden="true"
-                            />
-                            {section.label}
-                          </span>
-                          <ChevronDown
-                            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-                              open ? 'rotate-180' : ''
-                            }`}
-                            aria-hidden="true"
-                          />
-                        </button>
-                        {open && (
-                          <div
-                            id={`policy-panel-${section.key}`}
-                            className="border-t py-4 pl-8 pr-4 text-sm text-slate-700"
-                          >
-                            {hasPolicyHtml(section.html) ? (
-                              <RichHtml html={section.html!} />
-                            ) : (
-                              <ul className="space-y-1.5">
-                                {section.rows.map((row) => (
-                                  <li key={row.id} className="list-inside list-disc">
-                                    {row.content}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                        <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
+                        <span className="font-medium text-slate-800">{service.label}</span>
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+                      </article>
                     );
                   })}
                 </div>
               </section>
+            ) : null;
+            nodes['destinationExpert'] = data.destinationExpert ? (
+              <DestinationExpertSection
+                expert={data.destinationExpert}
+                customerName={q.customerName}
+                destinationSummary={q.destinationSummary}
+                destinations={q.destinations ?? null}
+              />
+            ) : null;
+            nodes['itinerary'] = sightseeingDays.length > 0 ? (
+              <SightseeingItineraryView
+                days={sightseeingDays}
+                color="#16a34a"
+                images={data.sightseeingPresentations ?? {}}
+                documentImages={data.sightseeingDocumentPresentations ?? {}}
+                description={v.sightseeingDetails?.description ?? null}
+                destinationImage={data.heroImageUrl ?? null}
+                fmt={fmt}
+              />
+            ) : null;
+            nodes['hotels'] = hotelIncluded ? (
+              <section>
+                <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
+                <div className="grid gap-5">
+                  {visibleHotels.map((hotel, hotelIndex) => {
+                    const presentation = data.hotelPresentations?.[hotel.id];
+                    const perStayImages = quotationGalleryImages(hotel.images);
+                    const sectionImages = quotationGalleryImages(v.hotelDetails?.images);
+                    const perStaySnapshotPresent =
+                      (hotel as { imageSnapshotPresent?: boolean }).imageSnapshotPresent === true ||
+                      perStayImages.length > 0;
+                    const snapshotImages = perStaySnapshotPresent ? perStayImages : sectionImages;
+                    const snapshotPresent = perStaySnapshotPresent || sectionImages.length > 0;
+                    const snapshotImageUrl = snapshotImages[0]?.url ?? null;
+                    const cardImageUrl = snapshotPresent
+                      ? snapshotImageUrl
+                      : (presentation?.imageUrl ?? snapshotImageUrl);
+                    const category = presentation?.starCategory ?? 0;
+                    const reviewScore = Number(presentation?.starRating);
+                    const showScore = Number.isFinite(reviewScore) && reviewScore > 0;
+                    const rawReviewLink = presentation?.reviewLink?.trim() ?? '';
+                    const reviewUrl = /^https?:\/\//i.test(rawReviewLink) ? rawReviewLink : null;
+                    return (
+                      <article
+                        key={hotel.id}
+                        className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
+                      >
+                        <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
+                          {snapshotImages.length > 0 ? (
+                            <QuotationImageCarousel images={snapshotImages} />
+                          ) : cardImageUrl ? (
+                            <img
+                              src={cardImageUrl}
+                              alt={hotel.hotelName}
+                              className="h-full w-full object-cover object-center"
+                            />
+                          ) : (
+                            <div className="text-center text-slate-400">
+                              <Building2 className="mx-auto h-12 w-12" />
+                              <p className="mt-2 text-xs">Hotel image unavailable</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <h3 className="text-lg font-bold leading-tight text-slate-800">
+                              {hotel.hotelName}
+                            </h3>
+                            {(reviewUrl || showScore) && (
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                {reviewUrl && (
+                                  <a
+                                    href={reviewUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs font-medium text-blue-600 hover:underline"
+                                  >
+                                    Hotel Review <ExternalLink className="inline h-3 w-3" />
+                                  </a>
+                                )}
+                                {showScore && (
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
+                                    {presentation?.starRating}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {category > 0 && (
+                            <div className="mt-2 flex gap-0.5" aria-label={`${category} star hotel`}>
+                              {Array.from({ length: Math.min(5, category) }, (_, index) => (
+                                <Star key={index} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                              ))}
+                            </div>
+                          )}
+                          <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
+                            <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                            {hotel.city}
+                            {presentation?.country ? `, ${presentation.country}` : ''}
+                          </p>
+                          {presentation?.address?.trim() && (
+                            <p className="mt-1.5 text-sm text-slate-500">
+                              {presentation.address.trim()}
+                            </p>
+                          )}
+                          <div className="mt-5 space-y-1.5 text-sm text-slate-700">
+                            {hotel.roomType?.trim() ? (
+                              <p>
+                                <strong>Room Type:</strong> {hotel.roomType}
+                              </p>
+                            ) : null}
+                            {hotel.mealPlan?.trim() ? (
+                              <p>
+                                <strong>Meal Plan:</strong> {hotel.mealPlan}
+                              </p>
+                            ) : null}
+                            {hotel.rooms != null && (
+                              <p>
+                                <strong>Rooms:</strong> {hotel.rooms}
+                              </p>
+                            )}
+                            <p>
+                              <strong>Nights:</strong>{' '}
+                              <span className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">
+                                {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ??
+                                  hotel.nights}
+                              </span>
+                            </p>
+                          </div>
+                          <div className="mt-4 space-y-1 text-xs text-slate-500">
+                            <p>
+                              Check-in: {dateShort(hotel.checkInDate) ?? '—'}
+                              {hotel.checkInTime && hotel.showCheckInTime !== false
+                                ? ` | ${formatTime12Hour(hotel.checkInTime)}`
+                                : ''}
+                            </p>
+                            <p>
+                              Check-out: {dateShort(hotel.checkOutDate) ?? '—'}
+                              {hotel.checkOutTime && hotel.showCheckOutTime !== false
+                                ? ` | ${formatTime12Hour(hotel.checkOutTime)}`
+                                : ''}
+                            </p>
+                          </div>
+                          {hotel.notes && (
+                            <p className="mt-3 text-xs italic text-slate-500">{hotel.notes}</p>
+                          )}
+                          {hotelIndex === 0 && v.hotelDetails?.description && (
+                            <div
+                              className="mt-4 flex items-start gap-2 border-t pt-3"
+                              aria-label="Hotel description"
+                            >
+                              <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                              <div className="min-w-0 flex-1 [&_p]:mr-4 [&_p]:inline-block">
+                                <RichHtml html={v.hotelDetails.description} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null;
+            nodes['flights'] = hasFlights ? (
+              <section>
+                <SectionTitle>{fd?.sectionTitle || 'Flight Details'}</SectionTitle>
+                {fd?.entryMode === 'IMAGE' && (data.flightImages?.length || data.flightImageUrl) ? (
+                  <FlightImageViewer
+                    images={
+                      data.flightImages?.length
+                        ? data.flightImages
+                        : [{ description: null, url: data.flightImageUrl! }]
+                    }
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {flightJourneys.map((leg) => (
+                      <FlightJourneyView
+                        key={leg.key}
+                        title={leg.title}
+                        journey={leg.journey}
+                        color={leg.color}
+                        airlinePresentations={data.airlinePresentations}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null;
+            nodes['transportation'] = vehicles.length > 0 ? (
+              <section>
+                <SectionTitle>{vehicles[0]?.taxCategory?.trim() || 'Transportation'}</SectionTitle>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {vehicles.map((vehicle) => {
+                    const presentation = data.vehiclePresentations?.[vehicle.id];
+                    const snapshotImages = quotationGalleryImages(vehicle.images);
+                    const snapshotPresent =
+                      (vehicle as { imageSnapshotPresent?: boolean }).imageSnapshotPresent === true ||
+                      snapshotImages.length > 0;
+                    const displayImages = snapshotImages.length
+                      ? snapshotImages
+                      : !snapshotPresent && presentation?.imageUrl
+                        ? [{ url: presentation.imageUrl, alt: vehicle.name }]
+                        : [];
+                    return (
+                      <article
+                        key={vehicle.id}
+                        className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
+                      >
+                        <div className="flex min-h-56 items-center justify-center bg-slate-100">
+                          {displayImages.length ? (
+                            <QuotationImageCarousel images={displayImages} label="Vehicle" />
+                          ) : (
+                            <div className="text-center text-slate-400">
+                              <CarFront className="mx-auto h-14 w-14" />
+                              <p className="mt-2 text-xs">Vehicle image unavailable</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-3 p-5">
+                          <h3 className="text-xl font-bold text-slate-800">
+                            {vehicle.name || presentation?.name || 'Vehicle'}
+                          </h3>
+                          <div className="space-y-1 text-sm text-slate-600">
+                            <p>
+                              <strong className="text-slate-700">Type:</strong>{' '}
+                              {vehicle.city || presentation?.vehicleType || 'As selected'}
+                            </p>
+                            {vehicle.notes && (
+                              <p>
+                                <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
+                              </p>
+                            )}
+                          </div>
+                          {vehicle.description && <RichHtml html={vehicle.description} />}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null;
+            nodes['cruise'] = cruises.length > 0 ? (
+              <section>
+                <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
+                <div className="grid gap-5 md:grid-cols-2">
+                  {cruises.map((cruise) => {
+                    const presentation = data.cruisePresentations?.[cruise.id];
+                    const snapshotImages = quotationGalleryImages(cruise.images);
+                    const snapshotPresent =
+                      (cruise as { imageSnapshotPresent?: boolean }).imageSnapshotPresent === true ||
+                      snapshotImages.length > 0;
+                    const displayImages = snapshotImages.length
+                      ? snapshotImages
+                      : !snapshotPresent && presentation?.imageUrl
+                        ? [{ url: presentation.imageUrl, alt: cruise.name }]
+                        : [];
+                    const duration = cruise.notes?.trim();
+                    const roomType = presentation?.roomTypeName?.trim();
+                    const rawDescription = cruise.description?.trim() ?? '';
+                    const descriptionHasText = Boolean(rawDescription.replace(/<[^>]*>/g, '').trim());
+                    const showDescription =
+                      Boolean(rawDescription) &&
+                      descriptionHasText &&
+                      !/^https?:\/\/\S+$/i.test(rawDescription);
+                    return (
+                      <article
+                        key={cruise.id}
+                        className="overflow-hidden rounded-xl border bg-card shadow-sm"
+                      >
+                        <div className="aspect-[16/9] bg-slate-100">
+                          {displayImages.length ? (
+                            <QuotationImageCarousel images={displayImages} label="Cruise" />
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
+                              <Ship className="h-10 w-10" />
+                              <p className="text-xs">Cruise image unavailable</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2 p-5">
+                          <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
+                          {duration && (
+                            <p className="text-sm text-slate-600">
+                              <strong>Duration:</strong> {duration}
+                            </p>
+                          )}
+                          {roomType && (
+                            <p className="text-sm text-slate-600">
+                              <strong>Room Type:</strong> {roomType}
+                            </p>
+                          )}
+                          {showDescription && (
+                            <div className="border-t pt-3">
+                              <RichHtml html={rawDescription} />
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null;
+            nodes['addons'] = addonServices.length > 0 ? (
+              <section>
+                <SectionTitle>Additional Services</SectionTitle>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {addonServices.map((service) => {
+                    const plainText = (service.description ?? '')
+                      .replace(/<[^>]*>/g, ' ')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+                    return (
+                      <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
+                        <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
+                        {plainText && (
+                          <div className="mt-2">
+                            <RichHtml html={service.description ?? ''} />
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null;
+            nodes['visa'] = showVisa ? (
+              <section className="rounded-2xl bg-card p-6 shadow-sm">
+                <h2 className="font-semibold text-slate-800">{v.visaSectionTitle || 'Visa'}</h2>
+                <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                  {v.visaDestination && (
+                    <p>
+                      <span className="text-slate-400">Destination:</span> {v.visaDestination}
+                    </p>
+                  )}
+                  {v.visaType && (
+                    <p>
+                      <span className="text-slate-400">Visa type:</span> {v.visaType}
+                    </p>
+                  )}
+                  {Number(v.visaAmount ?? 0) > 0 && (
+                    <p>
+                      <span className="text-slate-400">Amount:</span> {fmt(Number(v.visaAmount))}
+                    </p>
+                  )}
+                  {(Number(v.visaServiceCharge ?? 0) > 0 || Number(v.visaVfsCharge ?? 0) > 0) && (
+                    <p>
+                      <span className="text-slate-400">Consolidated total:</span>{' '}
+                      {fmt(visaConsolidated)}
+                    </p>
+                  )}
+                </div>
+              </section>
+            ) : null;
+            nodes['policies'] = (() => {
+              const visibleSections = policySections.filter((section) => section.visible);
+              if (!visibleSections.length) return null;
+              return (
+                <section>
+                  <SectionTitle>Policies</SectionTitle>
+                  <div className="space-y-2">
+                    {visibleSections.map((section) => {
+                      const open = openPolicy === section.key;
+                      return (
+                        <div
+                          key={section.key}
+                          className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                        >
+                          <button
+                            type="button"
+                            aria-expanded={open}
+                            aria-controls={`policy-panel-${section.key}`}
+                            onClick={() => setOpenPolicy(open ? null : section.key)}
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                          >
+                            <span className="flex items-center gap-2 text-sm font-semibold text-blue-600">
+                              <section.Icon
+                                className={`h-4 w-4 shrink-0 ${section.iconClass}`}
+                                aria-hidden="true"
+                              />
+                              {section.label}
+                            </span>
+                            <ChevronDown
+                              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                                open ? 'rotate-180' : ''
+                              }`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                          {open && (
+                            <div
+                              id={`policy-panel-${section.key}`}
+                              className="border-t py-4 pl-8 pr-4 text-sm text-slate-700"
+                            >
+                              {hasPolicyHtml(section.html) ? (
+                                <RichHtml html={section.html!} />
+                              ) : (
+                                <ul className="space-y-1.5">
+                                  {section.rows.map((row) => (
+                                    <li key={row.id} className="list-inside list-disc">
+                                      {row.content}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })();
+            nodes['faqs'] = faqsNormalized.length > 0 ? <FaqSection faqs={faqsNormalized} /> : null;
+            return (
+              <>{order.map((id) => {
+                const node = nodes[id];
+                return node ? <Fragment key={id}>{node}</Fragment> : null;
+              })}</>
             );
           })()}
 

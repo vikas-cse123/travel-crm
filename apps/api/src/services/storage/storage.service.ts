@@ -144,6 +144,15 @@ export function testimonialImageObjectKey(input: {
   return `companies/${input.companyId}/masters/testimonials/${input.testimonialId}/images/${input.imageId}/${sanitizeFileName(input.fileName)}`;
 }
 
+export function userProfileImageObjectKey(input: {
+  companyId: string;
+  userId: string;
+  imageId: string;
+  fileName: string;
+}): string {
+  return `companies/${input.companyId}/users/${input.userId}/profile/${input.imageId}/${sanitizeFileName(input.fileName)}`;
+}
+
 export const storageService =
   env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
 

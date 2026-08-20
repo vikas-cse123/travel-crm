@@ -36,6 +36,15 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import {
+  appendMasterImage,
+  effectiveMasterImages,
+  findMasterImage,
+  masterImageWriteData,
+  presentMasterImages,
+  removeMasterImage,
+  reorderMasterImages,
+} from './master-images.js';
 
 /**
  * Sightseeing Master.
@@ -109,6 +118,7 @@ function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) 
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     estimatedHours: num(safe.estimatedHours as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
+    images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
 }
 
@@ -614,19 +624,24 @@ export const sightseeingService = {
       metadata.contentType !== row.pendingImageMimeType
     )
       throw new ValidationError('Uploaded image metadata does not match the approved file.');
-    const oldKey = row.imageObjectKey;
-    const action = oldKey ? 'SIGHTSEEING_IMAGE_REPLACED' : 'SIGHTSEEING_IMAGE_UPLOADED';
+    const confirmedAt = new Date();
+    const images = appendMasterImage(
+      row,
+      {
+        objectKey: key,
+        fileName: row.pendingImageFileName,
+        mimeType: row.pendingImageMimeType,
+        fileSize: row.pendingImageFileSize,
+      },
+      confirmedAt,
+    );
     const updated = await prisma.$transaction(async (tx) => {
       const saved = await tx.sightseeing.update({
         where: { id: row.id },
         data: {
           imageStorageProvider: storageService.provider,
           imageBucket: storageService.bucket,
-          imageObjectKey: key,
-          imageFileName: row.pendingImageFileName,
-          imageMimeType: row.pendingImageMimeType,
-          imageFileSize: row.pendingImageFileSize,
-          imageConfirmedAt: new Date(),
+          ...masterImageWriteData(images),
           pendingImageObjectKey: null,
           pendingImageFileName: null,
           pendingImageMimeType: null,
@@ -635,37 +650,33 @@ export const sightseeingService = {
         include: sightseeingInclude,
       });
       await tx.activityLog.create({
-        data: audit(auth, action, row.id, context, {
-          mimeType: saved.imageMimeType,
-          fileSize: saved.imageFileSize,
+        data: audit(auth, 'SIGHTSEEING_IMAGE_UPLOADED', row.id, context, {
+          imageId: images.at(-1)!.id,
+          mimeType: row.pendingImageMimeType,
+          fileSize: row.pendingImageFileSize,
         }),
       });
       return saved;
     });
-    if (oldKey && oldKey !== key) await storageService.deleteObject(oldKey);
     return present(updated as unknown as Record<string, unknown>, scope);
   },
 
-  async imageDownload(auth: AuthContext, sightseeingId: string) {
+  async imageDownload(auth: AuthContext, sightseeingId: string, imageId?: string) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const row = await getSightseeing(auth, sightseeingId, scope);
-    if (!row.imageObjectKey || !row.imageFileName || !row.imageConfirmedAt)
-      throw new NotFoundError('Sightseeing image not found.');
+    const image = findMasterImage(row, imageId);
+    if (!image) throw new NotFoundError('Sightseeing image not found.');
     return {
-      url: await storageService.createDownloadUrl(
-        row.imageObjectKey,
-        row.imageFileName,
-        PRESIGN_TTL,
-      ),
+      url: await storageService.createDownloadUrl(image.objectKey, image.fileName, PRESIGN_TTL),
       expiresInSeconds: PRESIGN_TTL,
     };
   },
 
   /**
-   * Batch short-lived display URLs for many sightseeing masters (deduped).
-   * Used by the quotation builder so it can render every selected activity's
-   * image with a single request instead of N per-activity calls. The returned
-   * URLs are transient presigned links and are never persisted.
+   * Batch ordered, short-lived display URLs for many sightseeing masters.
+   * The opaque image ids let the quotation builder preserve order without
+   * exposing storage object keys. The singular imageUrl remains as a legacy
+   * alias for the first available gallery image.
    */
   async presentations(auth: AuthContext, ids: string[]) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
@@ -675,59 +686,96 @@ export const sightseeingService = {
     if (!uniqueIds.length) return {};
     const rows = await prisma.sightseeing.findMany({
       where: { id: { in: uniqueIds }, ...buildVisibleWhere(scope), deletedAt: null },
-      select: { id: true, imageObjectKey: true, imageFileName: true, imageConfirmedAt: true },
+      select: {
+        id: true,
+        images: true,
+        imageObjectKey: true,
+        imageFileName: true,
+        imageMimeType: true,
+        imageFileSize: true,
+        imageConfirmedAt: true,
+      },
     });
     return Object.fromEntries(
       await Promise.all(
         rows.map(async (row) => {
-          let imageUrl: string | null = null;
-          if (row.imageObjectKey && row.imageConfirmedAt) {
-            try {
-              imageUrl = await storageService.createDownloadUrl(
-                row.imageObjectKey,
-                row.imageFileName ?? 'sightseeing',
-                PRESIGN_TTL,
-              );
-            } catch {
-              imageUrl = null;
-            }
-          }
-          return [row.id, { imageUrl }] as const;
+          const images = (
+            await Promise.all(
+              effectiveMasterImages(row).map(async (image) => {
+                try {
+                  return {
+                    id: image.id,
+                    url: await storageService.createDownloadUrl(
+                      image.objectKey,
+                      image.fileName,
+                      PRESIGN_TTL,
+                    ),
+                  };
+                } catch {
+                  return null;
+                }
+              }),
+            )
+          ).filter((image): image is { id: string; url: string } => image !== null);
+          return [row.id, { imageUrl: images[0]?.url ?? null, images }] as const;
         }),
       ),
     );
   },
 
-  async deleteImage(auth: AuthContext, sightseeingId: string, context: MastersRequestContext) {
+  async deleteImage(
+    auth: AuthContext,
+    sightseeingId: string,
+    context: MastersRequestContext,
+    imageId?: string,
+  ) {
     const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
     const row = await getSightseeing(auth, sightseeingId, scope, true);
     assertCanModifyMaster(row, scope);
-    const keys = [row.imageObjectKey, row.pendingImageObjectKey].filter((value): value is string =>
-      Boolean(value),
-    );
+    const removed = removeMasterImage(row, imageId);
+    if (!removed) throw new NotFoundError('Sightseeing image not found.');
     await prisma.$transaction(async (tx) => {
       await tx.sightseeing.update({
         where: { id: row.id },
         data: {
-          imageStorageProvider: null,
-          imageBucket: null,
-          imageObjectKey: null,
-          imageFileName: null,
-          imageMimeType: null,
-          imageFileSize: null,
-          imageConfirmedAt: null,
-          pendingImageObjectKey: null,
-          pendingImageFileName: null,
-          pendingImageMimeType: null,
-          pendingImageFileSize: null,
+          ...masterImageWriteData(removed.images),
+          imageStorageProvider: removed.images.length ? row.imageStorageProvider : null,
+          imageBucket: removed.images.length ? row.imageBucket : null,
         },
       });
       await tx.activityLog.create({
-        data: audit(auth, 'SIGHTSEEING_IMAGE_DELETED', row.id, context),
+        data: audit(auth, 'SIGHTSEEING_IMAGE_DELETED', row.id, context, {
+          imageId: removed.target.id,
+          remainingImageCount: removed.images.length,
+        }),
       });
     });
-    await Promise.all(keys.map((key) => storageService.deleteObject(key)));
     return { deleted: true };
+  },
+  async reorderImages(
+    auth: AuthContext,
+    sightseeingId: string,
+    imageIds: string[],
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.SIGHTSEEING);
+    const row = await getSightseeing(auth, sightseeingId, scope, true);
+    assertCanModifyMaster(row, scope);
+    const images = reorderMasterImages(row, imageIds);
+    if (!images) throw new ValidationError('Image order must contain every current image once.');
+    await prisma.$transaction(async (tx) => {
+      await tx.sightseeing.update({
+        where: { id: row.id },
+        data: masterImageWriteData(images),
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'SIGHTSEEING_UPDATED', row.id, context, {
+          change: 'IMAGE_ORDER',
+          imageIds,
+        }),
+      });
+    });
+    return this.details(auth, sightseeingId);
   },
 
   /**
@@ -808,6 +856,12 @@ export const sightseeingService = {
         estimatedHours: true,
         suggestedStartTime: true,
         description: true,
+        images: true,
+        imageObjectKey: true,
+        imageFileName: true,
+        imageMimeType: true,
+        imageFileSize: true,
+        imageConfirmedAt: true,
         destination: { select: { id: true, name: true } },
         city: { select: { id: true, name: true } },
       },
@@ -817,8 +871,15 @@ export const sightseeingService = {
       destination: destination ? { id: destination.id, name: destination.name } : null,
       city: cityId ? { id: cityId, name: cityNameResolved } : null,
       activities: rows.map((row) => ({
-        ...row,
+        id: row.id,
+        title: row.title,
+        sequence: row.sequence,
         estimatedHours: num(row.estimatedHours),
+        suggestedStartTime: row.suggestedStartTime,
+        description: row.description,
+        destination: row.destination,
+        city: row.city,
+        images: presentMasterImages(row),
       })),
     };
   },

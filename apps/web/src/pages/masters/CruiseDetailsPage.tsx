@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Archive, ArrowLeft, BedDouble, Pencil, RotateCcw, Ship } from 'lucide-react';
 import { PERMISSIONS } from '@interscale/shared';
@@ -10,6 +9,7 @@ import {
   useCruise,
   useRestoreCruise,
 } from '@/features/masters/masters.api';
+import { MasterImageGalleryView } from './MasterImageGallery';
 import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 
 export function CruiseDetailsPage() {
@@ -21,27 +21,6 @@ export function CruiseDetailsPage() {
   const canUpdate = hasPermission(PERMISSIONS.MASTER_CRUISES_UPDATE);
   const canArchive = hasPermission(PERMISSIONS.MASTER_CRUISES_DELETE);
   const canViewCosting = hasPermission(PERMISSIONS.MASTER_CRUISES_VIEW_COSTING);
-
-  // Images live in private storage, so the src is a short-lived signed URL
-  // fetched on demand — the object key is never exposed to the browser.
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    if (!cruise.data?.hasImage) {
-      setImageSrc(null);
-      return;
-    }
-    void cruiseImageUrl(cruiseId)
-      .then((result) => {
-        if (active) setImageSrc(result.url);
-      })
-      .catch(() => {
-        if (active) setImageSrc(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [cruise.data?.hasImage, cruiseId]);
 
   if (cruise.isPending) return <LoadingCard />;
   if (cruise.isError)
@@ -107,11 +86,18 @@ export function CruiseDetailsPage() {
             Cruise Information
           </h2>
           <div className="grid gap-4 p-4 sm:grid-cols-[220px_minmax(0,1fr)]">
-            <div className="flex h-40 items-center justify-center overflow-hidden rounded-lg border bg-slate-50">
-              {imageSrc ? (
-                <img src={imageSrc} alt={value.name} className="h-full w-full object-cover" />
+            <div className="min-h-40 overflow-hidden rounded-lg bg-slate-50">
+              {value.hasImage ? (
+                <MasterImageGalleryView
+                  masterId={value.id}
+                  entity={value}
+                  download={cruiseImageUrl}
+                  alt={value.name}
+                />
               ) : (
-                <Ship className="h-10 w-10 text-slate-300" />
+                <div className="flex h-40 items-center justify-center border">
+                  <Ship className="h-10 w-10 text-slate-300" />
+                </div>
               )}
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">

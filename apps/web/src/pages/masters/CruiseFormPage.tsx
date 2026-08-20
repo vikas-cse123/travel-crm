@@ -10,13 +10,13 @@ import {
   confirmCruiseImage,
   cruiseImageUrl,
   deleteCruiseImage,
+  reorderCruiseImages,
   useCreateCruise,
   useCruise,
   useUpdateCruise,
 } from '@/features/masters/masters.api';
 import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
-import { MasterImageField } from './MasterImageField';
-import { MasterImageEditor } from './MasterImageEditor';
+import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const MAX_IMAGE_MB = 5;
 
@@ -52,17 +52,26 @@ export function CruiseFormPage() {
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_CRUISES_MANAGE_MEDIA);
   const canManageCosting = hasPermission(PERMISSIONS.MASTER_CRUISES_MANAGE_COSTING);
 
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
-  const [existingImageUrl, setExistingImageUrl] = useState('');
-  const [isImageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageError, setImageError] = useState('');
   const [formError, setFormError] = useState('');
 
   const form = useForm<FormValues>({
     defaultValues: { name: '', description: '', status: 'ACTIVE', roomTypes: [] },
   });
   const roomTypes = useFieldArray({ control: form.control, name: 'roomTypes' });
+  const imageGallery = useMasterImageGallery({
+    masterId: cruiseId,
+    entity: cruise.data,
+    allowedMimeTypes: CRUISE_IMAGE_MIME_TYPES,
+    maxSizeMb: MAX_IMAGE_MB,
+    api: {
+      approve: approveCruiseImage,
+      confirm: confirmCruiseImage,
+      download: cruiseImageUrl,
+      remove: deleteCruiseImage,
+      reorder: reorderCruiseImages,
+    },
+    onExistingChange: cruise.refetch,
+  });
 
   useEffect(() => {
     const value = cruise.data;
@@ -81,83 +90,8 @@ export function CruiseFormPage() {
     });
   }, [cruise.data, form]);
 
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
-
-  useEffect(() => {
-    if (!cruiseId || !cruise.data?.hasImage) {
-      setExistingImageUrl('');
-      return;
-    }
-    let active = true;
-    void cruiseImageUrl(cruiseId)
-      .then((result) => {
-        if (active) setExistingImageUrl(result.url);
-      })
-      .catch(() => {
-        if (active) setExistingImageUrl('');
-      });
-    return () => {
-      active = false;
-    };
-  }, [cruise.data?.hasImage, cruiseId]);
-
   if (cruiseId && cruise.isError) return <Navigate to="/masters/cruises" replace />;
   const mutation = cruiseId ? update : create;
-
-  const validateImage = (file?: File) => {
-    setImageError('');
-    if (!file) {
-      setImage(null);
-      setImageEditorOpen(false);
-      return;
-    }
-    if (!CRUISE_IMAGE_MIME_TYPES.includes(file.type as (typeof CRUISE_IMAGE_MIME_TYPES)[number])) {
-      setImageError('Use a JPEG, PNG, WebP, or GIF image.');
-      return;
-    }
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
-      return;
-    }
-    setImage(file);
-    setImageEditorOpen(true);
-  };
-  const applyEditedImage = (file: File) => {
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setImageError(`Image must be ${MAX_IMAGE_MB} MB or smaller.`);
-      return;
-    }
-    setImageError('');
-    setImage(file);
-    setImageEditorOpen(false);
-  };
-
-  const uploadImage = async (id: string, file: File) => {
-    const approval = await approveCruiseImage(id, {
-      fileName: file.name,
-      mimeType: file.type as (typeof CRUISE_IMAGE_MIME_TYPES)[number],
-      fileSize: file.size,
-    });
-    if (!approval.uploadUrl.startsWith('http'))
-      throw new Error(
-        'Local memory storage has no browser upload transport. Configure S3 to upload images.',
-      );
-    const response = await fetch(approval.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type },
-      body: file,
-    });
-    if (!response.ok) throw new Error('The image upload failed. Please try again.');
-    await confirmCruiseImage(id);
-  };
 
   const submit = form.handleSubmit(async (values) => {
     setFormError('');
@@ -184,7 +118,7 @@ export function CruiseFormPage() {
       const saved = cruiseId
         ? await update.mutateAsync(payload)
         : await create.mutateAsync(payload);
-      if (image && canManageMedia) await uploadImage(saved.id, image);
+      if (canManageMedia) await imageGallery.persist(saved.id);
       navigate(`/masters/cruises/${saved.id}`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'The cruise could not be saved.');
@@ -240,64 +174,12 @@ export function CruiseFormPage() {
               />
 
               {canManageMedia && (
-                <div className="space-y-3">
-                  <MasterImageField
-                    label="Cruise Image"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    maxSizeMb={MAX_IMAGE_MB}
-                    error={imageError}
-                    editing={Boolean(cruiseId)}
-                    hasExisting={Boolean(cruise.data?.hasImage)}
-                    onSelect={validateImage}
-                    onDelete={async () => {
-                      if (cruiseId && window.confirm('Delete this cruise image?')) {
-                        await deleteCruiseImage(cruiseId);
-                        setExistingImageUrl('');
-                        await cruise.refetch();
-                      }
-                    }}
-                  />
-                  {(imagePreviewUrl || existingImageUrl) && (
-                    <div className="overflow-hidden rounded-lg border bg-slate-50">
-                      <img
-                        src={imagePreviewUrl || existingImageUrl}
-                        alt="Cruise image preview"
-                        className="h-44 w-full bg-slate-50 object-contain"
-                      />
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card p-3">
-                        <p className="min-w-0 truncate text-sm text-slate-600">
-                          {image?.name ?? cruise.data?.imageFileName ?? 'Cruise image'}
-                        </p>
-                        <div className="flex gap-2">
-                          {image && (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => setImageEditorOpen(true)}
-                              >
-                                Edit image
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  setImage(null);
-                                  setImageError('');
-                                  setImageEditorOpen(false);
-                                }}
-                              >
-                                Remove
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <MasterImageGalleryField
+                  label="Cruise Images"
+                  controller={imageGallery}
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  maxSizeMb={MAX_IMAGE_MB}
+                />
               )}
 
               <label className="block text-sm font-medium text-slate-700">
@@ -391,21 +273,14 @@ export function CruiseFormPage() {
           <Button variant="secondary" onClick={() => navigate('/masters/cruises')}>
             <X className="h-4 w-4" /> Cancel
           </Button>
-          <Button type="submit" isLoading={mutation.isPending || form.formState.isSubmitting}>
+          <Button
+            type="submit"
+            isLoading={mutation.isPending || form.formState.isSubmitting || imageGallery.isBusy}
+          >
             <Save className="h-4 w-4" /> {cruiseId ? 'Update Cruise' : 'Create Cruise'}
           </Button>
         </div>
       </form>
-      {image && imagePreviewUrl && (
-        <MasterImageEditor
-          file={image}
-          imageUrl={imagePreviewUrl}
-          isOpen={isImageEditorOpen}
-          title="Edit Cruise Image"
-          onCancel={() => setImageEditorOpen(false)}
-          onApply={applyEditedImage}
-        />
-      )}
     </div>
   );
 }
