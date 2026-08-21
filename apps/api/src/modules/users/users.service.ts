@@ -9,7 +9,10 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
-import { storageService, userProfileImageObjectKey } from '../../services/storage/storage.service.js';
+import {
+  storageService,
+  userProfileImageObjectKey,
+} from '../../services/storage/storage.service.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -124,9 +127,9 @@ async function userProfileImageUrl(user: {
   }
 }
 
-async function presentUser<T extends { profileImageObjectKey: string | null; profileImageConfirmedAt: Date | null }>(
-  user: T,
-): Promise<T & { profileImageUrl: string | null }> {
+async function presentUser<
+  T extends { profileImageObjectKey: string | null; profileImageConfirmedAt: Date | null },
+>(user: T): Promise<T & { profileImageUrl: string | null }> {
   const url = await userProfileImageUrl(user);
   return { ...user, profileImageUrl: url };
 }
@@ -318,14 +321,22 @@ export const usersService = {
           ...(input.mustChangePassword !== undefined
             ? { mustChangePassword: input.mustChangePassword }
             : {}),
-          ...(input.gender !== undefined ? { gender: (input.gender as unknown as UserGender) ?? null } : {}),
+          ...(input.gender !== undefined
+            ? { gender: (input.gender as unknown as UserGender) ?? null }
+            : {}),
           ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle ?? null } : {}),
           ...(input.bio !== undefined ? { bio: input.bio ?? null } : {}),
-          ...(input.specialization !== undefined ? { specialization: input.specialization ?? null } : {}),
-          ...(input.yearsOfExperience !== undefined ? { yearsOfExperience: input.yearsOfExperience ?? null } : {}),
+          ...(input.specialization !== undefined
+            ? { specialization: input.specialization ?? null }
+            : {}),
+          ...(input.yearsOfExperience !== undefined
+            ? { yearsOfExperience: input.yearsOfExperience ?? null }
+            : {}),
           ...(input.tripsPlanned !== undefined ? { tripsPlanned: input.tripsPlanned ?? null } : {}),
           ...(input.languages !== undefined ? { languages: input.languages ?? null } : {}),
-          ...(input.whatsappNumber !== undefined ? { whatsappNumber: input.whatsappNumber ?? null } : {}),
+          ...(input.whatsappNumber !== undefined
+            ? { whatsappNumber: input.whatsappNumber ?? null }
+            : {}),
         },
       });
       await tx.activityLog.create({
@@ -517,7 +528,8 @@ export const usersService = {
     if (!allowed.includes(input.mimeType))
       throw new ValidationError('Profile photo must be JPEG, PNG or WebP.');
     const max = PROFILE_IMAGE_MAX_MB * 1024 * 1024;
-    if (input.fileSize > max) throw new ValidationError(`Profile photo must be ${PROFILE_IMAGE_MAX_MB} MB or smaller.`);
+    if (input.fileSize > max)
+      throw new ValidationError(`Profile photo must be ${PROFILE_IMAGE_MAX_MB} MB or smaller.`);
     const key = profileImageKey(auth.companyId, userId, input.fileName);
     const existing = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -539,7 +551,12 @@ export const usersService = {
         pendingProfileImageFileSize: input.fileSize,
       },
     });
-    const uploadUrl = await storageService.createUploadUrl(key, input.mimeType, input.fileSize, PROFILE_PRESIGN_TTL);
+    const uploadUrl = await storageService.createUploadUrl(
+      key,
+      input.mimeType,
+      input.fileSize,
+      PROFILE_PRESIGN_TTL,
+    );
     return { uploadUrl, key, expiresInSeconds: PROFILE_PRESIGN_TTL };
   },
 
@@ -565,7 +582,10 @@ export const usersService = {
       throw new ValidationError('No profile photo upload is awaiting confirmation.');
     const meta = await storageService.headObject(user.pendingProfileImageObjectKey);
     if (!meta) throw new ValidationError('Uploaded profile photo not found.');
-    if (meta.size !== user.pendingProfileImageFileSize || meta.contentType !== user.pendingProfileImageMimeType)
+    if (
+      meta.size !== user.pendingProfileImageFileSize ||
+      meta.contentType !== user.pendingProfileImageMimeType
+    )
       throw new ValidationError('Uploaded file does not match approved file.');
     const oldKey = user.profileImageObjectKey;
     await prisma.$transaction(async (tx) => {
@@ -585,7 +605,9 @@ export const usersService = {
         },
       });
       await tx.activityLog.create({
-        data: auditData(auth, userId, ACTIVITY_ACTION.USER_UPDATED, context, { profileImageUpdated: true }),
+        data: auditData(auth, userId, ACTIVITY_ACTION.USER_UPDATED, context, {
+          profileImageUpdated: true,
+        }),
       });
     });
     if (oldKey && oldKey !== user.pendingProfileImageObjectKey) {

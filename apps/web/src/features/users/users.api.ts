@@ -89,11 +89,20 @@ export function useUserAction() {
   });
 }
 export async function uploadUserProfileImage(userId: string, file: File) {
-  const { uploadUrl } = await apiClient.post<{ uploadUrl: string; key: string; expiresInSeconds: number }>(
-    `/users/${userId}/profile-image/upload`,
-    { fileName: file.name, mimeType: file.type, fileSize: file.size },
-  );
-  const res = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+  const { uploadUrl } = await apiClient.post<{
+    uploadUrl: string;
+    key: string;
+    expiresInSeconds: number;
+  }>(`/users/${userId}/profile-image/upload`, {
+    fileName: file.name,
+    mimeType: file.type,
+    fileSize: file.size,
+  });
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
   if (!res.ok) throw new Error('Profile photo upload failed.');
   return apiClient.post<ManagedUser>(`/users/${userId}/profile-image/confirm`);
 }

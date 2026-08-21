@@ -1561,10 +1561,16 @@ export function QuotationBuilderPage() {
       weblinkSectionOrder: Array.isArray(
         (version as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder,
       )
-        ? ((version as unknown as { weblinkSectionOrder: string[] }).weblinkSectionOrder as string[])
+        ? ((version as unknown as { weblinkSectionOrder: string[] })
+            .weblinkSectionOrder as string[])
         : null,
-      destinationExpertConfig: (version as unknown as { destinationExpertConfig?: unknown }).destinationExpertConfig
-        ? ((version as unknown as { destinationExpertConfig: QuotationVersionInput['destinationExpertConfig'] }).destinationExpertConfig as QuotationVersionInput['destinationExpertConfig'])
+      destinationExpertConfig: (version as unknown as { destinationExpertConfig?: unknown })
+        .destinationExpertConfig
+        ? ((
+            version as unknown as {
+              destinationExpertConfig: QuotationVersionInput['destinationExpertConfig'];
+            }
+          ).destinationExpertConfig as QuotationVersionInput['destinationExpertConfig'])
         : null,
     });
     // A brand-new quotation with a prefilled default hotel keeps the Hotel
@@ -2111,7 +2117,8 @@ export function QuotationBuilderPage() {
                 enabled: Boolean(value.destinationExpertConfig.enabled),
                 expertUserId: value.destinationExpertConfig.expertUserId ?? null,
                 heading: (value.destinationExpertConfig.heading ?? '').trim() || null,
-                customIntroduction: (value.destinationExpertConfig.customIntroduction ?? '').trim() || null,
+                customIntroduction:
+                  (value.destinationExpertConfig.customIntroduction ?? '').trim() || null,
                 showWhatsapp: value.destinationExpertConfig.showWhatsapp !== false,
                 showCall: value.destinationExpertConfig.showCall !== false,
                 showEmail: value.destinationExpertConfig.showEmail !== false,
@@ -4559,8 +4566,8 @@ export function QuotationBuilderPage() {
                 </label>
               )}
             </section>
-           </div>
-         )}
+          </div>
+        )}
 
         {/* Setting — Weblink Customization */}
         {activeTab === 'setting' && (
@@ -4575,7 +4582,9 @@ export function QuotationBuilderPage() {
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
               >
                 <span>
-                  <span className="block text-sm font-semibold text-slate-800">Weblink Section Order</span>
+                  <span className="block text-sm font-semibold text-slate-800">
+                    Weblink Section Order
+                  </span>
                   <span className="block text-xs text-slate-500">
                     Choose the order in which sections appear on the public Weblink.
                   </span>
@@ -4590,7 +4599,9 @@ export function QuotationBuilderPage() {
                   <div className="space-y-2">
                     {(() => {
                       const saved = form.watch('weblinkSectionOrder');
-                      const order = resolveWeblinkSectionOrder(saved?.length ? saved : DEFAULT_WEBLINK_SECTION_ORDER);
+                      const order = resolveWeblinkSectionOrder(
+                        saved?.length ? saved : DEFAULT_WEBLINK_SECTION_ORDER,
+                      );
                       const move = (index: number, dir: -1 | 1) => {
                         const next = [...order];
                         const target = index + dir;
@@ -4599,16 +4610,33 @@ export function QuotationBuilderPage() {
                         form.setValue('weblinkSectionOrder', next, { shouldDirty: true });
                       };
                       return order.map((sectionId, index) => (
-                        <div key={sectionId} className="flex items-center justify-between gap-2 rounded-lg border bg-slate-50 px-3 py-2">
+                        <div
+                          key={sectionId}
+                          className="flex items-center justify-between gap-2 rounded-lg border bg-slate-50 px-3 py-2"
+                        >
                           <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
                             <span className="text-slate-400">☰</span>
                             {WEBLINK_SECTION_LABELS[sectionId] ?? sectionId}
                           </span>
                           <span className="flex items-center gap-1">
-                            <Button type="button" size="sm" variant="secondary" disabled={index === 0} aria-label={`Move ${sectionId} up`} onClick={() => move(index, -1)}>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={index === 0}
+                              aria-label={`Move ${sectionId} up`}
+                              onClick={() => move(index, -1)}
+                            >
                               <ArrowUp className="h-4 w-4" />
                             </Button>
-                            <Button type="button" size="sm" variant="secondary" disabled={index === order.length - 1} aria-label={`Move ${sectionId} down`} onClick={() => move(index, 1)}>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={index === order.length - 1}
+                              aria-label={`Move ${sectionId} down`}
+                              onClick={() => move(index, 1)}
+                            >
                               <ArrowDown className="h-4 w-4" />
                             </Button>
                           </span>
@@ -4616,7 +4644,15 @@ export function QuotationBuilderPage() {
                       ));
                     })()}
                   </div>
-                  <button type="button" className="text-xs font-medium text-slate-500 hover:text-slate-700" onClick={() => form.setValue('weblinkSectionOrder', [...DEFAULT_WEBLINK_SECTION_ORDER], { shouldDirty: true })}>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                    onClick={() =>
+                      form.setValue('weblinkSectionOrder', [...DEFAULT_WEBLINK_SECTION_ORDER], {
+                        shouldDirty: true,
+                      })
+                    }
+                  >
                     Reset to default order
                   </button>
                 </div>
@@ -4628,22 +4664,26 @@ export function QuotationBuilderPage() {
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-800">Destination Expert</h3>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={Boolean(watchedExpertConfig?.enabled)} onChange={(e) => {
-                    const cur = form.getValues('destinationExpertConfig');
-                    const next = {
-                      enabled: e.target.checked,
-                      expertUserId: cur?.expertUserId ?? null,
-                      heading: cur?.heading ?? null,
-                      customIntroduction: cur?.customIntroduction ?? null,
-                      showWhatsapp: cur?.showWhatsapp ?? true,
-                      showCall: cur?.showCall ?? true,
-                      showEmail: cur?.showEmail ?? true,
-                      showExperience: cur?.showExperience ?? true,
-                      showTripsPlanned: cur?.showTripsPlanned ?? true,
-                      showLanguages: cur?.showLanguages ?? true,
-                    };
-                    form.setValue('destinationExpertConfig', next, { shouldDirty: true });
-                  }} />
+                  <input
+                    type="checkbox"
+                    checked={Boolean(watchedExpertConfig?.enabled)}
+                    onChange={(e) => {
+                      const cur = form.getValues('destinationExpertConfig');
+                      const next = {
+                        enabled: e.target.checked,
+                        expertUserId: cur?.expertUserId ?? null,
+                        heading: cur?.heading ?? null,
+                        customIntroduction: cur?.customIntroduction ?? null,
+                        showWhatsapp: cur?.showWhatsapp ?? true,
+                        showCall: cur?.showCall ?? true,
+                        showEmail: cur?.showEmail ?? true,
+                        showExperience: cur?.showExperience ?? true,
+                        showTripsPlanned: cur?.showTripsPlanned ?? true,
+                        showLanguages: cur?.showLanguages ?? true,
+                      };
+                      form.setValue('destinationExpertConfig', next, { shouldDirty: true });
+                    }}
+                  />
                   Show Destination Expert
                 </label>
               </div>
@@ -4651,44 +4691,88 @@ export function QuotationBuilderPage() {
                 <div className="space-y-4 rounded-lg border bg-slate-50 p-4">
                   <label className="block text-sm font-semibold text-slate-800">
                     Expert
-                    <select className={`${field} mt-1 bg-white`} value={watchedExpertConfig?.expertUserId ?? ''} onChange={(e) => {
-                      const cur = form.getValues('destinationExpertConfig');
-                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), expertUserId: e.target.value || null } as never, { shouldDirty: true });
-                    }}>
+                    <select
+                      className={`${field} mt-1 bg-white`}
+                      value={watchedExpertConfig?.expertUserId ?? ''}
+                      onChange={(e) => {
+                        const cur = form.getValues('destinationExpertConfig');
+                        form.setValue(
+                          'destinationExpertConfig',
+                          { ...(cur ?? {}), expertUserId: e.target.value || null } as never,
+                          { shouldDirty: true },
+                        );
+                      }}
+                    >
                       <option value="">Select expert</option>
-                      {(expertUsersQuery.data?.data ?? []).map((u: { id: string; fullName: string }) => (
-                        <option key={u.id} value={u.id}>{u.fullName}</option>
-                      ))}
+                      {(expertUsersQuery.data?.data ?? []).map(
+                        (u: { id: string; fullName: string }) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </label>
                   <label className="block text-sm font-semibold text-slate-800">
                     Heading
-                    <input className={`${field} mt-1 bg-white`} placeholder="e.g. Your Destination Expert" value={watchedExpertConfig?.heading ?? ''} onChange={(e) => {
-                      const cur = form.getValues('destinationExpertConfig');
-                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), heading: e.target.value || null } as never, { shouldDirty: true });
-                    }} />
+                    <input
+                      className={`${field} mt-1 bg-white`}
+                      placeholder="e.g. Your Destination Expert"
+                      value={watchedExpertConfig?.heading ?? ''}
+                      onChange={(e) => {
+                        const cur = form.getValues('destinationExpertConfig');
+                        form.setValue(
+                          'destinationExpertConfig',
+                          { ...(cur ?? {}), heading: e.target.value || null } as never,
+                          { shouldDirty: true },
+                        );
+                      }}
+                    />
                   </label>
                   <label className="block text-sm font-semibold text-slate-800">
                     Custom introduction
-                    <textarea rows={3} className={`${field} mt-1 bg-white`} placeholder="Custom intro shown under expert details" value={watchedExpertConfig?.customIntroduction ?? ''} onChange={(e) => {
-                      const cur = form.getValues('destinationExpertConfig');
-                      form.setValue('destinationExpertConfig', { ...(cur ?? {}), customIntroduction: e.target.value || null } as never, { shouldDirty: true });
-                    }} />
+                    <textarea
+                      rows={3}
+                      className={`${field} mt-1 bg-white`}
+                      placeholder="Custom intro shown under expert details"
+                      value={watchedExpertConfig?.customIntroduction ?? ''}
+                      onChange={(e) => {
+                        const cur = form.getValues('destinationExpertConfig');
+                        form.setValue(
+                          'destinationExpertConfig',
+                          { ...(cur ?? {}), customIntroduction: e.target.value || null } as never,
+                          { shouldDirty: true },
+                        );
+                      }}
+                    />
                   </label>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {([
-                      ['showWhatsapp', 'Show WhatsApp'],
-                      ['showCall', 'Show Call'],
-                      ['showEmail', 'Show Email'],
-                      ['showExperience', 'Show Experience'],
-                      ['showTripsPlanned', 'Show Trips Planned'],
-                      ['showLanguages', 'Show Languages'],
-                    ] as const).map(([key, label]) => (
+                    {(
+                      [
+                        ['showWhatsapp', 'Show WhatsApp'],
+                        ['showCall', 'Show Call'],
+                        ['showEmail', 'Show Email'],
+                        ['showExperience', 'Show Experience'],
+                        ['showTripsPlanned', 'Show Trips Planned'],
+                        ['showLanguages', 'Show Languages'],
+                      ] as const
+                    ).map(([key, label]) => (
                       <label key={key} className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={Boolean((watchedExpertConfig as unknown as Record<string, unknown>)?.[key] ?? true)} onChange={(e) => {
-                          const cur = form.getValues('destinationExpertConfig');
-                          form.setValue('destinationExpertConfig', { ...(cur ?? {}), [key]: e.target.checked } as never, { shouldDirty: true });
-                        }} />
+                        <input
+                          type="checkbox"
+                          checked={Boolean(
+                            (watchedExpertConfig as unknown as Record<string, unknown>)?.[key] ??
+                            true,
+                          )}
+                          onChange={(e) => {
+                            const cur = form.getValues('destinationExpertConfig');
+                            form.setValue(
+                              'destinationExpertConfig',
+                              { ...(cur ?? {}), [key]: e.target.checked } as never,
+                              { shouldDirty: true },
+                            );
+                          }}
+                        />
                         {label}
                       </label>
                     ))}
@@ -4698,10 +4782,9 @@ export function QuotationBuilderPage() {
             </div>
           </div>
         )}
-       </section>
+      </section>
 
-
-       {/* Quotation Summary (always visible, like the reference) */}
+      {/* Quotation Summary (always visible, like the reference) */}
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="bg-emerald-600 px-5 py-3 font-semibold text-white">Quotation Summary</div>
         <div className="grid gap-0 p-0 md:grid-cols-2">

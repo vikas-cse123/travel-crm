@@ -130,7 +130,9 @@
   color: #0f172a;
   padding: 0 12px;
   outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .notes-filter-input {
@@ -173,7 +175,9 @@
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   overflow: hidden;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
   min-height: 268px;
 }
 

@@ -102,7 +102,11 @@ router.patch(
 const profileImageUpload = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/jpg']),
-  fileSize: z.coerce.number().int().positive().max(5 * 1024 * 1024),
+  fileSize: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
 });
 router.post(
   '/:userId/profile-image/upload',

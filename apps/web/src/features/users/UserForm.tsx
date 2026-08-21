@@ -220,7 +220,8 @@ export function UserForm({
       <div className="rounded-xl border bg-slate-50 p-4">
         <h3 className="text-sm font-semibold text-slate-800">Destination Expert Profile</h3>
         <p className="mt-1 text-xs text-slate-500">
-          Optional details for the public <span className="font-medium">Know Your Destination Expert</span> section.
+          Optional details for the public{' '}
+          <span className="font-medium">Know Your Destination Expert</span> section.
         </p>
         <div className="mt-4 grid gap-5 md:grid-cols-2">
           <FormField label="Job Title" error={errors.jobTitle?.message as string | undefined}>
@@ -233,7 +234,10 @@ export function UserForm({
               />
             )}
           </FormField>
-          <FormField label="Specialization" error={errors.specialization?.message as string | undefined}>
+          <FormField
+            label="Specialization"
+            error={errors.specialization?.message as string | undefined}
+          >
             {(a) => (
               <input
                 {...a}
@@ -243,7 +247,10 @@ export function UserForm({
               />
             )}
           </FormField>
-          <FormField label="Years of Experience" error={errors.yearsOfExperience?.message as string | undefined}>
+          <FormField
+            label="Years of Experience"
+            error={errors.yearsOfExperience?.message as string | undefined}
+          >
             {(a) => (
               <input
                 {...a}
@@ -258,7 +265,10 @@ export function UserForm({
               />
             )}
           </FormField>
-          <FormField label="Trips Planned" error={errors.tripsPlanned?.message as string | undefined}>
+          <FormField
+            label="Trips Planned"
+            error={errors.tripsPlanned?.message as string | undefined}
+          >
             {(a) => (
               <input
                 {...a}
@@ -282,7 +292,10 @@ export function UserForm({
               />
             )}
           </FormField>
-          <FormField label="WhatsApp Number" error={errors.whatsappNumber?.message as string | undefined}>
+          <FormField
+            label="WhatsApp Number"
+            error={errors.whatsappNumber?.message as string | undefined}
+          >
             {(a) => (
               <input
                 {...a}
@@ -309,7 +322,9 @@ export function UserForm({
 
         <div className="mt-5 rounded-lg border bg-white p-4">
           <p className="text-sm font-semibold text-slate-800">Gender / Default Avatar</p>
-          <p className="mt-1 text-xs text-slate-500">Explicit choice for the default portrait. Custom photo overrides it.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Explicit choice for the default portrait. Custom photo overrides it.
+          </p>
           <div className="mt-3 flex gap-4">
             <label className="flex items-center gap-2 text-sm">
               <input type="radio" value="MALE" {...register('gender')} />
@@ -327,12 +342,20 @@ export function UserForm({
               Clear
             </button>
           </div>
-          {errors.gender && <p className="mt-2 text-xs text-red-600">{errors.gender.message as string}</p>}
+          {errors.gender && (
+            <p className="mt-2 text-xs text-red-600">{errors.gender.message as string}</p>
+          )}
           <div className="mt-4 flex items-center gap-4">
             {avatarPreview ? (
               <img
                 src={avatarPreview}
-                alt={gender === 'MALE' ? 'Male avatar' : gender === 'FEMALE' ? 'Female avatar' : 'Profile photo'}
+                alt={
+                  gender === 'MALE'
+                    ? 'Male avatar'
+                    : gender === 'FEMALE'
+                      ? 'Female avatar'
+                      : 'Profile photo'
+                }
                 className="h-20 w-20 rounded-lg border object-cover object-top"
               />
             ) : (
@@ -346,13 +369,18 @@ export function UserForm({
               ) : gender ? (
                 <span>Preview: {gender === 'MALE' ? 'male.png' : 'female.png'}</span>
               ) : (
-                <span className="text-amber-600">Please select Male or Female for this employee to use the default Destination Expert avatar.</span>
+                <span className="text-amber-600">
+                  Please select Male or Female for this employee to use the default Destination
+                  Expert avatar.
+                </span>
               )}
             </div>
           </div>
           {editing && user?.id && (
             <div className="mt-4">
-              <label className="text-xs font-semibold text-slate-700">Upload Custom Profile Photo</label>
+              <label className="text-xs font-semibold text-slate-700">
+                Upload Custom Profile Photo
+              </label>
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
@@ -379,7 +407,9 @@ export function UserForm({
               {uploading && <p className="mt-1 text-xs text-slate-500">Uploading...</p>}
               {uploadError && <p className="mt-1 text-xs text-red-600">{uploadError}</p>}
               {uploadSuccess && <p className="mt-1 text-xs text-emerald-600">{uploadSuccess}</p>}
-              <p className="mt-1 text-xs text-slate-400">JPEG/PNG/WebP, max 5 MB. Overrides gender avatar.</p>
+              <p className="mt-1 text-xs text-slate-400">
+                JPEG/PNG/WebP, max 5 MB. Overrides gender avatar.
+              </p>
             </div>
           )}
         </div>

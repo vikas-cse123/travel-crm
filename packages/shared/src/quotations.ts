@@ -934,13 +934,31 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
   const enabled = row.enabled === true;
-  if (!enabled) return { enabled: false, expertUserId: null, heading: null, customIntroduction: null, showWhatsapp: true, showCall: true, showEmail: true, showExperience: true, showTripsPlanned: true, showLanguages: true } as DestinationExpertConfig;
-  const expertUserId = typeof row.expertUserId === 'string' && row.expertUserId.trim() ? row.expertUserId.trim() : null;
+  if (!enabled)
+    return {
+      enabled: false,
+      expertUserId: null,
+      heading: null,
+      customIntroduction: null,
+      showWhatsapp: true,
+      showCall: true,
+      showEmail: true,
+      showExperience: true,
+      showTripsPlanned: true,
+      showLanguages: true,
+    } as DestinationExpertConfig;
+  const expertUserId =
+    typeof row.expertUserId === 'string' && row.expertUserId.trim()
+      ? row.expertUserId.trim()
+      : null;
   return {
     enabled: true,
     expertUserId,
     heading: typeof row.heading === 'string' ? row.heading.trim().slice(0, 200) || null : null,
-    customIntroduction: typeof row.customIntroduction === 'string' ? row.customIntroduction.trim().slice(0, 2000) || null : null,
+    customIntroduction:
+      typeof row.customIntroduction === 'string'
+        ? row.customIntroduction.trim().slice(0, 2000) || null
+        : null,
     showWhatsapp: row.showWhatsapp !== false,
     showCall: row.showCall !== false,
     showEmail: row.showEmail !== false,
@@ -950,7 +968,9 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
   } as DestinationExpertConfig;
 }
 
-export function isDestinationExpertConfigValid(config: DestinationExpertConfig | null | undefined): boolean {
+export function isDestinationExpertConfigValid(
+  config: DestinationExpertConfig | null | undefined,
+): boolean {
   if (!config?.enabled || !config.expertUserId) return false;
   return true;
 }

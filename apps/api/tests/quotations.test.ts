@@ -435,19 +435,17 @@ describe('Phase 8 customer quotations', () => {
     expect(detail.versions[0].quickNavSticky).toBe(true);
 
     // Explicitly saved false -> stays false.
-    await client.patch(
-      `/api/quotations/${created.id}/versions/${created.versions[0].id}`,
-      { quickNavSticky: false },
-    );
+    await client.patch(`/api/quotations/${created.id}/versions/${created.versions[0].id}`, {
+      quickNavSticky: false,
+    });
     expect(
       (await client.get(`/api/quotations/${created.id}`)).body.data.versions[0].quickNavSticky,
     ).toBe(false);
 
     // Explicitly saved true -> stays true.
-    await client.patch(
-      `/api/quotations/${created.id}/versions/${created.versions[0].id}`,
-      { quickNavSticky: true },
-    );
+    await client.patch(`/api/quotations/${created.id}/versions/${created.versions[0].id}`, {
+      quickNavSticky: true,
+    });
     expect(
       (await client.get(`/api/quotations/${created.id}`)).body.data.versions[0].quickNavSticky,
     ).toBe(true);

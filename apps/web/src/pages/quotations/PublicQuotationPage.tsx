@@ -476,7 +476,10 @@ function DestinationExpertSection({
   const greeting = firstName ? `Hi ${firstName}, I’m` : `Hi, I’m`;
   const expertFirst = (expert.fullName || '').trim().split(/\s+/)[0] || expert.fullName || '';
   const expertDisplay = expertFirst.toUpperCase();
-  const destList = (destinations || destinationSummary || '').split(/[•→,|]/).map((s) => s.trim()).filter(Boolean);
+  const destList = (destinations || destinationSummary || '')
+    .split(/[•→,|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   const destTitle =
     destList.length === 1
       ? `Your ${destList[0]} Destination Expert`
@@ -484,16 +487,24 @@ function DestinationExpertSection({
         ? 'Your Trip Destination Expert'
         : 'Your Destination Expert';
   const bio = expert.config.customIntroduction?.trim() || expert.bio?.trim() || '';
-  const showExp = expert.config.showExperience && expert.yearsOfExperience != null && expert.yearsOfExperience > 0;
-  const showTrips = expert.config.showTripsPlanned && expert.tripsPlanned != null && expert.tripsPlanned > 0;
+  const showExp =
+    expert.config.showExperience &&
+    expert.yearsOfExperience != null &&
+    expert.yearsOfExperience > 0;
+  const showTrips =
+    expert.config.showTripsPlanned && expert.tripsPlanned != null && expert.tripsPlanned > 0;
   const showLangs = expert.config.showLanguages && expert.languages?.trim();
   const whatsappPhone = (expert.whatsappNumber || expert.phone || '').replace(/[^0-9]/g, '');
   const phone = expert.phone?.trim() || null;
   const email = expert.email?.trim() || null;
   const avatarSrc =
     expert.profileImageUrl ||
-    (expert.avatarKind === 'male' || expert.gender === 'MALE' ? '/destination-expert/male.png' : null) ||
-    (expert.avatarKind === 'female' || expert.gender === 'FEMALE' ? '/destination-expert/female.png' : null);
+    (expert.avatarKind === 'male' || expert.gender === 'MALE'
+      ? '/destination-expert/male.png'
+      : null) ||
+    (expert.avatarKind === 'female' || expert.gender === 'FEMALE'
+      ? '/destination-expert/female.png'
+      : null);
   if (!avatarSrc) return null;
   return (
     <section>
@@ -503,7 +514,10 @@ function DestinationExpertSection({
           {/* LEFT — avatar + greeting */}
           <div className="flex flex-col items-center text-center md:items-start md:text-left">
             <div className="relative w-full max-w-[300px]">
-              <div className="absolute -inset-3 -z-10 hidden rounded-[28px] bg-gradient-to-br from-emerald-50 via-teal-50 to-sky-50 opacity-70 md:block" aria-hidden="true" />
+              <div
+                className="absolute -inset-3 -z-10 hidden rounded-[28px] bg-gradient-to-br from-emerald-50 via-teal-50 to-sky-50 opacity-70 md:block"
+                aria-hidden="true"
+              />
               <div className="overflow-hidden rounded-[20px] border border-slate-200/60 bg-white shadow-sm">
                 <div className="aspect-[4/5] w-full bg-gradient-to-b from-slate-50 to-white p-2">
                   <img
@@ -516,12 +530,20 @@ function DestinationExpertSection({
               </div>
             </div>
             <div className="mt-7 w-full">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">{greeting}</p>
-              <p className="mt-2 text-[30px] font-extrabold tracking-tight text-slate-900 md:text-[34px] md:leading-none">{expertDisplay}</p>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                {greeting}
+              </p>
+              <p className="mt-2 text-[30px] font-extrabold tracking-tight text-slate-900 md:text-[34px] md:leading-none">
+                {expertDisplay}
+              </p>
               {expert.jobTitle?.trim() ? (
-                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">{expert.jobTitle}</p>
+                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">
+                  {expert.jobTitle}
+                </p>
               ) : expert.specialization?.trim() ? (
-                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">{expert.specialization}</p>
+                <p className="mt-2 text-sm font-medium tracking-wide text-emerald-700">
+                  {expert.specialization}
+                </p>
               ) : null}
               {expert.specialization?.trim() && expert.jobTitle?.trim() ? (
                 <p className="mt-1 text-xs text-slate-500">{expert.specialization}</p>
@@ -531,8 +553,12 @@ function DestinationExpertSection({
           {/* RIGHT — title + content */}
           <div className="flex flex-col justify-center text-center md:text-left">
             <div className="flex flex-col items-center md:items-start">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Destination Expert</p>
-              <h3 className="mt-2 max-w-[28ch] text-xl font-bold leading-tight tracking-tight text-slate-900 md:text-[24px]">{destTitle}</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                Destination Expert
+              </p>
+              <h3 className="mt-2 max-w-[28ch] text-xl font-bold leading-tight tracking-tight text-slate-900 md:text-[24px]">
+                {destTitle}
+              </h3>
               <div className="mt-3 h-1 w-10 rounded-full bg-emerald-600/15" aria-hidden="true" />
             </div>
 
@@ -540,56 +566,62 @@ function DestinationExpertSection({
               <div className="mt-6 flex flex-wrap justify-center gap-2 md:justify-start">
                 {showExp && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
-                    <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" /> {expert.yearsOfExperience}+ Years
+                    <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />{' '}
+                    {expert.yearsOfExperience}+ Years
                   </span>
                 )}
                 {showTrips && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
-                    <Building2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" /> {expert.tripsPlanned}+ Trips
+                    <Building2 className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />{' '}
+                    {expert.tripsPlanned}+ Trips
                   </span>
                 )}
                 {showLangs && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
-                    <Compass className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" /> {expert.languages}
+                    <Compass className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />{' '}
+                    {expert.languages}
                   </span>
                 )}
               </div>
             )}
 
             {bio && (
-              <p className="mx-auto mt-6 max-w-[60ch] whitespace-pre-line break-words text-[15px] leading-7 text-slate-600 md:mx-0">{bio}</p>
+              <p className="mx-auto mt-6 max-w-[60ch] whitespace-pre-line break-words text-[15px] leading-7 text-slate-600 md:mx-0">
+                {bio}
+              </p>
             )}
 
-            {(expert.config.showWhatsapp || expert.config.showCall || expert.config.showEmail) && (whatsappPhone || phone || email) && (
-              <div className="mt-8 flex flex-wrap justify-center gap-3 md:justify-start">
-                {expert.config.showWhatsapp && whatsappPhone && (
-                  <a
-                    href={`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hi ${expertFirst}, I'm interested in ${destList[0] || 'my trip'}`)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
-                  >
-                    <MessageCircle className="h-4 w-4" aria-hidden="true" /> WhatsApp
-                  </a>
-                )}
-                {expert.config.showCall && phone && (
-                  <a
-                    href={`tel:${phone}`}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
-                  >
-                    <Phone className="h-4 w-4" aria-hidden="true" /> Call
-                  </a>
-                )}
-                {expert.config.showEmail && email && (
-                  <a
-                    href={`mailto:${email}`}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
-                  >
-                    <Mail className="h-4 w-4" aria-hidden="true" /> Email
-                  </a>
-                )}
-              </div>
-            )}
+            {(expert.config.showWhatsapp || expert.config.showCall || expert.config.showEmail) &&
+              (whatsappPhone || phone || email) && (
+                <div className="mt-8 flex flex-wrap justify-center gap-3 md:justify-start">
+                  {expert.config.showWhatsapp && whatsappPhone && (
+                    <a
+                      href={`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hi ${expertFirst}, I'm interested in ${destList[0] || 'my trip'}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
+                    >
+                      <MessageCircle className="h-4 w-4" aria-hidden="true" /> WhatsApp
+                    </a>
+                  )}
+                  {expert.config.showCall && phone && (
+                    <a
+                      href={`tel:${phone}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+                    >
+                      <Phone className="h-4 w-4" aria-hidden="true" /> Call
+                    </a>
+                  )}
+                  {expert.config.showEmail && email && (
+                    <a
+                      href={`mailto:${email}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+                    >
+                      <Mail className="h-4 w-4" aria-hidden="true" /> Email
+                    </a>
+                  )}
+                </div>
+              )}
           </div>
         </div>
       </div>
@@ -628,7 +660,7 @@ function FaqSection({ faqs }: { faqs: Array<{ question: string; answer: string }
                   aria-hidden="true"
                 />
               </button>
-{open && (
+              {open && (
                 <div
                   id={`faq-panel-${index}`}
                   className="whitespace-pre-line break-words border-t px-4 py-3 text-sm leading-relaxed text-slate-600 [&_a]:text-blue-600 [&_a]:underline [&_li]:mb-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-5"
@@ -1983,29 +2015,31 @@ export function PublicQuotationPage() {
           {/* Weblink sections — rendered in custom order when configured, otherwise default order. Empty sections stay hidden. */}
           {(() => {
             const faqsNormalized = normalizeFaqs((v as unknown as { faqs?: unknown }).faqs);
-            const rawOrder = (v as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder;
+            const rawOrder = (v as unknown as { weblinkSectionOrder?: unknown })
+              .weblinkSectionOrder;
             const order = resolveWeblinkSectionOrder(rawOrder);
             const nodes: Record<string, ReactNode> = {};
-            nodes['services'] = includedServices.length > 0 ? (
-              <section>
-                <SectionTitle>Services Include</SectionTitle>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                  {includedServices.map((service) => {
-                    const Icon = serviceCardIcon(service.key);
-                    return (
-                      <article
-                        key={service.key}
-                        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
-                      >
-                        <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
-                        <span className="font-medium text-slate-800">{service.label}</span>
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null;
+            nodes['services'] =
+              includedServices.length > 0 ? (
+                <section>
+                  <SectionTitle>Services Include</SectionTitle>
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                    {includedServices.map((service) => {
+                      const Icon = serviceCardIcon(service.key);
+                      return (
+                        <article
+                          key={service.key}
+                          className="flex flex-col items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm"
+                        >
+                          <Icon className="h-8 w-8 text-emerald-600" aria-hidden="true" />
+                          <span className="font-medium text-slate-800">{service.label}</span>
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null;
             nodes['destinationExpert'] = data.destinationExpert ? (
               <DestinationExpertSection
                 expert={data.destinationExpert}
@@ -2014,17 +2048,18 @@ export function PublicQuotationPage() {
                 destinations={q.destinations ?? null}
               />
             ) : null;
-            nodes['itinerary'] = sightseeingDays.length > 0 ? (
-              <SightseeingItineraryView
-                days={sightseeingDays}
-                color="#16a34a"
-                images={data.sightseeingPresentations ?? {}}
-                documentImages={data.sightseeingDocumentPresentations ?? {}}
-                description={v.sightseeingDetails?.description ?? null}
-                destinationImage={data.heroImageUrl ?? null}
-                fmt={fmt}
-              />
-            ) : null;
+            nodes['itinerary'] =
+              sightseeingDays.length > 0 ? (
+                <SightseeingItineraryView
+                  days={sightseeingDays}
+                  color="#16a34a"
+                  images={data.sightseeingPresentations ?? {}}
+                  documentImages={data.sightseeingDocumentPresentations ?? {}}
+                  description={v.sightseeingDetails?.description ?? null}
+                  destinationImage={data.heroImageUrl ?? null}
+                  fmt={fmt}
+                />
+              ) : null;
             nodes['hotels'] = hotelIncluded ? (
               <section>
                 <SectionTitle>{publicHotelSectionTitle(v.hotelDetails?.sectionTitle)}</SectionTitle>
@@ -2094,9 +2129,15 @@ export function PublicQuotationPage() {
                             )}
                           </div>
                           {category > 0 && (
-                            <div className="mt-2 flex gap-0.5" aria-label={`${category} star hotel`}>
+                            <div
+                              className="mt-2 flex gap-0.5"
+                              aria-label={`${category} star hotel`}
+                            >
                               {Array.from({ length: Math.min(5, category) }, (_, index) => (
-                                <Star key={index} className="h-4 w-4 fill-amber-400 text-amber-400" />
+                                <Star
+                                  key={index}
+                                  className="h-4 w-4 fill-amber-400 text-amber-400"
+                                />
                               ))}
                             </div>
                           )}
@@ -2195,144 +2236,151 @@ export function PublicQuotationPage() {
                 )}
               </section>
             ) : null;
-            nodes['transportation'] = vehicles.length > 0 ? (
-              <section>
-                <SectionTitle>{vehicles[0]?.taxCategory?.trim() || 'Transportation'}</SectionTitle>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {vehicles.map((vehicle) => {
-                    const presentation = data.vehiclePresentations?.[vehicle.id];
-                    const snapshotImages = quotationGalleryImages(vehicle.images);
-                    const snapshotPresent =
-                      (vehicle as { imageSnapshotPresent?: boolean }).imageSnapshotPresent === true ||
-                      snapshotImages.length > 0;
-                    const displayImages = snapshotImages.length
-                      ? snapshotImages
-                      : !snapshotPresent && presentation?.imageUrl
-                        ? [{ url: presentation.imageUrl, alt: vehicle.name }]
-                        : [];
-                    return (
-                      <article
-                        key={vehicle.id}
-                        className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
-                      >
-                        <div className="flex min-h-56 items-center justify-center bg-slate-100">
-                          {displayImages.length ? (
-                            <QuotationImageCarousel images={displayImages} label="Vehicle" />
-                          ) : (
-                            <div className="text-center text-slate-400">
-                              <CarFront className="mx-auto h-14 w-14" />
-                              <p className="mt-2 text-xs">Vehicle image unavailable</p>
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-3 p-5">
-                          <h3 className="text-xl font-bold text-slate-800">
-                            {vehicle.name || presentation?.name || 'Vehicle'}
-                          </h3>
-                          <div className="space-y-1 text-sm text-slate-600">
-                            <p>
-                              <strong className="text-slate-700">Type:</strong>{' '}
-                              {vehicle.city || presentation?.vehicleType || 'As selected'}
-                            </p>
-                            {vehicle.notes && (
-                              <p>
-                                <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
-                              </p>
+            nodes['transportation'] =
+              vehicles.length > 0 ? (
+                <section>
+                  <SectionTitle>
+                    {vehicles[0]?.taxCategory?.trim() || 'Transportation'}
+                  </SectionTitle>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {vehicles.map((vehicle) => {
+                      const presentation = data.vehiclePresentations?.[vehicle.id];
+                      const snapshotImages = quotationGalleryImages(vehicle.images);
+                      const snapshotPresent =
+                        (vehicle as { imageSnapshotPresent?: boolean }).imageSnapshotPresent ===
+                          true || snapshotImages.length > 0;
+                      const displayImages = snapshotImages.length
+                        ? snapshotImages
+                        : !snapshotPresent && presentation?.imageUrl
+                          ? [{ url: presentation.imageUrl, alt: vehicle.name }]
+                          : [];
+                      return (
+                        <article
+                          key={vehicle.id}
+                          className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
+                        >
+                          <div className="flex min-h-56 items-center justify-center bg-slate-100">
+                            {displayImages.length ? (
+                              <QuotationImageCarousel images={displayImages} label="Vehicle" />
+                            ) : (
+                              <div className="text-center text-slate-400">
+                                <CarFront className="mx-auto h-14 w-14" />
+                                <p className="mt-2 text-xs">Vehicle image unavailable</p>
+                              </div>
                             )}
                           </div>
-                          {vehicle.description && <RichHtml html={vehicle.description} />}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null;
-            nodes['cruise'] = cruises.length > 0 ? (
-              <section>
-                <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
-                <div className="grid gap-5 md:grid-cols-2">
-                  {cruises.map((cruise) => {
-                    const presentation = data.cruisePresentations?.[cruise.id];
-                    const snapshotImages = quotationGalleryImages(cruise.images);
-                    const snapshotPresent =
-                      (cruise as { imageSnapshotPresent?: boolean }).imageSnapshotPresent === true ||
-                      snapshotImages.length > 0;
-                    const displayImages = snapshotImages.length
-                      ? snapshotImages
-                      : !snapshotPresent && presentation?.imageUrl
-                        ? [{ url: presentation.imageUrl, alt: cruise.name }]
-                        : [];
-                    const duration = cruise.notes?.trim();
-                    const roomType = presentation?.roomTypeName?.trim();
-                    const rawDescription = cruise.description?.trim() ?? '';
-                    const descriptionHasText = Boolean(rawDescription.replace(/<[^>]*>/g, '').trim());
-                    const showDescription =
-                      Boolean(rawDescription) &&
-                      descriptionHasText &&
-                      !/^https?:\/\/\S+$/i.test(rawDescription);
-                    return (
-                      <article
-                        key={cruise.id}
-                        className="overflow-hidden rounded-xl border bg-card shadow-sm"
-                      >
-                        <div className="aspect-[16/9] bg-slate-100">
-                          {displayImages.length ? (
-                            <QuotationImageCarousel images={displayImages} label="Cruise" />
-                          ) : (
-                            <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
-                              <Ship className="h-10 w-10" />
-                              <p className="text-xs">Cruise image unavailable</p>
+                          <div className="space-y-3 p-5">
+                            <h3 className="text-xl font-bold text-slate-800">
+                              {vehicle.name || presentation?.name || 'Vehicle'}
+                            </h3>
+                            <div className="space-y-1 text-sm text-slate-600">
+                              <p>
+                                <strong className="text-slate-700">Type:</strong>{' '}
+                                {vehicle.city || presentation?.vehicleType || 'As selected'}
+                              </p>
+                              {vehicle.notes && (
+                                <p>
+                                  <strong className="text-slate-700">Usage:</strong> {vehicle.notes}
+                                </p>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div className="space-y-2 p-5">
-                          <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
-                          {duration && (
-                            <p className="text-sm text-slate-600">
-                              <strong>Duration:</strong> {duration}
-                            </p>
-                          )}
-                          {roomType && (
-                            <p className="text-sm text-slate-600">
-                              <strong>Room Type:</strong> {roomType}
-                            </p>
-                          )}
-                          {showDescription && (
-                            <div className="border-t pt-3">
-                              <RichHtml html={rawDescription} />
-                            </div>
-                          )}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null;
-            nodes['addons'] = addonServices.length > 0 ? (
-              <section>
-                <SectionTitle>Additional Services</SectionTitle>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {addonServices.map((service) => {
-                    const plainText = (service.description ?? '')
-                      .replace(/<[^>]*>/g, ' ')
-                      .replace(/\s+/g, ' ')
-                      .trim();
-                    return (
-                      <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
-                        <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
-                        {plainText && (
-                          <div className="mt-2">
-                            <RichHtml html={service.description ?? ''} />
+                            {vehicle.description && <RichHtml html={vehicle.description} />}
                           </div>
-                        )}
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null;
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null;
+            nodes['cruise'] =
+              cruises.length > 0 ? (
+                <section>
+                  <SectionTitle>{cruises[0]?.taxCategory?.trim() || 'Cruise Details'}</SectionTitle>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    {cruises.map((cruise) => {
+                      const presentation = data.cruisePresentations?.[cruise.id];
+                      const snapshotImages = quotationGalleryImages(cruise.images);
+                      const snapshotPresent =
+                        (cruise as { imageSnapshotPresent?: boolean }).imageSnapshotPresent ===
+                          true || snapshotImages.length > 0;
+                      const displayImages = snapshotImages.length
+                        ? snapshotImages
+                        : !snapshotPresent && presentation?.imageUrl
+                          ? [{ url: presentation.imageUrl, alt: cruise.name }]
+                          : [];
+                      const duration = cruise.notes?.trim();
+                      const roomType = presentation?.roomTypeName?.trim();
+                      const rawDescription = cruise.description?.trim() ?? '';
+                      const descriptionHasText = Boolean(
+                        rawDescription.replace(/<[^>]*>/g, '').trim(),
+                      );
+                      const showDescription =
+                        Boolean(rawDescription) &&
+                        descriptionHasText &&
+                        !/^https?:\/\/\S+$/i.test(rawDescription);
+                      return (
+                        <article
+                          key={cruise.id}
+                          className="overflow-hidden rounded-xl border bg-card shadow-sm"
+                        >
+                          <div className="aspect-[16/9] bg-slate-100">
+                            {displayImages.length ? (
+                              <QuotationImageCarousel images={displayImages} label="Cruise" />
+                            ) : (
+                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
+                                <Ship className="h-10 w-10" />
+                                <p className="text-xs">Cruise image unavailable</p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-2 p-5">
+                            <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
+                            {duration && (
+                              <p className="text-sm text-slate-600">
+                                <strong>Duration:</strong> {duration}
+                              </p>
+                            )}
+                            {roomType && (
+                              <p className="text-sm text-slate-600">
+                                <strong>Room Type:</strong> {roomType}
+                              </p>
+                            )}
+                            {showDescription && (
+                              <div className="border-t pt-3">
+                                <RichHtml html={rawDescription} />
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null;
+            nodes['addons'] =
+              addonServices.length > 0 ? (
+                <section>
+                  <SectionTitle>Additional Services</SectionTitle>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {addonServices.map((service) => {
+                      const plainText = (service.description ?? '')
+                        .replace(/<[^>]*>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                      return (
+                        <article key={service.id} className="rounded-2xl bg-card p-6 shadow-sm">
+                          <h3 className="text-lg font-bold text-slate-800">{service.name}</h3>
+                          {plainText && (
+                            <div className="mt-2">
+                              <RichHtml html={service.description ?? ''} />
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null;
             nodes['visa'] = showVisa ? (
               <section className="rounded-2xl bg-card p-6 shadow-sm">
                 <h2 className="font-semibold text-slate-800">{v.visaSectionTitle || 'Visa'}</h2>
@@ -2423,10 +2471,12 @@ export function PublicQuotationPage() {
             })();
             nodes['faqs'] = faqsNormalized.length > 0 ? <FaqSection faqs={faqsNormalized} /> : null;
             return (
-              <>{order.map((id) => {
-                const node = nodes[id];
-                return node ? <Fragment key={id}>{node}</Fragment> : null;
-              })}</>
+              <>
+                {order.map((id) => {
+                  const node = nodes[id];
+                  return node ? <Fragment key={id}>{node}</Fragment> : null;
+                })}
+              </>
             );
           })()}
 

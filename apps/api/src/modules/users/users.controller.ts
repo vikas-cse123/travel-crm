@@ -81,7 +81,12 @@ export const usersController = {
   async prepareProfileImage(req: Request, res: Response) {
     sendSuccess(
       res,
-      await usersService.prepareProfileImageUpload(auth(req), req.params.userId!, req.body, context(req)),
+      await usersService.prepareProfileImageUpload(
+        auth(req),
+        req.params.userId!,
+        req.body,
+        context(req),
+      ),
       'Profile image upload authorized.',
     );
   },

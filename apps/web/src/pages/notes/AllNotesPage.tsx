@@ -147,7 +147,9 @@ export function AllNotesPage() {
       filtered.sort((a, b) => {
         if (!a.latestNote) return 1;
         if (!b.latestNote) return -1;
-        return new Date(a.latestNote.createdAt).getTime() - new Date(b.latestNote.createdAt).getTime();
+        return (
+          new Date(a.latestNote.createdAt).getTime() - new Date(b.latestNote.createdAt).getTime()
+        );
       });
     } else if (sortOption === 'name') {
       filtered.sort((a, b) => a.customerName.localeCompare(b.customerName));
@@ -157,7 +159,9 @@ export function AllNotesPage() {
       filtered.sort((a, b) => {
         if (!a.latestNote) return 1;
         if (!b.latestNote) return -1;
-        return new Date(b.latestNote.createdAt).getTime() - new Date(a.latestNote.createdAt).getTime();
+        return (
+          new Date(b.latestNote.createdAt).getTime() - new Date(a.latestNote.createdAt).getTime()
+        );
       });
     }
 

@@ -585,7 +585,8 @@ async function presentVersion(version: FullVersion, canViewCosting: boolean, cus
   // Invalid/legacy rows are cleaned here so public rendering stays resilient.
   const rawFaqs = (value as unknown as { faqs?: unknown }).faqs;
   const rawOrder = (value as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder;
-  const rawExpert = (value as unknown as { destinationExpertConfig?: unknown }).destinationExpertConfig;
+  const rawExpert = (value as unknown as { destinationExpertConfig?: unknown })
+    .destinationExpertConfig;
   return {
     ...value,
     faqs: normalizeFaqs(rawFaqs),
@@ -927,12 +928,16 @@ function versionCreateData(
       sightseeingDetails: (normalized.sightseeingDetails ??
         Prisma.JsonNull) as Prisma.InputJsonValue,
       // Weblink customization: FAQs, custom section order and Destination Expert (backward compatible).
-      faqs: (normalized.faqs?.length ? (normalized.faqs as unknown as Prisma.InputJsonValue) : Prisma.JsonNull) as Prisma.InputJsonValue,
+      faqs: (normalized.faqs?.length
+        ? (normalized.faqs as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull) as Prisma.InputJsonValue,
       weblinkSectionOrder: (normalized.weblinkSectionOrder?.length
         ? (normalized.weblinkSectionOrder as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull) as Prisma.InputJsonValue,
       destinationExpertConfig: (normalized.destinationExpertConfig
-        ? (normalizeDestinationExpertConfig(normalized.destinationExpertConfig) as unknown as Prisma.InputJsonValue)
+        ? (normalizeDestinationExpertConfig(
+            normalized.destinationExpertConfig,
+          ) as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull) as Prisma.InputJsonValue,
       notes: normalized.notes ?? null,
       internalNotes: allowCosting ? (normalized.internalNotes ?? null) : null,
@@ -1114,13 +1119,17 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
   };
 }
 
-async function validateDestinationExpertConfig(auth: AuthContext, config: DestinationExpertConfig | null | undefined) {
+async function validateDestinationExpertConfig(
+  auth: AuthContext,
+  config: DestinationExpertConfig | null | undefined,
+) {
   if (!config?.enabled || !config.expertUserId) return;
   const user = await prisma.user.findFirst({
     where: { id: config.expertUserId, companyId: auth.companyId, deletedAt: null },
     select: { id: true },
   });
-  if (!user) throw new ValidationError('Selected Destination Expert does not belong to this company.');
+  if (!user)
+    throw new ValidationError('Selected Destination Expert does not belong to this company.');
 }
 
 /** Include master-linked itinerary activities in the same tenancy validation. */
@@ -1670,7 +1679,10 @@ async function createVersion(
     masterRefServices(input),
     retainedRefs,
   );
-  await validateDestinationExpertConfig(auth, input.destinationExpertConfig as DestinationExpertConfig);
+  await validateDestinationExpertConfig(
+    auth,
+    input.destinationExpertConfig as DestinationExpertConfig,
+  );
   // Hydration runs only after the ids have passed the same tenant/System Global
   // boundary, so a client can never use an arbitrary company's id to copy media.
   const hydratedInput = await hydrateQuotationImageSnapshots(
@@ -2037,7 +2049,8 @@ export const quotationsService = {
       exclusions: input.version?.exclusions ?? source?.exclusions ?? [],
       terms: input.version?.terms ?? source?.terms ?? defaultTermRows,
       faqs: input.version?.faqs ?? source?.faqs ?? [],
-      weblinkSectionOrder: input.version?.weblinkSectionOrder ?? source?.weblinkSectionOrder ?? null,
+      weblinkSectionOrder:
+        input.version?.weblinkSectionOrder ?? source?.weblinkSectionOrder ?? null,
     };
     const created = await prisma.$transaction(async (tx) => {
       const quotationNumber = await nextCompanyNumber(tx, auth.companyId, 'quotation');
@@ -2251,7 +2264,10 @@ export const quotationsService = {
       hotels: existingInput.hotels,
       services: masterRefServices(existingInput),
     });
-    await validateDestinationExpertConfig(auth, merged.destinationExpertConfig as DestinationExpertConfig);
+    await validateDestinationExpertConfig(
+      auth,
+      merged.destinationExpertConfig as DestinationExpertConfig,
+    );
     const hydrated = await hydrateQuotationImageSnapshots(
       prisma,
       access.imageOwnerCompanyIds,
