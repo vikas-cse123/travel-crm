@@ -434,7 +434,7 @@ function SectionNav({ sticky }: { sticky: boolean }) {
   );
 }
 
-/** Destination Expert — premium editorial presentation. Hidden when not configured or incomplete. */
+/** Destination Expert — premium editorial presentation. Hidden only when not configured. */
 function DestinationExpertSection({
   expert,
   customerName,
@@ -496,6 +496,7 @@ function DestinationExpertSection({
   const showLangs = expert.config.showLanguages && expert.languages?.trim();
   const whatsappPhone = (expert.whatsappNumber || expert.phone || '').replace(/[^0-9]/g, '');
   const phone = expert.phone?.trim() || null;
+  const telPhone = phone?.replace(/[^+0-9]/g, '') || null;
   const email = expert.email?.trim() || null;
   const avatarSrc =
     expert.profileImageUrl ||
@@ -505,7 +506,14 @@ function DestinationExpertSection({
     (expert.avatarKind === 'female' || expert.gender === 'FEMALE'
       ? '/destination-expert/female.png'
       : null);
-  if (!avatarSrc) return null;
+  const initials =
+    expert.fullName
+      ?.trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || 'DE';
   return (
     <section>
       <SectionTitle>{heading}</SectionTitle>
@@ -520,12 +528,21 @@ function DestinationExpertSection({
               />
               <div className="overflow-hidden rounded-[20px] border border-slate-200/60 bg-white shadow-sm">
                 <div className="aspect-[4/5] w-full bg-gradient-to-b from-slate-50 to-white p-2">
-                  <img
-                    src={avatarSrc}
-                    alt={`${expert.fullName} avatar`}
-                    className="h-full w-full object-contain object-top"
-                    loading="lazy"
-                  />
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt={`${expert.fullName} avatar`}
+                      className="h-full w-full object-contain object-top"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-full w-full items-center justify-center rounded-[16px] bg-gradient-to-br from-emerald-700 via-teal-700 to-sky-700 text-6xl font-extrabold tracking-normal text-white"
+                      aria-label={`${expert.fullName} avatar initials`}
+                    >
+                      {initials}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -604,9 +621,9 @@ function DestinationExpertSection({
                       <MessageCircle className="h-4 w-4" aria-hidden="true" /> WhatsApp
                     </a>
                   )}
-                  {expert.config.showCall && phone && (
+                  {expert.config.showCall && phone && telPhone && (
                     <a
-                      href={`tel:${phone}`}
+                      href={`tel:${telPhone}`}
                       className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
                     >
                       <Phone className="h-4 w-4" aria-hidden="true" /> Call

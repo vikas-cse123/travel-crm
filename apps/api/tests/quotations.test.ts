@@ -1028,6 +1028,100 @@ describe('Phase 8 customer quotations', () => {
     ).toBe(409);
   });
 
+  it('exposes an enabled Destination Expert publicly even without avatar metadata', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const version = quotation.versions[0];
+    const expertUser = await db.user.findFirstOrThrow({ where: { email: 'owner@alpha.test' } });
+    await db.user.update({
+      where: { id: expertUser.id },
+      data: {
+        fullName: 'Aditi Rao',
+        phone: '+91 90000 00000',
+        whatsappNumber: '+91 98888 77777',
+        jobTitle: 'Singapore expert',
+        specialization: 'Honeymoons and family holidays',
+        yearsOfExperience: 8,
+        tripsPlanned: 550,
+        languages: 'English, Hindi, Tamil',
+        gender: null,
+        profileImageObjectKey: null,
+        profileImageConfirmedAt: null,
+      },
+    });
+
+    const saved = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      destinationExpertConfig: {
+        enabled: true,
+        expertUserId: expertUser.id,
+        heading: 'Meet Your Destination Expert',
+        customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+        showWhatsapp: true,
+        showCall: true,
+        showEmail: true,
+        showExperience: true,
+        showTripsPlanned: true,
+        showLanguages: true,
+      },
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.data.destinationExpertConfig).toMatchObject({
+      enabled: true,
+      expertUserId: expertUser.id,
+      heading: 'Meet Your Destination Expert',
+      customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+      showWhatsapp: true,
+      showCall: true,
+      showEmail: true,
+      showExperience: true,
+      showTripsPlanned: true,
+      showLanguages: true,
+    });
+
+    await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+    const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+      quotationVersionId: version.id,
+    });
+    const token = link.body.data.url.split('/q/')[1];
+    const view = await createAuthClient(app).get(`/api/public/quotations/${token}`);
+
+    expect(view.status, JSON.stringify(view.body)).toBe(200);
+    expect(view.body.data.version.destinationExpertConfig).toMatchObject({
+      enabled: true,
+      expertUserId: expertUser.id,
+    });
+    expect(view.body.data.destinationExpert).toMatchObject({
+      id: expertUser.id,
+      fullName: 'Aditi Rao',
+      email: 'owner@alpha.test',
+      phone: '+91 90000 00000',
+      whatsappNumber: '+91 98888 77777',
+      jobTitle: 'Singapore expert',
+      specialization: 'Honeymoons and family holidays',
+      yearsOfExperience: 8,
+      tripsPlanned: 550,
+      languages: 'English, Hindi, Tamil',
+      gender: null,
+      profileImageUrl: null,
+      avatarKind: null,
+      config: {
+        heading: 'Meet Your Destination Expert',
+        customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+        showWhatsapp: true,
+        showCall: true,
+        showEmail: true,
+        showExperience: true,
+        showTripsPlanned: true,
+        showLanguages: true,
+      },
+    });
+    expect(JSON.stringify(view.body.data.destinationExpert)).not.toMatch(
+      /password|permission|roleId|passwordHash/i,
+    );
+  });
+
   describe('quotation weblink view analytics', () => {
     async function readyQuotation() {
       const { client, lead, template } = await setup();

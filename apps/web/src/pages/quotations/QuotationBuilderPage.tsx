@@ -56,6 +56,7 @@ import {
   useUpdateQuotationVersion,
   useUpdateQuotationWeblinkName,
   useUpdateQuotationWeblinkSettings,
+  type QuotationVersion,
 } from '@/features/quotations/quotations.api';
 import {
   cruiseImageUrl,
@@ -447,6 +448,120 @@ const defaults: QuotationVersionInput = {
   exclusions: [],
   terms: [],
 };
+const arrayOrEmpty = <T,>(value: T[] | null | undefined): T[] =>
+  Array.isArray(value) ? value : [];
+const objectOrNull = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+const normalizeImageSnapshot = <T extends object>(row: T) => {
+  const raw = row as T & { images?: QuotationImage[] | null; imageSnapshotPresent?: boolean };
+  return {
+    ...row,
+    images: arrayOrEmpty(raw.images),
+    imageSnapshotPresent: raw.imageSnapshotPresent ?? Array.isArray(raw.images),
+  };
+};
+
+export function normalizeQuotationVersionForBuilder(version: QuotationVersion): QuotationVersion {
+  const raw = version as QuotationVersion & Record<string, unknown>;
+  const flight = objectOrNull(raw.flightDetails);
+  const outbound = objectOrNull(flight?.outbound);
+  const returnJourney = objectOrNull(flight?.returnJourney);
+  const hotelDetails = objectOrNull(raw.hotelDetails);
+  const sightseeing = objectOrNull(raw.sightseeingDetails);
+  const addOnDetails = objectOrNull(raw.addOnDetails);
+
+  return {
+    ...version,
+    introduction: typeof raw.introduction === 'string' ? raw.introduction : null,
+    weblinkHeading: typeof raw.weblinkHeading === 'string' ? raw.weblinkHeading : null,
+    notes: typeof raw.notes === 'string' ? raw.notes : null,
+    internalNotes: typeof raw.internalNotes === 'string' ? raw.internalNotes : null,
+    inclusionsHtml: typeof raw.inclusionsHtml === 'string' ? raw.inclusionsHtml : null,
+    exclusionsHtml: typeof raw.exclusionsHtml === 'string' ? raw.exclusionsHtml : null,
+    paymentPolicies: typeof raw.paymentPolicies === 'string' ? raw.paymentPolicies : null,
+    cancellationPolicies:
+      typeof raw.cancellationPolicies === 'string' ? raw.cancellationPolicies : null,
+    bookingTerms: typeof raw.bookingTerms === 'string' ? raw.bookingTerms : null,
+    flightDetails: flight
+      ? ({
+          ...flight,
+          images: arrayOrEmpty(
+            flight.images as
+              NonNullable<QuotationVersionInput['flightDetails']>['images'] | null | undefined,
+          ),
+          outbound: {
+            ...outbound,
+            segments: arrayOrEmpty(
+              outbound?.segments as
+                | NonNullable<QuotationVersionInput['flightDetails']>['outbound']['segments']
+                | null
+                | undefined,
+            ),
+          },
+          returnJourney: {
+            ...returnJourney,
+            segments: arrayOrEmpty(
+              returnJourney?.segments as
+                | NonNullable<QuotationVersionInput['flightDetails']>['returnJourney']['segments']
+                | null
+                | undefined,
+            ),
+          },
+        } as QuotationVersion['flightDetails'])
+      : null,
+    hotelDetails: hotelDetails
+      ? ({
+          ...hotelDetails,
+          images: arrayOrEmpty(
+            hotelDetails.images as
+              NonNullable<QuotationVersionInput['hotelDetails']>['images'] | null | undefined,
+          ),
+        } as QuotationVersion['hotelDetails'])
+      : null,
+    addOnDetails: addOnDetails
+      ? ({
+          include: addOnDetails.include !== false,
+          sectionTitle:
+            typeof addOnDetails.sectionTitle === 'string' ? addOnDetails.sectionTitle : null,
+        } as QuotationVersion['addOnDetails'])
+      : null,
+    sightseeingDetails: sightseeing
+      ? ({
+          ...sightseeing,
+          days: arrayOrEmpty(
+            sightseeing.days as
+              NonNullable<QuotationVersionInput['sightseeingDetails']>['days'] | null | undefined,
+          ).map((day) => ({
+            ...day,
+            activities: arrayOrEmpty(day.activities).map((activity) => ({
+              ...activity,
+              images: arrayOrEmpty(activity.images),
+              pricingOptions: arrayOrEmpty(activity.pricingOptions),
+            })),
+          })),
+        } as QuotationVersion['sightseeingDetails'])
+      : null,
+    itinerary: arrayOrEmpty(raw.itinerary as QuotationVersion['itinerary'] | null | undefined),
+    hotels: arrayOrEmpty(raw.hotels as QuotationVersion['hotels'] | null | undefined).map(
+      normalizeImageSnapshot,
+    ),
+    services: arrayOrEmpty(raw.services as QuotationVersion['services'] | null | undefined).map(
+      normalizeImageSnapshot,
+    ),
+    inclusions: arrayOrEmpty(raw.inclusions as QuotationVersion['inclusions'] | null | undefined),
+    exclusions: arrayOrEmpty(raw.exclusions as QuotationVersion['exclusions'] | null | undefined),
+    terms: arrayOrEmpty(raw.terms as QuotationVersion['terms'] | null | undefined),
+    faqs: arrayOrEmpty(raw.faqs as QuotationVersion['faqs'] | null | undefined),
+    weblinkSectionOrder: Array.isArray(raw.weblinkSectionOrder)
+      ? (raw.weblinkSectionOrder as string[])
+      : null,
+    destinationExpertConfig: objectOrNull(raw.destinationExpertConfig)
+      ? (raw.destinationExpertConfig as QuotationVersion['destinationExpertConfig'])
+      : null,
+  } as QuotationVersion;
+}
 const toDate = (value: string | Date | null | undefined) => {
   if (!value) return '';
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
@@ -1101,8 +1216,12 @@ export function QuotationBuilderPage() {
     }, [destinationIdSet]),
   );
   const version = quotation.data?.versions.find((row) => row.id === versionId);
+  const builderVersion = useMemo(
+    () => (version ? normalizeQuotationVersionForBuilder(version) : undefined),
+    [version],
+  );
   useEffect(() => {
-    const details = version?.flightDetails;
+    const details = builderVersion?.flightDetails;
     const documentIds = details?.images?.length
       ? details.images.map((image) => image.documentId)
       : details?.imageDocumentId
@@ -1127,7 +1246,7 @@ export function QuotationBuilderPage() {
     return () => {
       active = false;
     };
-  }, [quotationId, version?.flightDetails]);
+  }, [quotationId, builderVersion?.flightDetails]);
   // Tabs requested by the Lead — the source of truth for the red `*` on each
   // service tab. Derived from the lead's own service selections, never from the
   // quotation's saved state (so a requested-but-unchecked service still shows
@@ -1137,7 +1256,8 @@ export function QuotationBuilderPage() {
     [quotation.data?.query],
   );
   useEffect(() => {
-    if (!version) return;
+    if (!builderVersion) return;
+    const version = builderVersion;
     // Prefill a fresh Flight tab from the lead: outbound = departure city → main
     // destination on the travel-start date; return is the reverse on travel-end.
     const stripCode = (value: string | null | undefined) =>
@@ -2012,6 +2132,46 @@ export function QuotationBuilderPage() {
       return `${code} ${safe.toFixed(digits)}`;
     }
   };
+  const validationMessageFor = (path: string, message: string) => {
+    const serviceMatch = path.match(/^services\.(\d+)\.(.+)$/);
+    if (serviceMatch) {
+      const index = Number(serviceMatch[1]);
+      const fieldName = serviceMatch[2];
+      const service = form.getValues(`services.${index}` as FieldPath<QuotationVersionInput>) as
+        QuotationVersionInput['services'][number] | undefined;
+      const label =
+        service?.serviceType === 'CRUISE'
+          ? 'Cruise'
+          : service?.serviceType === 'VEHICLE_TRANSFER'
+            ? 'Vehicle'
+            : service?.serviceType === 'OTHER_ADD_ON'
+              ? 'Add-on service'
+              : service?.serviceType === 'SIGHTSEEING'
+                ? 'Sightseeing service'
+                : service?.serviceType === 'FLIGHT'
+                  ? 'Flight service'
+                  : 'Service';
+      if (fieldName === 'description' && /characters|too long/i.test(message))
+        return `${label} ${index + 1} description is too long.`;
+      if (fieldName === 'name') return `${label} ${index + 1} needs a name.`;
+      return `${label} ${index + 1}: ${message}`;
+    }
+    const hotelMatch = path.match(/^hotels\.(\d+)\.(.+)$/);
+    if (hotelMatch) {
+      const index = Number(hotelMatch[1]) + 1;
+      const fieldName = hotelMatch[2];
+      if (fieldName === 'hotelName') return `Hotel stay ${index} needs a hotel name.`;
+      if (fieldName === 'images') return `Hotel stay ${index} images could not be read.`;
+      return `Hotel stay ${index}: ${message}`;
+    }
+    if (path === 'inclusionsHtml') return 'Inclusions content is too long.';
+    if (path === 'exclusionsHtml') return 'Exclusions content is too long.';
+    if (path === 'title') return 'Quotation title is required.';
+    if (path === 'destinationSummary') return 'Destination summary is required.';
+    if (path === 'currency') return 'Currency must be a 3-letter code.';
+    if (path.includes('images')) return 'One image gallery could not be read.';
+    return `${path.replace(/\.\d+\./g, ' ').replace(/\./g, ' ')}: ${message}`;
+  };
 
   const submit = form.handleSubmit(
     (value) => {
@@ -2176,7 +2336,7 @@ export function QuotationBuilderPage() {
         if (!node || typeof node !== 'object') return;
         const record = node as Record<string, unknown>;
         if (typeof record.message === 'string') {
-          paths.push(`${prefix.replace(/\.$/, '')}: ${record.message}`);
+          paths.push(validationMessageFor(prefix.replace(/\.$/, ''), record.message));
           return;
         }
         for (const key of Object.keys(record)) {
@@ -2995,6 +3155,7 @@ export function QuotationBuilderPage() {
                                 applyService(index, {
                                   cruiseId: option?.id ?? null,
                                   cruiseRoomTypeId: null,
+                                  description: selectedMaster?.description ?? null,
                                   images: snapshot,
                                   imageSnapshotPresent: masterGalleryPresence(selectedMaster),
                                   pdfImageUrl: snapshot[0]

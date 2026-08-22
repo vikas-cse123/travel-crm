@@ -1538,7 +1538,7 @@ async function resolveAirlinePresentations(ownerCompanyIds: string[], flightDeta
   );
 }
 
-/** Destination Expert — fetch expert user and decide avatar. Returns null when incomplete (no photo + no gender) so public weblink stays hidden. */
+/** Destination Expert — fetch expert user and decide the optional avatar presentation. */
 async function resolveDestinationExpertPresentation(
   companyId: string,
   config: DestinationExpertConfig | null | undefined,
@@ -1564,7 +1564,8 @@ async function resolveDestinationExpertPresentation(
     },
   });
   if (!user) return null;
-  // Avatar priority: custom photo > gender default > incomplete
+  // Avatar priority: custom photo > gender default > no avatar. The section itself
+  // remains visible when the expert is selected and enabled.
   let avatarUrl: string | null = null;
   let avatarKind: 'custom' | 'male' | 'female' | null = null;
   if (user.profileImageObjectKey && user.profileImageConfirmedAt) {
@@ -1582,7 +1583,6 @@ async function resolveDestinationExpertPresentation(
   if (!avatarUrl) {
     if (user.gender === 'MALE') avatarKind = 'male';
     else if (user.gender === 'FEMALE') avatarKind = 'female';
-    else return null; // incomplete: no photo and no gender → hide publicly
   }
   return {
     id: user.id,

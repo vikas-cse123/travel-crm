@@ -1621,6 +1621,95 @@ describe('PDF rendering with long content', () => {
     expect(pdfTextPage(pdf, count)).toContain('THANK');
   });
 
+  it('renders cruise descriptions with images without footer overlap or trailing blanks', async () => {
+    const longDescription = `<p>${Array.from(
+      { length: 150 },
+      (_, index) =>
+        `Cruise detail ${index + 1} explains onboard dining, entertainment, embarkation and customer guidance.`,
+    ).join(' ')}</p>`;
+    expect(longDescription.length).toBeGreaterThan(10_000);
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        title: 'Cruise Description Package',
+        services: [
+          {
+            serviceType: 'CRUISE',
+            name: 'Genting Dream',
+            description: '<p>Experience an unforgettable cruise aboard Genting Dream.</p>',
+            city: 'Balcony',
+            quantity: '1',
+            unitSellingPrice: '100',
+            notes: '3 NIGHTS',
+          },
+          {
+            serviceType: 'CRUISE',
+            name: 'Spectrum of the Seas',
+            description: longDescription,
+            city: 'Suite',
+            quantity: '1',
+            unitSellingPrice: '100',
+            notes: '4 NIGHTS',
+          },
+        ],
+      },
+      images: { cover: PNG_1PX, services: [PNG_1PX, PNG_1PX] },
+    });
+
+    expect(isPdf(pdf)).toBe(true);
+    const text = pdfText(pdf);
+    expect(text).toContain('CRUISE DETAILS');
+    expect(text).toContain('Genting Dream');
+    expect(text).toContain('Experience an unforgettable cruise aboard Genting Dream.');
+    expect(text).toContain('Spectrum of the Seas');
+    expect(text).toContain('Cruise detail 150');
+    expect(text).toContain('onboard dining');
+
+    const count = pageCount(pdf);
+    const pages = pageWordBoxes(pdf);
+    expect(pages).toHaveLength(count);
+    expect(pages.every((page) => page.words.length > 0)).toBe(true);
+    for (const page of pages) {
+      const footerTop = page.height - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT;
+      const inBand = page.words.filter(
+        (word) => Math.abs(word.yMax - footerTop) < PDF_POST_CONTENT_GAP,
+      );
+      expect(inBand).toEqual([]);
+    }
+    expect(pdfTextPage(pdf, count)).toContain('THANK');
+  });
+
+  it('keeps cruise PDF layout stable when description is absent', async () => {
+    const pdf = await renderQuotationPdf({
+      company,
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        title: 'Cruise Without Description',
+        services: [
+          {
+            serviceType: 'CRUISE',
+            name: 'Genting Dream',
+            description: null,
+            city: 'Balcony',
+            quantity: '1',
+            unitSellingPrice: '100',
+            notes: '3 NIGHTS',
+          },
+        ],
+      },
+      images: { cover: PNG_1PX, services: [PNG_1PX] },
+    });
+
+    const text = pdfText(pdf);
+    expect(text).toContain('Genting Dream');
+    expect(text).toContain('Duration: 3 NIGHTS');
+    expect(text).not.toContain('Description:');
+    expect(pdfTextPage(pdf, pageCount(pdf))).toContain('THANK');
+  });
+
   it('renders hotel cards that keep every field inside the rounded border', async () => {
     // Long hotel titles / room types that previously overflowed the fixed 150pt
     // card border. The card must size itself to the content and keep Check-out

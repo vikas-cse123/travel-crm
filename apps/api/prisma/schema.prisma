@@ -3049,7 +3049,7 @@ model QuotationTemplateService {
   sightseeingId    String?           @db.Uuid
   addOnServiceId   String?           @db.Uuid
   name             String            @db.VarChar(200)
-  description      String?           @db.VarChar(4000)
+  description      String?           @db.Text
   dayNumber        Int?
   city             String?           @db.VarChar(120)
   quantity         Decimal           @default(1) @db.Decimal(10, 2)
@@ -3443,7 +3443,7 @@ model QuotationVersionService {
   sightseeingId      String?          @db.Uuid
   addOnServiceId     String?          @db.Uuid
   name               String           @db.VarChar(200)
-  description        String?          @db.VarChar(4000)
+  description        String?          @db.Text
   dayNumber          Int?
   city               String?          @db.VarChar(120)
   quantity           Decimal          @default(1) @db.Decimal(10, 2)
