@@ -33,6 +33,7 @@ import {
   type DashboardPeriod,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { MetricInfoTooltip } from '@/components/ui/Tooltip';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { ChartLegend } from '@/components/charts/ChartLegend';
 import { HorizontalBarChart } from '@/components/charts/HorizontalBarChart';
@@ -55,11 +56,13 @@ function KpiCard({
   value,
   icon: Icon,
   className,
+  info,
 }: {
   label: string;
   value: string | number;
   icon: LucideIcon;
   className: string;
+  info?: { title: string; description: string; formula: string };
 }) {
   return (
     <article className={`relative overflow-hidden rounded-lg p-4 shadow-card ${className}`}>
@@ -69,7 +72,16 @@ function KpiCard({
         aria-hidden="true"
       />
       <p className="relative text-3xl font-bold leading-none">{value}</p>
-      <p className="relative mt-2 text-xs font-medium tracking-wide opacity-90">{label}</p>
+      <div className="relative mt-2 flex items-center gap-1.5">
+        <p className="text-xs font-medium tracking-wide opacity-90">{label}</p>
+        {info && (
+          <MetricInfoTooltip
+            title={info.title}
+            description={info.description}
+            formula={info.formula}
+          />
+        )}
+      </div>
     </article>
   );
 }
@@ -457,6 +469,12 @@ export function DashboardPage() {
               value={`${data?.leads?.winRate ?? 0}%`}
               icon={Target}
               className="bg-slate-200 text-slate-800"
+              info={{
+                title: 'Win Rate',
+                description:
+                  'Percentage of leads with a final result that became Booking Confirmed. Only Booking Confirmed and Lost leads are counted; leads still in progress are not included.',
+                formula: '(Booking Confirmed ÷ (Booking Confirmed + Lost)) × 100',
+              }}
             />
             <KpiCard
               label="Hot Leads"
@@ -469,6 +487,11 @@ export function DashboardPage() {
               value={`${data?.leads?.conversionRate ?? 0}%`}
               icon={Percent}
               className="bg-cyan-100 text-cyan-800"
+              info={{
+                title: 'Conversion Rate',
+                description: 'Percentage of total leads that became Booking Confirmed.',
+                formula: '(Booking Confirmed ÷ Total Leads) × 100',
+              }}
             />
           </section>
 

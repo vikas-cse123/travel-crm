@@ -1,5 +1,5 @@
-import { ArrowLeft, ListChecks, Plus } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { ListChecks, Plus } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { PERMISSIONS } from '@interscale/shared';
@@ -8,10 +8,16 @@ import { formatDate, formatDateTime, StagePill } from './NotesUi';
 
 export function LeadNotesPage() {
   const { queryId = '' } = useParams();
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const lead = useLead(queryId);
   const notes = useNotes(queryId);
   const canAdd = hasPermission(PERMISSIONS.QUERIES_UPDATE);
+
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/notes');
+  };
 
   return (
     <div className="space-y-5">
@@ -43,18 +49,10 @@ export function LeadNotesPage() {
                 </Button>
               </Link>
             )}
-            <Link to="/queries">
-              <Button size="sm" variant="secondary">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Leads
-              </Button>
-            </Link>
-            <Link to="/notes">
-              <Button size="sm" variant="secondary">
-                <ListChecks className="h-4 w-4" />
-                Back to All Notes
-              </Button>
-            </Link>
+            <Button size="sm" variant="secondary" onClick={handleBack}>
+              <ListChecks className="h-4 w-4" />
+              Back to All Notes
+            </Button>
           </div>
         </div>
 

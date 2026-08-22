@@ -43,6 +43,7 @@ import { labelForLookup } from '@interscale/shared';
 import type { LeadDateFilterType } from '@interscale/shared';
 import { LeadServicesCell } from '@/features/queries/LeadServicesCell';
 import { cn } from '@/utils/cn';
+import { MetricInfoTooltip } from '@/components/ui/Tooltip';
 import { LeadImportModal } from './LeadImportModal';
 import './leads.css';
 
@@ -213,6 +214,15 @@ function DestinationCell({ lead }: { lead: Lead }) {
   );
 }
 
+function displayTravellerSummary(summary: string | null | undefined): string {
+  if (!summary) return '';
+  return summary
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !/^\d+\s*Room/i.test(part))
+    .join(', ');
+}
+
 function TravellersInfoCell({ lead }: { lead: Lead }) {
   return (
     <div className="leads-traveller">
@@ -224,7 +234,7 @@ function TravellersInfoCell({ lead }: { lead: Lead }) {
         {leadDate(lead.travelStartDate) ?? 'Flexible dates'}
       </span>
       <span className="leads-traveller-block leads-traveller-block--rooms">
-        {lead.travellerSummary || 'No traveller details'}
+        {displayTravellerSummary(lead.travellerSummary) || 'No traveller details'}
       </span>
     </div>
   );
@@ -666,10 +676,20 @@ function LeadAnalyticsStrip({
           <span className="leads-analytics-badge leads-analytics-badge--conversion">
             <span>{conversionRate}%</span>
             <span>Conversion Rate</span>
+            <MetricInfoTooltip
+              title="Conversion Rate"
+              description="Percentage of total leads that became Booking Confirmed."
+              formula="(Booking Confirmed ÷ Total Leads) × 100"
+            />
           </span>
           <span className="leads-analytics-badge leads-analytics-badge--win">
             <span>{winRate}%</span>
             <span>Win Rate</span>
+            <MetricInfoTooltip
+              title="Win Rate"
+              description="Percentage of leads with a final result that became Booking Confirmed. Only Booking Confirmed and Lost leads are counted; leads still in progress are not included."
+              formula="(Booking Confirmed ÷ (Booking Confirmed + Lost)) × 100"
+            />
           </span>
         </>
       )}

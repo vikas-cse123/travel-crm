@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, NotebookPen } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { LeadSearchSelect } from '@/features/queries/LeadSearchSelect';
 
@@ -19,12 +19,22 @@ export function NewNotePage() {
   const navigate = useNavigate();
   const [queryId, setQueryId] = useState('');
 
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/notes');
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <header className="flex items-center gap-3">
-        <Link to="/notes" className="rounded-lg p-2 hover:bg-card">
+        <button
+          type="button"
+          aria-label="Back"
+          onClick={handleBack}
+          className="rounded-lg p-2 hover:bg-card"
+        >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <div>
           <p className="text-sm text-slate-500">Lead notes</p>
           <h1 className="text-2xl font-semibold">Add note</h1>

@@ -110,7 +110,7 @@ export function AllNotesPage() {
     if (value) next.set(key, value);
     else next.delete(key);
     if (key !== 'page') next.delete('page');
-    setParams(next);
+    setParams(next, { replace: true });
   };
 
   const page = overview.data?.page ?? 1;

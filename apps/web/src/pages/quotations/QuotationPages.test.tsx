@@ -799,6 +799,18 @@ describe('Phase 8 quotation pages', () => {
       const tab = screen.getByRole('button', { name: label });
       expect(tab.textContent).toContain('*');
     }
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Setting' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByRole('heading', { name: 'Quotation Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Weblink Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Destination Expert' })).toBeInTheDocument();
+    expect(screen.getAllByText('Quotation Summary')).toHaveLength(1);
+    expect(screen.getByLabelText('Settings actions')).toHaveClass('sm:flex-row');
+
+    await userEvent.click(screen.getByRole('button', { name: /Weblink Section Order/i }));
+    expect(screen.getByRole('button', { name: 'Reset to default order' })).toBeInTheDocument();
   });
 
   it('shows version history and runs revision, PDF, public-link and send actions', async () => {
@@ -928,6 +940,9 @@ describe('Phase 8 quotation pages', () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/versions'))).toBe(true),
     );
+    expect(
+      screen.queryByText(/departure sightseeing activity is not configured/i),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByLabelText('Recipient email')).toHaveValue('aarav@example.test');
@@ -2051,13 +2066,12 @@ describe('Phase 8 quotation pages', () => {
       'https://cdn.example/cruise-1.jpg',
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next reef walk image' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next vehicle image' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next cruise image' }));
     expect(screen.getByAltText('Activity 1')).toBeInTheDocument();
     expect(screen.getByAltText('Vehicle A')).toBeInTheDocument();
     expect(screen.getByAltText('Cruise 2')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
     expect(
       screen
         .getAllByAltText('Legacy lagoon visit')
@@ -4010,12 +4024,12 @@ describe('Phase 8 quotation pages', () => {
     expect(within(article).getByText(/Mon, 10 Aug 2026/)).toBeInTheDocument();
     expect(within(article).getByText('9:00 AM')).toBeInTheDocument();
     // Snapshot image used first.
-    const img = within(article).getByAltText('Day 1: City Tour');
+    const img = within(article).getByAltText('Merlion Park');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/merlion.jpg');
-    // Fixed desktop image wrapper (image never stretches to the description).
-    const wrapper = img.parentElement as HTMLElement;
-    expect(wrapper.className).toContain('md:w-[285px]');
-    expect(wrapper.className).toContain('md:h-[180px]');
+    // Responsive activity-owned image wrapper (stacked on mobile, fixed beside content above sm).
+    const wrapper = img.parentElement?.parentElement as HTMLElement;
+    expect(wrapper.className).toContain('sm:w-60');
+    expect(wrapper.className).toContain('sm:h-40');
     expect(wrapper.className).not.toContain('h-full');
     // Transfer badge + meals.
     expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
@@ -4541,15 +4555,257 @@ describe('Phase 8 quotation pages', () => {
       .getByRole('heading', { name: 'Day 1: City Tour' })
       .closest('article') as HTMLElement;
     expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
-    // First activity uses its snapshot image; second resolves its signed presentation.
+    // Each activity owns its image; the second resolves its signed presentation.
     const arrival = within(article).getByAltText('Arrival in Singapore & Hotel Check-in');
     expect(arrival).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
     expect(arrival).toHaveClass('object-cover');
     const safari = within(article).getByAltText('Night Safari – Singapore');
     expect(safari).toHaveAttribute('src', 'https://storage.example.test/night-safari.jpg');
-    // The large day image uses the first valid activity image too.
-    const mainImages = within(article).getAllByRole('img');
-    expect(mainImages[0]).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
+    // Activity images are not duplicated into a shared day-level image.
+    expect(within(article).getAllByRole('img')).toHaveLength(2);
+  });
+
+  it('keeps a 1-image and 4-image activity in independent carousels', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000019',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Singapore Activities',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Singapore highlights',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              mealMode: 'NO_TRANSFER',
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Marina Bay & Gardens by the Bay',
+                  description: '<p>Waterfront and gardens.</p>',
+                  startTime: null,
+                  sightseeingId: 'marina',
+                  imageSnapshotPresent: true,
+                  images: [{ id: 'a1', url: 'https://storage.example.test/a1.jpg' }],
+                },
+                {
+                  name: 'Night Safari',
+                  description: '<p>Evening wildlife experience.</p>',
+                  startTime: null,
+                  sightseeingId: 'night-safari',
+                  imageSnapshotPresent: true,
+                  images: [1, 2, 3, 4].map((number) => ({
+                    id: `b${number}`,
+                    url: `https://storage.example.test/b${number}.jpg`,
+                  })),
+                },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Singapore Activities');
+
+    const marina = screen.getByLabelText('Marina Bay & Gardens by the Bay image gallery');
+    const safari = screen.getByLabelText('Night Safari image gallery');
+    expect(within(marina).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a1.jpg',
+    );
+    expect(within(marina).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(safari).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/b1.jpg',
+    );
+    expect(within(safari).getByText('1 / 4')).toBeInTheDocument();
+    expect(screen.queryByText('1 / 5')).not.toBeInTheDocument();
+
+    await userEvent.click(within(safari).getByRole('button', { name: 'Next night safari image' }));
+    await userEvent.click(within(safari).getByRole('button', { name: 'Next night safari image' }));
+    expect(within(safari).getByText('3 / 4')).toBeInTheDocument();
+    expect(within(safari).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/b3.jpg',
+    );
+    expect(within(marina).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a1.jpg',
+    );
+  });
+
+  it('isolates galleries across missing images, duplicate filenames, failures and multiple days', async () => {
+    const gallery = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `${prefix}-${index + 1}`,
+        fileName: 'shared-name.jpg',
+        url: `https://storage.example.test/${prefix}-${index + 1}.jpg`,
+        thumbnailUrl:
+          index === 0 ? `https://storage.example.test/${prefix}-${index + 1}-thumb.jpg` : null,
+      }));
+    const publicData = {
+      company: { name: 'Alpha Travel', primaryColor: '#2563eb' },
+      quotation: {
+        quotationNumber: 'QT-2026-000020',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Independent Galleries',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Three activities',
+              city: 'Singapore',
+              meals: {},
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Activity A',
+                  sightseeingId: 'activity-a',
+                  imageSnapshotPresent: true,
+                  images: gallery('a', 2),
+                },
+                {
+                  name: 'Activity B',
+                  sightseeingId: 'activity-b',
+                  imageSnapshotPresent: true,
+                  images: [],
+                },
+                {
+                  name: 'Activity C',
+                  sightseeingId: 'activity-c',
+                  imageSnapshotPresent: true,
+                  images: gallery('c', 5),
+                },
+              ],
+            },
+            {
+              dayNumber: 2,
+              title: 'Day 2: Another activity',
+              city: 'Singapore',
+              meals: {},
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Activity D',
+                  sightseeingId: 'activity-d',
+                  imageSnapshotPresent: true,
+                  images: gallery('d', 1),
+                },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      sightseeingPresentations: {
+        'activity-b': { imageUrl: 'https://storage.example.test/activity-b-master.jpg' },
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Independent Galleries');
+
+    const activityA = screen.getByLabelText('Activity A image gallery');
+    const activityB = screen.getByLabelText('Activity B image gallery');
+    const activityC = screen.getByLabelText('Activity C image gallery');
+    const activityD = screen.getByLabelText('Activity D image gallery');
+    expect(within(activityA).getByText('1 / 2')).toBeInTheDocument();
+    expect(within(activityB).queryByRole('img')).not.toBeInTheDocument();
+    expect(within(activityC).getByText('1 / 5')).toBeInTheDocument();
+    expect(within(activityD).queryByRole('button')).not.toBeInTheDocument();
+
+    await userEvent.click(within(activityC).getByRole('button', { name: 'Next activity c image' }));
+    expect(within(activityC).getByText('2 / 5')).toBeInTheDocument();
+    expect(within(activityA).getByText('1 / 2')).toBeInTheDocument();
+    expect(within(activityD).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/d-1.jpg',
+    );
+
+    fireEvent.error(within(activityA).getByRole('img'));
+    expect(within(activityA).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a-1-thumb.jpg',
+    );
+    expect(within(activityC).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/c-2.jpg',
+    );
+    expect(activityA).toHaveClass('w-full', 'sm:w-52');
+    expect(activityA.parentElement).toHaveClass('flex-col', 'sm:flex-row');
   });
 
   it('shows a neutral thumbnail placeholder when an activity has no image', async () => {
@@ -5435,7 +5691,7 @@ describe('Phase 8 quotation pages', () => {
     expect(
       screen.getByText('Breakfast (With Transfer), Dinner (With Transfer)'),
     ).toBeInTheDocument();
-    const img = screen.getByAltText('Day 3: Legacy Day');
+    const img = screen.getByAltText('Legacy Activity');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/legacy.jpg');
   });
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveVehicle,
+  masterImageFingerprint,
   useHideGlobalMaster,
   useRestoreVehicle,
   useVehicles,
@@ -39,7 +40,7 @@ export function VehiclesPage() {
   const imageIdsKey =
     vehicles.data?.data
       .filter((vehicle) => vehicle.hasImage)
-      .map((vehicle) => `${vehicle.id}:${vehicle.imageConfirmedAt ?? ''}`)
+      .map((vehicle) => `${vehicle.id}:${masterImageFingerprint(vehicle)}`)
       .join('|') ?? '';
 
   useEffect(() => {
@@ -48,22 +49,24 @@ export function VehiclesPage() {
 
     const cachedEntries = rowsWithImages.flatMap((vehicle) => {
       const cached = vehicleImageUrlCache.get(vehicle.id);
-      return cached?.fingerprint === vehicle.imageConfirmedAt
+      return cached?.fingerprint === masterImageFingerprint(vehicle)
         ? ([[vehicle.id, cached.url]] as const)
         : [];
     });
-    if (cachedEntries.length) {
-      setImageUrls((current) => {
-        const next = { ...current };
-        cachedEntries.forEach(([id, url]) => {
-          next[id] = url;
-        });
-        return next;
+    setImageUrls((current) => {
+      const next = { ...current };
+      rowsWithImages.forEach((vehicle) => {
+        delete next[vehicle.id];
       });
-    }
+      cachedEntries.forEach(([id, url]) => {
+        next[id] = url;
+      });
+      return next;
+    });
 
     const missingRows = rowsWithImages.filter(
-      (vehicle) => vehicleImageUrlCache.get(vehicle.id)?.fingerprint !== vehicle.imageConfirmedAt,
+      (vehicle) =>
+        vehicleImageUrlCache.get(vehicle.id)?.fingerprint !== masterImageFingerprint(vehicle),
     );
     if (!missingRows.length) return;
 
@@ -85,7 +88,7 @@ export function VehiclesPage() {
           if (url) {
             const vehicle = missingRows.find((row) => row.id === id);
             vehicleImageUrlCache.set(id, {
-              fingerprint: vehicle?.imageConfirmedAt ?? '',
+              fingerprint: vehicle ? masterImageFingerprint(vehicle) : '',
               url,
             });
             next[id] = url;

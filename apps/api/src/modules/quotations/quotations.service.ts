@@ -1691,29 +1691,6 @@ async function createVersion(
     input,
   );
 
-  // Require a departure-type sightseeing activity on the final itinerary day
-  // so every generated quotation ends with a dedicated departure day.  The
-  // frontend prefill already picks the correct master; this server-side check
-  // catches manually edited rows that replace the departure activity.
-  if (hydratedInput.sightseeingDetails?.include && hydratedInput.sightseeingDetails.days?.length) {
-    const lastDay =
-      hydratedInput.sightseeingDetails.days[hydratedInput.sightseeingDetails.days.length - 1];
-    const lastActivity = lastDay?.activities?.[0];
-    const activityName = (lastActivity?.name ?? '').trim();
-    if (activityName) {
-      const normName = activityName.toLowerCase().replace(/[\s-]+/g, ' ');
-      const isDeparture =
-        normName.includes('departure') || /check\s*out\s+and\s+departure/i.test(normName);
-      if (!isDeparture) {
-        const destName =
-          hydratedInput.destinationSummary.split(/[•(→>,]/)[0]?.trim() || 'this destination';
-        throw new ValidationError(
-          `A departure sightseeing activity is not configured for ${destName}. Add an active departure activity in Sightseeing Masters before creating the quotation.`,
-        );
-      }
-    }
-  }
-
   const data = versionCreateData(hydratedInput, auth.companyId, allowCosting, pax);
   const version = await tx.quotationVersion.create({
     data: {

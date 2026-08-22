@@ -27,7 +27,7 @@ export function StagePill({ stage }: { stage: string | null }) {
   return (
     <span
       className={cn(
-        'inline-flex rounded-full px-2.5 py-1 text-xs font-semibold',
+        'inline-flex w-fit max-w-full self-start items-center rounded-full px-2 py-[3px] text-[11px] font-medium leading-none',
         stageColors[stage] ?? 'bg-slate-100 text-slate-600',
       )}
     >

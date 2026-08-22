@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ImagePlus, Pencil, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, ImagePlus, Pencil, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { MasterImageMeta } from '@/features/masters/masters.api';
 import { MasterImageEditor } from './MasterImageEditor';
 
 type ImageEntity = {
+  id?: string;
   hasImage: boolean;
   images?: MasterImageMeta[];
   imageFileName?: string | null;
@@ -26,6 +27,15 @@ type PendingItem = {
 };
 
 type GalleryItem = ExistingItem | PendingItem;
+
+type GalleryDraft = {
+  masterId: string | undefined;
+  order: string[] | null;
+  pending: PendingItem[];
+  removedIds: Set<string>;
+  confirmed: Record<string, MasterImageMeta>;
+  serverImages: MasterImageMeta[] | null;
+};
 
 type ImageUploadInput = {
   fileName: string;
@@ -67,12 +77,141 @@ const existingItem = (image: MasterImageMeta): ExistingItem => ({
   image,
 });
 
+const emptyDraft = (masterId: string | undefined): GalleryDraft => ({
+  masterId,
+  order: null,
+  pending: [],
+  removedIds: new Set(),
+  confirmed: {},
+  serverImages: null,
+});
+
+const imageSignature = (images: MasterImageMeta[]) => images.map((image) => image.id).join('|');
+
+const sameIds = (left: Set<string>, right: Set<string>) =>
+  left.size === right.size && [...left].every((id) => right.has(id));
+
 const imageName = (item: GalleryItem) =>
   item.kind === 'pending' ? item.file.name : item.image.fileName;
 
 const revokePreview = (item: GalleryItem) => {
   if (item.kind === 'pending' && item.previewUrl) URL.revokeObjectURL?.(item.previewUrl);
 };
+
+type LightboxImage = {
+  id: string;
+  src: string;
+  alt: string;
+  isPrimary: boolean;
+};
+
+function MasterImageLightbox({
+  images,
+  index,
+  onClose,
+  onPrev,
+  onNext,
+}: {
+  images: LightboxImage[];
+  index: number;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const current = images[index];
+  const hasMultiple = images.length > 1;
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget) onClose();
+    },
+    [onClose],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft' && hasMultiple) onPrev();
+      else if (e.key === 'ArrowRight' && hasMultiple) onNext();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose, onPrev, onNext, hasMultiple]);
+
+  if (!current) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image preview"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={handleBackdropClick}
+    >
+      <button
+        type="button"
+        aria-label="Close preview"
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-white"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      {hasMultiple && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous image"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPrev();
+            }}
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-white md:left-4"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next image"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNext();
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-white md:right-4"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        </>
+      )}
+      <div
+        className="relative flex max-h-[85vh] max-w-[90vw] flex-col items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={current.src}
+          alt={current.alt}
+          className="max-h-[80vh] max-w-[90vw] object-contain"
+          decoding="async"
+        />
+        <div className="flex items-center gap-2 text-sm text-white/90">
+          {current.isPrimary && (
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">
+              Primary
+            </span>
+          )}
+          {hasMultiple && (
+            <span className="text-xs text-white/70">
+              {index + 1} / {images.length}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export type MasterImageGalleryController<TEntity extends ImageEntity> = {
   items: GalleryItem[];
@@ -106,54 +245,87 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
   api: GalleryApi<TEntity, TMimeType>;
   onExistingChange: (() => Promise<unknown> | unknown) | undefined;
 }): MasterImageGalleryController<TEntity> {
-  const persistedImages = useMemo(() => legacyImageMeta(entity), [entity]);
-  const persistedSignature = persistedImages.map((image) => image.id).join('|');
-  const [items, setItems] = useState<GalleryItem[]>([]);
-  const itemsRef = useRef<GalleryItem[]>([]);
-  const activeMasterId = useRef(masterId);
+  const entityImages = useMemo(() => {
+    if (entity === undefined) return undefined;
+    if (masterId && entity.id && entity.id !== masterId) return undefined;
+    return legacyImageMeta(entity);
+  }, [entity, masterId]);
+  const persistedRef = useRef<{ masterId: string | undefined; images: MasterImageMeta[] }>({
+    masterId,
+    images: entityImages ?? [],
+  });
+  if (persistedRef.current.masterId !== masterId) {
+    persistedRef.current = { masterId, images: entityImages ?? [] };
+  } else if (entityImages !== undefined) {
+    persistedRef.current.images = entityImages;
+  }
+
+  const [draft, setDraft] = useState<GalleryDraft>(() => emptyDraft(masterId));
+  const activeDraft = draft.masterId === masterId ? draft : emptyDraft(masterId);
+  const persistedImages = activeDraft.serverImages ?? persistedRef.current.images;
+  const entitySignature = entityImages === undefined ? undefined : imageSignature(entityImages);
   const sequence = useRef(0);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const urlsRef = useRef<Record<string, string>>({});
+  const urlsMasterId = useRef(masterId);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [editingKey, setEditingKey] = useState('');
 
-  const setGalleryItems = (next: GalleryItem[] | ((current: GalleryItem[]) => GalleryItem[])) => {
-    setItems((current) => {
-      const value = typeof next === 'function' ? next(current) : next;
-      itemsRef.current = value;
-      return value;
-    });
+  const existingById = new Map(persistedImages.map((image) => [image.id, image]));
+  Object.values(activeDraft.confirmed).forEach((image) => {
+    if (!existingById.has(image.id)) existingById.set(image.id, image);
+  });
+  const naturalItems: GalleryItem[] = [
+    ...[...existingById.values()]
+      .filter((image) => !activeDraft.removedIds.has(image.id))
+      .map(existingItem),
+    ...activeDraft.pending,
+  ];
+  const naturalByKey = new Map(naturalItems.map((item) => [item.key, item]));
+  const locallyOrderedKeys = new Set(activeDraft.order ?? []);
+  const orderedKeys = activeDraft.order
+    ? [
+        ...activeDraft.order.filter((key) => naturalByKey.has(key)),
+        ...naturalItems.map((item) => item.key).filter((key) => !locallyOrderedKeys.has(key)),
+      ]
+    : naturalItems.map((item) => item.key);
+  const items = orderedKeys.flatMap((key) => {
+    const item = naturalByKey.get(key);
+    return item ? [item] : [];
+  });
+  const itemsRef = useRef<GalleryItem[]>(items);
+  itemsRef.current = items;
+
+  const updateDraft = (update: (current: GalleryDraft) => GalleryDraft) => {
+    setDraft((current) => update(current.masterId === masterId ? current : emptyDraft(masterId)));
   };
 
   useEffect(() => {
-    const fresh = persistedImages.map(existingItem);
-    if (activeMasterId.current !== masterId) {
-      itemsRef.current.forEach(revokePreview);
-      activeMasterId.current = masterId;
-      setGalleryItems(fresh);
-      setUrls({});
-      setEditingKey('');
-      setError('');
-      return;
-    }
-    const byId = new Map(fresh.map((item) => [item.image.id, item]));
-    setGalleryItems((current) => {
-      const merged: GalleryItem[] = [];
-      for (const item of current) {
-        if (item.kind === 'pending') {
-          merged.push(item);
-          continue;
-        }
-        const updated = byId.get(item.image.id);
-        if (!updated) continue;
-        byId.delete(item.image.id);
-        merged.push(updated);
-      }
-      return [...merged, ...byId.values()];
+    setDraft((current) => {
+      if (current.masterId === masterId) return current;
+      current.pending.forEach(revokePreview);
+      return emptyDraft(masterId);
     });
-    // The ID signature deliberately ignores fresh object identities from query refetches.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [masterId, persistedSignature]);
+    setEditingKey('');
+    setError('');
+  }, [masterId]);
+
+  useEffect(() => {
+    if (entityImages === undefined) return;
+    const entityIds = new Set(entityImages.map((image) => image.id));
+    setDraft((current) => {
+      if (current.masterId !== masterId) return current;
+      const removedIds = new Set([...current.removedIds].filter((id) => entityIds.has(id)));
+      const serverImages =
+        current.serverImages && imageSignature(current.serverImages) === entitySignature
+          ? null
+          : current.serverImages;
+      if (sameIds(removedIds, current.removedIds) && serverImages === current.serverImages)
+        return current;
+      return { ...current, removedIds, serverImages };
+    });
+  }, [entityImages, entitySignature, masterId]);
 
   const existingIds = items
     .filter((item): item is ExistingItem => item.kind === 'existing')
@@ -161,14 +333,24 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
   const existingSignature = existingIds.join('|');
 
   useEffect(() => {
-    if (!masterId || existingIds.length === 0) {
-      setUrls({});
-      return;
+    if (urlsMasterId.current !== masterId) {
+      urlsMasterId.current = masterId;
+      urlsRef.current = {};
     }
+    const wantedIds = new Set(existingIds);
+    const retained = Object.fromEntries(
+      Object.entries(urlsRef.current).filter(([imageId]) => wantedIds.has(imageId)),
+    );
+    urlsRef.current = retained;
+    setUrls(retained);
+    if (!masterId || existingIds.length === 0) return;
+
+    const missingIds = existingIds.filter((imageId) => !urlsRef.current[imageId]);
+    if (!missingIds.length) return;
     let active = true;
     const load = async () => {
       const entries = await Promise.all(
-        existingIds.map(async (imageId) => {
+        missingIds.map(async (imageId) => {
           try {
             const result = await api.download(masterId, imageId === 'legacy' ? undefined : imageId);
             return [imageId, result.url] as const;
@@ -177,7 +359,17 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
           }
         }),
       );
-      if (active) setUrls(Object.fromEntries(entries));
+      if (!active || urlsMasterId.current !== masterId) return;
+      setUrls((current) => {
+        const next = Object.fromEntries(
+          Object.entries(current).filter(([imageId]) => wantedIds.has(imageId)),
+        );
+        entries.forEach(([imageId, url]) => {
+          if (wantedIds.has(imageId)) next[imageId] = url;
+        });
+        urlsRef.current = next;
+        return next;
+      });
     };
     void load();
     return () => {
@@ -215,17 +407,22 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
         previewUrl,
       });
     }
-    if (accepted.length) setGalleryItems((current) => [...current, ...accepted]);
+    if (accepted.length)
+      updateDraft((current) => ({
+        ...current,
+        pending: [...current.pending, ...accepted],
+        order: current.order ? [...current.order, ...accepted.map((item) => item.key)] : null,
+      }));
     if (rejected.length) setError(rejected.join(' '));
   };
 
   const move = (index: number, direction: -1 | 1) => {
-    setGalleryItems((current) => {
-      const target = index + direction;
-      if (target < 0 || target >= current.length) return current;
-      const next = [...current];
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return next;
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    updateDraft((current) => {
+      const order = items.map((item) => item.key);
+      [order[index], order[target]] = [order[target]!, order[index]!];
+      return { ...current, order };
     });
   };
 
@@ -233,7 +430,11 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
     setError('');
     if (item.kind === 'pending') {
       revokePreview(item);
-      setGalleryItems((current) => current.filter((candidate) => candidate.key !== item.key));
+      updateDraft((current) => ({
+        ...current,
+        pending: current.pending.filter((candidate) => candidate.key !== item.key),
+        order: current.order?.filter((key) => key !== item.key) ?? null,
+      }));
       if (editingKey === item.key) setEditingKey('');
       return;
     }
@@ -242,10 +443,17 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
     setBusyKey(item.key);
     try {
       await api.remove(masterId, item.image.id);
-      setGalleryItems((current) => current.filter((candidate) => candidate.key !== item.key));
+      updateDraft((current) => ({
+        ...current,
+        removedIds: new Set(current.removedIds).add(item.image.id),
+        order: (current.order ?? items.map((candidate) => candidate.key)).filter(
+          (key) => key !== item.key,
+        ),
+      }));
       setUrls((current) => {
         const next = { ...current };
         delete next[item.image.id];
+        urlsRef.current = next;
         return next;
       });
       await onExistingChange?.();
@@ -268,13 +476,12 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
     }
     const previewUrl = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : '';
     revokePreview(editingItem);
-    setGalleryItems((current) =>
-      current.map((item) =>
-        item.key === editingItem.key && item.kind === 'pending'
-          ? { ...item, file, previewUrl }
-          : item,
+    updateDraft((current) => ({
+      ...current,
+      pending: current.pending.map((item) =>
+        item.key === editingItem.key ? { ...item, file, previewUrl } : item,
       ),
-    );
+    }));
     setEditingKey('');
   };
 
@@ -290,7 +497,7 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
         .filter((item): item is ExistingItem => item.kind === 'existing')
         .map((item) => item.image.id),
     );
-    let latest: TEntity | null = entity ?? null;
+    let latest: TEntity | null = null;
     try {
       for (const item of pending) {
         const approval = await api.approve(id, {
@@ -318,7 +525,14 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
         working = working.map((candidate) =>
           candidate.key === item.key ? existingItem(appended) : candidate,
         );
-        setGalleryItems(working);
+        updateDraft((current) => ({
+          ...current,
+          pending: current.pending.filter((candidate) => candidate.key !== item.key),
+          confirmed: { ...current.confirmed, [appended.id]: appended },
+          order: (current.order ?? snapshot.map((candidate) => candidate.key)).map((key) =>
+            key === item.key ? existingItem(appended).key : key,
+          ),
+        }));
       }
 
       const orderedIds = working.flatMap((item) => {
@@ -327,10 +541,22 @@ export function useMasterImageGallery<TEntity extends ImageEntity, TMimeType ext
         return assigned ? [assigned] : [];
       });
       if (orderedIds.length) latest = await api.reorder(id, orderedIds);
+      else if (!pending.length) latest = (entity as TEntity | null) ?? null;
 
       working.forEach(revokePreview);
       const finalImages = latest ? legacyImageMeta(latest) : [];
-      setGalleryItems(finalImages.map(existingItem));
+      if (latest) {
+        if (masterId === id) persistedRef.current = { masterId, images: finalImages };
+        updateDraft((current) => ({
+          ...current,
+          order: null,
+          pending: [],
+          removedIds: new Set(),
+          confirmed: {},
+          serverImages: finalImages,
+        }));
+        await onExistingChange?.();
+      }
       setEditingKey('');
       return latest;
     } catch (cause) {
@@ -378,6 +604,42 @@ export function MasterImageGalleryField<TEntity extends ImageEntity>({
     onApply: (file: File) => void;
   }) => React.ReactNode;
 }) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const lightboxImages = useMemo<LightboxImage[]>(
+    () =>
+      controller.items
+        .map((item, idx) => {
+          const src =
+            item.kind === 'pending' ? item.previewUrl : (controller.urls[item.image.id] ?? '');
+          if (!src) return null;
+          return { id: item.key, src, alt: imageName(item), isPrimary: idx === 0 };
+        })
+        .filter((v): v is LightboxImage => Boolean(v)),
+    [controller.items, controller.urls],
+  );
+  const openLightbox = useCallback(
+    (itemKey: string) => {
+      const idx = lightboxImages.findIndex((img) => img.id === itemKey);
+      if (idx >= 0) setLightboxIndex(idx);
+    },
+    [lightboxImages],
+  );
+  const closeLightbox = useCallback(() => setLightboxIndex(null), []);
+  const prevLightbox = useCallback(() => {
+    if (lightboxIndex === null) return;
+    setLightboxIndex((prev) => {
+      if (prev === null) return prev;
+      return (prev - 1 + lightboxImages.length) % lightboxImages.length;
+    });
+  }, [lightboxIndex, lightboxImages.length]);
+  const nextLightbox = useCallback(() => {
+    if (lightboxIndex === null) return;
+    setLightboxIndex((prev) => {
+      if (prev === null) return prev;
+      return (prev + 1) % lightboxImages.length;
+    });
+  }, [lightboxIndex, lightboxImages.length]);
+
   return (
     <div className="space-y-3">
       <div>
@@ -417,12 +679,47 @@ export function MasterImageGalleryField<TEntity extends ImageEntity>({
             const name = imageName(item);
             return (
               <div key={item.key} className="overflow-hidden rounded-lg border bg-slate-50">
-                <div className="relative flex h-32 items-center justify-center bg-slate-100">
+                <div
+                  className={`relative flex h-32 items-center justify-center bg-slate-100 ${src ? 'cursor-pointer' : ''}`}
+                  role={src ? 'button' : undefined}
+                  tabIndex={src ? 0 : undefined}
+                  aria-label={src ? `Preview ${name}` : undefined}
+                  onClick={() => {
+                    if (src) openLightbox(item.key);
+                  }}
+                  onKeyDown={(e) => {
+                    if (src && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      openLightbox(item.key);
+                    }
+                  }}
+                >
                   {src ? (
-                    <img src={src} alt={name} className="h-full w-full object-cover" />
-                  ) : (
+                    <img
+                      src={src}
+                      alt={name}
+                      className="max-h-full max-w-full object-contain"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        if (item.kind !== 'existing') return;
+                        // For persisted S3 images, a single load failure must not break the field – fallback to placeholder for that tile.
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        const placeholder = (e.currentTarget as HTMLImageElement)
+                          .nextElementSibling as HTMLElement | null;
+                        if (placeholder) {
+                          placeholder.classList.remove('hidden');
+                          placeholder.classList.add('flex');
+                        }
+                      }}
+                    />
+                  ) : null}
+                  {/* Fallback shown only when src missing or onError hides the img */}
+                  <div
+                    className={`${src ? 'hidden' : 'flex'} h-full w-full items-center justify-center`}
+                  >
                     <ImagePlus className="h-8 w-8 text-slate-300" />
-                  )}
+                  </div>
                   {index === 0 && (
                     <span className="absolute left-2 top-2 rounded-full bg-brand-700 px-2 py-1 text-[10px] font-semibold text-white">
                       Primary
@@ -511,6 +808,15 @@ export function MasterImageGalleryField<TEntity extends ImageEntity>({
             onApply={controller.applyEdit}
           />
         ))}
+      {lightboxIndex !== null && (
+        <MasterImageLightbox
+          images={lightboxImages}
+          index={lightboxIndex}
+          onClose={closeLightbox}
+          onPrev={prevLightbox}
+          onNext={nextLightbox}
+        />
+      )}
     </div>
   );
 }
@@ -531,15 +837,66 @@ export function MasterImageGalleryView({
   const images = useMemo(() => legacyImageMeta(entity), [entity]);
   const signature = images.map((image) => image.id).join('|');
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const urlsRef = useRef<Record<string, string>>({});
+  const urlsMasterId = useRef(masterId);
+  const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set());
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const lightboxImages = useMemo<LightboxImage[]>(
+    () =>
+      images
+        .map((image, idx) => {
+          const src = urls[image.id] ?? '';
+          if (!src || failedIds.has(image.id)) return null;
+          return {
+            id: image.id,
+            src,
+            alt: `${alt}${images.length > 1 ? ` ${idx + 1}` : ''}`,
+            isPrimary: idx === 0,
+          };
+        })
+        .filter((v): v is LightboxImage => Boolean(v)),
+    [images, urls, alt, failedIds],
+  );
+  const openViewLightbox = useCallback(
+    (imageId: string) => {
+      const idx = lightboxImages.findIndex((img) => img.id === imageId);
+      if (idx >= 0) setLightboxIndex(idx);
+    },
+    [lightboxImages],
+  );
+  const closeViewLightbox = useCallback(() => setLightboxIndex(null), []);
+  const prevViewLightbox = useCallback(() => {
+    setLightboxIndex((prev) => {
+      if (prev === null) return prev;
+      return (prev - 1 + lightboxImages.length) % lightboxImages.length;
+    });
+  }, [lightboxImages.length]);
+  const nextViewLightbox = useCallback(() => {
+    setLightboxIndex((prev) => {
+      if (prev === null) return prev;
+      return (prev + 1) % lightboxImages.length;
+    });
+  }, [lightboxImages.length]);
 
   useEffect(() => {
-    let active = true;
-    if (!images.length) {
-      setUrls({});
-      return;
+    if (urlsMasterId.current !== masterId) {
+      urlsMasterId.current = masterId;
+      urlsRef.current = {};
     }
+    const wantedIds = new Set(images.map((image) => image.id));
+    const retained = Object.fromEntries(
+      Object.entries(urlsRef.current).filter(([imageId]) => wantedIds.has(imageId)),
+    );
+    urlsRef.current = retained;
+    setUrls(retained);
+    setFailedIds((current) => new Set([...current].filter((imageId) => wantedIds.has(imageId))));
+    if (!images.length) return;
+
+    const missing = images.filter((image) => !urlsRef.current[image.id]);
+    if (!missing.length) return;
+    let active = true;
     void Promise.all(
-      images.map(async (image) => {
+      missing.map(async (image) => {
         try {
           const result = await download(masterId, image.id === 'legacy' ? undefined : image.id);
           return [image.id, result.url] as const;
@@ -548,7 +905,17 @@ export function MasterImageGalleryView({
         }
       }),
     ).then((entries) => {
-      if (active) setUrls(Object.fromEntries(entries));
+      if (!active || urlsMasterId.current !== masterId) return;
+      setUrls((current) => {
+        const next = Object.fromEntries(
+          Object.entries(current).filter(([imageId]) => wantedIds.has(imageId)),
+        );
+        entries.forEach(([imageId, url]) => {
+          if (wantedIds.has(imageId)) next[imageId] = url;
+        });
+        urlsRef.current = next;
+        return next;
+      });
     });
     return () => {
       active = false;
@@ -561,13 +928,67 @@ export function MasterImageGalleryView({
 
   return (
     <div className={`grid gap-2 ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} ${className}`}>
-      {images.map((image, index) =>
-        urls[image.id] ? (
-          <figure key={image.id} className="relative overflow-hidden rounded-lg border bg-slate-50">
+      {images.map((image, index) => {
+        const url = urls[image.id];
+        const isFailed = failedIds.has(image.id) || !url;
+        if (isFailed) {
+          // Single failed image must not break the whole gallery – show placeholder for that tile only.
+          if (!url) {
+            return (
+              <div
+                key={image.id}
+                className="flex h-40 items-center justify-center rounded-lg border bg-slate-50"
+              >
+                <ImagePlus className="h-8 w-8 text-slate-300" />
+              </div>
+            );
+          }
+          return (
+            <figure
+              key={image.id}
+              className="relative flex h-40 items-center justify-center overflow-hidden rounded-lg border bg-slate-50"
+            >
+              <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                <ImagePlus className="h-8 w-8 text-slate-300" />
+                <span className="line-clamp-2 text-xs text-slate-500">{image.fileName}</span>
+              </div>
+              {index === 0 && images.length > 1 && (
+                <figcaption className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-semibold text-white">
+                  Primary
+                </figcaption>
+              )}
+            </figure>
+          );
+        }
+        return (
+          <figure
+            key={image.id}
+            className="relative flex h-40 cursor-pointer items-center justify-center overflow-hidden rounded-lg border bg-slate-50"
+            role="button"
+            tabIndex={0}
+            aria-label={`Preview ${alt}${images.length > 1 ? ` ${index + 1}` : ''}`}
+            onClick={() => openViewLightbox(image.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openViewLightbox(image.id);
+              }
+            }}
+          >
             <img
-              src={urls[image.id]}
+              src={url}
               alt={`${alt}${images.length > 1 ? ` ${index + 1}` : ''}`}
-              className="h-40 w-full object-cover"
+              className="max-h-full max-w-full object-contain"
+              loading="lazy"
+              decoding="async"
+              onError={() =>
+                setFailedIds((prev) => {
+                  if (prev.has(image.id)) return prev;
+                  const next = new Set(prev);
+                  next.add(image.id);
+                  return next;
+                })
+              }
             />
             {index === 0 && images.length > 1 && (
               <figcaption className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-semibold text-white">
@@ -575,14 +996,16 @@ export function MasterImageGalleryView({
               </figcaption>
             )}
           </figure>
-        ) : (
-          <div
-            key={image.id}
-            className="flex h-40 items-center justify-center rounded-lg border bg-slate-50"
-          >
-            <ImagePlus className="h-8 w-8 text-slate-300" />
-          </div>
-        ),
+        );
+      })}
+      {lightboxIndex !== null && (
+        <MasterImageLightbox
+          images={lightboxImages}
+          index={lightboxIndex}
+          onClose={closeViewLightbox}
+          onPrev={prevViewLightbox}
+          onNext={nextViewLightbox}
+        />
       )}
     </div>
   );

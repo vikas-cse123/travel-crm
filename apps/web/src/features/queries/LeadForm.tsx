@@ -364,7 +364,6 @@ export function LeadForm({
   const childrenWithoutBedCount = Math.max(0, Math.min(100, Number(counts[3]) || 0));
   const infantCount = Math.max(0, Math.min(100, Number(counts[4]) || 0));
   const summary = [
-    `${counts[0] || 0} Room${counts[0] === 1 ? '' : 's'}`,
     `${counts[1] || 0} Adult${counts[1] === 1 ? '' : 's'}`,
     counts[2] ? `${counts[2]} Child With Bed` : '',
     counts[3] ? `${counts[3]} Child Without Bed` : '',
@@ -612,10 +611,10 @@ export function LeadForm({
             </Field>
           </div>
           <div className="mt-5 rounded-lg bg-slate-50 p-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <input type="hidden" {...register('rooms', { valueAsNumber: true })} />
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
               {(
                 [
-                  'rooms',
                   'adults',
                   'childrenWithBed',
                   'childrenWithoutBed',
@@ -628,7 +627,6 @@ export function LeadForm({
                   label={
                     (
                       {
-                        rooms: 'Rooms *',
                         adults: 'Adults *',
                         childrenWithBed: 'CWB',
                         childrenWithoutBed: 'CWOB',
@@ -641,7 +639,7 @@ export function LeadForm({
                   <input
                     className={inputClass}
                     type="number"
-                    min={name === 'rooms' || name === 'adults' ? 1 : 0}
+                    min={name === 'adults' ? 1 : 0}
                     {...register(name, { valueAsNumber: true })}
                   />
                 </Field>
@@ -699,7 +697,7 @@ export function LeadForm({
             <div className="mt-4 bg-slate-100 p-3">
               <p className="mb-2 text-sm font-semibold text-slate-800">Travelers:</p>
               <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {summary || '1 Room(s), 1 Adult(s)'}
+                {summary || '1 Adult(s)'}
               </div>
             </div>
           </div>

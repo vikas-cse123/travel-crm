@@ -10,6 +10,7 @@ import {
   confirmVehicleImage,
   deleteVehicleImage,
   reorderVehicleImages,
+  useRefreshMasterImageQueries,
   useCreateVehicle,
   useUpdateVehicle,
   useVehicle,
@@ -50,6 +51,7 @@ export function VehicleFormPage() {
   const form = useForm<FormValues>({
     defaultValues: { name: '', vehicleType: '', capacity: '', description: '', status: 'ACTIVE' },
   });
+  const refreshImageQueries = useRefreshMasterImageQueries('vehicles');
   const imageGallery = useMasterImageGallery({
     masterId: vehicleId,
     entity: vehicle.data,
@@ -62,7 +64,7 @@ export function VehicleFormPage() {
       remove: deleteVehicleImage,
       reorder: reorderVehicleImages,
     },
-    onExistingChange: vehicle.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
   useEffect(() => {

@@ -47,6 +47,11 @@ export function AddNotePage() {
 
   const name = lead.data?.customerName ?? 'Lead';
 
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/notes');
+  };
+
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -143,12 +148,10 @@ export function AddNotePage() {
               <Save className="h-4 w-4" />
               Save Note
             </Button>
-            <Link to="/queries">
-              <Button variant="secondary" type="button">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Leads
-              </Button>
-            </Link>
+            <Button variant="secondary" type="button" onClick={handleBack}>
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
             <Link to={`/queries/${queryId}/notes`}>
               <Button variant="secondary" type="button">
                 <Eye className="h-4 w-4" />
@@ -158,12 +161,10 @@ export function AddNotePage() {
                 </span>
               </Button>
             </Link>
-            <Link to="/notes" className="ml-auto">
-              <Button variant="ghost" type="button">
-                <ListChecks className="h-4 w-4" />
-                All Notes
-              </Button>
-            </Link>
+            <Button variant="ghost" type="button" onClick={handleBack} className="ml-auto">
+              <ListChecks className="h-4 w-4" />
+              All Notes
+            </Button>
           </div>
         </div>
       </div>

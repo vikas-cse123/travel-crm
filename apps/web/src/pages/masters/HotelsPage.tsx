@@ -28,6 +28,7 @@ import {
   useHideGlobalMaster,
   useHotels,
   hotelImageUrl,
+  masterImageFingerprint,
   type HotelSummary,
 } from '@/features/masters/masters.api';
 import { GlobalBadge, HIDE_GLOBAL_CONFIRM, MasterHeader, Stars } from './MasterUi';
@@ -440,7 +441,7 @@ function HotelTable({
 
 function HotelThumbnail({ hotel }: { hotel: HotelSummary }) {
   const image = useQuery({
-    queryKey: ['masters', 'hotels', hotel.id, 'image'],
+    queryKey: ['masters', 'hotels', hotel.id, 'image', masterImageFingerprint(hotel)],
     queryFn: () => hotelImageUrl(hotel.id),
     enabled: hotel.hasImage,
     staleTime: 240_000,

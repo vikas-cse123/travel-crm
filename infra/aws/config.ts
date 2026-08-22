@@ -67,6 +67,12 @@ export interface DeployConfig {
   marketingRepoName: string;
   /** ap-south-1 ACM certificate for travelagencycrm.in + www.travelagencycrm.in. */
   marketingCertArn: string;
+  /** Quotation-friendly apex domain (new default) — yourquotation.in. */
+  yourQuotationDomain: string;
+  /** Quotation-friendly www domain — www.yourquotation.in. */
+  yourQuotationWwwDomain: string;
+  /** ap-south-1 ACM certificate for yourquotation.in + www.yourquotation.in. */
+  yourQuotationCertArn: string;
   /** Marketing task execution role ARN. */
   marketingExecRoleArn: string;
   /** Marketing task role ARN. */
@@ -147,6 +153,9 @@ export const config: DeployConfig = {
   marketingRepoArn: process.env.MARKETING_REPO_ARN ?? '',
   marketingRepoName: process.env.MARKETING_REPO_NAME ?? 'interscale-travel-crm-prod-marketing',
   marketingCertArn: process.env.MARKETING_CERT_ARN ?? '',
+  yourQuotationDomain: process.env.YOUR_QUOTATION_DOMAIN ?? 'yourquotation.in',
+  yourQuotationWwwDomain: process.env.YOUR_QUOTATION_WWW_DOMAIN ?? 'www.yourquotation.in',
+  yourQuotationCertArn: process.env.YOUR_QUOTATION_CERT_ARN ?? '',
   marketingExecRoleArn: process.env.MARKETING_EXEC_ROLE_ARN ?? '',
   marketingTaskRoleArn: process.env.MARKETING_TASK_ROLE_ARN ?? '',
   ecsMarketingServiceArn: process.env.ECS_MARKETING_SERVICE_ARN ?? '',

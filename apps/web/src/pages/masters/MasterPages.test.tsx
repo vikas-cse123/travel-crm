@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useNavigate } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
 import { CitiesPage } from './CitiesPage';
 import { CityFormPage } from './CityFormPage';
@@ -9,6 +9,10 @@ import { DestinationsPage } from './DestinationsPage';
 import { DestinationDetailsPage } from './DestinationDetailsPage';
 import { DestinationFormPage } from './DestinationFormPage';
 import { NAV_ITEMS } from '@/components/layout/navigation';
+import {
+  type MasterImageQueryScope,
+  useRefreshMasterImageQueries,
+} from '@/features/masters/masters.api';
 
 const auth = vi.hoisted(() => ({ permissions: new Set<string>() }));
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -66,6 +70,45 @@ const lookups = {
   ],
   cities: [{ id: cityId, name: 'Jaipur', airportCode: 'JAI', countryCode: 'IN' }],
 };
+
+function ImageMutationControl({
+  scope,
+  onMutation,
+  destination,
+}: {
+  scope: MasterImageQueryScope;
+  onMutation: () => void;
+  destination: string;
+}) {
+  const refresh = useRefreshMasterImageQueries(scope);
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        onMutation();
+        await refresh();
+        navigate(destination);
+      }}
+    >
+      Complete image mutation
+    </button>
+  );
+}
+
+function HistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => navigate(-1)}>
+        History back
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        History forward
+      </button>
+    </>
+  );
+}
 
 describe('Phase 13A master pages', () => {
   beforeEach(() => {
@@ -283,6 +326,132 @@ describe('Phase 13A master pages', () => {
     expect(screen.getByText('Flights')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Terms & Conditions' }));
     expect(screen.getByText('Passport required')).toBeInTheDocument();
+  });
+
+  it('hydrates destination images immediately when navigating from View to Edit', async () => {
+    const images = ['a', 'b', 'c'].map((id, index) => ({
+      id,
+      fileName: `${id}.jpg`,
+      mimeType: 'image/jpeg',
+      fileSize: 100,
+      isPrimary: index === 0,
+    }));
+    const record = { ...destination, hasImage: true, images };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/image/download-url')) {
+          const imageId = new URL(url, 'http://localhost').searchParams.get('imageId');
+          return response({ url: `https://images.example/${imageId}`, expiresInSeconds: 300 });
+        }
+        if (url.includes('/lookups')) return response(lookups);
+        if (url.includes(`/masters/destinations/${destinationId}`)) return response(record);
+        return response(page([record]));
+      }),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/masters/destinations/:destinationId" element={<DestinationDetailsPage />} />
+        <Route path="/masters/destinations/:destinationId/edit" element={<DestinationFormPage />} />
+      </Routes>,
+      { route: `/masters/destinations/${destinationId}` },
+    );
+    await screen.findByRole('img', { name: 'Rajasthan Highlights 1' });
+
+    await userEvent.click(screen.getByRole('link', { name: /Edit/ }));
+
+    expect(screen.getByRole('heading', { name: 'Edit Destination' })).toBeInTheDocument();
+    expect(screen.getByText('a.jpg')).toBeInTheDocument();
+    expect(screen.getByText('b.jpg')).toBeInTheDocument();
+    expect(screen.getByText('c.jpg')).toBeInTheDocument();
+  });
+
+  it('shows a same-filename primary replacement after View, Back, and browser history navigation', async () => {
+    const image = (id: string) => ({
+      id,
+      fileName: 'image.png',
+      mimeType: 'image/png',
+      fileSize: 100,
+      isPrimary: true,
+    });
+    let current = {
+      ...destination,
+      hasImage: true,
+      images: [image('image-a')],
+      imageConfirmedAt: '2026-08-21T10:00:00.000Z',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/image/download-url')) {
+          const requestedId = new URL(url, 'http://localhost').searchParams.get('imageId');
+          const id = requestedId ?? current.images[0]!.id;
+          return response({ url: `https://images.example/${id}`, expiresInSeconds: 300 });
+        }
+        if (url.includes('/lookups')) return response(lookups);
+        if (url.includes(`/masters/destinations/${destinationId}`)) return response(current);
+        return response(page([current]));
+      }),
+    );
+
+    const rendered = renderWithProviders(
+      <>
+        <ImageMutationControl
+          scope="destinations"
+          destination={`/masters/destinations/${destinationId}`}
+          onMutation={() => {
+            current = {
+              ...current,
+              images: [image('image-b')],
+              imageConfirmedAt: '2026-08-21T10:01:00.000Z',
+            };
+          }}
+        />
+        <HistoryControls />
+        <Routes>
+          <Route path="/masters/destinations" element={<DestinationsPage />} />
+          <Route path="/masters/destinations/:destinationId" element={<DestinationDetailsPage />} />
+        </Routes>
+      </>,
+      { route: '/masters/destinations' },
+    );
+
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('img[src="https://images.example/image-a"]'),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole('link', { name: 'View Rajasthan Highlights' }));
+    expect(await screen.findByRole('img', { name: 'Rajasthan Highlights' })).toHaveAttribute(
+      'src',
+      'https://images.example/image-a',
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Complete image mutation' }));
+    expect(await screen.findByRole('img', { name: 'Rajasthan Highlights' })).toHaveAttribute(
+      'src',
+      'https://images.example/image-b',
+    );
+    await userEvent.click(screen.getByRole('link', { name: /Back/ }));
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('img[src="https://images.example/image-b"]'),
+      ).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'History back' }));
+    expect(await screen.findByRole('img', { name: 'Rajasthan Highlights' })).toHaveAttribute(
+      'src',
+      'https://images.example/image-b',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'History forward' }));
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('img[src="https://images.example/image-b"]'),
+      ).toBeInTheDocument(),
+    );
   });
 
   it('selects, removes, reorders content, toggles international, and completes image upload', async () => {

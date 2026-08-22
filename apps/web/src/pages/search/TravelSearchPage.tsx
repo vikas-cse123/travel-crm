@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Clock,
   Copy,
   Flame,
@@ -255,28 +254,6 @@ function DevRawResponse({ label, data }: { label: string; data: unknown }) {
         </pre>
       ) : null}
     </div>
-  );
-}
-
-/** Floating "Back to top" button shown once the user scrolls down results. */
-function BackToTop() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setVisible(window.scrollY > 600);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-  if (!visible) return null;
-  return (
-    <button
-      type="button"
-      aria-label="Back to top"
-      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-      className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-lg transition-colors hover:bg-muted"
-    >
-      <ChevronUp className="h-4 w-4" aria-hidden="true" />
-      Back to search
-    </button>
   );
 }
 
@@ -1400,7 +1377,6 @@ function FlightResults({
         )}
 
         <DevRawResponse label="Developer data — flight" data={data} />
-        <BackToTop />
       </div>
     );
   }
@@ -1517,7 +1493,6 @@ function FlightResults({
       )}
 
       <DevRawResponse label="Developer data — flight" data={data} />
-      <BackToTop />
     </div>
   );
 }
@@ -2036,33 +2011,50 @@ function propertyTypeLabel(type: string | undefined): string {
 /**
  * Image carousel. For each image, prefer `original`, fall back to `thumbnail`,
  * then move to the next image. Local state only — never triggers a request.
+ * Each hotel card owns its own index/failed set so navigation never leaks.
  */
 function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
-  const images = useMemo(
-    () =>
-      (property.images ?? [])
-        .map((image) => resolveHotelImageCandidates(image))
-        .filter((list) => list.length),
-    [property.images],
+  const normalizedImages = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[][] = [];
+    for (const image of property.images ?? []) {
+      const candidates = resolveHotelImageCandidates(image)
+        .map((url) => url?.trim())
+        .filter((url): url is string => Boolean(url));
+      if (!candidates.length) continue;
+      const primary = candidates[0]!;
+      if (seen.has(primary)) continue;
+      seen.add(primary);
+      out.push(candidates);
+    }
+    return out;
+  }, [property.images]);
+
+  const imageSignature = useMemo(
+    () => normalizedImages.map((c) => c[0]).join('|'),
+    [normalizedImages],
   );
 
   const [index, setIndex] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
 
-  const [seenToken, setSeenToken] = useState<string>(property.property_token ?? '');
-  if ((property.property_token ?? '') !== seenToken) {
-    setSeenToken(property.property_token ?? '');
-    setIndex(0);
-    setFailed(new Set());
-  }
+  // Reset only when *this* hotel's image collection changes (new search, same token with new images, etc.)
+  const prevSignatureRef = useRef(imageSignature);
+  useEffect(() => {
+    if (prevSignatureRef.current !== imageSignature) {
+      prevSignatureRef.current = imageSignature;
+      setIndex(0);
+      setFailed(new Set());
+    }
+  }, [imageSignature]);
 
   // Only image entries with at least one URL that has not failed are usable.
   const validImages = useMemo(
     () =>
-      images
+      normalizedImages
         .map((candidates, i) => ({ candidates, i }))
         .filter(({ candidates }) => candidates.some((url) => !failed.has(url))),
-    [images, failed],
+    [normalizedImages, failed],
   );
 
   // Keep the active index inside the usable range whenever images are removed,
@@ -2080,16 +2072,48 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
   // Prefer original, then thumbnail, always skipping URLs that already failed.
   const currentUrl = shown?.candidates.find((url) => !failed.has(url)) ?? null;
 
-  const goTo = (next: number) => {
+  const goTo = useMemo(
+    () => (next: number) => {
+      if (!validImages.length) return;
+      const len = validImages.length;
+      const target = ((next % len) + len) % len;
+      setIndex(target);
+    },
+    [validImages.length],
+  );
+  const goNext = () => {
     if (!validImages.length) return;
-    const target = ((next % validImages.length) + validImages.length) % validImages.length;
-    setIndex(target);
+    setIndex((prev) => (prev + 1) % validImages.length);
+  };
+  const goPrev = () => {
+    if (!validImages.length) return;
+    setIndex((prev) => (prev - 1 + validImages.length) % validImages.length);
   };
 
   const onError = () => {
     if (!currentUrl) return;
-    setFailed((prev) => new Set(prev).add(currentUrl));
+    setFailed((prev) => {
+      if (prev.has(currentUrl)) return prev;
+      const next = new Set(prev);
+      next.add(currentUrl);
+      return next;
+    });
   };
+
+  // Preload immediate neighbours only — avoids blank flash on next/prev.
+  useEffect(() => {
+    if (!validImages.length || shownIndex < 0) return;
+    const preload = (url: string | undefined) => {
+      if (!url || failed.has(url)) return;
+      const img = new window.Image();
+      img.src = url;
+    };
+    const nextEntry = validImages[(shownIndex + 1) % validImages.length];
+    const prevEntry =
+      validImages[(shownIndex - 1 + validImages.length) % validImages.length];
+    preload(nextEntry?.candidates.find((u) => !failed.has(u)));
+    preload(prevEntry?.candidates.find((u) => !failed.has(u)));
+  }, [shownIndex, validImages, failed]);
 
   const single = validImages.length <= 1;
 
@@ -2097,11 +2121,13 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
     <div className="relative h-44 w-full overflow-hidden bg-muted sm:h-48">
       {currentUrl ? (
         <img
+          key={currentUrl}
           src={currentUrl}
           alt={property.name ?? 'Property'}
           className="h-full w-full object-cover"
           loading="lazy"
           onError={onError}
+          decoding="async"
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -2115,7 +2141,7 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
           <button
             type="button"
             aria-label="Previous image"
-            onClick={() => goTo(index - 1)}
+            onClick={goPrev}
             className="absolute left-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1.5 text-white shadow transition-colors hover:bg-black/65 focus:outline-none focus:ring-2 focus:ring-white/60"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -2123,7 +2149,7 @@ function PropertyImages({ property }: { property: SearchApiHotelProperty }) {
           <button
             type="button"
             aria-label="Next image"
-            onClick={() => goTo(index + 1)}
+            onClick={goNext}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1.5 text-white shadow transition-colors hover:bg-black/65 focus:outline-none focus:ring-2 focus:ring-white/60"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -2628,9 +2654,13 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
             Showing {rangeStart}–{rangeEnd} of {loadedCount.toLocaleString('en-IN')} loaded
           </p>
           <div className="space-y-3">
-            {pageProperties.map((property) => (
+            {pageProperties.map((property, idx) => (
               <HotelPropertyCard
-                key={property.property_token ?? property.data_id ?? property.name}
+                key={
+                  property.property_token ??
+                  property.data_id ??
+                  `${property.name ?? 'hotel'}-${idx}`
+                }
                 property={property}
                 searchParams={baseParams as unknown as Record<string, unknown>}
               />
@@ -2670,7 +2700,6 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
       {paged.page1.data ? (
         <DevRawResponse label="Developer data — hotel" data={paged.page1.data} />
       ) : null}
-      <BackToTop />
     </div>
   );
 }

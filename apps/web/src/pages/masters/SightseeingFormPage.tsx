@@ -11,6 +11,7 @@ import {
   confirmSightseeingImage,
   deleteSightseeingImage,
   reorderSightseeingImages,
+  useRefreshMasterImageQueries,
   sightseeingImageUrl,
   useCreateSightseeing,
   useDestination,
@@ -88,6 +89,7 @@ export function SightseeingFormPage() {
   const destinationId = form.watch('destinationId');
   const destination = useDestination(destinationId || undefined);
   const cityOptions = (destination.data?.cities ?? []).map((link) => link.city);
+  const refreshImageQueries = useRefreshMasterImageQueries('sightseeing');
   const imageGallery = useMasterImageGallery({
     masterId: sightseeingId,
     entity: record.data,
@@ -100,7 +102,7 @@ export function SightseeingFormPage() {
       remove: deleteSightseeingImage,
       reorder: reorderSightseeingImages,
     },
-    onExistingChange: record.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
   useEffect(() => {

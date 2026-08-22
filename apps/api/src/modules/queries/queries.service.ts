@@ -1451,6 +1451,8 @@ export const queriesService = {
       AND: [visible, ...(params.stage ? [{ leadStage: params.stage }] : [])],
     };
     const search = params.search?.trim();
+    const digits = search ? search.replace(/\D/g, '') : '';
+    const normalizedSearch = digits ? normalizePhone(digits) : '';
     const noteWhere: Prisma.QueryNoteWhereInput = {
       companyId: auth.companyId,
       deletedAt: null,
@@ -1461,6 +1463,15 @@ export const queriesService = {
             OR: [
               { content: { contains: search, mode: 'insensitive' } },
               { query: { customerName: { contains: search, mode: 'insensitive' } } },
+              { query: { phone: { contains: search } } },
+              { query: { alternatePhone: { contains: search } } },
+              { query: { queryNumber: { contains: search, mode: 'insensitive' } } },
+              ...(normalizedSearch
+                ? [{ query: { normalizedPhone: { contains: normalizedSearch } } } as const]
+                : []),
+              ...(digits && digits !== normalizedSearch
+                ? [{ query: { normalizedPhone: { contains: digits } } } as const]
+                : []),
             ],
           }
         : {}),

@@ -33,6 +33,8 @@ import {
   resolveTaxNoteChoice,
   DEFAULT_WEBLINK_SECTION_ORDER,
   resolveWeblinkSectionOrder,
+  normalizePublicSlug,
+  isReservedPublicSlug,
   type LiveSearchBookmark,
   type QuotationVersionInput,
 } from '@interscale/shared';
@@ -52,6 +54,8 @@ import {
   uploadQuotationAttachment,
   useQuotation,
   useUpdateQuotationVersion,
+  useUpdateQuotationWeblinkName,
+  useUpdateQuotationWeblinkSettings,
 } from '@/features/quotations/quotations.api';
 import {
   cruiseImageUrl,
@@ -330,7 +334,7 @@ const TABS: TabDef[] = [
   { key: 'inclusions', label: 'Inclusions & Exclusions' },
   { key: 'faqs', label: 'FAQs' },
   { key: 'summary', label: 'Summary & Pricing' },
-  { key: 'setting', label: 'Setting' },
+  { key: 'setting', label: 'Settings' },
 ];
 
 const WEBLINK_SECTION_LABELS: Record<string, string> = {
@@ -899,6 +903,10 @@ export function QuotationBuilderPage() {
   const canManageAirlineMedia = hasPermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA);
   const quotation = useQuotation(quotationId);
   const save = useUpdateQuotationVersion(quotationId, versionId);
+  const weblinkSettings = useUpdateQuotationWeblinkSettings(quotationId);
+  const weblinkName = useUpdateQuotationWeblinkName(quotationId);
+  const [weblinkNameValue, setWeblinkNameValue] = useState('');
+  const [weblinkNameError, setWeblinkNameError] = useState('');
   const addOnMasters = useAddOnServices(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
@@ -937,6 +945,36 @@ export function QuotationBuilderPage() {
   // Local-only expand/collapse for the Weblink Section Order accordion. UI
   // state only — never persisted. Always starts collapsed on every load.
   const [sectionOrderOpen, setSectionOrderOpen] = useState(false);
+  useEffect(() => {
+    setWeblinkNameValue(quotation.data?.publicSlug ?? '');
+  }, [quotation.data?.publicSlug]);
+  const normalizedWeblinkSlug = normalizePublicSlug(weblinkNameValue);
+  const weblinkNamePreview =
+    normalizedWeblinkSlug &&
+    !isReservedPublicSlug(normalizedWeblinkSlug) &&
+    quotation.data?.publicSlugBaseUrl
+      ? `${quotation.data.publicSlugBaseUrl}/${normalizedWeblinkSlug}`
+      : null;
+  const saveWeblinkName = () => {
+    setWeblinkNameError('');
+    const value = weblinkNameValue.trim();
+    if (value && !normalizePublicSlug(value)) {
+      setWeblinkNameError('Enter a valid Weblink name.');
+      return;
+    }
+    weblinkName.mutate(
+      { publicSlug: value ? normalizePublicSlug(value) : null },
+      {
+        onSuccess: (result) => setWeblinkNameValue(result.publicSlug ?? ''),
+        onError: (error) =>
+          setWeblinkNameError(
+            error instanceof Error && error.message
+              ? error.message
+              : 'Unable to save Weblink name.',
+          ),
+      },
+    );
+  };
   // Tracks whether the user has explicitly toggled a section's Include checkbox
   // so the init-time sync (from the lead's requested services) never re-enables
   // a section after a manual choice.
@@ -1121,7 +1159,7 @@ export function QuotationBuilderPage() {
       return day.toISOString().slice(0, 10);
     };
     const returnStr = leadTotalNights > 0 && startStr ? addDays(startStr, leadTotalNights) : endStr;
-    // Prefill a day-per-night sightseeing itinerary (+1 departure day) from the
+    // Prefill a day-per-night sightseeing itinerary (+1 final travel day) from the
     // lead. Each day receives at most ONE primary activity, taken from the
     // active master in ascending sequence order and preferring the day's city;
     // the remaining attractions stay available in the activity selector.
@@ -1164,9 +1202,9 @@ export function QuotationBuilderPage() {
       return n.includes('departure') || /check[\s-]?out\s+and\s+departure/i.test(n);
     };
 
-    // Resolve the departure master for the final destination: exact city match
-    // first, then any active departure master for the destination, then by
-    // sequence then title.
+    // If configured, resolve an optional departure master for the final
+    // destination: exact city match first, then any active departure master for
+    // the destination, then by sequence and title.
     const finalCity = dayCities[dayCities.length - 1] ?? '';
     const departureMasters = orderedMasters.filter((row) => isDepartureTitle(row.title));
     const departureMaster =
@@ -1175,7 +1213,7 @@ export function QuotationBuilderPage() {
       null;
 
     const usedIds = new Set<string>();
-    // Reserve the departure master so it is never consumed by earlier days.
+    // Reserve the optional departure master so it is never consumed by earlier days.
     if (departureMaster) usedIds.add(departureMaster.id);
     let sequenceCursor = 0;
     const nextForDay = (city: string, isLastDay: boolean): Sightseeing | null => {
@@ -4569,222 +4607,376 @@ export function QuotationBuilderPage() {
           </div>
         )}
 
-        {/* Setting — Weblink Customization */}
+        {/* Settings — Weblink Customization */}
         {activeTab === 'setting' && (
-          <div className="space-y-6">
-            {/* Section Order — collapsible accordion (collapsed by default). */}
-            <div className="overflow-hidden rounded-lg border">
-              <button
-                type="button"
-                onClick={() => setSectionOrderOpen((open) => !open)}
-                aria-expanded={sectionOrderOpen}
-                aria-controls="weblink-section-order-panel"
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
-              >
-                <span>
-                  <span className="block text-sm font-semibold text-slate-800">
-                    Weblink Section Order
-                  </span>
-                  <span className="block text-xs text-slate-500">
-                    Choose the order in which sections appear on the public Weblink.
-                  </span>
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${sectionOrderOpen ? 'rotate-180' : ''}`}
-                  aria-hidden="true"
-                />
-              </button>
-              {sectionOrderOpen && (
-                <div id="weblink-section-order-panel" className="space-y-3 border-t px-4 py-3">
-                  <div className="space-y-2">
-                    {(() => {
-                      const saved = form.watch('weblinkSectionOrder');
-                      const order = resolveWeblinkSectionOrder(
-                        saved?.length ? saved : DEFAULT_WEBLINK_SECTION_ORDER,
-                      );
-                      const move = (index: number, dir: -1 | 1) => {
-                        const next = [...order];
-                        const target = index + dir;
-                        if (target < 0 || target >= next.length) return;
-                        [next[index], next[target]] = [next[target]!, next[index]!];
-                        form.setValue('weblinkSectionOrder', next, { shouldDirty: true });
-                      };
-                      return order.map((sectionId, index) => (
-                        <div
-                          key={sectionId}
-                          className="flex items-center justify-between gap-2 rounded-lg border bg-slate-50 px-3 py-2"
-                        >
-                          <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                            <span className="text-slate-400">☰</span>
-                            {WEBLINK_SECTION_LABELS[sectionId] ?? sectionId}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={index === 0}
-                              aria-label={`Move ${sectionId} up`}
-                              onClick={() => move(index, -1)}
-                            >
-                              <ArrowUp className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={index === order.length - 1}
-                              aria-label={`Move ${sectionId} down`}
-                              onClick={() => move(index, 1)}
-                            >
-                              <ArrowDown className="h-4 w-4" />
-                            </Button>
-                          </span>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                    onClick={() =>
-                      form.setValue('weblinkSectionOrder', [...DEFAULT_WEBLINK_SECTION_ORDER], {
-                        shouldDirty: true,
-                      })
-                    }
-                  >
-                    Reset to default order
-                  </button>
-                </div>
-              )}
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+              <h2 className="text-base font-semibold text-slate-900">Quotation Settings</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Manage the public weblink, destination expert, and final quotation review.
+              </p>
             </div>
 
-            {/* Destination Expert */}
-            <div className="space-y-4 border-t pt-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-800">Destination Expert</h3>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(watchedExpertConfig?.enabled)}
-                    onChange={(e) => {
-                      const cur = form.getValues('destinationExpertConfig');
-                      const next = {
-                        enabled: e.target.checked,
-                        expertUserId: cur?.expertUserId ?? null,
-                        heading: cur?.heading ?? null,
-                        customIntroduction: cur?.customIntroduction ?? null,
-                        showWhatsapp: cur?.showWhatsapp ?? true,
-                        showCall: cur?.showCall ?? true,
-                        showEmail: cur?.showEmail ?? true,
-                        showExperience: cur?.showExperience ?? true,
-                        showTripsPlanned: cur?.showTripsPlanned ?? true,
-                        showLanguages: cur?.showLanguages ?? true,
-                      };
-                      form.setValue('destinationExpertConfig', next, { shouldDirty: true });
-                    }}
-                  />
-                  Show Destination Expert
-                </label>
-              </div>
-              {watchedExpertConfig?.enabled && (
-                <div className="space-y-4 rounded-lg border bg-slate-50 p-4">
-                  <label className="block text-sm font-semibold text-slate-800">
-                    Expert
-                    <select
-                      className={`${field} mt-1 bg-white`}
-                      value={watchedExpertConfig?.expertUserId ?? ''}
-                      onChange={(e) => {
-                        const cur = form.getValues('destinationExpertConfig');
-                        form.setValue(
-                          'destinationExpertConfig',
-                          { ...(cur ?? {}), expertUserId: e.target.value || null } as never,
-                          { shouldDirty: true },
-                        );
-                      }}
+            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(22rem,0.92fr)]">
+              <div className="space-y-4">
+                {/* Weblink Settings */}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                  <h3 className="text-sm font-semibold text-slate-900">Weblink Settings</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Control how customers navigate the public quotation.
+                  </p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600"
+                        checked={form.watch('showQuickNav') ?? true}
+                        disabled={weblinkSettings.isPending}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          form.setValue('showQuickNav', checked, { shouldDirty: true });
+                          if (version) {
+                            weblinkSettings.mutate({
+                              versionId: version.id,
+                              showQuickNav: checked,
+                            });
+                          }
+                        }}
+                      />
+                      <span>
+                        <span className="block font-medium text-slate-800">
+                          Show Quick Navigation
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-4 text-slate-500">
+                          Let customers jump between weblink sections.
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      className={`flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm ${
+                        (form.watch('showQuickNav') ?? true) ? 'text-slate-700' : 'text-slate-400'
+                      }`}
                     >
-                      <option value="">Select expert</option>
-                      {(expertUsersQuery.data?.data ?? []).map(
-                        (u: { id: string; fullName: string }) => (
-                          <option key={u.id} value={u.id}>
-                            {u.fullName}
-                          </option>
-                        ),
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600"
+                        checked={form.watch('quickNavSticky') ?? true}
+                        disabled={
+                          !(form.watch('showQuickNav') ?? true) || weblinkSettings.isPending
+                        }
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          form.setValue('quickNavSticky', checked, { shouldDirty: true });
+                          if (version) {
+                            weblinkSettings.mutate({
+                              versionId: version.id,
+                              quickNavSticky: checked,
+                            });
+                          }
+                        }}
+                      />
+                      <span>
+                        <span className="block font-medium">Keep navigation sticky</span>
+                        <span className="mt-0.5 block text-xs leading-4 opacity-75">
+                          Keep shortcuts visible while scrolling.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <label htmlFor="weblink-name" className="text-sm font-semibold text-slate-800">
+                      Weblink Name
+                    </label>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Create a short, memorable name for the customer link.
+                    </p>
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        id="weblink-name"
+                        className={`${field} min-w-0 flex-1`}
+                        type="text"
+                        placeholder="e.g. Mohan"
+                        value={weblinkNameValue}
+                        disabled={weblinkName.isPending}
+                        onChange={(event) => {
+                          setWeblinkNameValue(event.target.value);
+                          setWeblinkNameError('');
+                        }}
+                        onBlur={() => void saveWeblinkName()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={weblinkName.isPending}
+                        onClick={() => void saveWeblinkName()}
+                      >
+                        Save name
+                      </Button>
+                    </div>
+                    <div className="mt-2 rounded-md bg-brand-50 px-3 py-2 text-xs text-slate-600">
+                      <span className="font-medium text-slate-700">Friendly link:</span>{' '}
+                      {weblinkNamePreview ? (
+                        <span className="break-all font-medium text-brand-700">
+                          {weblinkNamePreview}
+                        </span>
+                      ) : (
+                        '—'
                       )}
-                    </select>
-                  </label>
-                  <label className="block text-sm font-semibold text-slate-800">
-                    Heading
-                    <input
-                      className={`${field} mt-1 bg-white`}
-                      placeholder="e.g. Your Destination Expert"
-                      value={watchedExpertConfig?.heading ?? ''}
-                      onChange={(e) => {
-                        const cur = form.getValues('destinationExpertConfig');
-                        form.setValue(
-                          'destinationExpertConfig',
-                          { ...(cur ?? {}), heading: e.target.value || null } as never,
-                          { shouldDirty: true },
-                        );
-                      }}
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold text-slate-800">
-                    Custom introduction
-                    <textarea
-                      rows={3}
-                      className={`${field} mt-1 bg-white`}
-                      placeholder="Custom intro shown under expert details"
-                      value={watchedExpertConfig?.customIntroduction ?? ''}
-                      onChange={(e) => {
-                        const cur = form.getValues('destinationExpertConfig');
-                        form.setValue(
-                          'destinationExpertConfig',
-                          { ...(cur ?? {}), customIntroduction: e.target.value || null } as never,
-                          { shouldDirty: true },
-                        );
-                      }}
-                    />
-                  </label>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {(
-                      [
-                        ['showWhatsapp', 'Show WhatsApp'],
-                        ['showCall', 'Show Call'],
-                        ['showEmail', 'Show Email'],
-                        ['showExperience', 'Show Experience'],
-                        ['showTripsPlanned', 'Show Trips Planned'],
-                        ['showLanguages', 'Show Languages'],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <label key={key} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(
-                            (watchedExpertConfig as unknown as Record<string, unknown>)?.[key] ??
-                            true,
-                          )}
-                          onChange={(e) => {
-                            const cur = form.getValues('destinationExpertConfig');
-                            form.setValue(
-                              'destinationExpertConfig',
-                              { ...(cur ?? {}), [key]: e.target.checked } as never,
-                              { shouldDirty: true },
-                            );
-                          }}
-                        />
-                        {label}
-                      </label>
-                    ))}
+                    </div>
+                    {weblinkNameError && (
+                      <p role="alert" className="mt-2 text-xs text-red-700">
+                        {weblinkNameError}
+                      </p>
+                    )}
                   </div>
                 </div>
-              )}
+
+                {/* Section Order — collapsible accordion (collapsed by default). */}
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setSectionOrderOpen((open) => !open)}
+                    aria-expanded={sectionOrderOpen}
+                    aria-controls="weblink-section-order-panel"
+                    className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-slate-50 sm:px-5"
+                  >
+                    <span>
+                      <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                        Weblink Section Order
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                          {
+                            resolveWeblinkSectionOrder(
+                              form.watch('weblinkSectionOrder')?.length
+                                ? form.watch('weblinkSectionOrder')
+                                : DEFAULT_WEBLINK_SECTION_ORDER,
+                            ).length
+                          }{' '}
+                          sections
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        Arrange sections in the order customers should see them.
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${sectionOrderOpen ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {sectionOrderOpen && (
+                    <div id="weblink-section-order-panel" className="border-t border-slate-200">
+                      <div className="divide-y divide-slate-100 px-4 sm:px-5">
+                        {(() => {
+                          const saved = form.watch('weblinkSectionOrder');
+                          const order = resolveWeblinkSectionOrder(
+                            saved?.length ? saved : DEFAULT_WEBLINK_SECTION_ORDER,
+                          );
+                          const move = (index: number, dir: -1 | 1) => {
+                            const next = [...order];
+                            const target = index + dir;
+                            if (target < 0 || target >= next.length) return;
+                            [next[index], next[target]] = [next[target]!, next[index]!];
+                            form.setValue('weblinkSectionOrder', next, { shouldDirty: true });
+                          };
+                          return order.map((sectionId, index) => (
+                            <div
+                              key={sectionId}
+                              className="flex items-center justify-between gap-3 py-2"
+                            >
+                              <span className="flex min-w-0 items-center gap-3 text-sm font-medium text-slate-700">
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-500">
+                                  {index + 1}
+                                </span>
+                                <span className="truncate">
+                                  {WEBLINK_SECTION_LABELS[sectionId] ?? sectionId}
+                                </span>
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={index === 0}
+                                  aria-label={`Move ${sectionId} up`}
+                                  onClick={() => move(index, -1)}
+                                >
+                                  <ArrowUp className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={index === order.length - 1}
+                                  aria-label={`Move ${sectionId} down`}
+                                  onClick={() => move(index, 1)}
+                                >
+                                  <ArrowDown className="h-3.5 w-3.5" />
+                                </Button>
+                              </span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                      <div className="flex justify-end border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 sm:px-5">
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                          onClick={() =>
+                            form.setValue(
+                              'weblinkSectionOrder',
+                              [...DEFAULT_WEBLINK_SECTION_ORDER],
+                              { shouldDirty: true },
+                            )
+                          }
+                        >
+                          Reset to default order
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Destination Expert */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between xl:flex-col">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Destination Expert</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Add a trusted contact to the customer-facing weblink.
+                    </p>
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm font-medium text-slate-700 xl:w-full">
+                    <span>Show Destination Expert</span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600"
+                      checked={Boolean(watchedExpertConfig?.enabled)}
+                      onChange={(e) => {
+                        const cur = form.getValues('destinationExpertConfig');
+                        const next = {
+                          enabled: e.target.checked,
+                          expertUserId: cur?.expertUserId ?? null,
+                          heading: cur?.heading ?? null,
+                          customIntroduction: cur?.customIntroduction ?? null,
+                          showWhatsapp: cur?.showWhatsapp ?? true,
+                          showCall: cur?.showCall ?? true,
+                          showEmail: cur?.showEmail ?? true,
+                          showExperience: cur?.showExperience ?? true,
+                          showTripsPlanned: cur?.showTripsPlanned ?? true,
+                          showLanguages: cur?.showLanguages ?? true,
+                        };
+                        form.setValue('destinationExpertConfig', next, { shouldDirty: true });
+                      }}
+                    />
+                  </label>
+                </div>
+                {watchedExpertConfig?.enabled && (
+                  <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Expert
+                      <select
+                        className={`${field} mt-1 bg-white`}
+                        value={watchedExpertConfig?.expertUserId ?? ''}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), expertUserId: e.target.value || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      >
+                        <option value="">Select expert</option>
+                        {(expertUsersQuery.data?.data ?? []).map(
+                          (u: { id: string; fullName: string }) => (
+                            <option key={u.id} value={u.id}>
+                              {u.fullName}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Heading
+                      <input
+                        className={`${field} mt-1 bg-white`}
+                        placeholder="e.g. Your Destination Expert"
+                        value={watchedExpertConfig?.heading ?? ''}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), heading: e.target.value || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Custom introduction
+                      <textarea
+                        rows={2}
+                        className={`${field} mt-1 bg-white`}
+                        placeholder="Custom intro shown under expert details"
+                        value={watchedExpertConfig?.customIntroduction ?? ''}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), customIntroduction: e.target.value || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      />
+                    </label>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                      {(
+                        [
+                          ['showWhatsapp', 'Show WhatsApp'],
+                          ['showCall', 'Show Call'],
+                          ['showEmail', 'Show Email'],
+                          ['showExperience', 'Show Experience'],
+                          ['showTripsPlanned', 'Show Trips Planned'],
+                          ['showLanguages', 'Show Languages'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label
+                          key={key}
+                          className="flex items-center gap-2 rounded-md bg-slate-50 px-2.5 py-2 text-sm text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-brand-600"
+                            checked={Boolean(
+                              (watchedExpertConfig as unknown as Record<string, unknown>)?.[key] ??
+                              true,
+                            )}
+                            onChange={(e) => {
+                              const cur = form.getValues('destinationExpertConfig');
+                              form.setValue(
+                                'destinationExpertConfig',
+                                { ...(cur ?? {}), [key]: e.target.checked } as never,
+                                { shouldDirty: true },
+                              );
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
       </section>
 
-      {/* Quotation Summary (always visible, like the reference) */}
+      {/* Quotation Summary (preserved across every builder tab). */}
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="bg-emerald-600 px-5 py-3 font-semibold text-white">Quotation Summary</div>
         <div className="grid gap-0 p-0 md:grid-cols-2">
@@ -4834,17 +5026,39 @@ export function QuotationBuilderPage() {
         </div>
       </section>
 
-      <div className="flex gap-2">
-        <Button type="submit" isLoading={save.isPending}>
-          <Save className="h-4 w-4" />
-          Save quotation
-        </Button>
-        <Link to={`/quotations/${quotationId}`}>
-          <Button variant="secondary" type="button">
-            Cancel
+      {activeTab === 'setting' ? (
+        <div
+          aria-label="Settings actions"
+          className="flex flex-col-reverse gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+        >
+          <p className="text-xs text-slate-500">
+            Saving applies these settings to the current quotation version.
+          </p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Link to={`/quotations/${quotationId}`} className="w-full sm:inline-flex sm:w-auto">
+              <Button variant="secondary" type="button" className="w-full sm:w-auto">
+                Cancel
+              </Button>
+            </Link>
+            <Button type="submit" isLoading={save.isPending} className="w-full sm:w-auto">
+              <Save className="h-4 w-4" />
+              Save quotation
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button type="submit" isLoading={save.isPending}>
+            <Save className="h-4 w-4" />
+            Save quotation
           </Button>
-        </Link>
-      </div>
+          <Link to={`/quotations/${quotationId}`}>
+            <Button variant="secondary" type="button">
+              Cancel
+            </Button>
+          </Link>
+        </div>
+      )}
     </form>
   );
 }

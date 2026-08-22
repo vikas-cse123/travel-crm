@@ -181,7 +181,8 @@ describe('Phase 6 lead pages', () => {
     await userEvent.click(screen.getAllByLabelText('Remove itinerary')[1]!);
     expect(screen.queryByLabelText('Destination 2')).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('Flight'));
-    expect(screen.getByText(/1 Room, 1 Adult/)).toBeInTheDocument();
+    expect(screen.getByText(/1 Adult/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 Room/)).not.toBeInTheDocument();
   });
   it('hides the Visa service checkbox in the create lead form', async () => {
     vi.stubGlobal(

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   destinationImageUrl,
+  masterImageFingerprint,
   useArchiveDestination,
   useDestinations,
   useHideGlobalMaster,
@@ -20,7 +21,7 @@ import {
   StatusBadge,
 } from './MasterUi';
 
-const destinationImageUrlCache = new Map<string, string>();
+const destinationImageUrlCache = new Map<string, { fingerprint: string; url: string }>();
 
 export function DestinationsPage() {
   const [params, setParams] = useSearchParams();
@@ -36,28 +37,33 @@ export function DestinationsPage() {
   const imageIdsKey =
     destinations.data?.data
       .filter((destination) => destination.hasImage)
-      .map((destination) => destination.id)
+      .map((destination) => `${destination.id}:${masterImageFingerprint(destination)}`)
       .join('|') ?? '';
 
   useEffect(() => {
     const rowsWithImages = destinations.data?.data.filter((destination) => destination.hasImage);
     if (!rowsWithImages?.length) return;
     const cachedEntries = rowsWithImages.flatMap((destination) => {
-      const cachedUrl = destinationImageUrlCache.get(destination.id);
-      return cachedUrl ? ([[destination.id, cachedUrl]] as const) : [];
+      const cached = destinationImageUrlCache.get(destination.id);
+      return cached?.fingerprint === masterImageFingerprint(destination)
+        ? ([[destination.id, cached.url]] as const)
+        : [];
     });
-    if (cachedEntries.length) {
-      setImageUrls((current) => {
-        const next = { ...current };
-        cachedEntries.forEach(([id, url]) => {
-          next[id] = url;
-        });
-        return next;
+    setImageUrls((current) => {
+      const next = { ...current };
+      rowsWithImages.forEach((destination) => {
+        delete next[destination.id];
       });
-    }
+      cachedEntries.forEach(([id, url]) => {
+        next[id] = url;
+      });
+      return next;
+    });
 
     const missingRows = rowsWithImages.filter(
-      (destination) => !destinationImageUrlCache.has(destination.id),
+      (destination) =>
+        destinationImageUrlCache.get(destination.id)?.fingerprint !==
+        masterImageFingerprint(destination),
     );
     if (!missingRows.length) return;
 
@@ -77,7 +83,11 @@ export function DestinationsPage() {
         const next = { ...current };
         entries.forEach(([id, url]) => {
           if (url) {
-            destinationImageUrlCache.set(id, url);
+            const destination = missingRows.find((row) => row.id === id);
+            destinationImageUrlCache.set(id, {
+              fingerprint: destination ? masterImageFingerprint(destination) : '',
+              url,
+            });
             next[id] = url;
           }
         });

@@ -24,6 +24,7 @@ import {
   deleteDestinationImage,
   destinationImageUrl,
   reorderDestinationImages,
+  useRefreshMasterImageQueries,
   useCreateDestination,
   useDestination,
   useMasterLookups,
@@ -76,6 +77,7 @@ export function DestinationFormPage() {
   const countryLookups = useMasterLookups();
   const lookups = useMasterLookups(country, citySearch);
   const allCountryCities = useMasterLookups(country);
+  const refreshImageQueries = useRefreshMasterImageQueries('destinations');
   const imageGallery = useMasterImageGallery({
     masterId: destinationId,
     entity: destination.data,
@@ -88,11 +90,17 @@ export function DestinationFormPage() {
       remove: deleteDestinationImage,
       reorder: reorderDestinationImages,
     },
-    onExistingChange: destination.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
+  const hydratedIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!destination.data) return;
+    // Don't overwrite dirty user edits on background refetch; only hydrate on first load or when switching destinations.
+    const isSameId = hydratedIdRef.current === destinationId;
+    if (isSameId && form.formState.isDirty) return;
+    // Guard against partial cached object poisoning – require authoritative fields before hydrating.
+    if (!destination.data.countryCode || destination.data.countryCode.length !== 2) return;
     form.reset({
       countryCode: destination.data.countryCode,
       name: destination.data.name,
@@ -105,7 +113,8 @@ export function DestinationFormPage() {
       bookingTerms: destination.data.bookingTerms ?? '',
       status: destination.data.status as Values['status'],
     });
-  }, [destination.data, form]);
+    hydratedIdRef.current = destinationId ?? null;
+  }, [destination.data, destinationId, form]);
   useEffect(() => {
     const leave = (event: BeforeUnloadEvent) => {
       if (form.formState.isDirty || imageGallery.pendingCount > 0) event.preventDefault();

@@ -1173,13 +1173,13 @@ function SightseeingItineraryView({
             const validActivities = day.activities.filter(
               (activity) => activity.name?.trim() || activity.description?.trim(),
             );
-            const image = resolveItineraryDayImage(day.activities, {
+            const dayFallbackImage = resolveItineraryDayImage(day.activities, {
               document: (documentId) => documentImages[documentId]?.imageUrl ?? null,
               snapshot: (imageUrl) => imageUrl,
               sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
               destination: destinationImage ?? null,
             });
-            const activityImages = validActivities.flatMap((activity) => {
+            const imagesForActivity = (activity: (typeof validActivities)[number]) => {
               const gallery = quotationGalleryImages(activity.images);
               if (activity.imageSnapshotPresent || gallery.length) return gallery;
               const legacy = resolveItineraryActivityImage(activity, {
@@ -1187,16 +1187,12 @@ function SightseeingItineraryView({
                 snapshot: (imageUrl) => imageUrl,
                 sightseeing: (sightseeingId) => images[sightseeingId]?.imageUrl ?? null,
               });
-              return legacy ? [{ url: legacy, alt: activity.name ?? title }] : [];
-            });
-            const hasQuotationGallery = validActivities.some(
-              (activity) =>
-                activity.imageSnapshotPresent || quotationGalleryImages(activity.images).length > 0,
-            );
-            const dayImages = activityImages.length
-              ? activityImages
-              : !hasQuotationGallery && image
-                ? [{ url: image, alt: title }]
+              const fallback = legacy ?? destinationImage ?? null;
+              return fallback ? [{ url: fallback, alt: activity.name ?? title }] : [];
+            };
+            const dayImages =
+              validActivities.length === 0 && dayFallbackImage
+                ? [{ url: dayFallbackImage, alt: title }]
                 : [];
             return (
               <div key={`${day.dayNumber}`} className="relative pl-10 md:pl-12">
@@ -1205,14 +1201,16 @@ function SightseeingItineraryView({
                   className="absolute left-[10px] top-6 h-3.5 w-3.5 rounded-full border-2 bg-white"
                   style={{ borderColor: color }}
                 />
-                <article className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-card p-4 shadow-sm md:flex-row md:items-start md:gap-5 md:p-5">
-                  <div className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-lg md:aspect-auto md:h-[180px] md:w-[285px]">
-                    {dayImages.length ? (
-                      <QuotationImageCarousel images={dayImages} label="Activity" />
-                    ) : (
-                      <ItineraryImage src={null} alt={title} />
-                    )}
-                  </div>
+                <article className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-card p-4 shadow-sm md:gap-5 md:p-5">
+                  {validActivities.length === 0 && (
+                    <div className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-lg md:h-[180px] md:w-[285px]">
+                      {dayImages.length ? (
+                        <QuotationImageCarousel images={dayImages} label="Itinerary day" />
+                      ) : (
+                        <ItineraryImage src={null} alt={title} />
+                      )}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-bold text-slate-800">{title}</h3>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
@@ -1234,48 +1232,64 @@ function SightseeingItineraryView({
                       (() => {
                         const activity = validActivities[0];
                         if (!activity) return null;
+                        const activityImages = imagesForActivity(activity);
                         return (
                           <>
                             <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
                               <p className="border-b border-slate-200 bg-slate-100/80 px-3 py-1.5 text-sm font-semibold text-slate-700">
                                 Activities &amp; Details
                               </p>
-                              <div className="bg-white p-3">
-                                <p className="flex items-center gap-2 font-semibold text-slate-800">
-                                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                                  {activity.name}
-                                </p>
-                                {activity.showTime !== false && activity.startTime && (
-                                  <p className="mt-1 flex items-center gap-1 pl-6 text-xs font-medium text-slate-500">
-                                    <Clock className="h-3.5 w-3.5" />
-                                    {formatTime12Hour(activity.startTime)}
-                                    {activity.duration ? ` · ${activity.duration}` : ''}
+                              <div className="flex flex-col gap-3 bg-white p-3 sm:flex-row">
+                                <div
+                                  aria-label={`${activity.name ?? 'Activity'} image gallery`}
+                                  className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-md sm:h-40 sm:w-60"
+                                >
+                                  {activityImages.length ? (
+                                    <QuotationImageCarousel
+                                      images={activityImages}
+                                      label={activity.name ?? 'Activity'}
+                                    />
+                                  ) : (
+                                    <ItineraryThumb src={null} alt={activity.name ?? 'Activity'} />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="flex items-center gap-2 font-semibold text-slate-800">
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                    {activity.name}
                                   </p>
-                                )}
-                                {activity.description && (
-                                  <div className="mt-1 pl-6">
-                                    <ItineraryRichText html={activity.description} />
-                                  </div>
-                                )}
-                                {(() => {
-                                  const label =
-                                    SIGHTSEEING_TRANSFER_LABELS[
-                                      activity.dailyTransfer ?? day.dailyTransfer
-                                    ];
-                                  if (!label) return null;
-                                  return (
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                      <span
-                                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
-                                        style={{ backgroundColor: color }}
-                                      >
-                                        <Car className="h-3.5 w-3.5" />
-                                        {label}
-                                      </span>
+                                  {activity.showTime !== false && activity.startTime && (
+                                    <p className="mt-1 flex items-center gap-1 pl-6 text-xs font-medium text-slate-500">
+                                      <Clock className="h-3.5 w-3.5" />
+                                      {formatTime12Hour(activity.startTime)}
+                                      {activity.duration ? ` · ${activity.duration}` : ''}
+                                    </p>
+                                  )}
+                                  {activity.description && (
+                                    <div className="mt-1 pl-6">
+                                      <ItineraryRichText html={activity.description} />
                                     </div>
-                                  );
-                                })()}
-                                <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                  )}
+                                  {(() => {
+                                    const label =
+                                      SIGHTSEEING_TRANSFER_LABELS[
+                                        activity.dailyTransfer ?? day.dailyTransfer
+                                      ];
+                                    if (!label) return null;
+                                    return (
+                                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <span
+                                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-white"
+                                          style={{ backgroundColor: color }}
+                                        >
+                                          <Car className="h-3.5 w-3.5" />
+                                          {label}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                  <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                </div>
                               </div>
                             </div>
                             {mealsLabel && (
@@ -1295,28 +1309,28 @@ function SightseeingItineraryView({
                           </p>
                           <div className="bg-white p-3">
                             {validActivities.map((activity, activityIndex) => {
-                              const gallery = quotationGalleryImages(activity.images);
-                              const thumb =
-                                gallery[0]?.url ??
-                                (activity.imageSnapshotPresent || gallery.length > 0
-                                  ? null
-                                  : ((activity.imageDocumentId
-                                      ? documentImages[activity.imageDocumentId]?.imageUrl
-                                      : null) ??
-                                    activity.imageUrl ??
-                                    (activity.sightseeingId
-                                      ? images[activity.sightseeingId]?.imageUrl
-                                      : null) ??
-                                    null));
+                              const activityImages = imagesForActivity(activity);
                               const isLast = activityIndex === validActivities.length - 1;
                               return (
-                                <Fragment key={`${activity.sightseeingId ?? activityIndex}`}>
-                                  <div className="flex gap-3">
-                                    <div className="h-14 w-20 shrink-0 overflow-hidden rounded-md">
-                                      <ItineraryThumb
-                                        src={thumb}
-                                        alt={activity.name ?? 'Activity'}
-                                      />
+                                <Fragment
+                                  key={`${activity.sightseeingId ?? 'activity'}-${activityIndex}`}
+                                >
+                                  <div className="flex flex-col gap-3 sm:flex-row">
+                                    <div
+                                      aria-label={`${activity.name ?? 'Activity'} image gallery`}
+                                      className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-md sm:h-32 sm:w-52"
+                                    >
+                                      {activityImages.length ? (
+                                        <QuotationImageCarousel
+                                          images={activityImages}
+                                          label={activity.name ?? 'Activity'}
+                                        />
+                                      ) : (
+                                        <ItineraryThumb
+                                          src={null}
+                                          alt={activity.name ?? 'Activity'}
+                                        />
+                                      )}
                                     </div>
                                     <div className="min-w-0 flex-1">
                                       <p className="flex items-center gap-2 font-semibold text-slate-800">
