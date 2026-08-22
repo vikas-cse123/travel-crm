@@ -13,10 +13,7 @@ import {
   MarketingServiceStack,
   type MarketingServiceStackProps,
 } from '../lib/marketing-service-stack.js';
-import {
-  YourQuotationStack,
-  type YourQuotationStackProps,
-} from '../lib/your-quotation-stack.js';
+import { YourQuotationStack, type YourQuotationStackProps } from '../lib/your-quotation-stack.js';
 
 const app = new App();
 

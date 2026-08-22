@@ -360,66 +360,66 @@ export function InlineLeadField({
           document.body,
         )}
 
-      {pendingStage ? (
-        createPortal(
-          <div
-            ref={pendingRef}
-            style={
-              pendingPos
-                ? {
-                    position: 'fixed',
-                    top: pendingPos.top,
-                    left: pendingPos.left,
-                  }
-                : { position: 'fixed', visibility: 'hidden' as const }
-            }
-            className="z-[80] w-72 rounded-md border border-slate-200 bg-white p-2 shadow-lg"
-          >
-          <p className="text-xs font-medium text-slate-700">
-            Moving to {labelForLookup(pendingStage.value)}
-          </p>
-          <input
-            ref={reasonInputRef}
-            aria-label="Stage reason"
-            className="mt-1.5 w-full rounded border border-slate-300 px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            placeholder={pendingStage.value === 'LOST' ? 'Lost reason required' : 'Reason required'}
-            value={reason}
-            onChange={(event) => {
-              setReason(event.target.value);
-              if (reasonError) setReasonError(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') submitPending();
-              if (event.key === 'Escape') cancelPending();
-            }}
-          />
-          {(reasonError || (update.isError ? errorMessage : null)) && (
-            <p role="alert" className="mt-1 text-xs text-red-700">
-              {reasonError ?? errorMessage}
+      {pendingStage
+        ? createPortal(
+            <div
+              ref={pendingRef}
+              style={
+                pendingPos
+                  ? {
+                      position: 'fixed',
+                      top: pendingPos.top,
+                      left: pendingPos.left,
+                    }
+                  : { position: 'fixed', visibility: 'hidden' as const }
+              }
+              className="z-[80] w-72 rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+            >
+              <p className="text-xs font-medium text-slate-700">
+                Moving to {labelForLookup(pendingStage.value)}
+              </p>
+              <input
+                ref={reasonInputRef}
+                aria-label="Stage reason"
+                className="mt-1.5 w-full rounded border border-slate-300 px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                placeholder={
+                  pendingStage.value === 'LOST' ? 'Lost reason required' : 'Reason required'
+                }
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  if (reasonError) setReasonError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitPending();
+                  if (event.key === 'Escape') cancelPending();
+                }}
+              />
+              {(reasonError || (update.isError ? errorMessage : null)) && (
+                <p role="alert" className="mt-1 text-xs text-red-700">
+                  {reasonError ?? errorMessage}
+                </p>
+              )}
+              <div className="mt-2 flex gap-1.5">
+                <Button size="sm" isLoading={update.isPending} onClick={submitPending}>
+                  Update stage
+                </Button>
+                <Button size="sm" variant="secondary" onClick={cancelPending}>
+                  Cancel
+                </Button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : update.isError &&
+          errorMessage && (
+            <p
+              role="alert"
+              className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700"
+            >
+              {errorMessage}
             </p>
           )}
-          <div className="mt-2 flex gap-1.5">
-            <Button size="sm" isLoading={update.isPending} onClick={submitPending}>
-              Update stage
-            </Button>
-            <Button size="sm" variant="secondary" onClick={cancelPending}>
-              Cancel
-            </Button>
-          </div>
-          </div>,
-          document.body,
-        )
-      ) : (
-        update.isError &&
-        errorMessage && (
-          <p
-            role="alert"
-            className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700"
-          >
-            {errorMessage}
-          </p>
-        )
-      )}
     </div>
   );
 }

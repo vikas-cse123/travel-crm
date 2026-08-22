@@ -185,8 +185,7 @@ function BookmarkImages({
       img.src = url;
     };
     const nextEntry = validImages[(shownIndex + 1) % validImages.length];
-    const prevEntry =
-      validImages[(shownIndex - 1 + validImages.length) % validImages.length];
+    const prevEntry = validImages[(shownIndex - 1 + validImages.length) % validImages.length];
     preload(nextEntry?.candidates.find((u) => !failed.has(u)));
     preload(prevEntry?.candidates.find((u) => !failed.has(u)));
   }, [shownIndex, validImages, failed]);

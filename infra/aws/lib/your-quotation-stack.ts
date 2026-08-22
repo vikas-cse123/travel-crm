@@ -40,10 +40,14 @@ export class YourQuotationStack extends Stack {
     const { config } = props;
 
     if (!config.vpcId || !config.clusterArn || !config.listenerArn) {
-      throw new Error('YourQuotationStack requires existing backend resource references in config.');
+      throw new Error(
+        'YourQuotationStack requires existing backend resource references in config.',
+      );
     }
     if (!config.yourQuotationCertArn) {
-      throw new Error('YourQuotationStack requires yourQuotationCertArn (ACM for yourquotation.in).');
+      throw new Error(
+        'YourQuotationStack requires yourQuotationCertArn (ACM for yourquotation.in).',
+      );
     }
 
     const vpc = ec2.Vpc.fromVpcAttributes(this, 'Vpc', {
@@ -69,9 +73,13 @@ export class YourQuotationStack extends Stack {
       defaultPort: 443,
     });
 
-    const apiTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(this, 'ApiTargetGroup', {
-      targetGroupArn: config.apiTargetGroupArn,
-    });
+    const apiTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(
+      this,
+      'ApiTargetGroup',
+      {
+        targetGroupArn: config.apiTargetGroupArn,
+      },
+    );
     const frontendTargetGroup = elbv2.ApplicationTargetGroup.fromTargetGroupAttributes(
       this,
       'FrontendTargetGroup',
@@ -100,7 +108,8 @@ export class YourQuotationStack extends Stack {
       }),
     });
 
-    const yourQuotationHost = () => elbv2.ListenerCondition.hostHeaders([config.yourQuotationDomain]);
+    const yourQuotationHost = () =>
+      elbv2.ListenerCondition.hostHeaders([config.yourQuotationDomain]);
 
     // 52: CRM bundle assets must go to frontend TG, not marketing. Explicit host rule prevents blank page.
     listener.addAction('YourQuotationCrmAssetsRule', {

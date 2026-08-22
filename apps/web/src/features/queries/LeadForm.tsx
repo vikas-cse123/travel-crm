@@ -614,13 +614,7 @@ export function LeadForm({
             <input type="hidden" {...register('rooms', { valueAsNumber: true })} />
             <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
               {(
-                [
-                  'adults',
-                  'childrenWithBed',
-                  'childrenWithoutBed',
-                  'infants',
-                  'extraBeds',
-                ] as const
+                ['adults', 'childrenWithBed', 'childrenWithoutBed', 'infants', 'extraBeds'] as const
               ).map((name) => (
                 <Field
                   key={name}
