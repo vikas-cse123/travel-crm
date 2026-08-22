@@ -24,6 +24,7 @@ import { formatTime12Hour } from '@/utils/dateTime';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveSightseeing,
+  masterImageFingerprint,
   useCities,
   useDestinations,
   useHideGlobalMaster,
@@ -46,7 +47,7 @@ const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
 
 function SightseeingThumbnail({ row }: { row: Sightseeing }) {
   const image = useQuery({
-    queryKey: ['masters', 'sightseeing', row.id, 'image'],
+    queryKey: ['masters', 'sightseeing', row.id, 'image', masterImageFingerprint(row)],
     queryFn: () => sightseeingImageUrl(row.id),
     enabled: row.hasImage,
     staleTime: 240_000,

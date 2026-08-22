@@ -11,6 +11,7 @@ import {
   cruiseImageUrl,
   deleteCruiseImage,
   reorderCruiseImages,
+  useRefreshMasterImageQueries,
   useCreateCruise,
   useCruise,
   useUpdateCruise,
@@ -58,6 +59,7 @@ export function CruiseFormPage() {
     defaultValues: { name: '', description: '', status: 'ACTIVE', roomTypes: [] },
   });
   const roomTypes = useFieldArray({ control: form.control, name: 'roomTypes' });
+  const refreshImageQueries = useRefreshMasterImageQueries('cruises');
   const imageGallery = useMasterImageGallery({
     masterId: cruiseId,
     entity: cruise.data,
@@ -70,7 +72,7 @@ export function CruiseFormPage() {
       remove: deleteCruiseImage,
       reorder: reorderCruiseImages,
     },
-    onExistingChange: cruise.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
   useEffect(() => {

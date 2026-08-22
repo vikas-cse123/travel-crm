@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { labelForLookup } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -62,6 +63,18 @@ export function InlineLeadField({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const reasonInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
+  const pendingRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+  const [pendingPos, setPendingPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const update = useUpdateLeadField(lead.id);
   const value = field === 'leadType' ? lead.leadType : lead.leadStage;
@@ -76,10 +89,92 @@ export function InlineLeadField({
     setHighlight(0);
   };
 
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = Math.max(rect.width, 176);
+    const estimatedHeight = Math.min(288, optionsWithCurrent.length * 36 + 8);
+    const measuredHeight = menuRef.current?.offsetHeight;
+    const needed = measuredHeight && measuredHeight > 0 ? measuredHeight : estimatedHeight;
+    const viewportPadding = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const shouldFlip = spaceBelow < needed && spaceAbove > spaceBelow;
+    let top: number;
+    let maxHeight: number;
+    if (shouldFlip) {
+      maxHeight = Math.min(288, spaceAbove - 4);
+      const height = Math.min(needed, maxHeight);
+      top = rect.top - height - 4;
+    } else {
+      maxHeight = Math.min(288, spaceBelow - 4);
+      top = rect.bottom + 4;
+    }
+    let left = rect.left;
+    if (left + menuWidth > window.innerWidth - viewportPadding) {
+      left = window.innerWidth - menuWidth - viewportPadding;
+    }
+    if (left < viewportPadding) left = viewportPadding;
+    setMenuPos({ top, left, width: menuWidth, maxHeight: Math.max(120, maxHeight) });
+  }, [optionsWithCurrent.length]);
+
+  const updatePendingPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger || !pendingStage) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 288;
+    const viewportPadding = 8;
+    const estimatedHeight = 160;
+    const measuredHeight = pendingRef.current?.offsetHeight;
+    const needed = measuredHeight && measuredHeight > 0 ? measuredHeight : estimatedHeight;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const shouldFlip = spaceBelow < needed && spaceAbove > spaceBelow;
+    let top: number;
+    if (shouldFlip) {
+      top = rect.top - needed - 4;
+      if (top < viewportPadding) top = viewportPadding;
+    } else {
+      top = rect.bottom + 4;
+    }
+    let left = rect.left;
+    if (left + width > window.innerWidth - viewportPadding) {
+      left = window.innerWidth - width - viewportPadding;
+    }
+    if (left < viewportPadding) left = viewportPadding;
+    setPendingPos({ top, left });
+  }, [pendingStage]);
+
+  useLayoutEffect(() => {
+    if (open) updateMenuPosition();
+  }, [open, updateMenuPosition]);
+
+  useLayoutEffect(() => {
+    if (pendingStage) updatePendingPosition();
+  }, [pendingStage, updatePendingPosition]);
+
+  useEffect(() => {
+    if (!open && !pendingStage) return;
+    const handleReposition = () => {
+      if (open) updateMenuPosition();
+      if (pendingStage) updatePendingPosition();
+    };
+    window.addEventListener('scroll', handleReposition, true);
+    window.addEventListener('resize', handleReposition);
+    return () => {
+      window.removeEventListener('scroll', handleReposition, true);
+      window.removeEventListener('resize', handleReposition);
+    };
+  }, [open, pendingStage, updateMenuPosition, updatePendingPosition]);
+
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      const insideRoot = rootRef.current?.contains(target);
+      const insideMenu = menuRef.current?.contains(target);
+      if (!insideRoot && !insideMenu) close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -94,6 +189,26 @@ export function InlineLeadField({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!pendingStage) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const insideRoot = rootRef.current?.contains(target);
+      const insidePending = pendingRef.current?.contains(target);
+      const insideMenu = menuRef.current?.contains(target);
+      if (!insideRoot && !insidePending && !insideMenu) cancelPending();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancelPending();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [pendingStage]);
 
   const cancelPending = () => {
     setPendingStage(null);
@@ -203,79 +318,108 @@ export function InlineLeadField({
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
 
-      {open && (
-        <ul
-          role="listbox"
-          id={`${id}-menu`}
-          aria-label={`Change lead ${labelNoun}`}
-          onKeyDown={onListKeyDown}
-          className="absolute left-0 z-30 mt-1 max-h-72 min-w-44 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-        >
-          {optionsWithCurrent.map((option, index) => (
-            <li key={option.value} role="option" aria-selected={option.value === value}>
-              <button
-                type="button"
-                onMouseEnter={() => setHighlight(index)}
-                onClick={() => choose(option)}
-                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
-                  highlight === index ? 'bg-slate-100' : ''
-                }`}
-              >
-                <span>{option.label}</span>
-                {option.value === value && (
-                  <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        createPortal(
+          <ul
+            ref={menuRef}
+            role="listbox"
+            id={`${id}-menu`}
+            aria-label={`Change lead ${labelNoun}`}
+            onKeyDown={onListKeyDown}
+            style={
+              menuPos
+                ? {
+                    position: 'fixed',
+                    top: menuPos.top,
+                    left: menuPos.left,
+                    width: menuPos.width,
+                    maxHeight: menuPos.maxHeight,
+                  }
+                : { position: 'fixed', visibility: 'hidden' as const }
+            }
+            className="z-[80] min-w-44 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          >
+            {optionsWithCurrent.map((option, index) => (
+              <li key={option.value} role="option" aria-selected={option.value === value}>
+                <button
+                  type="button"
+                  onMouseEnter={() => setHighlight(index)}
+                  onClick={() => choose(option)}
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
+                    highlight === index ? 'bg-slate-100' : ''
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {option.value === value && (
+                    <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
 
-      {pendingStage ? (
-        <div className="absolute left-0 top-full z-40 mt-1 w-72 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-          <p className="text-xs font-medium text-slate-700">
-            Moving to {labelForLookup(pendingStage.value)}
-          </p>
-          <input
-            ref={reasonInputRef}
-            aria-label="Stage reason"
-            className="mt-1.5 w-full rounded border border-slate-300 px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            placeholder={pendingStage.value === 'LOST' ? 'Lost reason required' : 'Reason required'}
-            value={reason}
-            onChange={(event) => {
-              setReason(event.target.value);
-              if (reasonError) setReasonError(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') submitPending();
-              if (event.key === 'Escape') cancelPending();
-            }}
-          />
-          {(reasonError || (update.isError ? errorMessage : null)) && (
-            <p role="alert" className="mt-1 text-xs text-red-700">
-              {reasonError ?? errorMessage}
+      {pendingStage
+        ? createPortal(
+            <div
+              ref={pendingRef}
+              style={
+                pendingPos
+                  ? {
+                      position: 'fixed',
+                      top: pendingPos.top,
+                      left: pendingPos.left,
+                    }
+                  : { position: 'fixed', visibility: 'hidden' as const }
+              }
+              className="z-[80] w-72 rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+            >
+              <p className="text-xs font-medium text-slate-700">
+                Moving to {labelForLookup(pendingStage.value)}
+              </p>
+              <input
+                ref={reasonInputRef}
+                aria-label="Stage reason"
+                className="mt-1.5 w-full rounded border border-slate-300 px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                placeholder={
+                  pendingStage.value === 'LOST' ? 'Lost reason required' : 'Reason required'
+                }
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  if (reasonError) setReasonError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitPending();
+                  if (event.key === 'Escape') cancelPending();
+                }}
+              />
+              {(reasonError || (update.isError ? errorMessage : null)) && (
+                <p role="alert" className="mt-1 text-xs text-red-700">
+                  {reasonError ?? errorMessage}
+                </p>
+              )}
+              <div className="mt-2 flex gap-1.5">
+                <Button size="sm" isLoading={update.isPending} onClick={submitPending}>
+                  Update stage
+                </Button>
+                <Button size="sm" variant="secondary" onClick={cancelPending}>
+                  Cancel
+                </Button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : update.isError &&
+          errorMessage && (
+            <p
+              role="alert"
+              className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700"
+            >
+              {errorMessage}
             </p>
           )}
-          <div className="mt-2 flex gap-1.5">
-            <Button size="sm" isLoading={update.isPending} onClick={submitPending}>
-              Update stage
-            </Button>
-            <Button size="sm" variant="secondary" onClick={cancelPending}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        update.isError &&
-        errorMessage && (
-          <p
-            role="alert"
-            className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700"
-          >
-            {errorMessage}
-          </p>
-        )
-      )}
     </div>
   );
 }

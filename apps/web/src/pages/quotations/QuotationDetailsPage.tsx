@@ -14,12 +14,7 @@ import {
   TicketCheck,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import {
-  labelForLookup,
-  PERMISSIONS,
-  normalizePublicSlug,
-  isReservedPublicSlug,
-} from '@interscale/shared';
+import { labelForLookup, PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -29,8 +24,6 @@ import {
   useQuotation,
   useQuotationAction,
   useSendQuotation,
-  useUpdateQuotationWeblinkSettings,
-  useUpdateQuotationWeblinkName,
 } from '@/features/quotations/quotations.api';
 import { WeblinkVisitors } from '@/features/quotations/WeblinkVisitors';
 import { resolveTravelDates } from '@/features/quotations/travel-dates';
@@ -54,10 +47,6 @@ export function QuotationDetailsPage() {
   const action = useQuotationAction(quotationId);
   const generatePdf = useGenerateQuotationPdf(quotationId);
   const send = useSendQuotation(quotationId);
-  const weblinkSettings = useUpdateQuotationWeblinkSettings(quotationId);
-  const weblinkName = useUpdateQuotationWeblinkName(quotationId);
-  const [weblinkNameValue, setWeblinkNameValue] = useState('');
-  const [weblinkNameError, setWeblinkNameError] = useState('');
   const [sendOpen, setSendOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [includePdf, setIncludePdf] = useState(true);
@@ -107,11 +96,6 @@ export function QuotationDetailsPage() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query.data, publicLinkVersionId, publicLinkUrl]);
-  // Sync the Weblink Name input to the stored slug whenever the quotation is
-  // (re)loaded, so an external change never leaves a stale edit box behind.
-  useEffect(() => {
-    setWeblinkNameValue(query.data?.publicSlug ?? '');
-  }, [query.data?.publicSlug]);
   if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
     return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
@@ -168,31 +152,6 @@ export function QuotationDetailsPage() {
     } catch {
       // Copy failed — do not show "Copied!".
     }
-  };
-  const normalizedWeblinkSlug = normalizePublicSlug(weblinkNameValue);
-  const weblinkNamePreview =
-    normalizedWeblinkSlug && !isReservedPublicSlug(normalizedWeblinkSlug)
-      ? `${q.publicSlugBaseUrl}/${normalizedWeblinkSlug}`
-      : null;
-  const saveWeblinkName = () => {
-    setWeblinkNameError('');
-    const value = weblinkNameValue.trim();
-    if (value && !normalizePublicSlug(value)) {
-      setWeblinkNameError('Enter a valid Weblink name.');
-      return;
-    }
-    weblinkName.mutate(
-      { publicSlug: value ? normalizePublicSlug(value) : null },
-      {
-        onSuccess: (result) => setWeblinkNameValue(result.publicSlug ?? ''),
-        onError: (error) =>
-          setWeblinkNameError(
-            error instanceof Error && error.message
-              ? error.message
-              : 'Unable to save Weblink name.',
-          ),
-      },
-    );
   };
   const generateIntoNewTab = async (
     style: 'CLASSIC' | 'STYLISH',
@@ -454,91 +413,7 @@ export function QuotationDetailsPage() {
           </div>
         </dl>
       </section>
-      {current && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
-        <section className="rounded-xl border bg-card p-6">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-slate-50 px-3 py-2.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Weblink
-            </span>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={current.showQuickNav ?? true}
-                disabled={weblinkSettings.isPending}
-                onChange={(event) =>
-                  weblinkSettings.mutate({
-                    versionId: current.id,
-                    showQuickNav: event.target.checked,
-                  })
-                }
-              />
-              Show Quick Navigation
-            </label>
-            <label
-              className={`flex items-center gap-2 text-sm font-medium ${
-                (current.showQuickNav ?? true) ? 'text-slate-700' : 'text-slate-400'
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={current.quickNavSticky ?? true}
-                disabled={!(current.showQuickNav ?? true) || weblinkSettings.isPending}
-                onChange={(event) =>
-                  weblinkSettings.mutate({
-                    versionId: current.id,
-                    quickNavSticky: event.target.checked,
-                  })
-                }
-              />
-              Keep it sticky while scrolling
-            </label>
-            <div className="flex w-full flex-col gap-1 border-t border-slate-200 pt-2.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="weblink-name" className="text-sm font-semibold text-slate-700">
-                  Weblink Name
-                </label>
-                <input
-                  id="weblink-name"
-                  className="w-56 rounded-lg border border-slate-300 bg-card px-3 py-1.5 text-sm"
-                  type="text"
-                  placeholder="e.g. Mohan"
-                  value={weblinkNameValue}
-                  disabled={weblinkName.isPending}
-                  onChange={(event) => {
-                    setWeblinkNameValue(event.target.value);
-                    setWeblinkNameError('');
-                  }}
-                  onBlur={() => void saveWeblinkName()}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={weblinkName.isPending}
-                  onClick={() => void saveWeblinkName()}
-                >
-                  Save name
-                </Button>
-              </div>
-              <p className="text-xs text-slate-500">
-                Friendly link:{' '}
-                {weblinkNamePreview ? (
-                  <span className="font-medium text-brand-700">{weblinkNamePreview}</span>
-                ) : (
-                  '—'
-                )}
-              </p>
-              {weblinkNameError && (
-                <p role="alert" className="text-xs text-red-700">
-                  {weblinkNameError}
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
+
       <WeblinkVisitors quotationId={quotationId} />
       <div className="grid gap-5 lg:grid-cols-3">
         <section className="rounded-xl border bg-card p-5 lg:col-span-2">

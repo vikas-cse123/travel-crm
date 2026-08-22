@@ -19,6 +19,7 @@ import {
   deleteHotelImage,
   hotelImageUrl,
   reorderHotelImages,
+  useRefreshMasterImageQueries,
   useCreateHotel,
   useDestination,
   useDestinations,
@@ -122,6 +123,7 @@ export function HotelFormPage() {
   const form = useForm<FormValues>({ defaultValues: empty });
   const destinationId = form.watch('destinationId');
   const destinationDetail = useDestination(destinationId || undefined);
+  const refreshImageQueries = useRefreshMasterImageQueries('hotels');
   const imageGallery = useMasterImageGallery({
     masterId: hotelId,
     entity: hotel.data,
@@ -134,7 +136,7 @@ export function HotelFormPage() {
       remove: deleteHotelImage,
       reorder: reorderHotelImages,
     },
-    onExistingChange: hotel.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
   useEffect(() => {

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Route, Routes } from 'react-router-dom';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { cabinLuggageLabel, hotelStayNights } from '@interscale/shared';
+import {
+  SERVICE_DESCRIPTION_MAX_LENGTH,
+  cabinLuggageLabel,
+  hotelStayNights,
+  quotationVersionInputSchema,
+} from '@interscale/shared';
 import { renderWithProviders } from '@/test/utils';
 import { serviceCardIcon } from './serviceCards';
 import { QuotationTemplatesPage } from './QuotationTemplatesPage';
@@ -799,6 +804,18 @@ describe('Phase 8 quotation pages', () => {
       const tab = screen.getByRole('button', { name: label });
       expect(tab.textContent).toContain('*');
     }
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Setting' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByRole('heading', { name: 'Quotation Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Weblink Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Destination Expert' })).toBeInTheDocument();
+    expect(screen.getAllByText('Quotation Summary')).toHaveLength(1);
+    expect(screen.getByLabelText('Settings actions')).toHaveClass('sm:flex-row');
+
+    await userEvent.click(screen.getByRole('button', { name: /Weblink Section Order/i }));
+    expect(screen.getByRole('button', { name: 'Reset to default order' })).toBeInTheDocument();
   });
 
   it('shows version history and runs revision, PDF, public-link and send actions', async () => {
@@ -928,6 +945,9 @@ describe('Phase 8 quotation pages', () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/versions'))).toBe(true),
     );
+    expect(
+      screen.queryByText(/departure sightseeing activity is not configured/i),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByLabelText('Recipient email')).toHaveValue('aarav@example.test');
@@ -2051,13 +2071,12 @@ describe('Phase 8 quotation pages', () => {
       'https://cdn.example/cruise-1.jpg',
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next reef walk image' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next vehicle image' }));
     await userEvent.click(screen.getByRole('button', { name: 'Next cruise image' }));
     expect(screen.getByAltText('Activity 1')).toBeInTheDocument();
     expect(screen.getByAltText('Vehicle A')).toBeInTheDocument();
     expect(screen.getByAltText('Cruise 2')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Next activity image' }));
     expect(
       screen
         .getAllByAltText('Legacy lagoon visit')
@@ -4010,12 +4029,12 @@ describe('Phase 8 quotation pages', () => {
     expect(within(article).getByText(/Mon, 10 Aug 2026/)).toBeInTheDocument();
     expect(within(article).getByText('9:00 AM')).toBeInTheDocument();
     // Snapshot image used first.
-    const img = within(article).getByAltText('Day 1: City Tour');
+    const img = within(article).getByAltText('Merlion Park');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/merlion.jpg');
-    // Fixed desktop image wrapper (image never stretches to the description).
-    const wrapper = img.parentElement as HTMLElement;
-    expect(wrapper.className).toContain('md:w-[285px]');
-    expect(wrapper.className).toContain('md:h-[180px]');
+    // Responsive activity-owned image wrapper (stacked on mobile, fixed beside content above sm).
+    const wrapper = img.parentElement?.parentElement as HTMLElement;
+    expect(wrapper.className).toContain('sm:w-60');
+    expect(wrapper.className).toContain('sm:h-40');
     expect(wrapper.className).not.toContain('h-full');
     // Transfer badge + meals.
     expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
@@ -4541,15 +4560,257 @@ describe('Phase 8 quotation pages', () => {
       .getByRole('heading', { name: 'Day 1: City Tour' })
       .closest('article') as HTMLElement;
     expect(within(article).getByText('Activities & Details')).toBeInTheDocument();
-    // First activity uses its snapshot image; second resolves its signed presentation.
+    // Each activity owns its image; the second resolves its signed presentation.
     const arrival = within(article).getByAltText('Arrival in Singapore & Hotel Check-in');
     expect(arrival).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
     expect(arrival).toHaveClass('object-cover');
     const safari = within(article).getByAltText('Night Safari – Singapore');
     expect(safari).toHaveAttribute('src', 'https://storage.example.test/night-safari.jpg');
-    // The large day image uses the first valid activity image too.
-    const mainImages = within(article).getAllByRole('img');
-    expect(mainImages[0]).toHaveAttribute('src', 'https://storage.example.test/arrival.jpg');
+    // Activity images are not duplicated into a shared day-level image.
+    expect(within(article).getAllByRole('img')).toHaveLength(2);
+  });
+
+  it('keeps a 1-image and 4-image activity in independent carousels', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000019',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        travelStartDate: null,
+        travelEndDate: null,
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Singapore Activities',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          sectionTitle: 'Sightseeing & Experiences',
+          amount: 0,
+          description: null,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Singapore highlights',
+              city: 'Singapore',
+              date: null,
+              meals: { breakfast: false, lunch: false, dinner: false },
+              mealMode: 'NO_TRANSFER',
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Marina Bay & Gardens by the Bay',
+                  description: '<p>Waterfront and gardens.</p>',
+                  startTime: null,
+                  sightseeingId: 'marina',
+                  imageSnapshotPresent: true,
+                  images: [{ id: 'a1', url: 'https://storage.example.test/a1.jpg' }],
+                },
+                {
+                  name: 'Night Safari',
+                  description: '<p>Evening wildlife experience.</p>',
+                  startTime: null,
+                  sightseeingId: 'night-safari',
+                  imageSnapshotPresent: true,
+                  images: [1, 2, 3, 4].map((number) => ({
+                    id: `b${number}`,
+                    url: `https://storage.example.test/b${number}.jpg`,
+                  })),
+                },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Singapore Activities');
+
+    const marina = screen.getByLabelText('Marina Bay & Gardens by the Bay image gallery');
+    const safari = screen.getByLabelText('Night Safari image gallery');
+    expect(within(marina).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a1.jpg',
+    );
+    expect(within(marina).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(safari).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/b1.jpg',
+    );
+    expect(within(safari).getByText('1 / 4')).toBeInTheDocument();
+    expect(screen.queryByText('1 / 5')).not.toBeInTheDocument();
+
+    await userEvent.click(within(safari).getByRole('button', { name: 'Next night safari image' }));
+    await userEvent.click(within(safari).getByRole('button', { name: 'Next night safari image' }));
+    expect(within(safari).getByText('3 / 4')).toBeInTheDocument();
+    expect(within(safari).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/b3.jpg',
+    );
+    expect(within(marina).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a1.jpg',
+    );
+  });
+
+  it('isolates galleries across missing images, duplicate filenames, failures and multiple days', async () => {
+    const gallery = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `${prefix}-${index + 1}`,
+        fileName: 'shared-name.jpg',
+        url: `https://storage.example.test/${prefix}-${index + 1}.jpg`,
+        thumbnailUrl:
+          index === 0 ? `https://storage.example.test/${prefix}-${index + 1}-thumb.jpg` : null,
+      }));
+    const publicData = {
+      company: { name: 'Alpha Travel', primaryColor: '#2563eb' },
+      quotation: {
+        quotationNumber: 'QT-2026-000020',
+        customerName: 'Mira Shah',
+        destinationSummary: 'Singapore',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Independent Galleries',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100',
+        hotels: [],
+        services: [],
+        sightseeingDetails: {
+          include: true,
+          days: [
+            {
+              dayNumber: 1,
+              title: 'Day 1: Three activities',
+              city: 'Singapore',
+              meals: {},
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Activity A',
+                  sightseeingId: 'activity-a',
+                  imageSnapshotPresent: true,
+                  images: gallery('a', 2),
+                },
+                {
+                  name: 'Activity B',
+                  sightseeingId: 'activity-b',
+                  imageSnapshotPresent: true,
+                  images: [],
+                },
+                {
+                  name: 'Activity C',
+                  sightseeingId: 'activity-c',
+                  imageSnapshotPresent: true,
+                  images: gallery('c', 5),
+                },
+              ],
+            },
+            {
+              dayNumber: 2,
+              title: 'Day 2: Another activity',
+              city: 'Singapore',
+              meals: {},
+              dailyTransfer: 'NO_TRANSFER',
+              activities: [
+                {
+                  name: 'Activity D',
+                  sightseeingId: 'activity-d',
+                  imageSnapshotPresent: true,
+                  images: gallery('d', 1),
+                },
+              ],
+            },
+          ],
+        },
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      sightseeingPresentations: {
+        'activity-b': { imageUrl: 'https://storage.example.test/activity-b-master.jpg' },
+      },
+      downloadUrl: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(publicData)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+    await screen.findByText('Independent Galleries');
+
+    const activityA = screen.getByLabelText('Activity A image gallery');
+    const activityB = screen.getByLabelText('Activity B image gallery');
+    const activityC = screen.getByLabelText('Activity C image gallery');
+    const activityD = screen.getByLabelText('Activity D image gallery');
+    expect(within(activityA).getByText('1 / 2')).toBeInTheDocument();
+    expect(within(activityB).queryByRole('img')).not.toBeInTheDocument();
+    expect(within(activityC).getByText('1 / 5')).toBeInTheDocument();
+    expect(within(activityD).queryByRole('button')).not.toBeInTheDocument();
+
+    await userEvent.click(within(activityC).getByRole('button', { name: 'Next activity c image' }));
+    expect(within(activityC).getByText('2 / 5')).toBeInTheDocument();
+    expect(within(activityA).getByText('1 / 2')).toBeInTheDocument();
+    expect(within(activityD).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/d-1.jpg',
+    );
+
+    fireEvent.error(within(activityA).getByRole('img'));
+    expect(within(activityA).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/a-1-thumb.jpg',
+    );
+    expect(within(activityC).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://storage.example.test/c-2.jpg',
+    );
+    expect(activityA).toHaveClass('w-full', 'sm:w-52');
+    expect(activityA.parentElement).toHaveClass('flex-col', 'sm:flex-row');
   });
 
   it('shows a neutral thumbnail placeholder when an activity has no image', async () => {
@@ -5435,7 +5696,7 @@ describe('Phase 8 quotation pages', () => {
     expect(
       screen.getByText('Breakfast (With Transfer), Dinner (With Transfer)'),
     ).toBeInTheDocument();
-    const img = screen.getByAltText('Day 3: Legacy Day');
+    const img = screen.getByAltText('Legacy Activity');
     expect(img).toHaveAttribute('src', 'https://storage.example.test/legacy.jpg');
   });
 
@@ -8092,6 +8353,249 @@ describe('Phase 8 quotation pages', () => {
     expect(nightsRowB).toHaveTextContent('4');
   });
 
+  const destinationExpertPublicData = (
+    overrides: Record<string, unknown> = {},
+    versionOverrides: Record<string, unknown> = {},
+  ) => ({
+    company: {
+      name: 'Alpha Travel',
+      email: 'a@b.test',
+      phone: '+91 90000 00000',
+      website: null,
+      address: '1 MG Road, Bengaluru',
+      primaryColor: '#2563eb',
+    },
+    quotation: {
+      quotationNumber: 'QT-2026-000101',
+      customerName: 'Priya Sharma',
+      destinationSummary: 'Singapore',
+      destinations: 'Singapore',
+      travelStartDate: '2026-10-23',
+      travelEndDate: '2026-10-29',
+      adults: 2,
+      childrenWithBed: 0,
+      childrenWithoutBed: 0,
+      infants: 0,
+      rooms: 1,
+      validUntil: null,
+      status: 'VIEWED',
+    },
+    version: {
+      title: 'Destination Expert Test',
+      versionNumber: 1,
+      currency: 'INR',
+      finalAmount: '45000',
+      notes: null,
+      paymentPolicies: null,
+      cancellationPolicies: null,
+      bookingTerms: null,
+      includeVisa: false,
+      flightDetails: null,
+      hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
+      hotels: [],
+      itinerary: [],
+      services: [],
+      inclusions: [],
+      exclusions: [],
+      terms: [],
+      faqs: [],
+      weblinkSectionOrder: [
+        'services',
+        'itinerary',
+        'hotels',
+        'flights',
+        'transportation',
+        'cruise',
+        'addons',
+        'visa',
+        'policies',
+        'destinationExpert',
+        'faqs',
+      ],
+      ...versionOverrides,
+    },
+    destinationExpert: {
+      id: 'expert-1',
+      fullName: 'Aditi Rao',
+      email: 'aditi@example.test',
+      phone: '+91 90000 00000',
+      whatsappNumber: '+91 98888 77777',
+      jobTitle: 'Singapore expert',
+      bio: null,
+      specialization: 'Honeymoons and family holidays',
+      yearsOfExperience: 8,
+      tripsPlanned: 550,
+      languages: 'English, Hindi, Tamil',
+      gender: null,
+      profileImageUrl: null,
+      avatarKind: null,
+      config: {
+        heading: 'Meet Your Destination Expert',
+        customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+        showWhatsapp: true,
+        showCall: true,
+        showEmail: true,
+        showExperience: true,
+        showTripsPlanned: true,
+        showLanguages: true,
+      },
+    },
+    downloadUrl: null,
+    ...overrides,
+  });
+
+  it('renders the enabled Destination Expert on the public page without requiring an avatar', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(destinationExpertPublicData())),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+
+    const expertSection = (
+      await screen.findByRole('heading', { name: 'Meet Your Destination Expert' })
+    ).closest('section') as HTMLElement;
+    expect(expertSection).toBeInTheDocument();
+    expect(screen.getByLabelText('Aditi Rao avatar initials')).toHaveTextContent('AR');
+    expect(within(expertSection).getByText('ADITI')).toBeInTheDocument();
+    expect(within(expertSection).getByText('Singapore expert')).toBeInTheDocument();
+    expect(
+      within(expertSection).getByText(
+        'I will help plan your Singapore holiday from first chat to check-in.',
+      ),
+    ).toBeInTheDocument();
+    expect(within(expertSection).getByRole('link', { name: /WhatsApp/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('https://wa.me/919888877777'),
+    );
+    expect(within(expertSection).getByRole('link', { name: /Call/i })).toHaveAttribute(
+      'href',
+      'tel:+919000000000',
+    );
+    expect(within(expertSection).getByRole('link', { name: /Email/i })).toHaveAttribute(
+      'href',
+      'mailto:aditi@example.test',
+    );
+    expect(within(expertSection).getByText('8+ Years')).toBeInTheDocument();
+    expect(within(expertSection).getByText('550+ Trips')).toBeInTheDocument();
+    expect(within(expertSection).getByText('English, Hindi, Tamil')).toBeInTheDocument();
+  });
+
+  it('hides Destination Expert contact and stat rows when toggles or values are missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response(
+          destinationExpertPublicData({
+            destinationExpert: {
+              ...(destinationExpertPublicData().destinationExpert as Record<string, unknown>),
+              phone: null,
+              whatsappNumber: null,
+              email: null,
+              yearsOfExperience: null,
+              tripsPlanned: null,
+              languages: null,
+              config: {
+                heading: 'Destination Expert',
+                customIntroduction: 'Available after booking.',
+                showWhatsapp: false,
+                showCall: true,
+                showEmail: false,
+                showExperience: true,
+                showTripsPlanned: false,
+                showLanguages: false,
+              },
+            },
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+
+    const expertSection = (
+      await screen.findByRole('heading', { name: 'Destination Expert' })
+    ).closest('section') as HTMLElement;
+    expect(within(expertSection).getByText('Available after booking.')).toBeInTheDocument();
+    expect(
+      within(expertSection).queryByRole('link', { name: /WhatsApp/i }),
+    ).not.toBeInTheDocument();
+    expect(within(expertSection).queryByRole('link', { name: /Call/i })).not.toBeInTheDocument();
+    expect(within(expertSection).queryByRole('link', { name: /Email/i })).not.toBeInTheDocument();
+    expect(within(expertSection).queryByText(/Years/)).not.toBeInTheDocument();
+    expect(within(expertSection).queryByText(/Trips/)).not.toBeInTheDocument();
+    expect(within(expertSection).queryByText('English, Hindi, Tamil')).not.toBeInTheDocument();
+    expect(within(expertSection).queryByText(/undefined/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render Destination Expert when the public payload has no selected expert', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(destinationExpertPublicData({ destinationExpert: null }))),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+
+    await screen.findByText('Destination Expert Test');
+    expect(screen.queryByRole('heading', { name: /Destination Expert/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('ADITI')).not.toBeInTheDocument();
+  });
+
+  it('respects Weblink Section Order for Destination Expert', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response(
+          destinationExpertPublicData(
+            {},
+            {
+              paymentPolicies: '<p>Policy</p>',
+              weblinkSectionOrder: [
+                'destinationExpert',
+                'policies',
+                'services',
+                'itinerary',
+                'hotels',
+                'flights',
+                'transportation',
+                'cruise',
+                'addons',
+                'visa',
+                'faqs',
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+
+    const expertHeading = await screen.findByRole('heading', {
+      name: 'Meet Your Destination Expert',
+    });
+    const policiesHeading = screen.getByRole('heading', { name: 'Policies' });
+    expect(
+      expertHeading.compareDocumentPosition(policiesHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('renders sections in the required order on the public page', async () => {
     const publicData = {
       company: {
@@ -8342,6 +8846,7 @@ const airline = { id: 'aaaaaaa4-1111-4111-8111-111111111111', name: 'Air India',
 const cruise = {
   id: 'aaaaaaa5-1111-4111-8111-111111111111',
   name: 'Dream Genting',
+  description: '<p>Experience an unforgettable cruise aboard Dream Genting.</p>',
   status: 'ACTIVE',
   roomTypes: [
     {
@@ -8361,6 +8866,22 @@ const cruiseDetail = {
       id: 'aaaaaaa6-1111-4111-8111-111111111111',
       name: 'Interior',
       price: 18000,
+      currency: 'INR',
+      status: 'ACTIVE',
+      sortOrder: 1,
+    },
+  ],
+};
+const spectrumCruise = {
+  ...cruise,
+  id: 'bbbbbbb5-1111-4111-8111-111111111111',
+  name: 'Spectrum of the Seas',
+  description: '<p>Spectrum sails with a separate onboard experience.</p>',
+  roomTypes: [
+    {
+      id: 'bbbbbbb6-1111-4111-8111-111111111111',
+      name: 'Balcony',
+      price: 25000,
       currency: 'INR',
       status: 'ACTIVE',
       sortOrder: 1,
@@ -8519,6 +9040,212 @@ const openActivityPicker = async (picker: HTMLElement, label: string) => {
     expect(labels.some((text) => text.includes(label))).toBe(true);
   });
 };
+
+const getSavedQuotationBody = async (fetchMock: ReturnType<typeof masterFetch>) => {
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+  );
+  const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+  return JSON.parse(String(patch![1]!.body));
+};
+
+const longRichText = (label: string, repeat = 460) =>
+  `<div>${Array.from(
+    { length: repeat },
+    (_, index) =>
+      `<p><strong>${label} ${index + 1}</strong> customer-safe details with links, lists and formatted CRM content.</p>`,
+  ).join('')}</div>`;
+
+describe('Quotation Builder — defensive legacy normalization', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('scrollTo', vi.fn());
+    auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
+  });
+
+  it('normalizes one legacy hotel images:null row and saves with images:[]', async () => {
+    const fetchMock = masterFetch(
+      builderQuotation({
+        hotels: [
+          {
+            city: 'Goa',
+            hotelName: 'Legacy Beach Resort',
+            rooms: 1,
+            nights: 2,
+            selected: true,
+            sellingPrice: '12000',
+            images: null,
+            sequence: 1,
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByDisplayValue('Goa proposal');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.hotels[0].images).toEqual([]);
+  });
+
+  it('normalizes multiple legacy hotel images:null rows independently', async () => {
+    const fetchMock = masterFetch(
+      builderQuotation({
+        hotels: [
+          {
+            city: 'Goa',
+            hotelName: 'Legacy Beach Resort',
+            rooms: 1,
+            nights: 2,
+            selected: true,
+            sellingPrice: '12000',
+            images: null,
+            sequence: 1,
+          },
+          {
+            city: 'Panjim',
+            hotelName: 'Legacy City Hotel',
+            rooms: 1,
+            nights: 1,
+            selected: true,
+            sellingPrice: '8000',
+            images: null,
+            sequence: 2,
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByDisplayValue('Goa proposal');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.hotels.map((hotel: { images: unknown[] }) => hotel.images)).toEqual([[], []]);
+  });
+
+  it('preserves long inclusions and exclusions beyond the old 8000-character limit', async () => {
+    const inclusionsHtml = longRichText('Inclusion');
+    const exclusionsHtml = longRichText('Exclusion');
+    expect(inclusionsHtml.length).toBeGreaterThan(8000);
+    expect(exclusionsHtml.length).toBeGreaterThan(8000);
+    const fetchMock = masterFetch(builderQuotation({ inclusionsHtml, exclusionsHtml }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByDisplayValue('Goa proposal');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.inclusionsHtml).toBe(inclusionsHtml);
+    expect(body.exclusionsHtml).toBe(exclusionsHtml);
+  });
+
+  it('preserves a Cruise description beyond the old 4000-character limit', async () => {
+    const description = longRichText('Cruise', 260);
+    expect(description.length).toBeGreaterThan(4000);
+    expect(description.length).toBeLessThan(100000);
+    const fetchMock = masterFetch(
+      builderQuotation({
+        services: [
+          {
+            serviceType: 'CRUISE',
+            name: 'Legacy Cruise Stay',
+            description,
+            quantity: '1',
+            unitSellingPrice: '18000',
+            totalSellingPrice: '18000',
+            images: null,
+            sequence: 1,
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByDisplayValue('Goa proposal');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.services[0].description).toBe(description);
+    expect(body.services[0].images).toEqual([]);
+  });
+
+  it('opens and saves an old quotation with missing new fields, null optional strings and null nested arrays', async () => {
+    const quotation = builderQuotation({
+      introduction: null,
+      weblinkHeading: undefined,
+      notes: null,
+      internalNotes: null,
+      faqs: null,
+      itinerary: null,
+      inclusions: null,
+      exclusions: null,
+      terms: null,
+      flightDetails: {
+        entryMode: 'MANUAL',
+        images: null,
+        outbound: { segments: null },
+        returnJourney: { segments: undefined },
+      },
+      hotelDetails: { sectionTitle: null, description: null, images: null },
+      sightseeingDetails: {
+        include: true,
+        days: [
+          {
+            dayNumber: 1,
+            title: null,
+            city: null,
+            activities: null,
+          },
+        ],
+      },
+      services: [
+        {
+          serviceType: 'VEHICLE_TRANSFER',
+          name: 'Legacy Vehicle',
+          description: null,
+          quantity: '1',
+          unitSellingPrice: '1000',
+          totalSellingPrice: '1000',
+          images: undefined,
+          sequence: 1,
+        },
+      ],
+    });
+    const fetchMock = masterFetch(quotation);
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByDisplayValue('Goa proposal');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.itinerary).toEqual([]);
+    expect(body.inclusions).toEqual([]);
+    expect(body.exclusions).toEqual([]);
+    expect(body.terms).toEqual([]);
+    expect(body.faqs).toEqual([]);
+    expect(body.flightDetails.images).toEqual([]);
+    expect(body.flightDetails.outbound.segments).toHaveLength(1);
+    expect(
+      body.services.find(
+        (service: { serviceType: string }) => service.serviceType === 'VEHICLE_TRANSFER',
+      ).images,
+    ).toEqual([]);
+  });
+
+  it('keeps required-field validation and shows a friendly save error', async () => {
+    const fetchMock = masterFetch(builderQuotation({ title: '' }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByLabelText('Title');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[0]!);
+
+    expect(await screen.findByText('Quotation title is required.')).toBeInTheDocument();
+    expect(screen.queryByText(/title: String/i)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
+  });
+});
 
 // TODO: update stale selectors/expectations in this block to match the current
 // UI (hotel stays and sightseeing days are collapsed by default). Quarantined temporarily.
@@ -15113,5 +15840,167 @@ describe('Quotation Builder — Sightseeing Master gallery snapshot', () => {
           options?.method === 'DELETE' && String(input).includes('/masters/cruises'),
       ),
     ).toBe(false);
+  });
+});
+
+describe('Quotation Builder — Cruise Master description flow', () => {
+  beforeEach(() => {
+    auth.permissions = new Set([
+      'quotations.view',
+      'quotations.update',
+      'masters.cruises.view',
+      'masters.cruises.view_costing',
+      'masters.cruises.manage_media',
+    ]);
+  });
+
+  it('prefills the selected Cruise Master description and saves a quotation edit', async () => {
+    const fetchMock = masterFetch(builderQuotation());
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Cruise');
+    await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
+    await userEvent.type(await screen.findByLabelText('Cruise master'), 'Dream Genting');
+
+    const editor = await screen.findByLabelText('Cruise description');
+    await waitFor(() =>
+      expect(editor).toHaveTextContent('Experience an unforgettable cruise aboard Dream Genting.'),
+    );
+
+    editor.innerHTML = '<p>Edited cruise note for this customer.</p>';
+    fireEvent.input(editor);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const saved = JSON.parse(String(patchCall![1]!.body));
+      const cruiseRow = saved.services.find(
+        (service: { serviceType: string }) => service.serviceType === 'CRUISE',
+      );
+      expect(String(cruiseRow.description)).toContain('Edited cruise note for this customer.');
+      expect(String(cruiseRow.description)).not.toContain('unforgettable cruise aboard');
+    });
+  });
+
+  it('saves a Cruise Master description whose rich-text HTML exceeds the old 4000 limit', async () => {
+    const visibleText = Array.from(
+      { length: 120 },
+      (_, index) =>
+        `Cruise paragraph ${index + 1} covers dining, boarding, activities and cabin comfort.`,
+    ).join(' ');
+    const longHtmlDescription = `<div class="rich-cruise-copy">${visibleText
+      .split(' ')
+      .map((word, index) => (index % 9 === 0 ? `<strong>${word}</strong>` : word))
+      .join(' ')}</div>`;
+    expect(longHtmlDescription.length).toBeGreaterThan(4000);
+    expect(visibleText.length).toBeLessThan(SERVICE_DESCRIPTION_MAX_LENGTH);
+
+    const longCruise = { ...cruise, description: longHtmlDescription };
+    const fetchMock = masterFetch(builderQuotation(), {
+      '/masters/cruises': page([longCruise]),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await openTab('Cruise');
+    await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
+    await userEvent.type(await screen.findByLabelText('Cruise master'), longCruise.name);
+
+    const editor = await screen.findByLabelText('Cruise description');
+    await waitFor(() => expect(editor.innerHTML.length).toBeGreaterThan(4000));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const saved = JSON.parse(String(patchCall![1]!.body));
+      const cruiseRow = saved.services.find(
+        (service: { serviceType: string }) => service.serviceType === 'CRUISE',
+      );
+      expect(cruiseRow.description).toBe(longHtmlDescription);
+    });
+  });
+
+  it('keeps multiple Cruise Stay descriptions independent and clears when the new master has none', async () => {
+    const noDescriptionCruise = { ...spectrumCruise, description: null };
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(builderQuotation(), {
+        '/masters/cruises': page([cruise, noDescriptionCruise]),
+      }),
+    );
+    renderBuilderPage();
+    await openTab('Cruise');
+    await userEvent.click(screen.getByLabelText('Include Cruise in Quotation'));
+    fireEvent.change(await screen.findByLabelText('Cruise master'), {
+      target: { value: cruise.name },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /add cruise/i }));
+    fireEvent.change(screen.getAllByLabelText('Cruise master')[1]!, {
+      target: { value: noDescriptionCruise.name },
+    });
+
+    const editors = await screen.findAllByLabelText('Cruise description');
+    await waitFor(() => {
+      expect(editors[0]).toHaveTextContent(
+        'Experience an unforgettable cruise aboard Dream Genting.',
+      );
+      expect(editors[1]).toHaveTextContent('');
+    });
+
+    fireEvent.change(screen.getAllByLabelText('Cruise master')[0]!, {
+      target: { value: noDescriptionCruise.name },
+    });
+    await waitFor(() => expect(editors[0]).toHaveTextContent(''));
+    expect(editors[1]).toHaveTextContent('');
+  });
+});
+
+describe('Quotation service description validation', () => {
+  const validVersion = (description: string | null) => ({
+    title: 'Singapore proposal',
+    destinationSummary: 'Singapore',
+    currency: 'INR',
+    services: [
+      {
+        serviceType: 'CRUISE',
+        name: 'Genting Dream',
+        description,
+        quantity: 1,
+        sellingPrice: 1000,
+        sequence: 1,
+      },
+    ],
+  });
+
+  it('accepts descriptions below, above the old limit, and near the new limit', () => {
+    expect(
+      quotationVersionInputSchema.safeParse(validVersion('<p>Short cruise copy.</p>')).success,
+    ).toBe(true);
+
+    const overOldLimit = `<p>${'Detailed cruise sentence. '.repeat(180)}</p>`;
+    expect(overOldLimit.length).toBeGreaterThan(4000);
+    expect(quotationVersionInputSchema.safeParse(validVersion(overOldLimit)).success).toBe(true);
+
+    const nearLimit = `<p>${'x'.repeat(SERVICE_DESCRIPTION_MAX_LENGTH)}</p>`;
+    expect(quotationVersionInputSchema.safeParse(validVersion(nearLimit)).success).toBe(true);
+  });
+
+  it('rejects service descriptions over the new visible-text limit with a clean message', () => {
+    const tooLong = `<p>${'x'.repeat(SERVICE_DESCRIPTION_MAX_LENGTH + 1)}</p>`;
+    const parsed = quotationVersionInputSchema.safeParse(validVersion(tooLong));
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && parsed.error.issues[0]?.message).toBe(
+      'Description must be 20,000 characters or fewer.',
+    );
+  });
+
+  it('counts visible text instead of raw rich-text HTML for service descriptions', () => {
+    const richHtml = `<p>${'<strong>Cabin comfort</strong> and <em>onboard dining</em>. '.repeat(
+      180,
+    )}</p>`;
+    expect(richHtml.length).toBeGreaterThan(4000);
+    expect(richHtml.replace(/<[^>]*>/g, '').length).toBeLessThan(SERVICE_DESCRIPTION_MAX_LENGTH);
+    expect(quotationVersionInputSchema.safeParse(validVersion(richHtml)).success).toBe(true);
   });
 });

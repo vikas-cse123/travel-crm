@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   cruiseImageUrl,
+  masterImageFingerprint,
   useArchiveCruise,
   useCruises,
   useHideGlobalMaster,
@@ -21,7 +22,7 @@ import {
   StatusBadge,
 } from './MasterUi';
 
-const cruiseImageUrlCache = new Map<string, string>();
+const cruiseImageUrlCache = new Map<string, { fingerprint: string; url: string }>();
 
 function priceRangeLabel(range?: { min: number; max: number } | null): string {
   if (!range) return '—';
@@ -46,7 +47,7 @@ export function CruisesPage() {
   const imageIdsKey =
     cruises.data?.data
       .filter((cruise) => cruise.hasImage)
-      .map((cruise) => cruise.id)
+      .map((cruise) => `${cruise.id}:${masterImageFingerprint(cruise)}`)
       .join('|') ?? '';
 
   useEffect(() => {
@@ -54,20 +55,26 @@ export function CruisesPage() {
     if (!rowsWithImages?.length) return;
 
     const cachedEntries = rowsWithImages.flatMap((cruise) => {
-      const cachedUrl = cruiseImageUrlCache.get(cruise.id);
-      return cachedUrl ? ([[cruise.id, cachedUrl]] as const) : [];
+      const cached = cruiseImageUrlCache.get(cruise.id);
+      return cached?.fingerprint === masterImageFingerprint(cruise)
+        ? ([[cruise.id, cached.url]] as const)
+        : [];
     });
-    if (cachedEntries.length) {
-      setImageUrls((current) => {
-        const next = { ...current };
-        cachedEntries.forEach(([id, url]) => {
-          next[id] = url;
-        });
-        return next;
+    setImageUrls((current) => {
+      const next = { ...current };
+      rowsWithImages.forEach((cruise) => {
+        delete next[cruise.id];
       });
-    }
+      cachedEntries.forEach(([id, url]) => {
+        next[id] = url;
+      });
+      return next;
+    });
 
-    const missingRows = rowsWithImages.filter((cruise) => !cruiseImageUrlCache.has(cruise.id));
+    const missingRows = rowsWithImages.filter(
+      (cruise) =>
+        cruiseImageUrlCache.get(cruise.id)?.fingerprint !== masterImageFingerprint(cruise),
+    );
     if (!missingRows.length) return;
 
     let active = true;
@@ -86,7 +93,11 @@ export function CruisesPage() {
         const next = { ...current };
         entries.forEach(([id, url]) => {
           if (url) {
-            cruiseImageUrlCache.set(id, url);
+            const cruise = missingRows.find((row) => row.id === id);
+            cruiseImageUrlCache.set(id, {
+              fingerprint: cruise ? masterImageFingerprint(cruise) : '',
+              url,
+            });
             next[id] = url;
           }
         });

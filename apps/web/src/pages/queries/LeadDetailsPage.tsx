@@ -37,6 +37,15 @@ import {
 } from '@/features/queries/queries.api';
 import { leadTravelDatesLabel } from '@/features/quotations/travel-dates';
 
+const displayTravellerSummary = (summary: string | null | undefined): string => {
+  if (!summary) return '';
+  return summary
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !/^\d+\s*Room/i.test(part))
+    .join(', ');
+};
+
 const inputClass = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
 const localDateTimeValue = (value: string) => {
   const date = new Date(value);
@@ -143,13 +152,23 @@ export function LeadDetailsPage() {
 
   const card = 'rounded-xl border bg-card p-5 shadow-sm';
 
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/queries');
+  };
+
   return (
     <div className="space-y-5">
       <header className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <Link to="/queries" className="shrink-0 rounded-lg p-2 hover:bg-slate-50">
+          <button
+            type="button"
+            aria-label="Back"
+            onClick={handleBack}
+            className="shrink-0 rounded-lg p-2 hover:bg-slate-50"
+          >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Lead details
@@ -461,7 +480,9 @@ export function LeadDetailsPage() {
               <Info label="Departure">
                 {[q.departureCity, q.departureCountry].filter(Boolean).join(', ')}
               </Info>
-              <Info label="Traveller summary">{q.travellerSummary}</Info>
+              <Info label="Traveller summary">
+                {displayTravellerSummary(q.travellerSummary) || '—'}
+              </Info>
               <Info label="Services">
                 {q.services.map((s) => labelForLookup(s.serviceType)).join(', ')}
               </Info>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type {
   AirlineInput,
   AirlineLogoUploadInput,
@@ -56,6 +56,13 @@ export interface MasterImageMeta {
   mimeType: string;
   fileSize: number;
   isPrimary: boolean;
+}
+
+export function masterImageFingerprint(master: {
+  images?: MasterImageMeta[];
+  imageConfirmedAt?: string | null;
+}) {
+  return master.images?.[0]?.id ?? master.imageConfirmedAt ?? '';
 }
 
 export interface City extends MasterVisibilityMeta {
@@ -1211,6 +1218,42 @@ export async function deleteTestimonialImage(id: string, imageId?: string) {
 }
 export const reorderTestimonialImages = (id: string, imageIds: string[]) =>
   apiClient.patch<Testimonial>(`/masters/testimonials/${id}/images/order`, { imageIds });
+
+export type MasterImageQueryScope =
+  'destinations' | 'hotels' | 'cruises' | 'vehicles' | 'sightseeing' | 'testimonials';
+
+const masterImageQueryRoot = (scope: MasterImageQueryScope) => {
+  switch (scope) {
+    case 'destinations':
+      return keys.destinations;
+    case 'hotels':
+      return hotelKeys.all;
+    case 'cruises':
+      return cruiseKeys.all;
+    case 'vehicles':
+      return vehicleKeys.all;
+    case 'sightseeing':
+      return sightseeingKeys.all;
+    case 'testimonials':
+      return testimonialKeys.all;
+  }
+};
+
+/** Refresh list, detail, and thumbnail queries after the final image mutation. */
+export function useRefreshMasterImageQueries(scope: MasterImageQueryScope) {
+  const client = useQueryClient();
+  return useCallback(() => refreshMasterImageQueries(client, scope), [client, scope]);
+}
+
+export function refreshMasterImageQueries(
+  client: ReturnType<typeof useQueryClient>,
+  scope: MasterImageQueryScope,
+) {
+  return client.invalidateQueries({
+    queryKey: masterImageQueryRoot(scope),
+    refetchType: 'all',
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Global records — hide / restore / hidden list

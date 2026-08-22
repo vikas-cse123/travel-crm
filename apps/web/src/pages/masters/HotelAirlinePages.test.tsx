@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useNavigate } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
 import { HotelsPage } from './HotelsPage';
 import { HotelFormPage } from './HotelFormPage';
@@ -10,6 +10,7 @@ import { AirlinesPage } from './AirlinesPage';
 import { AirlineFormPage } from './AirlineFormPage';
 import { AirlineDetailsPage } from './AirlineDetailsPage';
 import { NAV_ITEMS } from '@/components/layout/navigation';
+import { useRefreshMasterImageQueries } from '@/features/masters/masters.api';
 
 const auth = vi.hoisted(() => ({ permissions: new Set<string>() }));
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -130,6 +131,23 @@ const page = (data: unknown[]) => ({
   data,
   pagination: { page: 1, pageSize: 20, total: data.length, totalPages: 1 },
 });
+
+function HotelImageMutationControl({ onMutation }: { onMutation: () => void }) {
+  const refresh = useRefreshMasterImageQueries('hotels');
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        onMutation();
+        await refresh();
+        navigate(`/masters/hotels/${hotelId}`);
+      }}
+    >
+      Complete hotel image mutation
+    </button>
+  );
+}
 
 const ALL = [
   'masters.hotels.view',
@@ -293,6 +311,122 @@ describe('Phase 13B master pages', () => {
     await userEvent.click(await screen.findByRole('tab', { name: 'Room Types' }));
     expect(screen.getByText('Deluxe Room')).toBeInTheDocument();
     expect(screen.queryByText(/6000/)).not.toBeInTheDocument();
+  });
+
+  it('hydrates hotel images immediately when navigating from View to Edit', async () => {
+    const images = ['a', 'b', 'c'].map((id, index) => ({
+      id,
+      fileName: `${id}.jpg`,
+      mimeType: 'image/jpeg',
+      fileSize: 100,
+      isPrimary: index === 0,
+    }));
+    const record = { ...hotel, hasImage: true, images };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/image/download-url')) {
+          const imageId = new URL(url, 'http://localhost').searchParams.get('imageId');
+          return response({ url: `https://images.example/${imageId}`, expiresInSeconds: 300 });
+        }
+        if (url.includes(`/masters/hotels/${hotelId}`)) return response(record);
+        if (url.includes(`/masters/destinations/${destinationId}`)) return response(destination);
+        if (url.includes('/masters/destinations')) return response(page([destination]));
+        return response(page([record]));
+      }),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
+        <Route path="/masters/hotels/:hotelId/edit" element={<HotelFormPage />} />
+      </Routes>,
+      { route: `/masters/hotels/${hotelId}` },
+    );
+    await screen.findByRole('img', { name: 'Shah Palace Hotel 1' });
+
+    await userEvent.click(screen.getByRole('link', { name: /Edit/ }));
+
+    expect(screen.getByRole('heading', { name: 'Edit Hotel' })).toBeInTheDocument();
+    expect(screen.getByText('a.jpg')).toBeInTheDocument();
+    expect(screen.getByText('b.jpg')).toBeInTheDocument();
+    expect(screen.getByText('c.jpg')).toBeInTheDocument();
+  });
+
+  it('refreshes the Hotel detail and list thumbnail after primary image replacement', async () => {
+    const image = (id: string) => ({
+      id,
+      fileName: 'image.png',
+      mimeType: 'image/png',
+      fileSize: 100,
+      isPrimary: true,
+    });
+    let current = {
+      ...hotel,
+      hasImage: true,
+      images: [image('hotel-image-a')],
+      imageConfirmedAt: '2026-08-21T10:00:00.000Z',
+    };
+    const summary = () => ({
+      ...hotelSummary,
+      hasImage: true,
+      images: current.images,
+      updatedAt: current.imageConfirmedAt,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/image/download-url')) {
+          const requestedId = new URL(url, 'http://localhost').searchParams.get('imageId');
+          const id = requestedId ?? current.images[0]!.id;
+          return response({ url: `https://images.example/${id}`, expiresInSeconds: 300 });
+        }
+        if (url.includes(`/masters/hotels/${hotelId}`)) return response(current);
+        if (url.includes('/masters/destinations')) return response(page([destination]));
+        return response(page([summary()]));
+      }),
+    );
+
+    const rendered = renderWithProviders(
+      <>
+        <HotelImageMutationControl
+          onMutation={() => {
+            current = {
+              ...current,
+              images: [image('hotel-image-b')],
+              imageConfirmedAt: '2026-08-21T10:01:00.000Z',
+            };
+          }}
+        />
+        <Routes>
+          <Route path="/masters/hotels" element={<HotelsPage />} />
+          <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
+        </Routes>
+      </>,
+      { route: '/masters/hotels' },
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('img[src="https://images.example/hotel-image-a"]'),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole('link', { name: 'View Shah Palace Hotel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Complete hotel image mutation' }));
+    expect(await screen.findByRole('img', { name: 'Shah Palace Hotel' })).toHaveAttribute(
+      'src',
+      'https://images.example/hotel-image-b',
+    );
+
+    await userEvent.click(screen.getByRole('link', { name: /Back/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Azerbaijan/ }));
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('img[src="https://images.example/hotel-image-b"]'),
+      ).toBeInTheDocument(),
+    );
   });
 
   it('renders the airline list and validates the airline create form', async () => {

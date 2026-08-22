@@ -209,7 +209,8 @@ export class MarketingServiceStack extends Stack {
     // Priority 40: www -> permanent 301 redirect to the root domain, preserving
     // path and query.
     //
-    // Priority 45-50 route the root domain:
+    // Priority 44-50 route the root domain:
+    //   - 44: /crm-assets/* (CRM Vite bundle assets) -> CRM frontend target group.
     //   - 45/46/47: the real marketing website paths and static assets stay on
     //     the marketing container (split across three rules because ALB allows
     //     at most 5 condition values per rule).
@@ -230,6 +231,17 @@ export class MarketingServiceStack extends Stack {
     });
     const marketingHost = () => elbv2.ListenerCondition.hostHeaders([config.marketingDomain]);
     const marketingForward = () => elbv2.ListenerAction.forward([targetGroup]);
+    // Priority 44: the CRM Vite bundle's assets now live under /crm-assets/
+    // (marketing owns /assets/*), so route them to the CRM frontend target
+    // group explicitly on the apex host. Kept ahead of the marketing rules.
+    listener.addAction('MarketingCrmAssetsRule', {
+      priority: 44,
+      conditions: [
+        marketingHost(),
+        elbv2.ListenerCondition.pathPatterns(['/crm-assets', '/crm-assets/*']),
+      ],
+      action: elbv2.ListenerAction.forward([frontendTargetGroup]),
+    });
     listener.addAction('MarketingReservedPagesRule', {
       priority: 45,
       conditions: [

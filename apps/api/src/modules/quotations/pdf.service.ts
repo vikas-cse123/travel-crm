@@ -2303,6 +2303,24 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       },
     };
   };
+  const serviceDescriptionBlocks = (row: (typeof v.services)[number]): PdfBlock[] => {
+    const descLines = htmlToLines(row.description);
+    if (!descLines.length) return [];
+    const headingH = hOf('Description:', 10.5, CONTENT_W, 'Bold') + 4;
+    return [
+      {
+        height: headingH,
+        keepWithNext: true,
+        render: (y0) => {
+          doc.font('Bold').fontSize(10.5).fillColor(DARK).text('Description:', M, y0, {
+            width: CONTENT_W,
+          });
+          return y0 + headingH;
+        },
+      },
+      ...flowBlocks(descLines, M, CONTENT_W, 10.5, 2, 260),
+    ];
+  };
 
   if (vehicleServices.length) {
     planner.pageBreak();
@@ -2323,7 +2341,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   if (cruiseServices.length) {
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Cruise Details'));
-    cruiseServices.forEach((row) =>
+    cruiseServices.forEach((row) => {
       planner.add(
         buildServiceCard(
           row,
@@ -2333,8 +2351,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           ],
           'Cruise',
         ),
-      ),
-    );
+      );
+      serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
+    });
   }
   const hasAddonSection = addonServices.length > 0 || hasVisa;
   if (hasAddonSection) {

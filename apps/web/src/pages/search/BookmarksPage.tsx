@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Bookmark,
@@ -103,37 +103,92 @@ function BookmarkImages({
 }: {
   images: { thumbnail?: string; original?: string }[] | undefined;
 }) {
-  const urls = useMemo(
-    () =>
-      images?.map((image) => resolveHotelImageCandidates(image)).filter((list) => list.length) ??
-      [],
-    [images],
-  );
+  const normalized = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[][] = [];
+    for (const image of images ?? []) {
+      const candidates = resolveHotelImageCandidates(image)
+        .map((url) => url?.trim())
+        .filter((url): url is string => Boolean(url));
+      if (!candidates.length) continue;
+      const primary = candidates[0]!;
+      if (seen.has(primary)) continue;
+      seen.add(primary);
+      out.push(candidates);
+    }
+    return out;
+  }, [images]);
+
+  const imageSignature = useMemo(() => normalized.map((c) => c[0]).join('|'), [normalized]);
 
   const [index, setIndex] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
 
+  const prevSignatureRef = useRef(imageSignature);
+  useEffect(() => {
+    if (prevSignatureRef.current !== imageSignature) {
+      prevSignatureRef.current = imageSignature;
+      setIndex(0);
+      setFailed(new Set());
+    }
+  }, [imageSignature]);
+
   const validImages = useMemo(
     () =>
-      urls
+      normalized
         .map((candidates, i) => ({ candidates, i }))
         .filter(({ candidates }) => candidates.some((url) => !failed.has(url))),
-    [urls, failed],
+    [normalized, failed],
   );
+
+  useEffect(() => {
+    if (!validImages.length) setIndex(0);
+    else setIndex((cur) => Math.min(cur, validImages.length - 1));
+  }, [validImages.length]);
 
   const shownIndex = validImages.length ? Math.min(index, validImages.length - 1) : -1;
   const shown = shownIndex >= 0 ? validImages[shownIndex] : undefined;
-  const currentUrl = shown?.candidates.find((url) => !failed.has(url)) ?? shown?.candidates[0];
+  const currentUrl = shown?.candidates.find((url) => !failed.has(url)) ?? null;
 
-  const goTo = (next: number) => {
+  const goTo = useMemo(
+    () => (next: number) => {
+      if (!validImages.length) return;
+      const len = validImages.length;
+      setIndex(((next % len) + len) % len);
+    },
+    [validImages.length],
+  );
+  const goNext = () => {
     if (!validImages.length) return;
-    setIndex(((next % validImages.length) + validImages.length) % validImages.length);
+    setIndex((prev) => (prev + 1) % validImages.length);
+  };
+  const goPrev = () => {
+    if (!validImages.length) return;
+    setIndex((prev) => (prev - 1 + validImages.length) % validImages.length);
   };
 
   const onError = () => {
     if (!currentUrl) return;
-    setFailed((prev) => new Set(prev).add(currentUrl));
+    setFailed((prev) => {
+      if (prev.has(currentUrl)) return prev;
+      const next = new Set(prev);
+      next.add(currentUrl);
+      return next;
+    });
   };
+
+  useEffect(() => {
+    if (!validImages.length || shownIndex < 0) return;
+    const preload = (url: string | undefined) => {
+      if (!url || failed.has(url)) return;
+      const img = new window.Image();
+      img.src = url;
+    };
+    const nextEntry = validImages[(shownIndex + 1) % validImages.length];
+    const prevEntry = validImages[(shownIndex - 1 + validImages.length) % validImages.length];
+    preload(nextEntry?.candidates.find((u) => !failed.has(u)));
+    preload(prevEntry?.candidates.find((u) => !failed.has(u)));
+  }, [shownIndex, validImages, failed]);
 
   const single = validImages.length <= 1;
 
@@ -141,10 +196,12 @@ function BookmarkImages({
     <div className="relative h-44 w-full overflow-hidden bg-muted sm:h-40 md:h-full">
       {currentUrl ? (
         <img
+          key={currentUrl}
           src={currentUrl}
           alt="Property"
           className="h-full w-full object-cover"
           loading="lazy"
+          decoding="async"
           onError={onError}
         />
       ) : (
@@ -159,7 +216,7 @@ function BookmarkImages({
           <button
             type="button"
             aria-label="Previous image"
-            onClick={() => goTo(index - 1)}
+            onClick={goPrev}
             className="absolute left-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1.5 text-white shadow transition-colors hover:bg-black/65 focus:outline-none focus:ring-2 focus:ring-white/60"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -167,7 +224,7 @@ function BookmarkImages({
           <button
             type="button"
             aria-label="Next image"
-            onClick={() => goTo(index + 1)}
+            onClick={goNext}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1.5 text-white shadow transition-colors hover:bg-black/65 focus:outline-none focus:ring-2 focus:ring-white/60"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />

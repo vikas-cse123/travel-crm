@@ -137,17 +137,21 @@ export function resolveItineraryDayImage<T>(
   return resolver.destination ?? null;
 }
 
+export const SERVICE_DESCRIPTION_MAX_LENGTH = 20_000;
+
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
+const arrayFromNullish = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === null || value === undefined ? [] : value), z.array(schema));
 /**
  * Rich-text fields store HTML, so formatting markup must not consume the
  * customer-facing character allowance. Keep a generous raw-payload guard,
  * while enforcing the business limit against the visible text only.
  */
-const optionalRichText = (visibleMax: number) =>
+const optionalRichText = (visibleMax: number, message?: string) =>
   z
     .string()
     .trim()
-    .max(100_000)
+    .max(100_000, 'Rich-text HTML must be 100,000 characters or fewer.')
     .refine(
       (html) =>
         html
@@ -155,7 +159,7 @@ const optionalRichText = (visibleMax: number) =>
           .replace(/<[^>]*>/g, '')
           .replace(/&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/gi, 'x')
           .trim().length <= visibleMax,
-      { message: `Visible text must contain at most ${visibleMax} character(s)` },
+      { message: message ?? `Visible text must contain at most ${visibleMax} character(s)` },
     )
     .nullable()
     .optional();
@@ -307,7 +311,10 @@ export const quotationServiceSchema = z.object({
   sightseeingId: optionalMasterId,
   addOnServiceId: optionalMasterId,
   name: z.string().trim().min(1).max(200),
-  description: optionalText(4000),
+  description: optionalRichText(
+    SERVICE_DESCRIPTION_MAX_LENGTH,
+    'Description must be 20,000 characters or fewer.',
+  ),
   dayNumber: z.coerce.number().int().min(1).max(500).nullable().optional(),
   city: optionalText(120),
   quantity: z.coerce.number().positive().max(100_000).default(1),
@@ -349,12 +356,16 @@ export const quotationTemplateInputSchema = z
     infantBasePrice: optionalMoney,
     status: z.enum(QUOTATION_TEMPLATE_STATUSES).default('ACTIVE'),
     internalNotes: optionalText(4000),
-    itinerary: z.array(quotationItinerarySchema).max(500).default([]),
-    hotels: z.array(quotationHotelSchema).max(200).default([]),
-    services: z.array(quotationServiceSchema).max(500).default([]),
-    inclusions: z.array(contentSchema).max(200).default([]),
-    exclusions: z.array(contentSchema).max(200).default([]),
-    terms: z.array(contentSchema).max(200).default([]),
+    itinerary: arrayFromNullish(quotationItinerarySchema).pipe(
+      z.array(quotationItinerarySchema).max(500),
+    ),
+    hotels: arrayFromNullish(quotationHotelSchema).pipe(z.array(quotationHotelSchema).max(200)),
+    services: arrayFromNullish(quotationServiceSchema).pipe(
+      z.array(quotationServiceSchema).max(500),
+    ),
+    inclusions: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
+    exclusions: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
+    terms: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
   })
   .superRefine((value, ctx) => {
     if (value.durationNights >= value.durationDays)
@@ -466,7 +477,7 @@ export const flightJourneySchema = z.object({
   fromCity: optionalText(120),
   toCity: optionalText(120),
   travelClass: optionalText(40),
-  segments: z.array(flightSegmentSchema).max(20).default([]),
+  segments: arrayFromNullish(flightSegmentSchema).pipe(z.array(flightSegmentSchema).max(20)),
 });
 
 export const flightImageSchema = z.object({
@@ -485,7 +496,7 @@ export const flightDetailsSchema = z
     entryMode: z.enum(['MANUAL', 'IMAGE']).default('MANUAL'),
     imageDocumentId: z.string().uuid().nullable().optional(),
     imageFileName: optionalText(255),
-    images: z.array(flightImageSchema).max(10).default([]),
+    images: arrayFromNullish(flightImageSchema).pipe(z.array(flightImageSchema).max(10)),
     journeyType: z.enum(FLIGHT_JOURNEY_TYPES).default('ROUND_TRIP'),
     outbound: flightJourneySchema.default({ segments: [] }),
     returnJourney: flightJourneySchema.default({ segments: [] }),
@@ -629,8 +640,11 @@ export const sightseeingActivitySchema = z.object({
   // Per-activity transfer (PRIVATE/SHARED/NO_TRANSFER). Absent on legacy rows,
   // which fall back to the day-level dailyTransfer when displayed.
   dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).nullish(),
-  // Absent on every activity saved before this feature; read as [].
-  pricingOptions: sightseeingPricingOptionsSchema,
+  // Absent/null on every activity saved before this feature; read as [].
+  pricingOptions: z.preprocess(
+    (value) => (value === null || value === undefined ? [] : value),
+    sightseeingPricingOptionsSchema,
+  ),
   sequence: z.number().int().min(1).max(500).nullable().optional(),
 });
 
@@ -656,7 +670,9 @@ export const sightseeingDaySchema = z.object({
   // legacy snapshots that predate per-meal preferences.
   mealPreferences: sightseeingMealPreferencesSchema,
   dailyTransfer: z.enum(SIGHTSEEING_TRANSFER_MODES).default('SHARED'),
-  activities: z.array(sightseeingActivitySchema).max(20).default([]),
+  activities: arrayFromNullish(sightseeingActivitySchema).pipe(
+    z.array(sightseeingActivitySchema).max(20),
+  ),
 });
 
 export const sightseeingDetailsSchema = z.object({
@@ -664,7 +680,7 @@ export const sightseeingDetailsSchema = z.object({
   sectionTitle: optionalText(200),
   amount: optionalMoney,
   description: optionalText(8000),
-  days: z.array(sightseeingDaySchema).max(60).default([]),
+  days: arrayFromNullish(sightseeingDaySchema).pipe(z.array(sightseeingDaySchema).max(60)),
 });
 
 export const hotelDetailsSchema = z.object({
@@ -782,15 +798,21 @@ export const quotationVersionInputSchema = z
     // Reference "Sightseeing" — day-wise activity itinerary.
     sightseeingDetails: sightseeingDetailsSchema.nullable().optional(),
     // Weblink customization — quotation-specific FAQs and custom section order.
-    faqs: z
-      .array(
-        z.object({
-          question: z.string().trim().min(1).max(500),
-          answer: z.string().trim().min(1).max(5000),
-        }),
-      )
-      .max(50)
-      .default([]),
+    faqs: arrayFromNullish(
+      z.object({
+        question: z.string().trim().min(1).max(500),
+        answer: z.string().trim().min(1).max(5000),
+      }),
+    ).pipe(
+      z
+        .array(
+          z.object({
+            question: z.string().trim().min(1).max(500),
+            answer: z.string().trim().min(1).max(5000),
+          }),
+        )
+        .max(50),
+    ),
     weblinkSectionOrder: z.array(z.string().trim().min(1).max(80)).max(30).nullable().optional(),
     // Destination Expert — per-quotation expert config
     destinationExpertConfig: z
@@ -810,12 +832,16 @@ export const quotationVersionInputSchema = z
       .optional(),
     notes: optionalText(4000),
     internalNotes: optionalText(4000),
-    itinerary: z.array(quotationItinerarySchema).max(500).default([]),
-    hotels: z.array(quotationHotelSchema).max(200).default([]),
-    services: z.array(quotationServiceSchema).max(500).default([]),
-    inclusions: z.array(contentSchema).max(200).default([]),
-    exclusions: z.array(contentSchema).max(200).default([]),
-    terms: z.array(contentSchema).max(200).default([]),
+    itinerary: arrayFromNullish(quotationItinerarySchema).pipe(
+      z.array(quotationItinerarySchema).max(500),
+    ),
+    hotels: arrayFromNullish(quotationHotelSchema).pipe(z.array(quotationHotelSchema).max(200)),
+    services: arrayFromNullish(quotationServiceSchema).pipe(
+      z.array(quotationServiceSchema).max(500),
+    ),
+    inclusions: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
+    exclusions: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
+    terms: arrayFromNullish(contentSchema).pipe(z.array(contentSchema).max(200)),
   })
   .refine((v) => !v.travelStartDate || !v.travelEndDate || v.travelStartDate <= v.travelEndDate, {
     message: 'Travel end must be on or after travel start.',

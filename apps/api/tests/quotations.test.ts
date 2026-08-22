@@ -612,15 +612,20 @@ describe('Phase 8 customer quotations', () => {
     expect(refreshed.status).toBe('DRAFT');
   });
 
-  it('returns 400 with a clear message when Create Revision copies sightseeing without a departure day', async () => {
-    // A legacy/production quotation whose final sightseeing day is not a
-    // departure day fails Create Revision in the version snapshot validation.
-    // The frontend previously swallowed this 400, which looked like "nothing
-    // happened" on the Create revision button.
+  it('creates an initial quotation when no Departure sightseeing master is configured', async () => {
+    const { client, lead } = await setup();
+    const created = await client.post('/api/quotations', { queryId: lead.id });
+
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.data.versions).toHaveLength(1);
+    expect(JSON.stringify(created.body)).not.toMatch(/departure sightseeing activity/i);
+  });
+
+  it('supports multi-destination sightseeing without Departure through revision, PDF and public weblink', async () => {
     const { client, lead } = await setup();
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     const first = quotation.versions[0];
-    await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
+    const updated = await client.patch(`/api/quotations/${quotation.id}/versions/${first.id}`, {
       sightseeingDetails: {
         include: true,
         sectionTitle: 'Sightseeing & Experiences',
@@ -636,16 +641,49 @@ describe('Phase 8 customer quotations', () => {
             dailyTransfer: 'SHARED',
             activities: [{ name: 'Dal Lake Shikara Ride', dailyTransfer: 'SHARED' }],
           },
+          {
+            dayNumber: 2,
+            title: 'Day 2: Singapore highlights',
+            city: 'Singapore',
+            meals: { breakfast: true, lunch: false, dinner: false },
+            mealMode: 'INCLUDE_AT_HOTEL',
+            dailyTransfer: 'PRIVATE',
+            activities: [{ name: 'Universal Studios', dailyTransfer: 'PRIVATE' }],
+          },
         ],
       },
     });
+    expect(updated.status, JSON.stringify(updated.body)).toBe(200);
     await client.post(`/api/quotations/${quotation.id}/versions/${first.id}/finalize`);
 
     const revision = await client.post(`/api/quotations/${quotation.id}/versions`, {
       sourceVersionId: first.id,
     });
-    expect(revision.status).toBe(400);
-    expect(revision.body.error.message).toMatch(/departure sightseeing activity/i);
+    expect(revision.status, JSON.stringify(revision.body)).toBe(201);
+    expect(revision.body.data.sightseeingDetails.days).toHaveLength(2);
+    expect(revision.body.data.sightseeingDetails.days[1].activities[0].name).toBe(
+      'Universal Studios',
+    );
+    expect(JSON.stringify(revision.body)).not.toMatch(/departure sightseeing activity/i);
+
+    await client.post(`/api/quotations/${quotation.id}/versions/${revision.body.data.id}/finalize`);
+    const pdf = await client.post(
+      `/api/quotations/${quotation.id}/versions/${revision.body.data.id}/generate-pdf`,
+      { force: true, style: 'CLASSIC' },
+    );
+    expect(pdf.status, JSON.stringify(pdf.body)).toBe(200);
+
+    const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+      quotationVersionId: revision.body.data.id,
+    });
+    expect(link.status, JSON.stringify(link.body)).toBe(200);
+    const token = link.body.data.url.split('/q/')[1];
+    const publicView = await createAuthClient(app).get(`/api/public/quotations/${token}`);
+    expect(publicView.status, JSON.stringify(publicView.body)).toBe(200);
+    expect(publicView.body.data.version.sightseeingDetails.days[1].activities[0].name).toBe(
+      'Universal Studios',
+    );
+    expect(JSON.stringify(publicView.body)).not.toMatch(/departure sightseeing activity/i);
   });
 
   it('reproduces the production 404: archiving the linked lead makes the quotation invisible', async () => {
@@ -988,6 +1026,100 @@ describe('Phase 8 customer quotations', () => {
         })
       ).status,
     ).toBe(409);
+  });
+
+  it('exposes an enabled Destination Expert publicly even without avatar metadata', async () => {
+    const { client, lead, template } = await setup();
+    const quotation = (
+      await client.post('/api/quotations', { queryId: lead.id, templateId: template.id })
+    ).body.data;
+    const version = quotation.versions[0];
+    const expertUser = await db.user.findFirstOrThrow({ where: { email: 'owner@alpha.test' } });
+    await db.user.update({
+      where: { id: expertUser.id },
+      data: {
+        fullName: 'Aditi Rao',
+        phone: '+91 90000 00000',
+        whatsappNumber: '+91 98888 77777',
+        jobTitle: 'Singapore expert',
+        specialization: 'Honeymoons and family holidays',
+        yearsOfExperience: 8,
+        tripsPlanned: 550,
+        languages: 'English, Hindi, Tamil',
+        gender: null,
+        profileImageObjectKey: null,
+        profileImageConfirmedAt: null,
+      },
+    });
+
+    const saved = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
+      destinationExpertConfig: {
+        enabled: true,
+        expertUserId: expertUser.id,
+        heading: 'Meet Your Destination Expert',
+        customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+        showWhatsapp: true,
+        showCall: true,
+        showEmail: true,
+        showExperience: true,
+        showTripsPlanned: true,
+        showLanguages: true,
+      },
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.data.destinationExpertConfig).toMatchObject({
+      enabled: true,
+      expertUserId: expertUser.id,
+      heading: 'Meet Your Destination Expert',
+      customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+      showWhatsapp: true,
+      showCall: true,
+      showEmail: true,
+      showExperience: true,
+      showTripsPlanned: true,
+      showLanguages: true,
+    });
+
+    await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
+    const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
+      quotationVersionId: version.id,
+    });
+    const token = link.body.data.url.split('/q/')[1];
+    const view = await createAuthClient(app).get(`/api/public/quotations/${token}`);
+
+    expect(view.status, JSON.stringify(view.body)).toBe(200);
+    expect(view.body.data.version.destinationExpertConfig).toMatchObject({
+      enabled: true,
+      expertUserId: expertUser.id,
+    });
+    expect(view.body.data.destinationExpert).toMatchObject({
+      id: expertUser.id,
+      fullName: 'Aditi Rao',
+      email: 'owner@alpha.test',
+      phone: '+91 90000 00000',
+      whatsappNumber: '+91 98888 77777',
+      jobTitle: 'Singapore expert',
+      specialization: 'Honeymoons and family holidays',
+      yearsOfExperience: 8,
+      tripsPlanned: 550,
+      languages: 'English, Hindi, Tamil',
+      gender: null,
+      profileImageUrl: null,
+      avatarKind: null,
+      config: {
+        heading: 'Meet Your Destination Expert',
+        customIntroduction: 'I will help plan your Singapore holiday from first chat to check-in.',
+        showWhatsapp: true,
+        showCall: true,
+        showEmail: true,
+        showExperience: true,
+        showTripsPlanned: true,
+        showLanguages: true,
+      },
+    });
+    expect(JSON.stringify(view.body.data.destinationExpert)).not.toMatch(
+      /password|permission|roleId|passwordHash/i,
+    );
   });
 
   describe('quotation weblink view analytics', () => {
@@ -2422,8 +2554,8 @@ describe('Phase 8 quotation activity pricing', () => {
     const { client, lead } = await setup();
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     const first = quotation.versions[0];
-    // Creating a version (including a revision) requires the final day to be a
-    // departure day — a pre-existing rule, unrelated to pricing.
+    // Existing quotations that already contain a Departure activity retain it
+    // when a revision copies the saved sightseeing snapshot.
     const withDepartureDay = {
       ...sightseeing([
         {
@@ -2471,6 +2603,9 @@ describe('Phase 8 quotation activity pricing', () => {
       { label: 'Adult', price: 3500 },
       { label: 'Infant', price: 500 },
     ]);
+    expect(revision.body.data.sightseeingDetails.days[1].activities[0].name).toBe(
+      'Check Out and Departure',
+    );
 
     // And it is persisted, not just echoed.
     const stored = await db.quotationVersion.findUniqueOrThrow({

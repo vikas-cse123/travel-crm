@@ -13,6 +13,7 @@ import {
   MarketingServiceStack,
   type MarketingServiceStackProps,
 } from '../lib/marketing-service-stack.js';
+import { YourQuotationStack, type YourQuotationStackProps } from '../lib/your-quotation-stack.js';
 
 const app = new App();
 
@@ -58,3 +59,8 @@ new MarketingServiceStack(app, 'InterscaleMarketingServiceStack', {
   env,
   config,
 } as MarketingServiceStackProps);
+
+new YourQuotationStack(app, 'InterscaleYourQuotationStack', {
+  env,
+  config,
+} as YourQuotationStackProps);

@@ -1538,7 +1538,7 @@ async function resolveAirlinePresentations(ownerCompanyIds: string[], flightDeta
   );
 }
 
-/** Destination Expert — fetch expert user and decide avatar. Returns null when incomplete (no photo + no gender) so public weblink stays hidden. */
+/** Destination Expert — fetch expert user and decide the optional avatar presentation. */
 async function resolveDestinationExpertPresentation(
   companyId: string,
   config: DestinationExpertConfig | null | undefined,
@@ -1564,7 +1564,8 @@ async function resolveDestinationExpertPresentation(
     },
   });
   if (!user) return null;
-  // Avatar priority: custom photo > gender default > incomplete
+  // Avatar priority: custom photo > gender default > no avatar. The section itself
+  // remains visible when the expert is selected and enabled.
   let avatarUrl: string | null = null;
   let avatarKind: 'custom' | 'male' | 'female' | null = null;
   if (user.profileImageObjectKey && user.profileImageConfirmedAt) {
@@ -1582,7 +1583,6 @@ async function resolveDestinationExpertPresentation(
   if (!avatarUrl) {
     if (user.gender === 'MALE') avatarKind = 'male';
     else if (user.gender === 'FEMALE') avatarKind = 'female';
-    else return null; // incomplete: no photo and no gender → hide publicly
   }
   return {
     id: user.id,
@@ -1690,29 +1690,6 @@ async function createVersion(
     access.imageOwnerCompanyIds,
     input,
   );
-
-  // Require a departure-type sightseeing activity on the final itinerary day
-  // so every generated quotation ends with a dedicated departure day.  The
-  // frontend prefill already picks the correct master; this server-side check
-  // catches manually edited rows that replace the departure activity.
-  if (hydratedInput.sightseeingDetails?.include && hydratedInput.sightseeingDetails.days?.length) {
-    const lastDay =
-      hydratedInput.sightseeingDetails.days[hydratedInput.sightseeingDetails.days.length - 1];
-    const lastActivity = lastDay?.activities?.[0];
-    const activityName = (lastActivity?.name ?? '').trim();
-    if (activityName) {
-      const normName = activityName.toLowerCase().replace(/[\s-]+/g, ' ');
-      const isDeparture =
-        normName.includes('departure') || /check\s*out\s+and\s+departure/i.test(normName);
-      if (!isDeparture) {
-        const destName =
-          hydratedInput.destinationSummary.split(/[•(→>,]/)[0]?.trim() || 'this destination';
-        throw new ValidationError(
-          `A departure sightseeing activity is not configured for ${destName}. Add an active departure activity in Sightseeing Masters before creating the quotation.`,
-        );
-      }
-    }
-  }
 
   const data = versionCreateData(hydratedInput, auth.companyId, allowCosting, pax);
   const version = await tx.quotationVersion.create({

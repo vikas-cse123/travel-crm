@@ -13,6 +13,7 @@ import {
   confirmTestimonialImage,
   deleteTestimonialImage,
   reorderTestimonialImages,
+  useRefreshMasterImageQueries,
   testimonialImageUrl,
   useCreateTestimonial,
   useTestimonial,
@@ -47,6 +48,7 @@ export function TestimonialFormPage() {
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA);
   const [formError, setFormError] = useState('');
   const form = useForm<FormValues>({ defaultValues: empty });
+  const refreshImageQueries = useRefreshMasterImageQueries('testimonials');
   const imageGallery = useMasterImageGallery({
     masterId: testimonialId,
     entity: testimonial.data,
@@ -59,7 +61,7 @@ export function TestimonialFormPage() {
       remove: deleteTestimonialImage,
       reorder: reorderTestimonialImages,
     },
-    onExistingChange: testimonial.refetch,
+    onExistingChange: refreshImageQueries,
   });
 
   useEffect(() => {
