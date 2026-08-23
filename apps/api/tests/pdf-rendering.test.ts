@@ -101,29 +101,103 @@ const footerEmptyCompanyForOverlap = () => ({
 });
 
 describe('Stylish quotation PDF', () => {
-  it('shows vehicle-transfer travel services as Transport on the cover', async () => {
-    const pdf = await renderStylishQuotationPdf({
+  it('renders versioned customer copy in both styles without leaking internal notes', async () => {
+    const longIntroduction = Array.from(
+      { length: 90 },
+      (_, index) =>
+        `Introduction line ${index + 1}: your planned journey remains carefully documented.`,
+    ).join('\n');
+    const longNotes = Array.from(
+      { length: 90 },
+      (_, index) => `Customer note ${index + 1}: passport and booking conditions remain important.`,
+    ).join('\n');
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
       company: footerEmptyCompanyForOverlap(),
       quotation: quotationOverlap(),
       version: {
         ...baseVersionOverlap(),
+        introduction: longIntroduction,
+        notes: longNotes,
+      },
+      images: { cover: PNG_1PX },
+    };
+    (input.version as typeof input.version & { internalNotes: string }).internalNotes =
+      'INTERNAL-PDF-SECRET';
+
+    for (const rendered of [
+      await renderStylishQuotationPdf(input),
+      await renderQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered);
+      expect(text).toContain('Introduction line 1');
+      expect(text).toContain('Introduction line 90');
+      expect(text).toContain('Customer note 1');
+      expect(text).toMatch(/Customer note\s+90/);
+      expect(text).not.toContain('INTERNAL-PDF-SECRET');
+      const pages = pageWordBoxes(rendered);
+      for (const page of pages)
+        expect(Math.max(0, ...page.words.map((word) => word.yMax))).toBeLessThanOrEqual(
+          page.height,
+        );
+      expect(pdfTextPage(rendered, pageCount(rendered))).toMatch(/THANK\s+YOU/i);
+    }
+  });
+
+  it('omits empty customer-copy headings in both styles', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: baseVersionOverlap(),
+      images: { cover: PNG_1PX },
+    };
+    for (const rendered of [
+      await renderStylishQuotationPdf(input),
+      await renderQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered);
+      expect(text).not.toContain('NOTES FOR CUSTOMER');
+      expect(text).not.toContain('INTRODUCTION');
+    }
+  });
+
+  it('renders vehicle title, usage and description consistently in both PDF styles', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        addOnDetails: { include: true },
         services: [
           {
             serviceType: 'VEHICLE_TRANSFER',
             name: 'Airport transfer',
-            description: null,
-            city: 'Singapore',
+            description: 'Private airport pickup in a clean vehicle.',
+            city: 'Sports Racing',
+            notes: '3333 days',
+            taxCategory: 'Transportation',
             quantity: 1,
             unitSellingPrice: 100,
           },
         ],
       },
-      images: { cover: PNG_1PX },
-    });
+      images: {
+        cover: PNG_1PX,
+        services: [PNG_1PX],
+      },
+    };
+    const pdf = await renderStylishQuotationPdf(input);
+    const classicPdf = await renderQuotationPdf(input);
 
     const coverText = pdfTextPage(pdf, 1);
     expect(coverText).toContain('Transport');
     expect(coverText).not.toContain('Add-ons');
+    for (const rendered of [pdf, classicPdf]) {
+      const text = pdfText(rendered);
+      expect(text.toLowerCase()).toContain('transportation');
+      expect(text).toContain('Sports Racing');
+      expect(text).toContain('3333 days');
+      expect(text).toContain('Private airport pickup in a clean vehicle.');
+    }
   });
 
   it('renders a fixed-A4 photo-led proposal while preserving rich text', async () => {
@@ -192,6 +266,159 @@ describe('Stylish quotation PDF', () => {
     expect(visible).toContain('THANK YOU');
   });
 
+  it('keeps long add-on descriptions inside a compact card and hides add-on money', async () => {
+    const description =
+      'This add-on description is intentionally long so it wraps across several lines while remaining fully inside its card. '.repeat(
+        5,
+      );
+    const pdf = await renderStylishQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        addOnDetails: { include: true },
+        services: [
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'visa-master',
+            name: 'Visa assistance',
+            description,
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 98765,
+          },
+        ],
+      },
+      images: { cover: PNG_1PX },
+    });
+    const visible = pdfText(pdf);
+    expect(visible).toContain('ADD-ON SERVICES');
+    expect(visible).toContain('Visa assistance');
+    expect(visible).toContain('remaining fully inside its card');
+    expect(visible).not.toContain('98,765');
+    expect(pageMediaBoxes(pdf).some((box) => box.height < PDF_PAGE_HEIGHT)).toBe(true);
+  });
+
+  it('renders editor emojis in both add-on PDF styles without missing glyph boxes', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        addOnDetails: { include: true },
+        services: [
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'visa-master',
+            name: 'Visa assistance',
+            description:
+              '<p>🇮🇳 India Visa Assistance</p><p>✅ Assistance</p><p>📄 Documents</p><p>✈️ Travel recommendation</p>',
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+        ],
+      },
+      images: { cover: PNG_1PX },
+    };
+    const stylishPdf = await renderStylishQuotationPdf(input);
+    expect(pdfText(stylishPdf)).not.toContain('YOUR JOURNEY, BEAUTIFULLY PLANNED');
+    for (const pdf of [stylishPdf, await renderQuotationPdf(input)]) {
+      const visible = pdfText(pdf);
+      expect(visible).toContain('India Visa Assistance');
+      expect(visible).toContain('Assistance');
+      expect(visible).toContain('Documents');
+      expect(visible).toContain('Travel recommendation');
+      expect(visible).not.toContain('□');
+      const imageObjects = pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? [];
+      expect(imageObjects.length).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it('keeps duplicate flight, hotel and sightseeing rows out of Travel Services', async () => {
+    const pdf = await renderStylishQuotationPdf({
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        services: [
+          {
+            serviceType: 'FLIGHT',
+            name: 'duplicate flight card',
+            description: null,
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+          {
+            serviceType: 'HOTEL',
+            name: 'duplicate hotel card',
+            description: null,
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+          {
+            serviceType: 'SIGHTSEEING',
+            name: 'duplicate sightseeing card',
+            description: null,
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+          {
+            serviceType: 'VEHICLE_TRANSFER',
+            name: 'Private SUV',
+            description: 'Private transportation throughout the trip.',
+            city: 'SUV',
+            notes: '5 Days',
+            taxCategory: 'Transportation',
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+          {
+            serviceType: 'CRUISE',
+            name: 'Kerala Backwater Cruise',
+            description: 'Private houseboat cruise through the backwaters.',
+            city: 'Deluxe Cabin',
+            notes: '2 Nights',
+            quantity: 1,
+            unitSellingPrice: 0,
+          },
+          {
+            serviceType: 'OTHER_ADD_ON',
+            addOnServiceId: 'addon-master',
+            name: 'Priority assistance',
+            description: 'Optional assistance service.',
+            city: null,
+            quantity: 1,
+            unitSellingPrice: 5000,
+          },
+        ],
+      },
+      images: {
+        cover: PNG_1PX,
+        services: [null, null, null, PNG_1PX, PNG_1PX, null],
+      },
+    });
+    const visible = pdfText(pdf);
+    expect(visible).toContain('CRUISE DETAILS');
+    expect(visible).toContain('Kerala Backwater Cruise');
+    expect(visible).toContain('Deluxe Cabin');
+    expect(visible).toContain('2 Nights');
+    expect(visible).toContain('Private houseboat cruise through the backwaters.');
+    expect(visible).not.toContain('duplicate flight card');
+    expect(visible).not.toContain('duplicate hotel card');
+    expect(visible).not.toContain('duplicate sightseeing card');
+    expect(pdfTextPage(pdf, 3)).toContain('TRANSPORTATION');
+    expect(pdfTextPage(pdf, 3)).not.toContain('CRUISE DETAILS');
+    expect(pdfTextPage(pdf, 4)).toContain('CRUISE DETAILS');
+    expect(pdfTextPage(pdf, 4)).not.toContain('ADD-ON SERVICES');
+    expect(pdfTextPage(pdf, 5)).toContain('ADD-ON SERVICES');
+    expect(pdfTextPage(pdf, 5)).not.toContain('CRUISE DETAILS');
+    expect(visible).not.toContain('5,000');
+  });
+
   it('renders optional per-stay hotel times and omits them when blank', async () => {
     const timedHotel = {
       city: 'Singapore',
@@ -212,6 +439,14 @@ describe('Stylish quotation PDF', () => {
       company: footerEmptyCompanyForOverlap(),
       quotation: quotationOverlap(),
       version: { ...baseVersionOverlap(), hotels: [timedHotel] },
+      hotelPresentations: [
+        {
+          starCategory: 5,
+          starRating: '4.6',
+          address: '10 Bayfront Avenue, Singapore 018956',
+          reviewLink: 'https://example.com/hotels/marina-bay',
+        },
+      ],
       images: { cover: PNG_1PX },
     };
 
@@ -220,6 +455,24 @@ describe('Stylish quotation PDF', () => {
       expect(visible).toContain('3:30 PM');
       expect(visible).toContain('11:15 AM');
     }
+
+    const stylishHotelPdf = await renderStylishQuotationPdf(input);
+    const stylishHotelText = pdfText(stylishHotelPdf);
+    expect(stylishHotelText).toContain('★★★★★');
+    expect(stylishHotelText).toContain('10 Bayfront Avenue, Singapore 018956');
+    expect(stylishHotelText).toContain('4.6');
+    expect(stylishHotelText).toContain('Check Hotel Review');
+    expect(stylishHotelPdf.toString('latin1')).toContain(
+      '/URI (https://example.com/hotels/marina-bay)',
+    );
+
+    const noReviewPdf = await renderStylishQuotationPdf({
+      ...input,
+      hotelPresentations: [{ ...input.hotelPresentations?.[0], reviewLink: null }],
+    });
+    const noReviewText = pdfText(noReviewPdf);
+    expect(noReviewText).not.toContain('4.6');
+    expect(noReviewText).not.toContain('Check Hotel Review');
 
     const classicVisible = pdfText(await renderQuotationPdf(input));
     expect(classicVisible).toContain('Check-in: 6 Jan 2027 | 3:30 PM');
@@ -307,8 +560,8 @@ describe('Stylish quotation PDF', () => {
           include: true,
           journeyType: 'ONEWAY_OUTBOUND',
           outbound: {
-            fromCity: 'Rajkot',
-            toCity: 'Singapore',
+            fromCity: 'Chaudhary Charan Singh International Airport, Terminal 3',
+            toCity: 'Kempegowda International Airport Bengaluru',
             segments: [
               {
                 airlineName: 'Indigo',
@@ -319,6 +572,7 @@ describe('Stylish quotation PDF', () => {
                 arrivalDate: '2026-09-05',
                 arrivalTime: '13:00',
                 duration: '11h 0m',
+                notes: '<p><strong>Terminal note:</strong> Verify before departure.</p>',
               },
               {
                 airlineName: 'Thai Airways',
@@ -346,6 +600,13 @@ describe('Stylish quotation PDF', () => {
       expect(visible).toContain('1:00 PM');
       expect(visible).toContain('10:00 AM');
     }
+    expect(pdfText(stylish)).toContain('Terminal note: Verify before departure.');
+    expect(pdfText(stylish)).not.toContain('<p>');
+    expect(pdfText(stylish)).not.toContain('Baggage:');
+    expect(pdfText(stylish)).toContain('→');
+    const stylishBoxes = pageMediaBoxes(stylish);
+    expect(stylishBoxes.some((box) => box.height < PDF_PAGE_HEIGHT - 1)).toBe(true);
+    expect(stylishBoxes.every((box) => box.height >= PDF_MIN_PAGE_HEIGHT - 1)).toBe(true);
 
     // Regression for the classic card: the AM suffix must share the exact
     // baseline with 10:00 instead of wrapping onto the departure date.
@@ -355,6 +616,21 @@ describe('Stylish quotation PDF', () => {
     expect(words[tenIndex + 1]?.text).toBe('AM');
     expect(
       Math.abs(words[tenIndex]!.yBottomFromTop - words[tenIndex + 1]!.yBottomFromTop),
+    ).toBeLessThan(1);
+    const stylishWords = wordBoxes(stylish);
+    const routeStart = stylishWords.find((word) => word.text === 'Chaudhary');
+    const routeEnd = stylishWords.find((word) => word.text === 'Bengaluru');
+    expect(routeStart).toBeDefined();
+    expect(routeEnd).toBeDefined();
+    expect(Math.abs(routeStart!.yBottomFromTop - routeEnd!.yBottomFromTop)).toBeLessThan(1);
+    const stylishTenIndex = stylishWords.findIndex((word) => word.text === '10:00');
+    expect(stylishTenIndex).toBeGreaterThanOrEqual(0);
+    expect(stylishWords[stylishTenIndex + 1]?.text).toBe('AM');
+    expect(
+      Math.abs(
+        stylishWords[stylishTenIndex]!.yBottomFromTop -
+          stylishWords[stylishTenIndex + 1]!.yBottomFromTop,
+      ),
     ).toBeLessThan(1);
   });
 
@@ -695,7 +971,7 @@ describe('PDF rendering with long content', () => {
   });
 
   it('renders a multi-page quotation PDF with a long itinerary and terms', async () => {
-    const pdf = await renderQuotationPdf({
+    const longInput: Parameters<typeof renderQuotationPdf>[0] = {
       company: { ...company, logo: PNG_1PX },
       consultant: {
         name: 'Vivek Sharma',
@@ -816,7 +1092,9 @@ describe('PDF rendering with long content', () => {
         exclusions: Array.from({ length: 25 }, (_, i) => ({ content: `Exclusion ${i + 1}` })),
         terms: Array.from({ length: 15 }, (_, i) => ({ content: `${LONG_TERMS} (${i + 1})` })),
       },
-    });
+    };
+    const pdf = await renderQuotationPdf(longInput);
+    const stylishAudit = await renderStylishQuotationPdf(longInput);
     expect(isPdf(pdf)).toBe(true);
     expect(pdf.length).toBeGreaterThan(1000);
     expect(pageCount(pdf)).toBeGreaterThan(1);
@@ -865,6 +1143,21 @@ describe('PDF rendering with long content', () => {
     expect(visible).toContain('GSTIN: 29ABCDE1234F1Z5');
     // No junk values anywhere in the visible document.
     expect(visible).not.toMatch(/\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/);
+
+    const stylishTotal = pageCount(stylishAudit);
+    const stylishText = pdfText(stylishAudit);
+    expect(stylishText).not.toMatch(/<\/?(?:p|strong|span|div)\b/i);
+    expect(pdfTextPage(stylishAudit, stylishTotal)).toContain('THANK YOU');
+    for (let page = 2; page < stylishTotal; page += 1) {
+      const pageText = pdfTextPage(stylishAudit, page);
+      expect(pageText).toContain('INTERSCALE GLOBAL LUXURY');
+      expect(pageText).toContain('CONTACT US');
+      expect(pageText).toContain(`Page ${page} of ${stylishTotal}`);
+    }
+    const stylishAuditBoxes = pageMediaBoxes(stylishAudit);
+    expect(stylishAuditBoxes.some((box) => box.height < PDF_PAGE_HEIGHT - 1)).toBe(true);
+    expect(stylishAuditBoxes.every((box) => box.height >= PDF_MIN_PAGE_HEIGHT - 1)).toBe(true);
+    expect(stylishAuditBoxes.every((box) => box.height <= PDF_PAGE_HEIGHT + 1)).toBe(true);
 
     // Pages retain A4 width and the existing bounded dynamic-height behavior.
     const boxes = pageMediaBoxes(pdf);

@@ -42,6 +42,7 @@ import {
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { formatTime12Hour } from '@/utils/dateTime';
+import { buildQuotationDescription, normalizeWhatsAppPhone } from './quotationContact';
 import type {
   FlightJourney,
   FlightSegment,
@@ -440,6 +441,8 @@ function DestinationExpertSection({
   customerName,
   destinationSummary,
   destinations,
+  quotationId,
+  quotationTitle,
 }: {
   expert: {
     fullName: string;
@@ -469,6 +472,8 @@ function DestinationExpertSection({
   customerName: string;
   destinationSummary: string;
   destinations?: string | null;
+  quotationId?: string | null;
+  quotationTitle?: string | null;
 }) {
   if (!expert) return null;
   const heading = expert.config.heading?.trim() || 'Know Your Destination Expert';
@@ -494,10 +499,11 @@ function DestinationExpertSection({
   const showTrips =
     expert.config.showTripsPlanned && expert.tripsPlanned != null && expert.tripsPlanned > 0;
   const showLangs = expert.config.showLanguages && expert.languages?.trim();
-  const whatsappPhone = (expert.whatsappNumber || expert.phone || '').replace(/[^0-9]/g, '');
+  const whatsappPhone = normalizeWhatsAppPhone(expert.whatsappNumber);
   const phone = expert.phone?.trim() || null;
   const telPhone = phone?.replace(/[^+0-9]/g, '') || null;
   const email = expert.email?.trim() || null;
+  const whatsappMessage = `Hello, I'm interested in the travel quotation (ID: ${buildQuotationDescription(quotationId ?? null, quotationTitle ?? null, customerName)})`;
   const avatarSrc =
     expert.profileImageUrl ||
     (expert.avatarKind === 'male' || expert.gender === 'MALE'
@@ -613,7 +619,7 @@ function DestinationExpertSection({
                 <div className="mt-8 flex flex-wrap justify-center gap-3 md:justify-start">
                   {expert.config.showWhatsapp && whatsappPhone && (
                     <a
-                      href={`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hi ${expertFirst}, I'm interested in ${destList[0] || 'my trip'}`)}`}
+                      href={`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
@@ -2077,6 +2083,8 @@ export function PublicQuotationPage() {
                 customerName={q.customerName}
                 destinationSummary={q.destinationSummary}
                 destinations={q.destinations ?? null}
+                quotationId={q.quotationNumber}
+                quotationTitle={v.title}
               />
             ) : null;
             nodes['itinerary'] =
@@ -2139,18 +2147,16 @@ export function PublicQuotationPage() {
                             <h3 className="text-lg font-bold leading-tight text-slate-800">
                               {hotel.hotelName}
                             </h3>
-                            {(reviewUrl || showScore) && (
+                            {reviewUrl && (
                               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                {reviewUrl && (
-                                  <a
-                                    href={reviewUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs font-medium text-blue-600 hover:underline"
-                                  >
-                                    Hotel Review <ExternalLink className="inline h-3 w-3" />
-                                  </a>
-                                )}
+                                <a
+                                  href={reviewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-medium text-blue-600 hover:underline"
+                                >
+                                  Hotel Review <ExternalLink className="inline h-3 w-3" />
+                                </a>
                                 {showScore && (
                                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
                                     {presentation?.starRating}
@@ -2340,7 +2346,7 @@ export function PublicQuotationPage() {
                           ? [{ url: presentation.imageUrl, alt: cruise.name }]
                           : [];
                       const duration = cruise.notes?.trim();
-                      const roomType = presentation?.roomTypeName?.trim();
+                      const roomType = presentation?.roomTypeName?.trim() || cruise.city?.trim();
                       const rawDescription = cruise.description?.trim() ?? '';
                       const descriptionHasText = Boolean(
                         rawDescription.replace(/<[^>]*>/g, '').trim(),
@@ -2500,10 +2506,29 @@ export function PublicQuotationPage() {
                 </section>
               );
             })();
+            nodes['customerNotes'] = hasPolicyHtml(v.notes) ? (
+              <section aria-labelledby="customer-notes-heading">
+                <SectionTitle>Notes for Customer</SectionTitle>
+                <div className="flex gap-4 rounded-xl border border-blue-100 bg-blue-50/70 p-5 shadow-sm">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                    <InfoIcon className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div
+                    id="customer-notes-heading"
+                    className="min-w-0 flex-1 text-sm leading-6 text-slate-700"
+                  >
+                    <RichHtml html={v.notes!} />
+                  </div>
+                </div>
+              </section>
+            ) : null;
             nodes['faqs'] = faqsNormalized.length > 0 ? <FaqSection faqs={faqsNormalized} /> : null;
+            const renderOrder = order.flatMap((id) =>
+              id === 'policies' ? ['customerNotes', id] : [id],
+            );
             return (
               <>
-                {order.map((id) => {
+                {renderOrder.map((id) => {
                   const node = nodes[id];
                   return node ? <Fragment key={id}>{node}</Fragment> : null;
                 })}

@@ -1,3 +1,5 @@
+import { EDITOR_COLOR_EMOJI_PNGS } from './editor-color-emojis.js';
+
 // AUTO-GENERATED from Noto Color Emoji (SIL Open Font License 1.1).
 // These small embedded PNGs let PDFKit preserve the editor's colour emoji.
 export const COLOR_EMOJI_PNGS = new Map<string, Buffer>([
@@ -136,5 +138,46 @@ export const COLOR_EMOJI_PNGS = new Map<string, Buffer>([
   ],
 ]);
 
+for (const [emoji, png] of EDITOR_COLOR_EMOJI_PNGS) COLOR_EMOJI_PNGS.set(emoji, png);
+
+const PDF_EMOJI_SEQUENCE_SOURCE =
+  '(?:\\p{Regional_Indicator}{2}|[#*0-9]\\uFE0F?\\u20E3|\\p{Extended_Pictographic}(?:\\uFE0E|\\uFE0F)?(?:\\p{Emoji_Modifier})?(?:\\u200D\\p{Extended_Pictographic}(?:\\uFE0E|\\uFE0F)?(?:\\p{Emoji_Modifier})?)*)';
+
+export const pdfEmojiSequenceRegex = () => new RegExp(PDF_EMOJI_SEQUENCE_SOURCE, 'gu');
+export const containsPdfEmoji = (value: string): boolean =>
+  new RegExp(PDF_EMOJI_SEQUENCE_SOURCE, 'u').test(value);
+export const splitPdfEmojiSequences = (value: string): string[] =>
+  value.split(new RegExp(`(${PDF_EMOJI_SEQUENCE_SOURCE})`, 'gu')).filter(Boolean);
+
 export const colorEmojiPng = (emoji: string): Buffer | undefined =>
   COLOR_EMOJI_PNGS.get(emoji.replace(/[\uFE0E\uFE0F]/g, ''));
+
+/**
+ * PDFKit's bundled text fonts do not contain emoji glyphs. Keep unsupported
+ * editor emoji readable by substituting a semantically close Unicode symbol
+ * that DejaVu Sans can embed, rather than emitting an empty square.
+ */
+export const pdfEmojiFallback = (emoji: string): string => {
+  const normalized = emoji.replace(/[\uFE0E\uFE0F]/g, '');
+  const exact: Record<string, string> = {
+    '🇮🇳': 'IN',
+    '✅': '+',
+    '☑': '+',
+    '✔': '+',
+    '❌': 'x',
+    '⚠': '!',
+    '✈': '✈',
+    '➡': '→',
+    '➜': '→',
+    '👉': '→',
+    '📋': '-',
+    '📄': '-',
+    '🛂': '-',
+    '💼': '-',
+    '🔹': '-',
+    '🔸': '-',
+    '⭐': '*',
+    '🌟': '*',
+  };
+  return exact[normalized] ?? '-';
+};

@@ -1538,31 +1538,40 @@ async function resolveAirlinePresentations(ownerCompanyIds: string[], flightDeta
   );
 }
 
-/** Destination Expert — fetch expert user and decide the optional avatar presentation. */
+/** Destination Expert — fetch expert user and decide the optional avatar presentation.
+ * Uses per-quotation saved contacts when present, otherwise falls back to real
+ * expert/company data. Never manufactures fake numbers.
+ */
 async function resolveDestinationExpertPresentation(
   companyId: string,
   config: DestinationExpertConfig | null | undefined,
 ) {
   if (!config?.enabled || !config.expertUserId) return null;
-  const user = await prisma.user.findFirst({
-    where: { id: config.expertUserId, companyId, deletedAt: null },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      whatsappNumber: true,
-      jobTitle: true,
-      bio: true,
-      specialization: true,
-      yearsOfExperience: true,
-      tripsPlanned: true,
-      languages: true,
-      gender: true,
-      profileImageObjectKey: true,
-      profileImageConfirmedAt: true,
-    },
-  });
+  const [user, company] = await Promise.all([
+    prisma.user.findFirst({
+      where: { id: config.expertUserId, companyId, deletedAt: null },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        whatsappNumber: true,
+        jobTitle: true,
+        bio: true,
+        specialization: true,
+        yearsOfExperience: true,
+        tripsPlanned: true,
+        languages: true,
+        gender: true,
+        profileImageObjectKey: true,
+        profileImageConfirmedAt: true,
+      },
+    }),
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { phone: true, email: true },
+    }),
+  ]);
   if (!user) return null;
   // Avatar priority: custom photo > gender default > no avatar. The section itself
   // remains visible when the expert is selected and enabled.
@@ -1584,12 +1593,33 @@ async function resolveDestinationExpertPresentation(
     if (user.gender === 'MALE') avatarKind = 'male';
     else if (user.gender === 'FEMALE') avatarKind = 'female';
   }
+
+  // Per-quotation contact overrides (snapshot). Undefined means old quotation without the field
+  // → fall back to real data. Null/empty means explicit empty → hide that action.
+  const hasWhatsapp = (config as unknown as Record<string, unknown>).whatsappNumber !== undefined;
+  const hasCall = (config as unknown as Record<string, unknown>).callNumber !== undefined;
+  const hasEmail = (config as unknown as Record<string, unknown>).email !== undefined;
+
+  const savedWhatsapp = (config as unknown as { whatsappNumber?: string | null }).whatsappNumber;
+  const savedCall = (config as unknown as { callNumber?: string | null }).callNumber;
+  const savedEmail = (config as unknown as { email?: string | null }).email;
+
+  const effectiveWhatsapp = hasWhatsapp
+    ? savedWhatsapp?.trim() || null
+    : (user.whatsappNumber?.trim() || user.phone?.trim() || company?.phone?.trim() || null);
+  const effectiveCall = hasCall
+    ? savedCall?.trim() || null
+    : (user.phone?.trim() || company?.phone?.trim() || null);
+  const effectiveEmail = hasEmail
+    ? savedEmail?.trim().toLowerCase() || null
+    : (user.email?.trim() || company?.email?.trim() || null);
+
   return {
     id: user.id,
     fullName: user.fullName,
-    email: user.email,
-    phone: user.phone,
-    whatsappNumber: user.whatsappNumber,
+    email: effectiveEmail,
+    phone: effectiveCall,
+    whatsappNumber: effectiveWhatsapp,
     jobTitle: user.jobTitle,
     bio: user.bio,
     specialization: user.specialization,
@@ -2497,6 +2527,31 @@ export const quotationsService = {
     // Page-1 consultant strip: prepared-by/creator → lead assignee → company.
     const consultant = await resolvePdfConsultant(auth.companyId, quotation, company);
 
+    // Hotel catalogue presentation is optional and customer-safe. Keep it
+    // aligned with the quotation stays so both PDF renderers can consume it
+    // without exposing Master ids.
+    let hotelPresentations: QuotationPdfInput['hotelPresentations'];
+    try {
+      const ownerCompanyIds = await linkedMasterOwnerCompanyIds(auth.companyId);
+      const presentationByOptionId = await resolveHotelPresentations(
+        ownerCompanyIds,
+        version.hotels.map((hotel) => ({ id: hotel.id, hotelId: hotel.hotelId })),
+      );
+      hotelPresentations = version.hotels.map((hotel) => {
+        const presentation = presentationByOptionId[hotel.id];
+        return presentation
+          ? {
+              starCategory: presentation.starCategory,
+              starRating: presentation.starRating,
+              address: presentation.address,
+              reviewLink: presentation.reviewLink,
+            }
+          : null;
+      });
+    } catch {
+      hotelPresentations = undefined;
+    }
+
     // --- PDF image resolution: server-side buffers, never signed URLs ----------
     let images: QuotationPdfInput['images'] | undefined;
     let pdfSightseeingDetails: unknown = version.sightseeingDetails;
@@ -2907,6 +2962,7 @@ export const quotationsService = {
         ...version,
         sightseeingDetails: pdfSightseeingDetails,
       } as unknown as QuotationPdfInput['version'],
+      ...(hotelPresentations ? { hotelPresentations } : {}),
       ...(images ? { images } : {}),
     };
     const pdf = await renderer(pdfInput);

@@ -58,6 +58,7 @@ import {
   useUpdateQuotationWeblinkSettings,
   type QuotationVersion,
 } from '@/features/quotations/quotations.api';
+import { useSettings } from '@/features/settings/settings.api';
 import {
   cruiseImageUrl,
   hotelImageUrl,
@@ -1010,6 +1011,27 @@ function QuotationImageManager({
   );
 }
 
+function PersistInitialQuotationSnapshot({
+  enabled,
+  ready,
+  onPersist,
+}: {
+  enabled: boolean;
+  ready: boolean;
+  onPersist: () => void;
+}) {
+  const attempted = useRef(false);
+  const persistRef = useRef(onPersist);
+  persistRef.current = onPersist;
+  useEffect(() => {
+    if (!enabled || !ready || attempted.current) return;
+    attempted.current = true;
+    const timer = window.setTimeout(() => persistRef.current(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled, ready]);
+  return null;
+}
+
 export function QuotationBuilderPage() {
   const { quotationId = '', versionId = '' } = useParams();
   const navigate = useNavigate();
@@ -1094,6 +1116,13 @@ export function QuotationBuilderPage() {
   // so the init-time sync (from the lead's requested services) never re-enables
   // a section after a manual choice.
   const autoToggleRef = useRef<Set<string>>(new Set());
+  // Version 1 is initially created before the builder's master-driven prefills
+  // are available. Persist that completed client snapshot exactly once so the
+  // public weblink and PDFs never read the sparse server seed.
+  const initialSnapshotRef = useRef({ attempted: false, autoSaving: false });
+  // Wait for the reset/prefill effect itself, not merely its backing queries.
+  // Otherwise V1 can persist the sparse server seed one effect too early.
+  const [initializedFormVersionId, setInitializedFormVersionId] = useState<string | null>(null);
   // Keep the resolver in sync with the latest include/exclude state without
   // re-creating the whole form. Hotel is the only tab that always carries a
   // default empty row, so excluding it must bypass hotel validation entirely.
@@ -1173,7 +1202,22 @@ export function QuotationBuilderPage() {
   const createAirline = useCreateAirline();
   const queryClient = useQueryClient();
   const expertUsersQuery = useUsers(useMemo(() => new URLSearchParams({ pageSize: '100' }), []));
+  const settingsQuery = useSettings();
   const watchedExpertConfig = useWatch({ control: form.control, name: 'destinationExpertConfig' });
+
+  // Real company/expert fallback contacts (never fake). Used to prefill when selecting expert.
+  const getExpertFallback = (expertId: string | null) => {
+    const expert = (expertUsersQuery.data?.data ?? []).find(
+      (u: { id: string }) => u.id === expertId,
+    ) as unknown as { whatsappNumber?: string | null; phone?: string | null; email?: string | null } | undefined;
+    const companyPhone = settingsQuery.data?.profile.phone ?? null;
+    const companyEmail = settingsQuery.data?.profile.email ?? null;
+    const whatsappNumber =
+      expert?.whatsappNumber?.trim() || expert?.phone?.trim() || companyPhone?.trim() || null;
+    const callNumber = expert?.phone?.trim() || companyPhone?.trim() || null;
+    const email = expert?.email?.trim() || companyEmail?.trim() || null;
+    return { whatsappNumber, callNumber, email };
+  };
   // Sightseeing master resolved by destinationId for each lead itinerary stay
   // instead of imprecise free-text search — guarantees complete city coverage.
   const destinationIdSet = useMemo(() => {
@@ -1771,6 +1815,7 @@ export function QuotationBuilderPage() {
         { shouldDirty: false },
       );
     }
+    setInitializedFormVersionId(version.id);
   }, [
     version,
     form,
@@ -2317,6 +2362,12 @@ export function QuotationBuilderPage() {
                 heading: (value.destinationExpertConfig.heading ?? '').trim() || null,
                 customIntroduction:
                   (value.destinationExpertConfig.customIntroduction ?? '').trim() || null,
+                whatsappNumber:
+                  ((value.destinationExpertConfig as unknown as Record<string, unknown>).whatsappNumber as string | null | undefined)?.trim() || null,
+                callNumber:
+                  ((value.destinationExpertConfig as unknown as Record<string, unknown>).callNumber as string | null | undefined)?.trim() || null,
+                email:
+                  ((value.destinationExpertConfig as unknown as Record<string, unknown>).email as string | null | undefined)?.trim().toLowerCase() || null,
                 showWhatsapp: value.destinationExpertConfig.showWhatsapp !== false,
                 showCall: value.destinationExpertConfig.showCall !== false,
                 showEmail: value.destinationExpertConfig.showEmail !== false,
@@ -2326,7 +2377,18 @@ export function QuotationBuilderPage() {
               }
             : null,
         },
-        { onSuccess: () => navigate(`/quotations/${quotationId}`) },
+        {
+          onSuccess: () => {
+            if (initialSnapshotRef.current.autoSaving) {
+              initialSnapshotRef.current.autoSaving = false;
+              return;
+            }
+            navigate(`/quotations/${quotationId}`);
+          },
+          onError: () => {
+            initialSnapshotRef.current.autoSaving = false;
+          },
+        },
       );
     },
     (errors) => {
@@ -3155,6 +3217,7 @@ export function QuotationBuilderPage() {
                                 applyService(index, {
                                   cruiseId: option?.id ?? null,
                                   cruiseRoomTypeId: null,
+                                  city: null,
                                   description: selectedMaster?.description ?? null,
                                   images: snapshot,
                                   imageSnapshotPresent: masterGalleryPresence(selectedMaster),
@@ -3216,11 +3279,15 @@ export function QuotationBuilderPage() {
                               value={cruise?.cruiseRoomTypeId}
                               disabled={!cruise?.cruiseId}
                               loading={cruiseMasters.isPending}
-                              fallbackLabel={savedRoomType?.name}
+                              fallbackLabel={savedRoomType?.name ?? cruise?.city ?? undefined}
                               onSelect={(option) => {
                                 const room = roomOptions.find((entry) => entry.id === option?.id);
                                 applyService(index, {
                                   cruiseRoomTypeId: option?.id ?? null,
+                                  // Snapshot the customer-facing cabin name so
+                                  // historical quotations remain readable even
+                                  // if the Master room type is later removed.
+                                  city: room?.name ?? null,
                                   // Price is absent for viewers without costing.
                                   ...(room && room.price != null
                                     ? { sellingPrice: Number(room.price) }
@@ -4061,6 +4128,29 @@ export function QuotationBuilderPage() {
 
   return (
     <form className="space-y-5" onSubmit={submit}>
+      <PersistInitialQuotationSnapshot
+        enabled={
+          version.versionNumber === 1 &&
+          version.status === 'DRAFT' &&
+          !version.flightDetails &&
+          !version.hotelDetails &&
+          !version.sightseeingDetails &&
+          !version.addOnDetails
+        }
+        ready={Boolean(
+          quotation.data &&
+          hotelMasters.data &&
+          destinationMasters.data &&
+          sightseeingMasters.data &&
+          initializedFormVersionId === version.id,
+        )}
+        onPersist={() => {
+          if (initialSnapshotRef.current.attempted) return;
+          initialSnapshotRef.current.attempted = true;
+          initialSnapshotRef.current.autoSaving = true;
+          void submit();
+        }}
+      />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link to={`/quotations/${quotationId}`} className="rounded-lg p-2 hover:bg-card">
@@ -4167,15 +4257,16 @@ export function QuotationBuilderPage() {
         {/* Flight — structured journeys/segments (reference layout). */}
         {activeTab === 'flight' && flightSection()}
 
-        {/* Sightseeing — day-wise activity itinerary (reference layout). */}
-        {activeTab === 'sightseeing' && (
+        {/* Keep this field array mounted so V1 initialization never depends on
+            the user visiting the Sightseeing/itinerary tab. */}
+        <div className={activeTab === 'sightseeing' ? 'block' : 'hidden'}>
           <SightseeingSection
             form={form}
             quotationId={quotationId}
             quotationVersionId={versionId}
             destination={sightseeingDestinationName}
           />
-        )}
+        </div>
 
         {/* Add-on Services — master-driven include-table. */}
         {activeTab === 'addon' && addonTable()}
@@ -4749,19 +4840,28 @@ export function QuotationBuilderPage() {
               <label className="text-sm font-semibold text-slate-800">
                 Introduction
                 <textarea rows={2} {...form.register('introduction')} className={`${field} mt-1`} />
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Shown to the customer near the beginning of the weblink and PDF.
+                </span>
               </label>
               <label className="text-sm font-semibold text-slate-800">
-                Customer notes
+                Notes for Customer
                 <textarea rows={2} {...form.register('notes')} className={`${field} mt-1`} />
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Shown to the customer near the end of the weblink and PDF.
+                </span>
               </label>
               {canCost && (
                 <label className="text-sm font-semibold text-slate-800">
-                  Internal notes
+                  Internal Notes
                   <textarea
                     rows={2}
                     {...form.register('internalNotes')}
                     className={`${field} mt-1`}
                   />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    Staff only - never shown in customer weblinks or PDFs.
+                  </span>
                 </label>
               )}
             </section>
@@ -5017,20 +5117,31 @@ export function QuotationBuilderPage() {
                       className="h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600"
                       checked={Boolean(watchedExpertConfig?.enabled)}
                       onChange={(e) => {
-                        const cur = form.getValues('destinationExpertConfig');
-                        const next = {
-                          enabled: e.target.checked,
-                          expertUserId: cur?.expertUserId ?? null,
-                          heading: cur?.heading ?? null,
-                          customIntroduction: cur?.customIntroduction ?? null,
-                          showWhatsapp: cur?.showWhatsapp ?? true,
-                          showCall: cur?.showCall ?? true,
-                          showEmail: cur?.showEmail ?? true,
-                          showExperience: cur?.showExperience ?? true,
-                          showTripsPlanned: cur?.showTripsPlanned ?? true,
-                          showLanguages: cur?.showLanguages ?? true,
+                        const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
+                        const enabled = e.target.checked;
+                        let next: Record<string, unknown> = {
+                          enabled,
+                          expertUserId: (cur as Record<string, unknown> | null)?.expertUserId ?? null,
+                          heading: (cur as Record<string, unknown> | null)?.heading ?? null,
+                          customIntroduction: (cur as Record<string, unknown> | null)?.customIntroduction ?? null,
+                          whatsappNumber: (cur as Record<string, unknown> | null)?.whatsappNumber ?? null,
+                          callNumber: (cur as Record<string, unknown> | null)?.callNumber ?? null,
+                          email: (cur as Record<string, unknown> | null)?.email ?? null,
+                          showWhatsapp: (cur as Record<string, unknown> | null)?.showWhatsapp ?? true,
+                          showCall: (cur as Record<string, unknown> | null)?.showCall ?? true,
+                          showEmail: (cur as Record<string, unknown> | null)?.showEmail ?? true,
+                          showExperience: (cur as Record<string, unknown> | null)?.showExperience ?? true,
+                          showTripsPlanned: (cur as Record<string, unknown> | null)?.showTripsPlanned ?? true,
+                          showLanguages: (cur as Record<string, unknown> | null)?.showLanguages ?? true,
                         };
-                        form.setValue('destinationExpertConfig', next, { shouldDirty: true });
+                        if (enabled) {
+                          const expertId = (next.expertUserId as string | null) ?? null;
+                          const fallback = getExpertFallback(expertId);
+                          if (!next.whatsappNumber && fallback.whatsappNumber) next.whatsappNumber = fallback.whatsappNumber;
+                          if (!next.callNumber && fallback.callNumber) next.callNumber = fallback.callNumber;
+                          if (!next.email && fallback.email) next.email = fallback.email;
+                        }
+                        form.setValue('destinationExpertConfig', next as never, { shouldDirty: true });
                       }}
                     />
                   </label>
@@ -5043,12 +5154,24 @@ export function QuotationBuilderPage() {
                         className={`${field} mt-1 bg-white`}
                         value={watchedExpertConfig?.expertUserId ?? ''}
                         onChange={(e) => {
-                          const cur = form.getValues('destinationExpertConfig');
-                          form.setValue(
-                            'destinationExpertConfig',
-                            { ...(cur ?? {}), expertUserId: e.target.value || null } as never,
-                            { shouldDirty: true },
-                          );
+                          const newId = e.target.value || null;
+                          const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
+                          const fallback = getExpertFallback(newId);
+                          const next: Record<string, unknown> = {
+                            ...(cur ?? {}),
+                            expertUserId: newId,
+                          } as Record<string, unknown>;
+                          // Prefill only when field is empty (no explicit override yet)
+                          if (!(cur as Record<string, unknown> | null)?.whatsappNumber && fallback.whatsappNumber) {
+                            next.whatsappNumber = fallback.whatsappNumber;
+                          }
+                          if (!(cur as Record<string, unknown> | null)?.callNumber && fallback.callNumber) {
+                            next.callNumber = fallback.callNumber;
+                          }
+                          if (!(cur as Record<string, unknown> | null)?.email && fallback.email) {
+                            next.email = fallback.email;
+                          }
+                          form.setValue('destinationExpertConfig', next as never, { shouldDirty: true });
                         }}
                       >
                         <option value="">Select expert</option>
@@ -5089,6 +5212,54 @@ export function QuotationBuilderPage() {
                           form.setValue(
                             'destinationExpertConfig',
                             { ...(cur ?? {}), customIntroduction: e.target.value || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      WhatsApp Number
+                      <input
+                        className={`${field} mt-1 bg-white`}
+                        placeholder="+91XXXXXXXXXX"
+                        value={((watchedExpertConfig as unknown as { whatsappNumber?: string | null })?.whatsappNumber ?? '') as string}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), whatsappNumber: e.target.value.trim() || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Call Number
+                      <input
+                        className={`${field} mt-1 bg-white`}
+                        placeholder="+91XXXXXXXXXX"
+                        value={((watchedExpertConfig as unknown as { callNumber?: string | null })?.callNumber ?? '') as string}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), callNumber: e.target.value.trim() || null } as never,
+                            { shouldDirty: true },
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Email Address
+                      <input
+                        className={`${field} mt-1 bg-white`}
+                        placeholder="expert@email.com"
+                        value={((watchedExpertConfig as unknown as { email?: string | null })?.email ?? '') as string}
+                        onChange={(e) => {
+                          const cur = form.getValues('destinationExpertConfig');
+                          form.setValue(
+                            'destinationExpertConfig',
+                            { ...(cur ?? {}), email: e.target.value.trim() || null } as never,
                             { shouldDirty: true },
                           );
                         }}

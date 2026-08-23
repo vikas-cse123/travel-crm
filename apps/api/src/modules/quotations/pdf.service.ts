@@ -7,7 +7,12 @@ import {
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
 } from '@interscale/shared';
-import { colorEmojiPng } from '../../services/pdf/color-emojis.js';
+import {
+  colorEmojiPng,
+  containsPdfEmoji,
+  pdfEmojiFallback,
+  pdfEmojiSequenceRegex,
+} from '../../services/pdf/color-emojis.js';
 import { DEJAVU_SANS, DEJAVU_SANS_BOLD } from '../../services/pdf/fonts.js';
 
 /**
@@ -402,6 +407,8 @@ export interface QuotationPdfInput {
       description: string | null;
       city: string | null;
       notes?: string | null;
+      /** Customer-facing section title (used by Vehicle rows). */
+      taxCategory?: string | null;
       quantity: unknown;
       unitSellingPrice: unknown;
       /** Add-on master link; only present on actually-selected Add-on rows. */
@@ -411,6 +418,13 @@ export interface QuotationPdfInput {
     exclusions: Array<{ content: string }>;
     terms: Array<{ content: string }>;
   };
+  /** Hotel Master presentation fields, aligned to version.hotels. */
+  hotelPresentations?: Array<{
+    starCategory?: number | null;
+    starRating?: number | string | null;
+    address?: string | null;
+    reviewLink?: string | null;
+  } | null>;
   /** Server-resolved image bytes; every slot is optional and falls back cleanly. */
   images?: {
     cover?: Img;
@@ -909,9 +923,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     const parts: Array<{ value: string; bold: boolean; emoji?: Buffer }> = [];
     for (const run of line) {
       let cursor = 0;
-      const matches = run.text.matchAll(
-        /\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?(?:\p{Emoji_Modifier})?)*/gu,
-      );
+      const matches = run.text.matchAll(pdfEmojiSequenceRegex());
       for (const match of matches) {
         if (match.index === undefined) continue;
         if (match.index > cursor) {
@@ -922,7 +934,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             .forEach((value) => parts.push({ value, bold: run.bold }));
         }
         const png = colorEmojiPng(match[0]);
-        parts.push({ value: match[0], bold: run.bold, ...(png ? { emoji: png } : {}) });
+        parts.push({
+          value: png ? match[0] : pdfEmojiFallback(match[0]),
+          bold: run.bold,
+          ...(png ? { emoji: png } : {}),
+        });
         cursor = match.index + match[0].length;
       }
       if (cursor < run.text.length) {
@@ -1646,6 +1662,19 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     planner.add(coverBlock);
   }
 
+  // Customer-facing introduction. The planner measures and splits the text,
+  // so long copy cannot enter the footer or orphan the heading.
+  const customerCopyLines = (value: string | null | undefined) =>
+    (value ?? '')
+      .split(/\r?\n/)
+      .flatMap((line) => htmlToLines(line))
+      .filter(Boolean);
+  const introductionLines = customerCopyLines(v.introduction);
+  if (introductionLines.length) {
+    planner.add(sectionHeaderBlock('Introduction'));
+    flowBlocks(introductionLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+  }
+
   // ==========================================================================
   // FLIGHTS — one journey, measured segment cards, continuation at boundaries
   // ==========================================================================
@@ -2286,14 +2315,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       render: (y0) => {
         const top = y0;
         doc.save().roundedRect(M, top, CONTENT_W, baseH, 6).stroke(BORDER).restore();
-        drawImage(
-          images.services?.[serviceIndex(row)],
-          M + 14,
-          top + 14,
-          150,
-          baseH - 28,
-          imgLabel,
-        );
+        const serviceImage = images.services?.[serviceIndex(row)];
+        const drawServiceImage = row.serviceType === 'VEHICLE_TRANSFER' ? drawImageFit : drawImage;
+        drawServiceImage(serviceImage, M + 14, top + 14, 150, baseH - 28, imgLabel);
         const tx = M + 180;
         const tw = PDF_PAGE_WIDTH - M - 14 - tx;
         doc
@@ -2316,8 +2340,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     };
   };
   const serviceDescriptionBlocks = (row: (typeof v.services)[number]): PdfBlock[] => {
-    const descLines = htmlToLines(row.description);
-    if (!descLines.length) return [];
+    const plainDescLines = htmlToLines(row.description);
+    if (!plainDescLines.length) return [];
+    const hasEmoji = containsPdfEmoji(row.description ?? '');
+    const richDescLines = hasEmoji ? htmlToRichTextLines(row.description) : [];
     const headingH = hOf('Description:', 10.5, CONTENT_W, 'Bold') + 4;
     return [
       {
@@ -2330,14 +2356,16 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           return y0 + headingH;
         },
       },
-      ...flowBlocks(descLines, M, CONTENT_W, 10.5, 2, 260),
+      ...(hasEmoji
+        ? colorEmojiFlowBlocks(richDescLines, M, CONTENT_W, 10.5, 2, 260)
+        : flowBlocks(plainDescLines, M, CONTENT_W, 10.5, 2, 260)),
     ];
   };
 
   if (vehicleServices.length) {
     planner.pageBreak();
-    planner.add(sectionHeaderBlock('Vehicle Details'));
-    vehicleServices.forEach((row) =>
+    planner.add(sectionHeaderBlock(vehicleServices[0]?.taxCategory?.trim() || 'Transportation'));
+    vehicleServices.forEach((row) => {
       planner.add(
         buildServiceCard(
           row,
@@ -2347,8 +2375,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           ],
           'Vehicle',
         ),
-      ),
-    );
+      );
+      serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
+    });
   }
   if (cruiseServices.length) {
     planner.pageBreak();
@@ -2372,7 +2401,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     planner.pageBreak();
     planner.add(sectionHeaderBlock('Add-on Services'));
     addonServices.forEach((row) => {
-      const descLines = htmlToLines(row.description);
+      const plainDescLines = htmlToLines(row.description);
+      const hasEmoji = containsPdfEmoji(row.description ?? '');
       const nameH = hOf(row.name, 12, CONTENT_W, 'Bold') + 3;
       planner.add({
         height: nameH,
@@ -2381,7 +2411,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           return y0 + nameH;
         },
       });
-      flowBlocks(descLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+      const descriptionBlocks = hasEmoji
+        ? colorEmojiFlowBlocks(htmlToRichTextLines(row.description), M, CONTENT_W, 10.5, 2)
+        : flowBlocks(plainDescLines, M, CONTENT_W, 10.5, 2);
+      descriptionBlocks.forEach((block) => planner.add(block));
     });
     if (hasVisa) {
       const visaLines = [
@@ -2410,6 +2443,13 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
 
   // ==========================================================================
+  // CUSTOMER NOTES — deliberately placed immediately before policies/thanks.
+  const customerNoteLines = customerCopyLines(v.notes);
+  if (customerNoteLines.length) {
+    planner.add(sectionHeaderBlock('Notes for Customer'));
+    flowBlocks(customerNoteLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+  }
+
   // POLICIES — measured blocks split between list items
   // ==========================================================================
   const policyBlocks: Array<[string, string, string[]]> = [

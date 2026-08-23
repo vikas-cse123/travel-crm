@@ -1529,6 +1529,9 @@ async function seedGlobalGalleries(m: Awaited<ReturnType<typeof masters>>) {
 function linkedVersion(m: Awaited<ReturnType<typeof masters>>) {
   return {
     title: 'Linked package',
+    introduction: 'Welcome to your saved quotation snapshot.',
+    notes: 'Passport validity must be at least six months.',
+    internalNotes: 'INTERNAL-SECRET-never-send-to-customer',
     hotels: [
       {
         city: 'Baku',
@@ -2064,6 +2067,11 @@ describe('Phase 14 quotation master references', () => {
     const internal = await client.get(`/api/quotations/${quotation.id}`);
     expect(internal.body.data.versions[0].hotels[0].hotelId).toBe(m.hotel.id);
     expect(internal.body.data.versions[0].services[0].airlineId).toBe(m.airline.id);
+    expect(internal.body.data.versions[0]).toMatchObject({
+      introduction: 'Welcome to your saved quotation snapshot.',
+      notes: 'Passport validity must be at least six months.',
+      internalNotes: 'INTERNAL-SECRET-never-send-to-customer',
+    });
 
     await client.post(`/api/quotations/${quotation.id}/versions/${version.id}/finalize`);
     const link = await client.post(`/api/quotations/${quotation.id}/public-link`, {
@@ -2083,6 +2091,12 @@ describe('Phase 14 quotation master references', () => {
       country: 'Azerbaijan',
     });
     const body = JSON.stringify(publicView.body.data);
+    expect(publicView.body.data.version).toMatchObject({
+      introduction: 'Welcome to your saved quotation snapshot.',
+      notes: 'Passport validity must be at least six months.',
+    });
+    expect(publicView.body.data.version).not.toHaveProperty('internalNotes');
+    expect(body).not.toContain('INTERNAL-SECRET-never-send-to-customer');
     // The add-on reference is retained so customer outputs can include only
     // explicitly selected add-on rows; all other internal master IDs stay hidden.
     for (const field of [

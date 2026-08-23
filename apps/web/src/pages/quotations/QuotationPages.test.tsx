@@ -2793,6 +2793,8 @@ describe('Phase 8 quotation pages', () => {
     expect(marina).toHaveAttribute('src', 'https://storage.example.test/marina-bay.jpg');
     expect(marina).toHaveAttribute('class', expect.stringContaining('object-cover'));
     expect(marina.parentElement?.className).toContain('aspect-[4/3]');
+    expect(screen.queryByText('4.8')).not.toBeInTheDocument();
+    expect(screen.queryByText('Hotel Review')).not.toBeInTheDocument();
     // Second hotel has no presentation and uses the fallback.
     expect(screen.getByText('Orchard Hotel')).toBeInTheDocument();
     expect(screen.getByText('Hotel image unavailable')).toBeInTheDocument();
@@ -6658,7 +6660,7 @@ describe('Phase 8 quotation pages', () => {
             name: 'Dream Genting',
             description: '<p>A lovely voyage.</p>',
             dayNumber: null,
-            city: null,
+            city: 'Balcony Snapshot',
             quantity: '1',
             unitSellingPrice: '18000',
             totalSellingPrice: '18000',
@@ -6677,7 +6679,7 @@ describe('Phase 8 quotation pages', () => {
         's-cruise': {
           imageUrl: 'https://storage.example.test/cruise.jpg',
           name: 'Dream Genting',
-          roomTypeName: 'Balcony',
+          roomTypeName: null,
         },
       },
       downloadUrl: null,
@@ -6703,7 +6705,7 @@ describe('Phase 8 quotation pages', () => {
     );
     expect(screen.getByText('Dream Genting')).toBeInTheDocument();
     expect(screen.getByText('2 nights')).toBeInTheDocument();
-    expect(screen.getByText('Balcony')).toBeInTheDocument();
+    expect(screen.getByText('Balcony Snapshot')).toBeInTheDocument();
     // Sanitized rich-text description renders.
     expect(screen.getByText('A lovely voyage.')).toBeInTheDocument();
     expect(screen.queryByText(/localhost|http:\/\//)).not.toBeInTheDocument();
@@ -9063,6 +9065,40 @@ describe('Quotation Builder — defensive legacy normalization', () => {
     auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
   });
 
+  it('persists builder prefills into a brand-new version 1 without a manual save', async () => {
+    const fetchMock = masterFetch(
+      builderQuotation({
+        versionNumber: 1,
+        status: 'DRAFT',
+        flightDetails: null,
+        hotelDetails: null,
+        sightseeingDetails: null,
+        addOnDetails: null,
+        hotels: [],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+
+    const body = await getSavedQuotationBody(fetchMock);
+    expect(body.flightDetails).toBeTruthy();
+    expect(body.hotelDetails).toBeTruthy();
+    expect(body.sightseeingDetails?.days?.length).toBeGreaterThan(0);
+    expect(body.addOnDetails).toBeTruthy();
+
+    // Visiting the itinerary tab must be presentation-only. Historically this
+    // mounted its field array for the first time and changed the V1 snapshot.
+    const patchCountBeforeVisit = fetchMock.mock.calls.filter(
+      ([, options]) => options?.method === 'PATCH',
+    ).length;
+    await openTab('Sightseeing');
+    await screen.findByText('Include Sightseeing in Quotation');
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH').length).toBe(
+      patchCountBeforeVisit,
+    );
+  });
+
   it('normalizes one legacy hotel images:null row and saves with images:[]', async () => {
     const fetchMock = masterFetch(
       builderQuotation({
@@ -11307,6 +11343,7 @@ describe.skip('Phase 14 master selectors', () => {
       expect(cruiseRow).toMatchObject({
         cruiseId: 'aaaaaaa5-1111-4111-8111-111111111111',
         cruiseRoomTypeId: 'aaaaaaa6-1111-4111-8111-111111111111',
+        city: 'Interior',
         name: 'Dream Genting',
         notes: '2 nights',
         taxCategory: 'Ocean Cruise',
@@ -11500,6 +11537,35 @@ describe.skip('Phase 14 master selectors', () => {
       'placeholder',
       'No room types configured',
     );
+  });
+
+  it('preserves a snapshotted cruise room type when the Master option disappears', async () => {
+    const noRoomCruise = { ...cruise, roomTypes: [] };
+    const quotation = builderQuotation({
+      services: [
+        {
+          id: 's-cruise',
+          serviceType: 'CRUISE',
+          name: 'Dream Genting',
+          description: null,
+          dayNumber: null,
+          city: 'Balcony Suite',
+          quantity: '1',
+          unitSellingPrice: '1000',
+          totalSellingPrice: '1000',
+          sellingPrice: '1000',
+          taxCategory: 'Cruise Details',
+          notes: '2 nights',
+          cruiseId: 'aaaaaaa5-1111-4111-8111-111111111111',
+          cruiseRoomTypeId: null,
+          sequence: 1,
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', masterFetch(quotation, { '/masters/cruises': page([noRoomCruise]) }));
+    renderBuilderPage();
+    await openTab('Cruise');
+    expect(await screen.findByLabelText('Cruise room type master')).toHaveValue('Balcony Suite');
   });
 
   it('clears an invalid saved room type when the cruise changes', async () => {
@@ -15316,7 +15382,13 @@ describe('Generate PDF button — real request, open, loading and error states',
       if (url.includes('/download-url'))
         return response({ url: 'https://files.example.test/stylish-quotation.pdf' });
       if (url.endsWith('/weblink-analytics'))
-        return response({ totalViews: 0, externalViews: 0, homeIpViews: 0, uniqueIps: 0, entries: [] });
+        return response({
+          totalViews: 0,
+          externalViews: 0,
+          homeIpViews: 0,
+          uniqueIps: 0,
+          entries: [],
+        });
       return response(detail);
     });
     vi.stubGlobal('fetch', fetchMock);

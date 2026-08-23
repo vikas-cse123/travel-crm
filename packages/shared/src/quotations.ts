@@ -821,6 +821,27 @@ export const quotationVersionInputSchema = z
         expertUserId: z.string().uuid().nullable().optional(),
         heading: optionalText(200),
         customIntroduction: optionalText(2000),
+        whatsappNumber: z
+          .string()
+          .trim()
+          .max(32)
+          .nullable()
+          .optional()
+          .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
+        callNumber: z
+          .string()
+          .trim()
+          .max(32)
+          .nullable()
+          .optional()
+          .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid phone number'),
+        email: z
+          .string()
+          .trim()
+          .max(255)
+          .nullable()
+          .optional()
+          .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Enter a valid email address'),
         showWhatsapp: z.boolean().default(true),
         showCall: z.boolean().default(true),
         showEmail: z.boolean().default(true),
@@ -944,6 +965,27 @@ export const destinationExpertConfigSchema = z
     expertUserId: z.string().uuid().nullable().optional(),
     heading: z.string().trim().max(200).nullable().optional(),
     customIntroduction: z.string().trim().max(2000).nullable().optional(),
+    whatsappNumber: z
+      .string()
+      .trim()
+      .max(32)
+      .nullable()
+      .optional()
+      .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
+    callNumber: z
+      .string()
+      .trim()
+      .max(32)
+      .nullable()
+      .optional()
+      .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid phone number'),
+    email: z
+      .string()
+      .trim()
+      .max(255)
+      .nullable()
+      .optional()
+      .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Enter a valid email address'),
     showWhatsapp: z.boolean().default(true),
     showCall: z.boolean().default(true),
     showEmail: z.boolean().default(true),
@@ -966,6 +1008,9 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
       expertUserId: null,
       heading: null,
       customIntroduction: null,
+      whatsappNumber: undefined,
+      callNumber: undefined,
+      email: undefined,
       showWhatsapp: true,
       showCall: true,
       showEmail: true,
@@ -977,6 +1022,25 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
     typeof row.expertUserId === 'string' && row.expertUserId.trim()
       ? row.expertUserId.trim()
       : null;
+  const hasWhatsapp = 'whatsappNumber' in row;
+  const hasCall = 'callNumber' in row || 'phoneNumber' in row;
+  const hasEmail = 'email' in row;
+  const whatsappNumber = hasWhatsapp
+    ? typeof row.whatsappNumber === 'string' && row.whatsappNumber.trim()
+      ? row.whatsappNumber.trim().slice(0, 32)
+      : null
+    : undefined;
+  const rawCall = (row.callNumber as unknown) ?? (row as Record<string, unknown>).phoneNumber;
+  const callNumber = hasCall
+    ? typeof rawCall === 'string' && (rawCall as string).trim()
+      ? (rawCall as string).trim().slice(0, 32)
+      : null
+    : undefined;
+  const email = hasEmail
+    ? typeof row.email === 'string' && row.email.trim()
+      ? row.email.trim().slice(0, 255).toLowerCase()
+      : null
+    : undefined;
   return {
     enabled: true,
     expertUserId,
@@ -985,6 +1049,9 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
       typeof row.customIntroduction === 'string'
         ? row.customIntroduction.trim().slice(0, 2000) || null
         : null,
+    whatsappNumber,
+    callNumber,
+    email,
     showWhatsapp: row.showWhatsapp !== false,
     showCall: row.showCall !== false,
     showEmail: row.showEmail !== false,
@@ -992,6 +1059,26 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
     showTripsPlanned: row.showTripsPlanned !== false,
     showLanguages: row.showLanguages !== false,
   } as DestinationExpertConfig;
+}
+
+/**
+ * Resolve real fallback contacts for Destination Expert.
+ * Shared priority used by frontend prefill and backend public rendering.
+ * Never returns fake placeholders.
+ */
+export function resolveDestinationExpertFallbacks(params: {
+  expert?: { whatsappNumber?: string | null; phone?: string | null; email?: string | null } | null;
+  company?: { phone?: string | null; email?: string | null } | null;
+}): { whatsappNumber: string | null; callNumber: string | null; email: string | null } {
+  const expertWhatsapp = params.expert?.whatsappNumber?.trim() || null;
+  const expertPhone = params.expert?.phone?.trim() || null;
+  const companyPhone = params.company?.phone?.trim() || null;
+  const expertEmail = params.expert?.email?.trim() || null;
+  const companyEmail = params.company?.email?.trim() || null;
+  const whatsappNumber = expertWhatsapp || expertPhone || companyPhone || null;
+  const callNumber = expertPhone || companyPhone || null;
+  const email = expertEmail || companyEmail || null;
+  return { whatsappNumber, callNumber, email };
 }
 
 export function isDestinationExpertConfigValid(
