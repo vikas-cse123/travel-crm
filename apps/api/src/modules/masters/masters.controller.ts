@@ -248,6 +248,213 @@ export const hotelsController = {
       ),
       'Meal plan updated.',
     ),
+  createSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createSeason(auth(req), req.params.hotelId!, req.body, context(req)),
+      'Season created.',
+      201,
+    ),
+  updateSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.seasonId!,
+        req.body,
+        context(req),
+      ),
+      'Season updated.',
+    ),
+  deleteSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteSeason(auth(req), req.params.hotelId!, req.params.seasonId!, context(req)),
+      'Season deleted.',
+    ),
+  createRoomTypeSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createRoomTypeSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.body,
+        context(req),
+      ),
+      'Room type season created.',
+      201,
+    ),
+  updateRoomTypeSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateRoomTypeSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.params.seasonId!,
+        req.body,
+        context(req),
+      ),
+      'Room type season updated.',
+    ),
+  deleteRoomTypeSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteRoomTypeSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.params.seasonId!,
+        context(req),
+      ),
+      'Room type season deleted.',
+    ),
+  createMealPlanSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createMealPlanSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.body,
+        context(req),
+      ),
+      'Meal plan season created.',
+      201,
+    ),
+  updateMealPlanSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateMealPlanSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.params.seasonId!,
+        req.body,
+        context(req),
+      ),
+      'Meal plan season updated.',
+    ),
+  deleteMealPlanSeason: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteMealPlanSeason(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.params.seasonId!,
+        context(req),
+      ),
+      'Meal plan season deleted.',
+    ),
+  createMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createMonthPrice(auth(req), req.params.hotelId!, req.body, context(req)),
+      'Month price created.',
+      201,
+    ),
+  updateMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.monthPriceId!,
+        req.body,
+        context(req),
+      ),
+      'Month price updated.',
+    ),
+  deleteMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.monthPriceId!,
+        context(req),
+      ),
+      'Month price deleted.',
+    ),
+  createRoomTypeMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createRoomTypeMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.body,
+        context(req),
+      ),
+      'Room type month price created.',
+      201,
+    ),
+  updateRoomTypeMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateRoomTypeMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.params.monthPriceId!,
+        req.body,
+        context(req),
+      ),
+      'Room type month price updated.',
+    ),
+  deleteRoomTypeMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteRoomTypeMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.roomTypeId!,
+        req.params.monthPriceId!,
+        context(req),
+      ),
+      'Room type month price deleted.',
+    ),
+  createMealPlanMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.createMealPlanMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.body,
+        context(req),
+      ),
+      'Meal plan month price created.',
+      201,
+    ),
+  updateMealPlanMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.updateMealPlanMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.params.monthPriceId!,
+        req.body,
+        context(req),
+      ),
+      'Meal plan month price updated.',
+    ),
+  deleteMealPlanMonthPrice: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await hotelsService.deleteMealPlanMonthPrice(
+        auth(req),
+        req.params.hotelId!,
+        req.params.mealPlanId!,
+        req.params.monthPriceId!,
+        context(req),
+      ),
+      'Meal plan month price deleted.',
+    ),
   imageUpload: async (req: Request, res: Response) =>
     sendSuccess(
       res,

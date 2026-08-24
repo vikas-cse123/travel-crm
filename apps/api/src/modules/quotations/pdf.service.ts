@@ -8,6 +8,7 @@ import {
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
   resolveQuotationPdfSectionOrder,
+  resolveQuotationPricing,
   type QuotationPdfSectionId,
 } from '@interscale/shared';
 import {
@@ -852,6 +853,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   const consultant = input.consultant;
   const currency = v.currency;
   const images = input.images ?? {};
+  const pricing = resolveQuotationPricing({ version: v, quotation: q });
+  const isSectionWisePricing = pricing.pricingMode === 'SECTION_WISE';
 
   // No automatic first page — every physical page is created by the measured
   // page helper below with its own content-based height.
@@ -1462,21 +1465,29 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   );
   const leftColumnH = summaryRowHeights.reduce((sum, h) => sum + h + 4, 0);
 
-  // Measure pricing rows + yellow total box + tax note.
-  const priceRows = (
-    [
-      ['Per Adult', q.adults, v.perAdultPrice],
-      ['CWB', q.childrenWithBed, v.perChildWithBedPrice],
-      ['CWOB', q.childrenWithoutBed, v.perChildWithoutBedPrice],
-      ['Infant', q.infants, v.perInfantPrice],
-    ] as const
-  ).filter(([, count, price]) => count > 0 && num(price) > 0);
+  // Measure pricing rows + total box + tax note. Per-passenger rows only apply
+  // to TOTAL pricing — section-wise pricing shows a single section total.
+  const priceRows = pricing.pricingMode === 'SECTION_WISE'
+    ? []
+    : (
+        [
+          ['Per Adult', q.adults, v.perAdultPrice],
+          ['CWB', q.childrenWithBed, v.perChildWithBedPrice],
+          ['CWOB', q.childrenWithoutBed, v.perChildWithoutBedPrice],
+          ['Infant', q.infants, v.perInfantPrice],
+        ] as const
+      ).filter(([, count, price]) => count > 0 && num(price) > 0);
   const packageTotal =
     num(v.perAdultPrice) * q.adults +
     num(v.perChildWithBedPrice) * q.childrenWithBed +
     num(v.perChildWithoutBedPrice) * q.childrenWithoutBed +
     num(v.perInfantPrice) * q.infants;
-  const finalTotal = packageTotal > 0 ? packageTotal : num(v.finalAmount);
+  const finalTotal =
+    pricing.pricingMode === 'SECTION_WISE'
+      ? pricing.sectionTotal
+      : packageTotal > 0
+        ? packageTotal
+        : num(v.finalAmount);
 
   const priceRowHeights = priceRows.map(
     ([label, count, price]) =>
@@ -1535,10 +1546,15 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         .fillColor('#6B4B00')
         .font('Bold')
         .fontSize(9.5)
-        .text('TOTAL COST', rightX + 22, ry + 18, {
-          width: 82,
-          lineBreak: false,
-        });
+        .text(
+          pricing.pricingMode === 'SECTION_WISE' ? 'TOTAL PRICE' : 'TOTAL COST',
+          rightX + 22,
+          ry + 18,
+          {
+            width: 82,
+            lineBreak: false,
+          },
+        );
       doc
         .fillColor(DARK)
         .fontSize(20)
@@ -1700,7 +1716,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       .flatMap((line) => htmlToLines(line))
       .filter(Boolean);
   const introductionLines = customerCopyLines(v.introduction);
-  if (introductionLines.length) {
+  if (v.introduction?.trim() && introductionLines.length) {
     planner.add(sectionHeaderBlock('Introduction'));
     flowBlocks(introductionLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
   }
@@ -2197,7 +2213,8 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           // Informational prices use a compact two-column grid. The shared
           // measurement below is also used for rendering, so a wrapped label can
           // never collide with the next activity or footer.
-          const aPrices = pdfActivityPrices(a.pricingOptions);
+          // Hidden when pricingMode is TOTAL — only show in SECTION_WISE.
+          const aPrices = isSectionWisePricing ? pdfActivityPrices(a.pricingOptions) : [];
           const pricingGap = 8;
           const pricingPadX = 8;
           const pricingPadY = 6;
@@ -2464,7 +2481,6 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         const visaLines = [
           v.visaType && `Visa type: ${v.visaType}`,
           v.visaDestination && `Destination: ${v.visaDestination}`,
-          num(v.visaAmount) > 0 && `Amount: ${money(v.visaAmount, 2)}`,
         ].filter(Boolean) as string[];
         const visaTitleH =
           hOf(
@@ -2734,6 +2750,37 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     (v as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder,
   )) {
     sectionDrawers[id]?.();
+  }
+
+  // ==========================================================================
+  // PRICE BREAKDOWN — section-wise pricing (only when mode is SECTION_WISE)
+  // ==========================================================================
+  {
+    if (pricing.pricingMode === 'SECTION_WISE') {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Section-wise Pricing'));
+      const breakdownSections = pricing.sections.filter((s) => s.amount > 0);
+      for (const section of breakdownSections) {
+        const line = `${section.label}: ${money(section.amount)}`;
+        const h = hOf(line, 10.5, CONTENT_W, 'Body') + 4;
+        planner.add({
+          height: h,
+          render: (y0) => {
+            doc.font('Body').fontSize(10.5).fillColor(DARK).text(line, M, y0, { width: CONTENT_W });
+            return y0 + h;
+          },
+        });
+      }
+      const totalLine = `Grand Total: ${money(pricing.sectionTotal)}`;
+      const totalH = hOf(totalLine, 12, CONTENT_W, 'Bold') + 6;
+      planner.add({
+        height: totalH,
+        render: (y0) => {
+          doc.font('Bold').fontSize(12).fillColor(DARK).text(totalLine, M, y0, { width: CONTENT_W });
+          return y0 + totalH;
+        },
+      });
+    }
   }
 
   // ==========================================================================

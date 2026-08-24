@@ -36,6 +36,7 @@ import {
   isPublicTaxNote,
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
+  resolveQuotationPricing,
   stripItineraryDayPrefixes,
   resolveWeblinkSectionOrder,
   normalizeFaqs,
@@ -1161,6 +1162,7 @@ function SightseeingItineraryView({
   description,
   destinationImage,
   fmt,
+  pricingMode,
 }: {
   days: SightseeingDay[];
   color: string;
@@ -1170,6 +1172,7 @@ function SightseeingItineraryView({
   destinationImage?: string | null;
   /** The quotation's own currency formatter, reused for activity pricing. */
   fmt: (value: number) => string;
+  pricingMode?: string;
 }) {
   const normalized = useMemo(
     () => days.map((day, index) => normalizeItineraryDay(day, index + 1)),
@@ -1320,8 +1323,10 @@ function SightseeingItineraryView({
                                         </span>
                                       </div>
                                     );
-                                  })()}
-                                  <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                   })()}
+                                  {pricingMode === 'SECTION_WISE' && (
+                                    <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1397,7 +1402,9 @@ function SightseeingItineraryView({
                                           </div>
                                         );
                                       })()}
-                                      <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                      {pricingMode === 'SECTION_WISE' && (
+                                        <ActivityPricing rows={activity.pricingOptions} fmt={fmt} />
+                                      )}
                                     </div>
                                   </div>
                                   {!isLast && <hr className="my-3 border-slate-200" />}
@@ -1907,6 +1914,11 @@ export function PublicQuotationPage() {
     Number(v.perChildWithoutBedPrice ?? 0) * q.childrenWithoutBed +
     Number(v.perInfantPrice ?? 0) * q.infants;
   const finalTotal = packageTotal > 0 ? packageTotal : Number(v.finalAmount);
+  const pricing = resolveQuotationPricing({ version: v, quotation: q });
+  // Single authoritative total: section-wise mode is priced by the sum of the
+  // allocated sections (incl. Visa); TOTAL pricing uses the package total.
+  const displayTotal =
+    pricing.pricingMode === 'SECTION_WISE' ? pricing.sectionTotal : finalTotal;
   // Public tax note: never the control values ("Do not show" / the sentinel).
   const taxNoteText = isPublicTaxNote(v.taxNote) ? v.taxNote.trim() : null;
   // "Secure Your Booking Now" shows only with a real amount AND a valid link.
@@ -1914,10 +1926,6 @@ export function PublicQuotationPage() {
   const rawPaymentLink = v.paymentLink?.trim() ?? '';
   const validPaymentLink = /^https?:\/\//i.test(rawPaymentLink) ? rawPaymentLink : null;
   const showSecureBooking = initialAmount > 0 && Boolean(validPaymentLink);
-  const visaConsolidated =
-    Number(v.visaServiceCharge ?? 0) +
-    (Number(v.visaServiceCharge ?? 0) * Number(v.visaGstPercent ?? 0)) / 100 +
-    Number(v.visaVfsCharge ?? 0);
   const showVisa =
     v.includeVisa &&
     (Number(v.visaAmount ?? 0) > 0 ||
@@ -2063,7 +2071,10 @@ export function PublicQuotationPage() {
               {v.title}
             </p>
             {heroIntroduction && (
-              <p className="mt-3 max-w-2xl text-[14px] text-white/80 sm:text-[15px] [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
+              <p
+                data-testid="public-hero-introduction"
+                className="mt-3 max-w-2xl text-[14px] text-white/80 sm:text-[15px] [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]"
+              >
                 {heroIntroduction}
               </p>
             )}
@@ -2136,13 +2147,15 @@ export function PublicQuotationPage() {
             </div>
             <div className="flex flex-col justify-center rounded-2xl bg-emerald-600 p-6 text-white shadow-lg">
               <p className="text-center text-sm font-medium uppercase tracking-wide text-white/85">
-                Total Package Price
+                {pricing.pricingMode === 'SECTION_WISE'
+                  ? 'Quotation Total'
+                  : 'Total Package Price'}
               </p>
-              <p className="mt-1 text-center text-4xl font-bold">{fmt(finalTotal)}</p>
+              <p className="mt-1 text-center text-4xl font-bold">{fmt(displayTotal)}</p>
               {taxNoteText && (
                 <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
               )}
-              {perPaxLines.length > 0 && (
+              {pricing.pricingMode !== 'SECTION_WISE' && perPaxLines.length > 0 && (
                 <div className="mt-3 space-y-1 text-center text-sm text-white/90">
                   {perPaxLines.map(([count, singular, plural, price]) => (
                     <p key={plural}>
@@ -2161,6 +2174,26 @@ export function PublicQuotationPage() {
               )}
             </div>
           </section>
+
+          {pricing.pricingMode === 'SECTION_WISE' && (
+            <section className="rounded-xl border bg-card p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-800">Section-wise Price Breakdown</h2>
+              <div className="mt-4 space-y-3">
+                {pricing.sections
+                  .filter((s) => s.amount > 0)
+                  .map((s) => (
+                    <div key={s.id} className="flex justify-between text-sm">
+                      <span className="text-slate-600">{s.label}</span>
+                      <span className="font-medium text-slate-800">{fmt(s.amount)}</span>
+                    </div>
+                  ))}
+                <div className="flex justify-between border-t pt-3 text-sm font-bold">
+                  <span>Grand Total</span>
+                  <span>{fmt(pricing.sectionTotal)}</span>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Secure Your Booking Now — only with a real initial amount and link. */}
           {showSecureBooking && validPaymentLink && (
@@ -2239,6 +2272,7 @@ export function PublicQuotationPage() {
                   description={v.sightseeingDetails?.description ?? null}
                   destinationImage={data.heroImageUrl ?? null}
                   fmt={fmt}
+                  pricingMode={pricing.pricingMode}
                 />
               ) : null;
             nodes['hotels'] = hotelIncluded ? (
@@ -2602,17 +2636,6 @@ export function PublicQuotationPage() {
                   {v.visaType && (
                     <p>
                       <span className="text-slate-400">Visa type:</span> {v.visaType}
-                    </p>
-                  )}
-                  {Number(v.visaAmount ?? 0) > 0 && (
-                    <p>
-                      <span className="text-slate-400">Amount:</span> {fmt(Number(v.visaAmount))}
-                    </p>
-                  )}
-                  {(Number(v.visaServiceCharge ?? 0) > 0 || Number(v.visaVfsCharge ?? 0) > 0) && (
-                    <p>
-                      <span className="text-slate-400">Consolidated total:</span>{' '}
-                      {fmt(visaConsolidated)}
                     </p>
                   )}
                 </div>

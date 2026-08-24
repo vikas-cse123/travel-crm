@@ -15,10 +15,43 @@ import {
   Underline,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SETTINGS_CURRENCIES } from '@interscale/shared';
 import { cn } from '@/utils/cn';
 
 export const fieldClass =
   'mt-1 w-full rounded-lg border border-slate-300 bg-card px-3 py-2.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+
+/** Narrow currency select used beside master price fields. Defaults to INR. */
+export function CurrencySelect({
+  value,
+  onChange,
+  className,
+  'aria-label': ariaLabel,
+}: {
+  value: string;
+  onChange: (currency: string) => void;
+  className?: string;
+  'aria-label'?: string;
+}) {
+  const normalized = value?.trim().toUpperCase() || 'INR';
+  const options = (SETTINGS_CURRENCIES as readonly string[]).includes(normalized)
+    ? SETTINGS_CURRENCIES
+    : ([normalized, ...SETTINGS_CURRENCIES] as const);
+  return (
+    <select
+      className={cn(fieldClass, 'w-auto', className)}
+      value={normalized}
+      aria-label={ariaLabel ?? 'Currency'}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((code) => (
+        <option key={code} value={code}>
+          {code}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 const masterDateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',

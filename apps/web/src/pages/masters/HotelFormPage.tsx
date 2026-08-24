@@ -15,7 +15,11 @@ import {
   approveHotelImage,
   confirmHotelImage,
   createMealPlan,
+  createMealPlanMonthPrice,
+  createMealPlanSeason,
   createRoomType,
+  createRoomTypeMonthPrice,
+  createRoomTypeSeason,
   deleteHotelImage,
   hotelImageUrl,
   reorderHotelImages,
@@ -47,6 +51,8 @@ interface FormValues {
   address: string;
   description: string;
   amenities: string;
+  price: string;
+  currency: string;
   isDefaultForCity: boolean;
 }
 
@@ -60,6 +66,8 @@ const empty: FormValues = {
   address: '',
   description: '',
   amenities: '',
+  price: '',
+  currency: 'INR',
   isDefaultForCity: false,
 };
 
@@ -116,7 +124,6 @@ export function HotelFormPage() {
   const update = useUpdateHotel(hotelId ?? '');
   const { hasPermission } = useAuth();
   const canManageMedia = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_MEDIA);
-  const canManageCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
   const [formError, setFormError] = useState('');
   const [roomDrafts, setRoomDrafts] = useState<PlanDraft[]>([emptyPlanDraft()]);
   const [mealDrafts, setMealDrafts] = useState<PlanDraft[]>([emptyPlanDraft()]);
@@ -157,6 +164,8 @@ export function HotelFormPage() {
       address: value.address ?? '',
       description: value.description ?? '',
       amenities: value.amenities ?? '',
+      price: value.price != null ? String(value.price) : '',
+      currency: value.currency ?? 'INR',
       isDefaultForCity: value.isDefaultForCity,
     });
   }, [hotel.data, form]);
@@ -164,30 +173,75 @@ export function HotelFormPage() {
   if (hotelId && hotel.isError) return <Navigate to="/masters/hotels" replace />;
   const mutation = hotelId ? update : create;
 
-  const priceField = (draft: PlanDraft) =>
-    canManageCosting && draft.price.trim() ? { sellingPrice: numberOrNull(draft.price) } : {};
-
   const persistDrafts = async (id: string) => {
+    const knownRoomIds = new Set<string>();
     for (const draft of roomDrafts) {
       if (!draft.name.trim()) continue;
-      await createRoomType(id, {
+      const saved = await createRoomType(id, {
         name: draft.name.trim(),
         description: draft.description.trim() || null,
         status: 'ACTIVE',
-        currency: 'INR',
-        ...priceField(draft),
+        currency: draft.currency || 'INR',
+        ...(draft.price.trim()
+          ? { sellingPrice: numberOrNull(draft.price) }
+          : {}),
       });
+      const created = saved.roomTypes.find((room) => !knownRoomIds.has(room.id));
+      if (!created) continue;
+      knownRoomIds.add(created.id);
+      for (const month of draft.monthRates) {
+        if (!month.month) continue;
+        await createRoomTypeMonthPrice(id, created.id, {
+          month: Number(month.month),
+          price: month.price.trim() === '' ? null : Number(month.price),
+          currency: month.currency || 'INR',
+        });
+      }
+      for (const season of draft.seasonRates) {
+        if (!season.name.trim() || !season.startDate || !season.endDate) continue;
+        await createRoomTypeSeason(id, created.id, {
+          name: season.name.trim(),
+          startDate: new Date(`${season.startDate}T00:00:00.000Z`),
+          endDate: new Date(`${season.endDate}T00:00:00.000Z`),
+          price: season.price.trim() === '' ? null : Number(season.price),
+          currency: season.currency || 'INR',
+        });
+      }
     }
+    const knownMealIds = new Set<string>();
     for (const draft of mealDrafts) {
       if (!draft.name.trim()) continue;
-      await createMealPlan(id, {
+      const saved = await createMealPlan(id, {
         name: draft.name.trim(),
         description: draft.description.trim() || null,
         type: 'CUSTOM' as HotelMealPlanType,
         status: 'ACTIVE',
-        currency: 'INR',
-        ...priceField(draft),
+        currency: draft.currency || 'INR',
+        ...(draft.price.trim()
+          ? { sellingPrice: numberOrNull(draft.price) }
+          : {}),
       });
+      const created = saved.mealPlans.find((plan) => !knownMealIds.has(plan.id));
+      if (!created) continue;
+      knownMealIds.add(created.id);
+      for (const month of draft.monthRates) {
+        if (!month.month) continue;
+        await createMealPlanMonthPrice(id, created.id, {
+          month: Number(month.month),
+          price: month.price.trim() === '' ? null : Number(month.price),
+          currency: month.currency || 'INR',
+        });
+      }
+      for (const season of draft.seasonRates) {
+        if (!season.name.trim() || !season.startDate || !season.endDate) continue;
+        await createMealPlanSeason(id, created.id, {
+          name: season.name.trim(),
+          startDate: new Date(`${season.startDate}T00:00:00.000Z`),
+          endDate: new Date(`${season.endDate}T00:00:00.000Z`),
+          price: season.price.trim() === '' ? null : Number(season.price),
+          currency: season.currency || 'INR',
+        });
+      }
     }
   };
 
@@ -221,6 +275,8 @@ export function HotelFormPage() {
       address: textOrNull(values.address),
       description: textOrNull(values.description),
       amenities: textOrNull(values.amenities),
+      price: numberOrNull(values.price),
+      currency: values.currency || 'INR',
       isDefaultForCity: values.isDefaultForCity,
     };
     try {

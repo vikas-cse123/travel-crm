@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import {
   flightDetailsSchema,
@@ -721,7 +724,7 @@ function normalizeVersionInput(input: QuotationVersionInput, allowCosting: boole
   };
 }
 
-type ImageMasterDb = Pick<Prisma.TransactionClient, 'hotel' | 'cruise' | 'vehicle' | 'sightseeing'>;
+type ImageMasterDb = Pick<Prisma.TransactionClient, 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addOnService'>;
 
 const imageMasterSelect = {
   id: true,
@@ -756,37 +759,45 @@ async function hydrateQuotationImageSnapshots(
     ...input.services.map((row) => row.sightseeingId),
     ...sightseeingActivities.map((row) => row.sightseeingId),
   ]);
-  const [hotels, cruises, vehicles, sightseeings] = await Promise.all([
+  const addOnServiceIds = unique(input.services.map((r) => r.addOnServiceId));
+  const [hotels, cruises, vehicles, sightseeings, addOnServices] = await Promise.all([
     hotelIds.length
       ? db.hotel.findMany({
           where: { id: { in: hotelIds }, companyId: { in: imageOwnerCompanyIds } },
-          select: imageMasterSelect,
+          select: { ...imageMasterSelect, price: true, currency: true },
         })
       : [],
     cruiseIds.length
       ? db.cruise.findMany({
           where: { id: { in: cruiseIds }, companyId: { in: imageOwnerCompanyIds } },
-          select: imageMasterSelect,
+          select: { ...imageMasterSelect, price: true, currency: true },
         })
       : [],
     vehicleIds.length
       ? db.vehicle.findMany({
           where: { id: { in: vehicleIds }, companyId: { in: imageOwnerCompanyIds } },
-          select: imageMasterSelect,
+          select: { ...imageMasterSelect, price: true, currency: true },
         })
       : [],
     sightseeingIds.length
       ? db.sightseeing.findMany({
           where: { id: { in: sightseeingIds }, companyId: { in: imageOwnerCompanyIds } },
-          select: imageMasterSelect,
+          select: { ...imageMasterSelect, pricing: true },
+        })
+      : [],
+    addOnServiceIds.length
+      ? db.addOnService.findMany({
+          where: { id: { in: addOnServiceIds }, companyId: { in: imageOwnerCompanyIds } },
+          select: { id: true, price: true, currency: true },
         })
       : [],
   ]);
   const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((row) => [row.id, row]));
-  const hotelById = byId(hotels);
-  const cruiseById = byId(cruises);
-  const vehicleById = byId(vehicles);
-  const sightseeingById = byId(sightseeings);
+  const hotelById = byId(hotels as unknown as Array<{ id: string }>);
+  const cruiseById = byId(cruises as unknown as Array<{ id: string }>);
+  const vehicleById = byId(vehicles as unknown as Array<{ id: string }>);
+  const sightseeingById = byId(sightseeings as unknown as Array<{ id: string }>);
+  const addOnServiceById = byId(addOnServices as unknown as Array<{ id: string }>);
   const existing = existingQuotationImageMap(existingVersion);
 
   const hydrateCarrier = <
@@ -817,6 +828,13 @@ async function hydrateQuotationImageSnapshots(
 
   return {
     ...input,
+    // NOTE: master prices are intentionally NOT re-applied here. The master
+    // price is only a prefill source that is copied ONCE into the quotation
+    // snapshot when the master is selected (in the frontend). Re-pulling it on
+    // every save would dynamically re-link the quotation to the master, so a
+    // later master-price change would silently rewrite an already-saved
+    // quotation. Persisting exactly what the client sent keeps quotations as
+    // stable snapshots. This function only hydrates master gallery images.
     hotels: input.hotels.map((row) =>
       hydrateCarrier(
         row,
@@ -833,9 +851,14 @@ async function hydrateQuotationImageSnapshots(
             ? vehicleById.get(row.vehicleId)
             : row.serviceType === 'SIGHTSEEING' && row.sightseeingId
               ? sightseeingById.get(row.sightseeingId)
-              : undefined;
-      return hydrateCarrier(row, master as unknown as LegacyImageFields | undefined);
-    }) as QuotationVersionInput['services'],
+              : row.addOnServiceId
+                ? addOnServiceById.get(row.addOnServiceId)
+                : undefined;
+      return hydrateCarrier(
+        row as unknown as Record<string, unknown> & { images?: unknown },
+        master as unknown as LegacyImageFields | undefined,
+      );
+    }) as unknown as QuotationVersionInput['services'],
     sightseeingDetails: (input.sightseeingDetails
       ? {
           ...input.sightseeingDetails,
@@ -843,7 +866,7 @@ async function hydrateQuotationImageSnapshots(
             ...day,
             activities: day.activities.map((activity) =>
               hydrateCarrier(
-                activity,
+                activity as unknown as Record<string, unknown> & { images?: unknown },
                 activity.sightseeingId
                   ? (sightseeingById.get(activity.sightseeingId) as unknown as
                       LegacyImageFields | undefined)
@@ -852,7 +875,7 @@ async function hydrateQuotationImageSnapshots(
             ),
           })),
         }
-      : input.sightseeingDetails) as QuotationVersionInput['sightseeingDetails'],
+      : input.sightseeingDetails) as unknown as QuotationVersionInput['sightseeingDetails'],
   };
 }
 
@@ -1646,6 +1669,44 @@ async function resolveDestinationExpertPresentation(
   };
 }
 
+const defaultExpertAvatarCache = new Map<string, Buffer>();
+
+function loadDefaultExpertAvatar(kind: 'male' | 'female'): Buffer | null {
+  const cached = defaultExpertAvatarCache.get(kind);
+  if (cached) return cached;
+  const fileName = `${kind}.png`;
+  let fileDirCandidates: string[] = [];
+  try {
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    fileDirCandidates = [
+      resolve(currentDir, `../../../web/public/destination-expert/${fileName}`),
+      resolve(currentDir, `../../../../apps/web/public/destination-expert/${fileName}`),
+      resolve(currentDir, `../../../images/${fileName}`),
+      resolve(currentDir, `../../assets/destination-expert/${fileName}`),
+      resolve(currentDir, `../../../assets/destination-expert/${fileName}`),
+    ];
+  } catch {}
+  const candidates = [
+    ...fileDirCandidates,
+    resolve(process.cwd(), `apps/web/public/destination-expert/${fileName}`),
+    resolve(process.cwd(), `apps/images/${fileName}`),
+    resolve(process.cwd(), `apps/api/src/assets/destination-expert/${fileName}`),
+    resolve(process.cwd(), `apps/api/src/assets/${fileName}`),
+    resolve(process.cwd(), `src/assets/${fileName}`),
+    resolve(process.cwd(), `src/assets/destination-expert/${fileName}`),
+  ];
+  const path = candidates.find((p) => existsSync(p));
+  if (!path) return null;
+  try {
+    const buf = readFileSync(path);
+    if (buf?.length) {
+      defaultExpertAvatarCache.set(kind, buf);
+      return buf;
+    }
+  } catch {}
+  return null;
+}
+
 /** Maps each sightseeing activity's master id to a short-lived signed image URL. */
 async function resolveSightseeingPresentations(
   ownerCompanyIds: string[],
@@ -1998,10 +2059,7 @@ export const quotationsService = {
     const defaultTitle = `${primaryDestination} Package for ${lead.customerName}`;
     const version: QuotationVersionInput = {
       title: input.version?.title ?? source?.title ?? defaultTitle,
-      introduction:
-        input.version?.introduction ??
-        source?.introduction ??
-        `A travel proposal prepared for ${lead.customerName}.`,
+      introduction: input.version?.introduction ?? source?.introduction ?? '',
       destinationSummary: input.version?.destinationSummary ?? destination,
       travelStartDate:
         input.version?.travelStartDate ??
@@ -2952,7 +3010,7 @@ export const quotationsService = {
     // Destination Expert — same resolved data the weblink uses, plus the
     // profile image bytes for the PDF (the weblink gets a signed URL instead).
     let destinationExpert: QuotationPdfInput['destinationExpert'] = null;
-    if (images) {
+    {
       const expert = await resolveDestinationExpertPresentation(
         auth.companyId,
         normalizeDestinationExpertConfig(
@@ -2982,9 +3040,25 @@ export const quotationsService = {
             const profile = await storageService.getObject(
               (expert as { profileImageObjectKey: string }).profileImageObjectKey,
             );
-            if (profile) images.expertProfile = profile;
+            if (profile) {
+              if (!images) images = {};
+              images.expertProfile = profile;
+            }
           } catch {
             // A missing profile photo never blocks the PDF.
+          }
+        }
+        // Fallback to the gender-based default avatar (same as the weblink)
+        // when no custom photo was resolved. This keeps both PDF styles in
+        // sync with the public page without inventing a generic placeholder.
+        if (!images?.expertProfile) {
+          const fallbackKind = (expert as { avatarKind?: string | null }).avatarKind;
+          if (fallbackKind === 'male' || fallbackKind === 'female') {
+            const fallback = loadDefaultExpertAvatar(fallbackKind);
+            if (fallback) {
+              if (!images) images = {};
+              (images as NonNullable<typeof images>).expertProfile = fallback;
+            }
           }
         }
       }

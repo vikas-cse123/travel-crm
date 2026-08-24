@@ -369,6 +369,28 @@ describe('Phase 8 customer quotations', () => {
     ).toBe('QT-001001');
   });
 
+  it('defaults a new quotation introduction to empty and preserves an existing one', async () => {
+    const client = await owner();
+    const lead = (await client.post('/api/queries', leadPayload())).body.data;
+    const created = await client.post('/api/quotations', { queryId: lead.id });
+    expect(created.status).toBe(201);
+    // New quotations no longer pre-fill "A travel proposal prepared for ...".
+    expect(created.body.data.versions[0].introduction).toBe('');
+    expect(created.body.data.versions[0].introduction).not.toContain('prepared for');
+
+    // Saving an explicit introduction preserves it across save/reload.
+    const versionId = created.body.data.versions[0].id;
+    const saved = await client.patch(`/api/quotations/${created.body.data.id}/versions/${versionId}`, {
+      introduction: 'Welcome to your hand-crafted itinerary.',
+    });
+    expect(saved.status).toBe(200);
+    const reloaded = await client.get(`/api/quotations/${created.body.data.id}`);
+    const version = reloaded.body.data.versions.find(
+      (row: { id: string }) => row.id === versionId,
+    );
+    expect(version.introduction).toBe('Welcome to your hand-crafted itinerary.');
+  });
+
   it('jumps a legacy counter below the floor to QT-001000', async () => {
     const client = await owner();
     const companyId = (await db.company.findFirstOrThrow()).id;

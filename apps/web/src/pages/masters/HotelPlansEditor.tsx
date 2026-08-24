@@ -1,16 +1,27 @@
-import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { PERMISSIONS, type HotelMealPlanType } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
+  createMealPlanMonthPrice,
+  createMealPlanSeason,
+  createRoomTypeMonthPrice,
+  createRoomTypeSeason,
   useCreateMealPlan,
   useCreateRoomType,
   useUpdateMealPlan,
   useUpdateRoomType,
   type Hotel,
+  type HotelMealPlan,
+  type HotelRoomType,
 } from '@/features/masters/masters.api';
-import { fieldClass, StatusBadge } from './MasterUi';
+import { fieldClass, StatusBadge, CurrencySelect } from './MasterUi';
+import {
+  HotelRatesEditor,
+  type MonthRateDraft,
+  type SeasonRateDraft,
+} from './HotelRatesEditor';
 
 interface Props {
   kind: 'room' | 'meal';
@@ -19,20 +30,106 @@ interface Props {
   headerClass?: string;
 }
 
+const rateCount = (months?: unknown[], seasons?: unknown[]): number =>
+  (months?.length ?? 0) + (seasons?.length ?? 0);
+
+/** Compact base-price + monthly + seasonal pricing editor for one room/meal. */
+function PricingPanel({
+  kind,
+  hotelId,
+  item,
+}: {
+  kind: 'room' | 'meal';
+  hotelId: string;
+  item: HotelRoomType | HotelMealPlan;
+}) {
+  const { hasPermission } = useAuth();
+  const canUpdate = hasPermission(PERMISSIONS.MASTER_HOTELS_UPDATE);
+  const updateRoom = useUpdateRoomType(hotelId);
+  const updateMeal = useUpdateMealPlan(hotelId);
+  const [price, setPrice] = useState(item.sellingPrice == null ? '' : String(item.sellingPrice));
+  const [currency, setCurrency] = useState(item.currency || 'INR');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setPrice(item.sellingPrice == null ? '' : String(item.sellingPrice));
+    setCurrency(item.currency || 'INR');
+  }, [item.sellingPrice, item.currency]);
+
+  const saveBase = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const input = {
+        sellingPrice: price.trim() === '' ? null : Number(price),
+        currency: currency || 'INR',
+      };
+      if (kind === 'room') await updateRoom.mutateAsync({ id: item.id, input });
+      else await updateMeal.mutateAsync({ id: item.id, input });
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : 'Could not save.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-dashed p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-slate-800">Base Price</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          className={`${fieldClass} mt-0 min-w-0 flex-1`}
+          type="number"
+          min={0}
+          step={0.01}
+          placeholder="Base price"
+          disabled={!canUpdate}
+          value={price}
+          onChange={(event) => setPrice(event.target.value)}
+          aria-label={`${kind === 'room' ? 'Room type' : 'Meal plan'} base price`}
+        />
+        <CurrencySelect
+          value={currency}
+          onChange={setCurrency}
+          aria-label={`${kind === 'room' ? 'Room type' : 'Meal plan'} base currency`}
+        />
+        {canUpdate && (
+          <Button size="sm" onClick={() => void saveBase()} type="button" isLoading={saving}>
+            Save
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-slate-500">Used when no monthly or seasonal rate applies.</p>
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+      <HotelRatesEditor
+        entityKind={kind}
+        hotelId={hotelId}
+        ownerId={item.id}
+        monthRates={item.monthPrices as never}
+        seasonRates={item.seasons as never}
+      />
+    </div>
+  );
+}
+
 export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: Props) {
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission(PERMISSIONS.MASTER_HOTELS_UPDATE);
-  const canManageCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
-  const canViewCosting = hasPermission(PERMISSIONS.MASTER_HOTELS_VIEW_COSTING);
   const createRoom = useCreateRoomType(hotel.id);
-  const updateRoom = useUpdateRoomType(hotel.id);
   const createMeal = useCreateMealPlan(hotel.id);
+  const updateRoom = useUpdateRoomType(hotel.id);
   const updateMeal = useUpdateMealPlan(hotel.id);
   const [open, setOpen] = useState(false);
+  const [pricingId, setPricingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [extra, setExtra] = useState(''); // bed type (room) or meal type key
-  const [baseCost, setBaseCost] = useState('');
-  const [sellingPrice, setSellingPrice] = useState('');
+  const [draftPrice, setDraftPrice] = useState('');
+  const [draftCurrency, setDraftCurrency] = useState('INR');
+  const [draftMonths, setDraftMonths] = useState<MonthRateDraft[]>([]);
+  const [draftSeasons, setDraftSeasons] = useState<SeasonRateDraft[]>([]);
   const [error, setError] = useState('');
 
   const items = kind === 'room' ? hotel.roomTypes : hotel.mealPlans;
@@ -42,15 +139,12 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
   const reset = () => {
     setName('');
     setExtra('');
-    setBaseCost('');
-    setSellingPrice('');
+    setDraftPrice('');
+    setDraftCurrency('INR');
+    setDraftMonths([]);
+    setDraftSeasons([]);
     setError('');
     setOpen(false);
-  };
-
-  const num = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed ? Number(trimmed) : null;
   };
 
   const submit = async () => {
@@ -58,26 +152,51 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
       setError('Enter a name.');
       return;
     }
-    const cost = canManageCosting
-      ? { baseCost: num(baseCost), sellingPrice: num(sellingPrice) }
-      : {};
     try {
+      const existingIds = new Set(items.map((item) => item.id));
+      let createdId: string | undefined;
       if (kind === 'room') {
-        await createRoom.mutateAsync({
+        const result = await createRoom.mutateAsync({
           name: name.trim(),
           bedType: extra.trim() || null,
           status: 'ACTIVE',
-          currency: 'INR',
-          ...cost,
+          currency: draftCurrency || 'INR',
+          ...(draftPrice.trim() ? { sellingPrice: Number(draftPrice) } : {}),
         });
+        createdId = result.roomTypes.find((room) => !existingIds.has(room.id))?.id;
       } else {
-        await createMeal.mutateAsync({
+        const result = await createMeal.mutateAsync({
           name: name.trim(),
           type: (extra || 'CUSTOM') as HotelMealPlanType,
           status: 'ACTIVE',
-          currency: 'INR',
-          ...cost,
+          currency: draftCurrency || 'INR',
+          ...(draftPrice.trim() ? { sellingPrice: Number(draftPrice) } : {}),
         });
+        createdId = result.mealPlans.find((plan) => !existingIds.has(plan.id))?.id;
+      }
+      if (createdId) {
+        for (const month of draftMonths) {
+          if (!month.month) continue;
+          const payload = {
+            month: Number(month.month),
+            price: month.price.trim() === '' ? null : Number(month.price),
+            currency: month.currency || 'INR',
+          };
+          if (kind === 'room') await createRoomTypeMonthPrice(hotel.id, createdId, payload);
+          else await createMealPlanMonthPrice(hotel.id, createdId, payload);
+        }
+        for (const season of draftSeasons) {
+          if (!season.name.trim() || !season.startDate || !season.endDate) continue;
+          const payload = {
+            name: season.name.trim(),
+            startDate: new Date(`${season.startDate}T00:00:00.000Z`),
+            endDate: new Date(`${season.endDate}T00:00:00.000Z`),
+            price: season.price.trim() === '' ? null : Number(season.price),
+            currency: season.currency || 'INR',
+          };
+          if (kind === 'room') await createRoomTypeSeason(hotel.id, createdId, payload);
+          else await createMealPlanSeason(hotel.id, createdId, payload);
+        }
       }
       reset();
     } catch (mutationError) {
@@ -122,46 +241,71 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
         {!items.length && (
           <p className="text-sm text-slate-500">No {title.toLowerCase()} added yet.</p>
         )}
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm"
-          >
-            <div className="min-w-0">
-              <p className="truncate font-medium">{item.name}</p>
-              <p className="text-xs text-slate-500">
-                {kind === 'room'
-                  ? [
-                      (item as Hotel['roomTypes'][number]).bedType,
-                      (item as Hotel['roomTypes'][number]).maxOccupancy
-                        ? `Sleeps ${(item as Hotel['roomTypes'][number]).maxOccupancy}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || '—'
-                  : (item as Hotel['mealPlans'][number]).type.replaceAll('_', ' ')}
-                {canViewCosting && item.sellingPrice != null && (
-                  <>
-                    {' '}
-                    · {item.currency} {item.sellingPrice}
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <StatusBadge value={item.status} />
-              {canUpdate && item.status !== 'ARCHIVED' && (
-                <button
-                  type="button"
-                  className="text-xs font-medium text-red-600 hover:underline"
-                  onClick={() => archive(item.id)}
-                >
-                  Archive
-                </button>
+        {items.map((item) => {
+          const months = (kind === 'room'
+            ? (item as Hotel['roomTypes'][number]).monthPrices
+            : (item as Hotel['mealPlans'][number]).monthPrices) ?? [];
+          const seasons = (kind === 'room'
+            ? (item as Hotel['roomTypes'][number]).seasons
+            : (item as Hotel['mealPlans'][number]).seasons) ?? [];
+          const extraRates = rateCount(months, seasons);
+          return (
+            <div key={item.id} className="space-y-3 rounded-lg border p-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{item.name}</p>
+                  <p className="text-xs text-slate-500">
+                    {kind === 'room'
+                      ? [
+                          (item as Hotel['roomTypes'][number]).bedType,
+                          (item as Hotel['roomTypes'][number]).maxOccupancy
+                            ? `Sleeps ${(item as Hotel['roomTypes'][number]).maxOccupancy}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || '—'
+                      : (item as Hotel['mealPlans'][number]).type.replaceAll('_', ' ')}
+                    {' · '}
+                    <span>
+                      {item.currency} {item.sellingPrice != null ? item.sellingPrice : '—'}
+                    </span>
+                    {extraRates > 0 && <span> · {extraRates} extra rate{extraRates === 1 ? '' : 's'}</span>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge value={item.status} />
+                  {canUpdate && item.status !== 'ARCHIVED' && (
+                    <button
+                      type="button"
+                      aria-label={`Toggle pricing for ${item.name}`}
+                      onClick={() => setPricingId((current) => (current === item.id ? null : item.id))}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                    >
+                      {pricingId === item.id ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                      Pricing
+                    </button>
+                  )}
+                  {canUpdate && item.status !== 'ARCHIVED' && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-red-600 hover:underline"
+                      onClick={() => archive(item.id)}
+                    >
+                      Archive
+                    </button>
+                  )}
+                </div>
+              </div>
+              {item.status !== 'ARCHIVED' && pricingId === item.id && (
+                <PricingPanel kind={kind} hotelId={hotel.id} item={item} />
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {open && (
           <div className="space-y-3 rounded-lg border border-dashed p-3">
             {error && <p className="text-xs text-red-600">{error}</p>}
@@ -195,26 +339,36 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
                 ))}
               </select>
             )}
-            {canManageCosting && (
-              <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-dashed p-3">
+              <span className="text-sm font-semibold text-slate-800">Base Price</span>
+              <div className="mt-1 flex items-center gap-2">
                 <input
-                  className={fieldClass}
+                  className={`${fieldClass} mt-0 min-w-0 flex-1`}
                   type="number"
-                  placeholder="Base cost"
-                  value={baseCost}
-                  onChange={(event) => setBaseCost(event.target.value)}
-                  aria-label="Base cost"
+                  min={0}
+                  step={0.01}
+                  placeholder="Base price"
+                  value={draftPrice}
+                  onChange={(event) => setDraftPrice(event.target.value)}
+                  aria-label={`${title} base price`}
                 />
-                <input
-                  className={fieldClass}
-                  type="number"
-                  placeholder="Selling price"
-                  value={sellingPrice}
-                  onChange={(event) => setSellingPrice(event.target.value)}
-                  aria-label="Selling price"
+                <CurrencySelect
+                  value={draftCurrency}
+                  onChange={setDraftCurrency}
+                  aria-label={`${title} base currency`}
                 />
               </div>
-            )}
+              <p className="mt-1 text-xs text-slate-500">
+                Used when no monthly or seasonal rate applies.
+              </p>
+            </div>
+            <HotelRatesEditor
+              entityKind={kind}
+              monthRates={draftMonths}
+              seasonRates={draftSeasons}
+              onMonthRatesChange={setDraftMonths}
+              onSeasonRatesChange={setDraftSeasons}
+            />
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={reset} type="button">
                 Cancel

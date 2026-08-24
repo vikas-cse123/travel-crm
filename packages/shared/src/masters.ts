@@ -137,6 +137,8 @@ const hotelBaseSchema = z.object({
   isDefaultForCity: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(100_000).optional(),
+  price: optionalMoney,
+  currency: currency.default('INR'),
   status: z.enum(MASTER_STATUSES).default('ACTIVE'),
 });
 
@@ -184,11 +186,95 @@ export const hotelMealPlanUpdateSchema = hotelMealPlanInputSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 
+const optionalDate = z.coerce.date();
+
+const roomTypeSeasonBaseSchema = z.object({
+  name: z.string().trim().min(1, 'Season name is required.').max(160),
+  startDate: optionalDate,
+  endDate: optionalDate,
+  price: optionalMoney,
+  currency: currency.default('INR'),
+});
+
+const mealPlanSeasonBaseSchema = z.object({
+  name: z.string().trim().min(1, 'Season name is required.').max(160),
+  startDate: optionalDate,
+  endDate: optionalDate,
+  price: optionalMoney,
+  currency: currency.default('INR'),
+});
+
+export const hotelRoomTypeSeasonInputSchema = roomTypeSeasonBaseSchema.refine(
+  (value) => value.endDate >= value.startDate,
+  { path: ['endDate'], message: 'End date must be on or after the start date.' },
+);
+export const hotelRoomTypeSeasonUpdateSchema = roomTypeSeasonBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.')
+  .refine(
+    (value) => !value.startDate || !value.endDate || value.endDate >= value.startDate,
+    { path: ['endDate'], message: 'End date must be on or after the start date.' },
+  );
+
+export const hotelMealPlanSeasonInputSchema = mealPlanSeasonBaseSchema.refine(
+  (value) => value.endDate >= value.startDate,
+  { path: ['endDate'], message: 'End date must be on or after the start date.' },
+);
+export const hotelMealPlanSeasonUpdateSchema = mealPlanSeasonBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.')
+  .refine(
+    (value) => !value.startDate || !value.endDate || value.endDate >= value.startDate,
+    { path: ['endDate'], message: 'End date must be on or after the start date.' },
+  );
+
+const monthPrice = z.object({
+  // 1 = January … 12 = December. Optional extra rates are rows, never columns.
+  month: z.coerce.number().int('Select a month.').min(1, 'Select a month.').max(12, 'Select a month.'),
+  price: optionalMoney,
+  currency: currency.default('INR'),
+});
+
+export const hotelMonthPriceInputSchema = monthPrice;
+export const hotelMonthPriceUpdateSchema = monthPrice
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const hotelRoomTypeMonthPriceInputSchema = monthPrice;
+export const hotelRoomTypeMonthPriceUpdateSchema = monthPrice
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
+export const hotelMealPlanMonthPriceInputSchema = monthPrice;
+export const hotelMealPlanMonthPriceUpdateSchema = monthPrice
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
 export const hotelImageUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.enum(HOTEL_IMAGE_MIME_TYPES),
   fileSize: z.coerce.number().int().positive(),
 });
+
+const hotelSeasonBaseSchema = z.object({
+  name: z.string().trim().min(1, 'Season name is required.').max(160),
+  startDate: optionalDate,
+  endDate: optionalDate,
+  price: optionalMoney,
+  currency: currency.default('INR'),
+});
+
+export const hotelSeasonInputSchema = hotelSeasonBaseSchema.refine(
+  (value) => value.endDate >= value.startDate,
+  { path: ['endDate'], message: 'End date must be on or after the start date.' },
+);
+export const hotelSeasonUpdateSchema = hotelSeasonBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.')
+  .refine(
+    (value) => !value.startDate || !value.endDate || value.endDate >= value.startDate,
+    { path: ['endDate'], message: 'End date must be on or after the start date.' },
+  );
 
 // ---------------------------------------------------------------------------
 // Airlines
@@ -254,6 +340,8 @@ export const cruiseRoomTypeInputSchema = z.object({
 const cruiseBaseSchema = z.object({
   name: z.string().trim().min(2, 'Cruise name is required.').max(200),
   description: optionalRichText,
+  price: optionalMoney,
+  currency: currency.default('INR'),
   // The whole set is replaced on write, mirroring the reference's inline
   // add/remove editor. Omitting the key leaves existing room types untouched.
   roomTypes: z.array(cruiseRoomTypeInputSchema).max(50).optional(),
@@ -287,6 +375,8 @@ const vehicleBaseSchema = z.object({
     .nullable()
     .optional(),
   description: optionalText(50_000),
+  price: optionalMoney,
+  currency: currency.default('INR'),
   status: z.enum(MASTER_STATUSES).default('ACTIVE'),
 });
 
@@ -329,6 +419,16 @@ const sightseeingBaseSchema = z.object({
   suggestedStartTime: optionalTimeOfDay,
   description: optionalRichText,
   remarks: optionalRichText,
+  pricing: z
+    .array(
+      z.object({
+        label: z.string().trim().max(60).nullable().optional(),
+        price: z.union([z.string(), z.number()]).nullable().optional(),
+        currency: z.string().trim().max(3).nullable().optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
   status: z.enum(MASTER_STATUSES).default('ACTIVE'),
 });
 
@@ -355,13 +455,8 @@ export const sightseeingReorderSchema = z.object({
 const addOnServiceBaseSchema = z.object({
   name: z.string().trim().min(2, 'Service name is required.').max(200),
   description: optionalRichText,
-  // A single public price. The reference has no cost/selling split, so this
-  // module deliberately has no costing permissions.
-  price: z.coerce
-    .number()
-    .nonnegative('Price cannot be negative.')
-    .max(99_999_999.99, 'Price looks too large.')
-    .default(0),
+  // Single optional price — empty is valid. Stored as null when not provided.
+  price: optionalMoney,
   currency: currency.default('INR'),
   status: z.enum(MASTER_STATUSES).default('ACTIVE'),
 });
@@ -458,6 +553,22 @@ export type HotelRoomTypeUpdateInput = z.infer<typeof hotelRoomTypeUpdateSchema>
 export type HotelMealPlanInput = z.infer<typeof hotelMealPlanInputSchema>;
 export type HotelMealPlanUpdateInput = z.infer<typeof hotelMealPlanUpdateSchema>;
 export type HotelImageUploadInput = z.infer<typeof hotelImageUploadSchema>;
+export type HotelSeasonInput = z.infer<typeof hotelSeasonInputSchema>;
+export type HotelSeasonUpdateInput = z.infer<typeof hotelSeasonUpdateSchema>;
+export type HotelRoomTypeSeasonInput = z.infer<typeof hotelRoomTypeSeasonInputSchema>;
+export type HotelRoomTypeSeasonUpdateInput = z.infer<typeof hotelRoomTypeSeasonUpdateSchema>;
+export type HotelMealPlanSeasonInput = z.infer<typeof hotelMealPlanSeasonInputSchema>;
+export type HotelMealPlanSeasonUpdateInput = z.infer<typeof hotelMealPlanSeasonUpdateSchema>;
+export type HotelMonthPriceInput = z.infer<typeof hotelMonthPriceInputSchema>;
+export type HotelMonthPriceUpdateInput = z.infer<typeof hotelMonthPriceUpdateSchema>;
+export type HotelRoomTypeMonthPriceInput = z.infer<typeof hotelRoomTypeMonthPriceInputSchema>;
+export type HotelRoomTypeMonthPriceUpdateInput = z.infer<
+  typeof hotelRoomTypeMonthPriceUpdateSchema
+>;
+export type HotelMealPlanMonthPriceInput = z.infer<typeof hotelMealPlanMonthPriceInputSchema>;
+export type HotelMealPlanMonthPriceUpdateInput = z.infer<
+  typeof hotelMealPlanMonthPriceUpdateSchema
+>;
 export type HotelMealPlanType = (typeof HOTEL_MEAL_PLAN_TYPES)[number];
 export type AirlineInput = z.infer<typeof airlineInputSchema>;
 export type AirlineUpdateInput = z.infer<typeof airlineUpdateSchema>;

@@ -21,9 +21,21 @@ import {
   hotelImageUploadSchema,
   hotelInputSchema,
   hotelMealPlanInputSchema,
+  hotelMealPlanMonthPriceInputSchema,
+  hotelMealPlanMonthPriceUpdateSchema,
+  hotelMealPlanSeasonInputSchema,
+  hotelMealPlanSeasonUpdateSchema,
   hotelMealPlanUpdateSchema,
+  hotelMonthPriceInputSchema,
+  hotelMonthPriceUpdateSchema,
   hotelRoomTypeInputSchema,
+  hotelRoomTypeMonthPriceInputSchema,
+  hotelRoomTypeMonthPriceUpdateSchema,
+  hotelRoomTypeSeasonInputSchema,
+  hotelRoomTypeSeasonUpdateSchema,
   hotelRoomTypeUpdateSchema,
+  hotelSeasonInputSchema,
+  hotelSeasonUpdateSchema,
   hotelUpdateSchema,
   isMasterType,
   masterStatusSchema,
@@ -176,6 +188,12 @@ const lookups = z.object({
 const hotelId = z.object({ hotelId: z.string().uuid() });
 const hotelRoomTypeId = hotelId.extend({ roomTypeId: z.string().uuid() });
 const hotelMealPlanId = hotelId.extend({ mealPlanId: z.string().uuid() });
+const hotelSeasonId = hotelId.extend({ seasonId: z.string().uuid() });
+const hotelRoomTypeSeasonId = hotelRoomTypeId.extend({ seasonId: z.string().uuid() });
+const hotelMealPlanSeasonId = hotelMealPlanId.extend({ seasonId: z.string().uuid() });
+const hotelMonthPriceId = hotelId.extend({ monthPriceId: z.string().uuid() });
+const hotelRoomTypeMonthPriceId = hotelRoomTypeId.extend({ monthPriceId: z.string().uuid() });
+const hotelMealPlanMonthPriceId = hotelMealPlanId.extend({ monthPriceId: z.string().uuid() });
 const airlineId = z.object({ airlineId: z.string().uuid() });
 const hotelList = z.object({
   page: commonList.page,
@@ -416,6 +434,114 @@ router.patch(
   requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
   validateRequest({ params: hotelMealPlanId, body: hotelMealPlanUpdateSchema }),
   asyncHandler(hotels.updateMealPlan),
+);
+router.post(
+  '/hotels/:hotelId/seasons',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: hotelSeasonInputSchema }),
+  asyncHandler(hotels.createSeason),
+);
+router.patch(
+  '/hotels/:hotelId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelSeasonId, body: hotelSeasonUpdateSchema }),
+  asyncHandler(hotels.updateSeason),
+);
+router.delete(
+  '/hotels/:hotelId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelSeasonId }),
+  asyncHandler(hotels.deleteSeason),
+);
+router.post(
+  '/hotels/:hotelId/room-types/:roomTypeId/seasons',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeId, body: hotelRoomTypeSeasonInputSchema }),
+  asyncHandler(hotels.createRoomTypeSeason),
+);
+router.patch(
+  '/hotels/:hotelId/room-types/:roomTypeId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeSeasonId, body: hotelRoomTypeSeasonUpdateSchema }),
+  asyncHandler(hotels.updateRoomTypeSeason),
+);
+router.delete(
+  '/hotels/:hotelId/room-types/:roomTypeId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeSeasonId }),
+  asyncHandler(hotels.deleteRoomTypeSeason),
+);
+router.post(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/seasons',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanId, body: hotelMealPlanSeasonInputSchema }),
+  asyncHandler(hotels.createMealPlanSeason),
+);
+router.patch(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanSeasonId, body: hotelMealPlanSeasonUpdateSchema }),
+  asyncHandler(hotels.updateMealPlanSeason),
+);
+router.delete(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/seasons/:seasonId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanSeasonId }),
+  asyncHandler(hotels.deleteMealPlanSeason),
+);
+router.post(
+  '/hotels/:hotelId/month-prices',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelId, body: hotelMonthPriceInputSchema }),
+  asyncHandler(hotels.createMonthPrice),
+);
+router.patch(
+  '/hotels/:hotelId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMonthPriceId, body: hotelMonthPriceUpdateSchema }),
+  asyncHandler(hotels.updateMonthPrice),
+);
+router.delete(
+  '/hotels/:hotelId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMonthPriceId }),
+  asyncHandler(hotels.deleteMonthPrice),
+);
+router.post(
+  '/hotels/:hotelId/room-types/:roomTypeId/month-prices',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeId, body: hotelRoomTypeMonthPriceInputSchema }),
+  asyncHandler(hotels.createRoomTypeMonthPrice),
+);
+router.patch(
+  '/hotels/:hotelId/room-types/:roomTypeId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeMonthPriceId, body: hotelRoomTypeMonthPriceUpdateSchema }),
+  asyncHandler(hotels.updateRoomTypeMonthPrice),
+);
+router.delete(
+  '/hotels/:hotelId/room-types/:roomTypeId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelRoomTypeMonthPriceId }),
+  asyncHandler(hotels.deleteRoomTypeMonthPrice),
+);
+router.post(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/month-prices',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanId, body: hotelMealPlanMonthPriceInputSchema }),
+  asyncHandler(hotels.createMealPlanMonthPrice),
+);
+router.patch(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanMonthPriceId, body: hotelMealPlanMonthPriceUpdateSchema }),
+  asyncHandler(hotels.updateMealPlanMonthPrice),
+);
+router.delete(
+  '/hotels/:hotelId/meal-plans/:mealPlanId/month-prices/:monthPriceId',
+  requirePermission(PERMISSIONS.MASTER_HOTELS_UPDATE),
+  validateRequest({ params: hotelMealPlanMonthPriceId }),
+  asyncHandler(hotels.deleteMealPlanMonthPrice),
 );
 router.post(
   '/hotels/:hotelId/image/upload',

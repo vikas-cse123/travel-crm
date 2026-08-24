@@ -73,6 +73,15 @@ export function createApp(): Express {
     /^\/api\/quotations\/[^/]+\/versions\/[^/]+\/generate-pdf$/,
     express.json({ limit: '8mb' }),
   );
+  // A saved quotation version is a full snapshot: hotel stays with image
+  // galleries, day-wise sightseeing with per-activity pricing, rich-text
+  // descriptions and FAQs. Real quotations routinely exceed the 100kb default,
+  // so the version create/update routes get the same generous cap as the other
+  // content-heavy endpoints.
+  app.use(
+    /^\/api\/quotations\/[^/]+\/versions(\/[^/]+)?$/,
+    express.json({ limit: '8mb' }),
+  );
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
   app.use(cookieParser(env.SESSION_SECRET));

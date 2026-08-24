@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { RotateCcw, Save, X } from 'lucide-react';
+import { useFieldArray, useForm } from 'react-hook-form';
+import { Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { ERROR_CODES, PERMISSIONS, SIGHTSEEING_IMAGE_MIME_TYPES } from '@interscale/shared';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/Button';
@@ -20,7 +20,7 @@ import {
   useSightseeing,
   useUpdateSightseeing,
 } from '@/features/masters/masters.api';
-import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
+import { fieldClass, MasterHeader, RichTextEditor, CurrencySelect } from './MasterUi';
 import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const LARGE = new URLSearchParams('pageSize=100&status=ACTIVE');
@@ -44,6 +44,7 @@ interface FormValues {
   suggestedStartTime: string;
   description: string;
   remarks: string;
+  pricing: Array<{ label: string; price: string; currency: string }>;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 }
 
@@ -79,9 +80,12 @@ export function SightseeingFormPage() {
       suggestedStartTime: '',
       description: '',
       remarks: '',
+      pricing: [],
       status: 'ACTIVE',
     },
   });
+
+  const pricingArray = useFieldArray({ control: form.control, name: 'pricing' });
 
   // City options come from the chosen destination, mirroring the reference's
   // "Cities will be loaded based on selected destination" hint. The backend
@@ -117,6 +121,13 @@ export function SightseeingFormPage() {
       suggestedStartTime: value.suggestedStartTime ?? '',
       description: value.description ?? '',
       remarks: value.remarks ?? '',
+      pricing: Array.isArray(value.pricing)
+        ? value.pricing.map((row) => ({
+            label: row.label,
+            price: row.price != null ? String(row.price) : '',
+            currency: row.currency ?? 'INR',
+          }))
+        : [],
       status: value.status as FormValues['status'],
     });
   }, [record.data, form]);
@@ -131,6 +142,13 @@ export function SightseeingFormPage() {
   const submit = form.handleSubmit(async (values) => {
     setFormError('');
     setArchivedDuplicate(null);
+    const pricing = (values.pricing ?? [])
+      .map((row) => ({
+        label: row.label.trim(),
+        price: row.price === '' ? null : Number(row.price),
+        currency: row.currency || 'INR',
+      }))
+      .filter((row) => row.label || row.price != null);
     const payload = {
       destinationId: values.destinationId,
       cityId: values.cityId,
@@ -140,6 +158,7 @@ export function SightseeingFormPage() {
       suggestedStartTime: values.suggestedStartTime || null,
       description: values.description || null,
       remarks: values.remarks || null,
+      pricing: pricing.length ? pricing : undefined,
       status: values.status,
     };
     try {
@@ -412,6 +431,64 @@ export function SightseeingFormPage() {
                 </p>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <h2 className="bg-emerald-600 px-4 py-3 text-base font-semibold text-white">Pricing</h2>
+          <div className="space-y-4 p-4">
+            {pricingArray.fields.length === 0 ? (
+              <p className="text-sm text-slate-500">No pricing added. Click Add Price Category to add pricing.</p>
+            ) : (
+              pricingArray.fields.map((field, index) => (
+                <div key={field.id} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Category
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm"
+                      placeholder="e.g. Adult, Child, Senior"
+                      {...form.register(`pricing.${index}.label` as const)}
+                    />
+                  </label>
+                  <div className="block text-sm font-medium text-slate-700">
+                    <span>Price</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                          {form.watch(`pricing.${index}.currency` as const) === 'USD'
+                            ? '$'
+                            : form.watch(`pricing.${index}.currency` as const) === 'EUR'
+                              ? '€'
+                              : '₹'}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="w-full rounded-lg border border-slate-300 bg-card px-3 py-2 pl-7 text-sm"
+                          placeholder="e.g. 5000"
+                          aria-label={`Pricing ${index + 1} price`}
+                          {...form.register(`pricing.${index}.price` as const)}
+                        />
+                      </div>
+                      <CurrencySelect
+                        value={form.watch(`pricing.${index}.currency` as const)}
+                        onChange={(currency) =>
+                          form.setValue(`pricing.${index}.currency` as const, currency)
+                        }
+                        aria-label={`Pricing ${index + 1} currency`}
+                      />
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="text-red-600" onClick={() => pricingArray.remove(index)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))
+            )}
+            <Button size="sm" variant="secondary" onClick={() => pricingArray.append({ label: '', price: '', currency: 'INR' } as never)}>
+              <Plus className="h-4 w-4" /> Add Price Category
+            </Button>
           </div>
         </section>
 

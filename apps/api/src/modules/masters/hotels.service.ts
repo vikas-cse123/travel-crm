@@ -6,9 +6,21 @@ import {
   type HotelInput,
   type HotelImageUploadInput,
   type HotelMealPlanInput,
+  type HotelMealPlanMonthPriceInput,
+  type HotelMealPlanMonthPriceUpdateInput,
+  type HotelMealPlanSeasonInput,
+  type HotelMealPlanSeasonUpdateInput,
   type HotelMealPlanUpdateInput,
+  type HotelMonthPriceInput,
+  type HotelMonthPriceUpdateInput,
   type HotelRoomTypeInput,
+  type HotelRoomTypeMonthPriceInput,
+  type HotelRoomTypeMonthPriceUpdateInput,
+  type HotelRoomTypeSeasonInput,
+  type HotelRoomTypeSeasonUpdateInput,
   type HotelRoomTypeUpdateInput,
+  type HotelSeasonInput,
+  type HotelSeasonUpdateInput,
   type HotelUpdateInput,
 } from '@interscale/shared';
 import { env } from '../../config/env.js';
@@ -76,8 +88,16 @@ const hotelDetailInclude = {
   createdBy: { select: userSelect },
   destination: { select: { id: true, name: true, countryCode: true, countryName: true } },
   city: { select: { id: true, name: true, airportCode: true } },
-  roomTypes: { orderBy: { sortOrder: 'asc' as const } },
-  mealPlans: { orderBy: { sortOrder: 'asc' as const } },
+  roomTypes: {
+    orderBy: { sortOrder: 'asc' as const },
+    include: { seasons: { orderBy: { startDate: 'asc' as const } }, monthPrices: { orderBy: { month: 'asc' as const } } },
+  },
+  mealPlans: {
+    orderBy: { sortOrder: 'asc' as const },
+    include: { seasons: { orderBy: { startDate: 'asc' as const } }, monthPrices: { orderBy: { month: 'asc' as const } } },
+  },
+  seasons: { orderBy: { startDate: 'asc' as const } },
+  monthPrices: { orderBy: { month: 'asc' as const } },
 } as const;
 
 const hotelListInclude = {
@@ -85,16 +105,58 @@ const hotelListInclude = {
   destination: { select: { id: true, name: true } },
   city: { select: { id: true, name: true } },
   _count: { select: { roomTypes: true, mealPlans: true } },
+  seasons: {
+    orderBy: { startDate: 'asc' as const },
+    select: {
+      id: true,
+      name: true,
+      startDate: true,
+      endDate: true,
+      price: true,
+      currency: true,
+    },
+  },
+  monthPrices: {
+    orderBy: { month: 'asc' as const },
+    select: {
+      id: true,
+      month: true,
+      price: true,
+      currency: true,
+    },
+  },
 } as const;
 
+function presentSeason(row: Record<string, unknown>) {
+  return {
+    ...row,
+    startDate: dateOnly(row.startDate as Date),
+    endDate: dateOnly(row.endDate as Date),
+    price: num(row.price as Prisma.Decimal | null),
+  };
+}
+
+function presentMonthPrice(row: Record<string, unknown>) {
+  return {
+    ...row,
+    price: num(row.price as Prisma.Decimal | null),
+  };
+}
+
 function presentRoomType(row: Record<string, unknown>, canViewCosting: boolean) {
-  const { companyId, ...safe } = row;
+  const { companyId, seasons, monthPrices, ...safe } = row;
   void companyId;
   const base = {
     ...safe,
     baseCost: num(safe.baseCost as Prisma.Decimal | null),
     sellingPrice: num(safe.sellingPrice as Prisma.Decimal | null),
     taxPercentage: num(safe.taxPercentage as Prisma.Decimal | null),
+    ...(Array.isArray(seasons)
+      ? { seasons: seasons.map((s) => presentSeason(s as Record<string, unknown>)) }
+      : {}),
+    ...(Array.isArray(monthPrices)
+      ? { monthPrices: monthPrices.map((m) => presentMonthPrice(m as Record<string, unknown>)) }
+      : {}),
   };
   if (canViewCosting) return base;
   const { baseCost, sellingPrice, taxPercentage, ...redacted } = base;
@@ -105,12 +167,18 @@ function presentRoomType(row: Record<string, unknown>, canViewCosting: boolean) 
 }
 
 function presentMealPlan(row: Record<string, unknown>, canViewCosting: boolean) {
-  const { companyId, ...safe } = row;
+  const { companyId, seasons, monthPrices, ...safe } = row;
   void companyId;
   const base = {
     ...safe,
     baseCost: num(safe.baseCost as Prisma.Decimal | null),
     sellingPrice: num(safe.sellingPrice as Prisma.Decimal | null),
+    ...(Array.isArray(seasons)
+      ? { seasons: seasons.map((s) => presentSeason(s as Record<string, unknown>)) }
+      : {}),
+    ...(Array.isArray(monthPrices)
+      ? { monthPrices: monthPrices.map((m) => presentMonthPrice(m as Record<string, unknown>)) }
+      : {}),
   };
   if (canViewCosting) return base;
   const { baseCost, sellingPrice, ...redacted } = base;
@@ -139,6 +207,8 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, sco
     pendingImageFileSize,
     roomTypes,
     mealPlans,
+    seasons,
+    monthPrices,
     internalNotes,
     ...safe
   } = row;
@@ -164,6 +234,7 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, sco
     starRating: num(safe.starRating as Prisma.Decimal | null),
     latitude: num(safe.latitude as Prisma.Decimal | null),
     longitude: num(safe.longitude as Prisma.Decimal | null),
+    price: num(safe.price as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
     ...(Array.isArray(roomTypes)
@@ -180,12 +251,35 @@ function presentHotel(row: Record<string, unknown>, canViewCosting: boolean, sco
           ),
         }
       : {}),
+    ...(Array.isArray(seasons)
+      ? {
+          seasons: seasons.map((s) => {
+            const season = s as Record<string, unknown>;
+            return {
+              ...season,
+              startDate: dateOnly(season.startDate as Date),
+              endDate: dateOnly(season.endDate as Date),
+              price: num(season.price as Prisma.Decimal | null),
+            };
+          }),
+        }
+      : {}),
+    ...(Array.isArray(monthPrices)
+      ? { monthPrices: monthPrices.map((m) => presentMonthPrice(m as Record<string, unknown>)) }
+      : {}),
   };
 }
 
 function duplicateError(error: unknown): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
     throw new ConflictError('A hotel with that name already exists in this city.');
+  throw error;
+}
+
+/** A duplicate calendar-month price on the same pricing entity (unique index). */
+function monthPriceDuplicateError(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+    throw new ConflictError('A price for this month already exists for this master.');
   throw error;
 }
 
@@ -231,7 +325,7 @@ async function validateDestinationCity(scope: MasterScope, destinationId: string
 }
 
 function hotelWriteData(input: HotelInput | HotelUpdateInput, canManageCosting: boolean) {
-  void canManageCosting; // hotels carry no direct cost fields; costing lives on room types / meal plans
+  void canManageCosting;
   const key = <K extends keyof (HotelInput & HotelUpdateInput)>(k: K) => k in input;
   return {
     ...(key('name')
@@ -258,6 +352,8 @@ function hotelWriteData(input: HotelInput | HotelUpdateInput, canManageCosting: 
     ...(key('externalCode') ? { externalCode: blankToNull(input.externalCode) } : {}),
     ...(key('isFeatured') ? { isFeatured: Boolean(input.isFeatured) } : {}),
     ...(key('sortOrder') ? { sortOrder: input.sortOrder ?? 0 } : {}),
+    ...(key('price') ? { price: input.price ?? null } : {}),
+    ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
   };
 }
 
@@ -375,6 +471,8 @@ export const hotelsService = {
         starCategory: true,
         status: true,
         isDefaultForCity: true,
+        price: true,
+        currency: true,
         destination: { select: { id: true, name: true } },
         city: { select: { id: true, name: true } },
       },
@@ -671,6 +769,702 @@ export const hotelsService = {
     return this.details(auth, hotelId);
   },
 
+  // --- Room-type seasons (date-range rates) --------------------------------
+
+  async createRoomTypeSeason(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    input: HotelRoomTypeSeasonInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    await prisma.$transaction(async (tx) => {
+      await assertNoRoomTypeSeasonOverlap(
+        tx,
+        auth.companyId,
+        roomType.id,
+        input.startDate,
+        input.endDate,
+      );
+      const created = await tx.hotelRoomTypeSeason.create({
+        data: {
+          companyId: auth.companyId,
+          hotelId: hotel.id,
+          hotelRoomTypeId: roomType.id,
+          name: input.name.trim(),
+          startDate: input.startDate,
+          endDate: input.endDate,
+          price: input.price ?? null,
+          currency: input.currency ?? 'INR',
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+          change: 'SEASON_CREATED',
+          seasonId: created.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async updateRoomTypeSeason(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    seasonId: string,
+    input: HotelRoomTypeSeasonUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    const existing = await prisma.hotelRoomTypeSeason.findFirst({
+      where: { id: seasonId, hotelRoomTypeId: roomType.id, companyId: auth.companyId },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    const startDate = input.startDate ?? existing.startDate;
+    const endDate = input.endDate ?? existing.endDate;
+    await prisma.$transaction(async (tx) => {
+      await assertNoRoomTypeSeasonOverlap(
+        tx,
+        auth.companyId,
+        roomType.id,
+        startDate,
+        endDate,
+        seasonId,
+      );
+      await tx.hotelRoomTypeSeason.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.startDate !== undefined ? { startDate } : {}),
+          ...(input.endDate !== undefined ? { endDate } : {}),
+          ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+          ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+          change: 'SEASON_UPDATED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async deleteRoomTypeSeason(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    seasonId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    const existing = await prisma.hotelRoomTypeSeason.findFirst({
+      where: { id: seasonId, hotelRoomTypeId: roomType.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelRoomTypeSeason.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+          change: 'SEASON_DELETED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
+  // --- Room-type month prices (calendar-month rates) -----------------------
+
+  async createRoomTypeMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    input: HotelRoomTypeMonthPriceInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    try {
+      await prisma.$transaction(async (tx) => {
+        const created = await tx.hotelRoomTypeMonthPrice.create({
+          data: {
+            companyId: auth.companyId,
+            hotelId: hotel.id,
+            hotelRoomTypeId: roomType.id,
+            month: input.month,
+            price: input.price ?? null,
+            currency: input.currency ?? 'INR',
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+            change: 'MONTH_PRICE_CREATED',
+            monthPriceId: created.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async updateRoomTypeMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    monthPriceId: string,
+    input: HotelRoomTypeMonthPriceUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    const existing = await prisma.hotelRoomTypeMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelRoomTypeId: roomType.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.hotelRoomTypeMonthPrice.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.month !== undefined ? { month: input.month } : {}),
+            ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+            ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+            change: 'MONTH_PRICE_UPDATED',
+            monthPriceId: existing.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async deleteRoomTypeMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    roomTypeId: string,
+    monthPriceId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const roomType = await prisma.hotelRoomType.findFirst({
+      where: { id: roomTypeId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!roomType) throw new NotFoundError('Room type not found.');
+    const existing = await prisma.hotelRoomTypeMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelRoomTypeId: roomType.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelRoomTypeMonthPrice.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_ROOM_TYPE_UPDATED', 'HotelRoomType', roomType.id, context, {
+          change: 'MONTH_PRICE_DELETED',
+          monthPriceId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
+  // --- Meal-plan seasons (date-range rates) --------------------------------
+
+  async createMealPlanSeason(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    input: HotelMealPlanSeasonInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    await prisma.$transaction(async (tx) => {
+      await assertNoMealPlanSeasonOverlap(
+        tx,
+        auth.companyId,
+        mealPlan.id,
+        input.startDate,
+        input.endDate,
+      );
+      const created = await tx.hotelMealPlanSeason.create({
+        data: {
+          companyId: auth.companyId,
+          hotelId: hotel.id,
+          hotelMealPlanId: mealPlan.id,
+          name: input.name.trim(),
+          startDate: input.startDate,
+          endDate: input.endDate,
+          price: input.price ?? null,
+          currency: input.currency ?? 'INR',
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+          change: 'SEASON_CREATED',
+          seasonId: created.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async updateMealPlanSeason(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    seasonId: string,
+    input: HotelMealPlanSeasonUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    const existing = await prisma.hotelMealPlanSeason.findFirst({
+      where: { id: seasonId, hotelMealPlanId: mealPlan.id, companyId: auth.companyId },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    const startDate = input.startDate ?? existing.startDate;
+    const endDate = input.endDate ?? existing.endDate;
+    await prisma.$transaction(async (tx) => {
+      await assertNoMealPlanSeasonOverlap(
+        tx,
+        auth.companyId,
+        mealPlan.id,
+        startDate,
+        endDate,
+        seasonId,
+      );
+      await tx.hotelMealPlanSeason.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.startDate !== undefined ? { startDate } : {}),
+          ...(input.endDate !== undefined ? { endDate } : {}),
+          ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+          ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+          change: 'SEASON_UPDATED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async deleteMealPlanSeason(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    seasonId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    const existing = await prisma.hotelMealPlanSeason.findFirst({
+      where: { id: seasonId, hotelMealPlanId: mealPlan.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelMealPlanSeason.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+          change: 'SEASON_DELETED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
+  // --- Meal-plan month prices (calendar-month rates) -----------------------
+
+  async createMealPlanMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    input: HotelMealPlanMonthPriceInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    try {
+      await prisma.$transaction(async (tx) => {
+        const created = await tx.hotelMealPlanMonthPrice.create({
+          data: {
+            companyId: auth.companyId,
+            hotelId: hotel.id,
+            hotelMealPlanId: mealPlan.id,
+            month: input.month,
+            price: input.price ?? null,
+            currency: input.currency ?? 'INR',
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+            change: 'MONTH_PRICE_CREATED',
+            monthPriceId: created.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async updateMealPlanMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    monthPriceId: string,
+    input: HotelMealPlanMonthPriceUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    const existing = await prisma.hotelMealPlanMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelMealPlanId: mealPlan.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.hotelMealPlanMonthPrice.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.month !== undefined ? { month: input.month } : {}),
+            ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+            ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+            change: 'MONTH_PRICE_UPDATED',
+            monthPriceId: existing.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async deleteMealPlanMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    mealPlanId: string,
+    monthPriceId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const mealPlan = await prisma.hotelMealPlan.findFirst({
+      where: { id: mealPlanId, hotelId: hotel.id },
+      select: { id: true },
+    });
+    if (!mealPlan) throw new NotFoundError('Meal plan not found.');
+    const existing = await prisma.hotelMealPlanMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelMealPlanId: mealPlan.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelMealPlanMonthPrice.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_MEAL_PLAN_UPDATED', 'HotelMealPlan', mealPlan.id, context, {
+          change: 'MONTH_PRICE_DELETED',
+          monthPriceId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
+  // --- Seasons (date-range rates) ------------------------------------------
+
+  async createSeason(
+    auth: AuthContext,
+    hotelId: string,
+    input: HotelSeasonInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    await prisma.$transaction(async (tx) => {
+      await assertNoSeasonOverlap(tx, auth.companyId, hotel.id, input.startDate, input.endDate);
+      const created = await tx.hotelSeason.create({
+        data: {
+          companyId: auth.companyId,
+          hotelId: hotel.id,
+          name: input.name.trim(),
+          startDate: input.startDate,
+          endDate: input.endDate,
+          price: input.price ?? null,
+          currency: input.currency ?? 'INR',
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+          change: 'SEASON_CREATED',
+          seasonId: created.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async updateSeason(
+    auth: AuthContext,
+    hotelId: string,
+    seasonId: string,
+    input: HotelSeasonUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const existing = await prisma.hotelSeason.findFirst({
+      where: { id: seasonId, hotelId: hotel.id, companyId: auth.companyId },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    const startDate = input.startDate ?? existing.startDate;
+    const endDate = input.endDate ?? existing.endDate;
+    await prisma.$transaction(async (tx) => {
+      await assertNoSeasonOverlap(tx, auth.companyId, hotel.id, startDate, endDate, seasonId);
+      await tx.hotelSeason.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.startDate !== undefined ? { startDate } : {}),
+          ...(input.endDate !== undefined ? { endDate } : {}),
+          ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+          ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+        },
+      });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+          change: 'SEASON_UPDATED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return this.details(auth, hotelId);
+  },
+
+  async deleteSeason(
+    auth: AuthContext,
+    hotelId: string,
+    seasonId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const existing = await prisma.hotelSeason.findFirst({
+      where: { id: seasonId, hotelId: hotel.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Season not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelSeason.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+          change: 'SEASON_DELETED',
+          seasonId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
+  // --- Hotel month prices (calendar-month rates) ---------------------------
+
+  async createMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    input: HotelMonthPriceInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    try {
+      await prisma.$transaction(async (tx) => {
+        const created = await tx.hotelMonthPrice.create({
+          data: {
+            companyId: auth.companyId,
+            hotelId: hotel.id,
+            month: input.month,
+            price: input.price ?? null,
+            currency: input.currency ?? 'INR',
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+            change: 'MONTH_PRICE_CREATED',
+            monthPriceId: created.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async updateMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    monthPriceId: string,
+    input: HotelMonthPriceUpdateInput,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const existing = await prisma.hotelMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelId: hotel.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.hotelMonthPrice.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.month !== undefined ? { month: input.month } : {}),
+            ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+            ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
+          },
+        });
+        await tx.activityLog.create({
+          data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+            change: 'MONTH_PRICE_UPDATED',
+            monthPriceId: existing.id,
+          }),
+        });
+      });
+    } catch (error) {
+      monthPriceDuplicateError(error);
+    }
+    return this.details(auth, hotelId);
+  },
+
+  async deleteMonthPrice(
+    auth: AuthContext,
+    hotelId: string,
+    monthPriceId: string,
+    context: MastersRequestContext,
+  ) {
+    const scope = await resolveMasterScope(auth, MASTER_TYPE.HOTEL);
+    const hotel = await getHotel(auth, hotelId, scope, true);
+    assertCanModifyMaster(hotel, scope);
+    const existing = await prisma.hotelMonthPrice.findFirst({
+      where: { id: monthPriceId, hotelId: hotel.id, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundError('Month price not found.');
+    await prisma.$transaction(async (tx) => {
+      await tx.hotelMonthPrice.delete({ where: { id: existing.id } });
+      await tx.activityLog.create({
+        data: audit(auth, 'HOTEL_UPDATED', 'Hotel', hotel.id, context, {
+          change: 'MONTH_PRICE_DELETED',
+          monthPriceId: existing.id,
+        }),
+      });
+    });
+    return { deleted: true };
+  },
+
   // --- Image ---------------------------------------------------------------
 
   async createImageUpload(auth: AuthContext, hotelId: string, input: HotelImageUploadInput) {
@@ -863,6 +1657,92 @@ function roomTypeWriteData(
     ...(key('sortOrder') ? { sortOrder: input.sortOrder ?? 0 } : {}),
     ...cost,
   };
+}
+
+const dateOnly = (value: Date): string => value.toISOString().slice(0, 10);
+
+/**
+ * Reject a season whose date range overlaps any existing season of the same
+ * hotel. Overlaps are never resolved silently — the caller must fix the dates.
+ */
+async function assertNoSeasonOverlap(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  hotelId: string,
+  startDate: Date,
+  endDate: Date,
+  excludeSeasonId?: string,
+) {
+  const overlapping = await tx.hotelSeason.findFirst({
+    where: {
+      companyId,
+      hotelId,
+      startDate: { lte: endDate },
+      endDate: { gte: startDate },
+      ...(excludeSeasonId ? { id: { not: excludeSeasonId } } : {}),
+    },
+    select: { name: true, startDate: true, endDate: true },
+  });
+  if (overlapping)
+    throw new ValidationError(
+      `Season "${overlapping.name}" (${dateOnly(overlapping.startDate)} to ${dateOnly(overlapping.endDate)}) overlaps this date range.`,
+    );
+}
+
+/**
+ * Reject a season whose date range overlaps any existing season of the SAME
+ * room type. Room-type seasons may overlap hotel-level and meal-plan seasons.
+ */
+async function assertNoRoomTypeSeasonOverlap(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  roomTypeId: string,
+  startDate: Date,
+  endDate: Date,
+  excludeSeasonId?: string,
+) {
+  const overlapping = await tx.hotelRoomTypeSeason.findFirst({
+    where: {
+      companyId,
+      hotelRoomTypeId: roomTypeId,
+      startDate: { lte: endDate },
+      endDate: { gte: startDate },
+      ...(excludeSeasonId ? { id: { not: excludeSeasonId } } : {}),
+    },
+    select: { name: true, startDate: true, endDate: true },
+  });
+  if (overlapping)
+    throw new ValidationError(
+      `Room type season "${overlapping.name}" (${dateOnly(overlapping.startDate)} to ${dateOnly(overlapping.endDate)}) overlaps this date range.`,
+    );
+}
+
+/**
+ * Reject a season whose date range overlaps any existing season of the SAME
+ * meal plan. Meal-plan seasons may overlap hotel-level and room-type seasons.
+ */
+async function assertNoMealPlanSeasonOverlap(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  mealPlanId: string,
+  startDate: Date,
+  endDate: Date,
+  excludeSeasonId?: string,
+) {
+  const overlapping = await tx.hotelMealPlanSeason.findFirst({
+    where: {
+      companyId,
+      hotelMealPlanId: mealPlanId,
+      startDate: { lte: endDate },
+      endDate: { gte: startDate },
+      ...(excludeSeasonId ? { id: { not: excludeSeasonId } } : {}),
+    },
+    select: { name: true, startDate: true, endDate: true },
+  });
+  if (overlapping)
+    throw new ValidationError(
+      `Meal plan season "${overlapping.name}" (${dateOnly(overlapping.startDate)} to ${dateOnly(overlapping.endDate)}) overlaps this date range.`,
+    );
 }
 
 function mealPlanWriteData(

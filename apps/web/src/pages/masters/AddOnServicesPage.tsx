@@ -138,7 +138,7 @@ export function AddOnServicesPage() {
                         <RichTextPreview html={service.description} />
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-800">
-                        {money(service.price, service.currency)}
+                        {money(service.price ?? 0, service.currency)}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge value={service.status} />
@@ -206,7 +206,7 @@ export function AddOnServicesPage() {
                       {service.isGlobal && <GlobalBadge />}
                     </h2>
                     <p className="text-xs text-slate-500">
-                      {money(service.price, service.currency)}
+                      {money(service.price ?? 0, service.currency)}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-2">

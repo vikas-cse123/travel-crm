@@ -604,6 +604,21 @@ function DayCard({
         shouldDirty: true,
       });
       form.setValue(fp(`${abase}.sequence`), 1 as never, { shouldDirty: true });
+      // Prefill pricingOptions from master pricing if activity has no pricing yet
+      const masterPricing = (picked as unknown as { pricing?: Array<{ label: string; price: number | null }> | null })?.pricing;
+      if (Array.isArray(masterPricing) && masterPricing.length > 0) {
+        const currentPricing = form.getValues(fp(`${abase}.pricingOptions`) as never) as unknown as Array<{ label?: unknown; price?: unknown }> | undefined;
+        const isEmpty =
+          !currentPricing ||
+          currentPricing.length === 0 ||
+          currentPricing.every(
+            (row) => row?.price == null || row?.price === '' || Number(row?.price) === 0,
+          );
+        if (isEmpty) {
+          const mapped = masterPricing.map((row) => ({ label: row.label, price: row.price }));
+          form.setValue(fp(`${abase}.pricingOptions`), mapped as never, { shouldDirty: true });
+        }
+      }
       if (!titleTouched)
         form.setValue(fp(`${base}.title`), autoDayTitle(picked.title), { shouldDirty: true });
     }

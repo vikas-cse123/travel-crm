@@ -16,7 +16,7 @@ import {
   useCruise,
   useUpdateCruise,
 } from '@/features/masters/masters.api';
-import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
+import { fieldClass, MasterHeader, RichTextEditor, CurrencySelect } from './MasterUi';
 import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const MAX_IMAGE_MB = 5;
@@ -33,6 +33,8 @@ interface RoomTypeValue {
 interface FormValues {
   name: string;
   description: string;
+  price: string;
+  currency: string;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   roomTypes: RoomTypeValue[];
 }
@@ -56,7 +58,7 @@ export function CruiseFormPage() {
   const [formError, setFormError] = useState('');
 
   const form = useForm<FormValues>({
-    defaultValues: { name: '', description: '', status: 'ACTIVE', roomTypes: [] },
+    defaultValues: { name: '', description: '', price: '', currency: 'INR', status: 'ACTIVE', roomTypes: [] },
   });
   const roomTypes = useFieldArray({ control: form.control, name: 'roomTypes' });
   const refreshImageQueries = useRefreshMasterImageQueries('cruises');
@@ -81,6 +83,8 @@ export function CruiseFormPage() {
     form.reset({
       name: value.name,
       description: value.description ?? '',
+      price: value.price != null ? String(value.price) : '',
+      currency: value.currency ?? 'INR',
       status: value.status as FormValues['status'],
       roomTypes: (value.roomTypes ?? []).map((roomType) => ({
         name: roomType.name,
@@ -103,6 +107,8 @@ export function CruiseFormPage() {
     const payload = {
       name: values.name.trim(),
       description: values.description || null,
+      price: values.price === '' ? null : Number(values.price),
+      currency: values.currency || 'INR',
       status: values.status,
       roomTypes: rows.map((roomType, index) => ({
         name: roomType.name.trim(),
@@ -174,6 +180,26 @@ export function CruiseFormPage() {
                 value={form.watch('description')}
                 onChange={(value) => form.setValue('description', value)}
               />
+
+              <div className="block text-sm font-medium text-slate-700">
+                <span>Price</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                    placeholder="e.g. 40000"
+                    aria-label="Cruise price"
+                    {...form.register('price')}
+                  />
+                  <CurrencySelect
+                    value={form.watch('currency')}
+                    onChange={(currency) => form.setValue('currency', currency)}
+                    aria-label="Cruise price currency"
+                  />
+                </div>
+              </div>
 
               {canManageMedia && (
                 <MasterImageGalleryField
@@ -251,18 +277,27 @@ export function CruiseFormPage() {
                       }
                     />
                     {canManageCosting && (
-                      <label className="block text-sm font-medium text-slate-700">
-                        Price
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className={fieldClass}
-                          placeholder="Enter price"
-                          aria-label={`Room type ${index + 1} price`}
-                          {...form.register(`roomTypes.${index}.price` as const)}
-                        />
-                      </label>
+                      <div className="block text-sm font-medium text-slate-700">
+                        <span>Price</span>
+                        <div className="mt-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                            placeholder="Enter price"
+                            aria-label={`Room type ${index + 1} price`}
+                            {...form.register(`roomTypes.${index}.price` as const)}
+                          />
+                          <CurrencySelect
+                            value={form.watch(`roomTypes.${index}.currency` as const)}
+                            onChange={(currency) =>
+                              form.setValue(`roomTypes.${index}.currency` as const, currency)
+                            }
+                            aria-label={`Room type ${index + 1} currency`}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))

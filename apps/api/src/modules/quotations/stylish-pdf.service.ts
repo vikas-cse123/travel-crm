@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import {
   normalizeFaqs,
   resolveQuotationPdfSectionOrder,
+  resolveQuotationPricing,
   stripItineraryDayPrefixes,
   type QuotationPdfSectionId,
 } from '@interscale/shared';
@@ -29,7 +30,12 @@ const W = 595.28;
 const H = 841.89;
 const M = 42;
 const CONTENT_W = W - M * 2;
+// Usable body bottom on a full-height (A4) content page. The footer divider is
+// drawn (H - 769) points above the bottom of every page, and body content keeps
+// the existing 13pt gap above that divider (769 - 756).
 const BODY_BOTTOM = 756;
+const FOOTER_RESERVE = H - 769;
+const BODY_FOOTER_GAP = 769 - BODY_BOTTOM;
 const NAVY = '#17386f';
 const NAVY_DARK = '#10254d';
 const GOLD = '#fdbb16';
@@ -347,8 +353,18 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     pricePerson: await prepareStylishOverviewIcon(STYLISH_OVERVIEW_ICONS.pricePerson),
     payment: await prepareStylishOverviewIcon(STYLISH_OVERVIEW_ICONS.payment),
   };
+  const pricing = resolveQuotationPricing({ version: input.version, quotation: input.quotation });
   const numberedPages: number[] = [];
   let y = 0;
+
+  /**
+   * Usable body bottom for the CURRENT page. The footer divider is drawn
+   * FOOTER_RESERVE points above the page bottom, and body content keeps a
+   * BODY_FOOTER_GAP gap above it. Because pages are dynamically sized, this
+   * must be derived from the actual page height — never the fixed full-page
+   * constant — or long content would flow into the footer on shorter pages.
+   */
+  const bodyBottom = () => doc.page.height - FOOTER_RESERVE - BODY_FOOTER_GAP;
 
   const drawImage = (
     value: PdfImage,
@@ -626,19 +642,6 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       yy += lineHeight;
     }
     return yy;
-  };
-
-  const estimatedRichHeight = (
-    lines: PdfRichTextLine[],
-    width: number,
-    size: number,
-    lineFactor = 1.42,
-  ): number => {
-    const charsPerLine = Math.max(24, Math.floor(width / (size * 0.53)));
-    return lines.reduce((total, line) => {
-      const length = line.reduce((count, run) => count + run.text.length, 0);
-      return total + Math.max(1, Math.ceil(length / charsPerLine)) * size * lineFactor;
-    }, 0);
   };
 
   // Accurate measurement – same wrapping as drawRichLines, no drawing.
@@ -972,12 +975,15 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     .lineWidth(0.6)
     .strokeColor(LINE)
     .stroke();
-  const priceRows = [
-    ['Per Adult', input.quotation.adults, input.version.perAdultPrice],
-    ['CWB', input.quotation.childrenWithBed, input.version.perChildWithBedPrice],
-    ['CWOB', input.quotation.childrenWithoutBed, input.version.perChildWithoutBedPrice],
-    ['Infant', input.quotation.infants, input.version.perInfantPrice],
-  ].filter(([, count]) => asNumber(count) > 0);
+  const isSectionWiseInvestment = pricing.pricingMode === 'SECTION_WISE';
+  const priceRows = isSectionWiseInvestment
+    ? []
+    : ([
+        ['Per Adult', input.quotation.adults, input.version.perAdultPrice],
+        ['CWB', input.quotation.childrenWithBed, input.version.perChildWithBedPrice],
+        ['CWOB', input.quotation.childrenWithoutBed, input.version.perChildWithoutBedPrice],
+        ['Infant', input.quotation.infants, input.version.perInfantPrice],
+      ] as const).filter(([, count, value]) => asNumber(count) > 0 && asNumber(value) > 0);
   priceRows.forEach(([label, count, value], index) => {
     const rowTop = investmentTop + 65 + index * 25;
     drawImage(overviewIcons.pricePerson, M + 29, rowTop - 2, 13, 13, 'contain', 0);
@@ -998,22 +1004,30 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .strokeColor(LINE)
       .stroke();
   });
+  const investmentTotal = isSectionWiseInvestment
+    ? pricing.sectionTotal
+    : asNumber(input.version.finalAmount);
   const totalBoxX = W - M - 198;
   rounded(totalBoxX, investmentTop + 50, 176, 121, TEAL, TEAL, 17);
   doc
     .font('Body')
     .fontSize(7.2)
     .fillColor('#b9dbe9')
-    .text('TOTAL PACKAGE', totalBoxX + 10, investmentTop + 71, {
-      width: 156,
-      align: 'center',
-    });
+    .text(
+      isSectionWiseInvestment ? 'QUOTATION TOTAL' : 'TOTAL PACKAGE',
+      totalBoxX + 10,
+      investmentTop + 71,
+      {
+        width: 156,
+        align: 'center',
+      },
+    );
   doc
     .font('Body')
     .fontSize(17)
     .fillColor('#ffffff')
     .text(
-      money(input.version.finalAmount, input.version.currency),
+      money(investmentTotal, input.version.currency),
       totalBoxX + 10,
       investmentTop + 97,
       { width: 156, align: 'center' },
@@ -1104,7 +1118,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         : H,
     );
     for (const line of wrapped) {
-      if (y + lineHeight > BODY_BOTTOM) addContentPage(title);
+      if (y + lineHeight > bodyBottom()) addContentPage(title);
       if (line)
         doc
           .font('Body')
@@ -1119,7 +1133,8 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   };
 
   // The saved version copy is rendered before the service itinerary.
-  drawCustomerCopy('Introduction', input.version.introduction);
+  if (input.version.introduction?.trim())
+    drawCustomerCopy('Introduction', input.version.introduction);
 
   // Flights ----------------------------------------------------------------
   const drawFlightsSection = () => {
@@ -1619,7 +1634,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         const top = activityPage === 0 ? 132 : 85;
         const descriptionTop = top + 184;
         const richDescription = htmlToRichTextLines(activity.description);
-        const availableHeight = BODY_BOTTOM - descriptionTop - 11;
+        const availableHeight = bodyBottom() - descriptionTop - 11;
         let bodySize = 9;
         let measured = measureRichHeight(richDescription, CONTENT_W - 54, bodySize, 1.38);
         if (ITIN_DESC_OFFSET + measured + ITIN_BOTTOM_PAD > availableHeight) {
@@ -1886,8 +1901,25 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   };
 
   const drawAddonsSection = () => {
+    // Visa renders only when it carries actual content (amount/charges or
+    // destination/type), not merely when the visa section flag is set. This
+    // mirrors the Classic PDF definition and stops an empty Visa card from
+    // generating a blank "Add-On Services" page.
+    const visaNumber = (value: unknown): number => {
+      if (value == null) return 0;
+      if (typeof value === 'number') return value;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const hasVisaContent =
+      visaNumber(input.version.visaAmount) > 0 ||
+      visaNumber(input.version.visaServiceCharge) > 0 ||
+      Boolean(input.version.visaType) ||
+      Boolean(input.version.visaDestination);
     const hasVisaCard =
-      input.version.includeVisa && !addOns.some(({ service }) => /visa/i.test(service.name));
+      input.version.includeVisa &&
+      hasVisaContent &&
+      !addOns.some(({ service }) => /visa/i.test(service.name));
     if (addOns.length || hasVisaCard) {
       const cards: Array<{
         name: string;
@@ -1912,8 +1944,11 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           : []),
       ];
       const measuredCards = cards.map((card) => {
-        const lines = htmlToRichTextLines(card.description);
-        const descriptionHeight = estimatedRichHeight(lines, CONTENT_W - 60, 10, 1.32);
+        // Pre-wrap and measure exactly like drawRichLines so the card height
+        // matches the real content; an estimated height can undershoot and push
+        // long copy into the footer.
+        const lines = wrapRichLinesToWidth(htmlToRichTextLines(card.description), CONTENT_W - 60, 10, 1.32);
+        const descriptionHeight = measureRichHeight(lines, CONTENT_W - 60, 10, 1.32);
         return { ...card, lines, height: Math.min(610, Math.max(190, 116 + descriptionHeight)) };
       });
       for (const [cardIndex, card] of measuredCards.entries()) {
@@ -1962,8 +1997,23 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           .roundedRect(M + 18, top + 78, CONTENT_W - 36, card.height - 96, 8)
           .fill('#f5f7fb')
           .restore();
-        drawRichLines(card.lines, M + 30, top + 92, CONTENT_W - 60, 10, INK, 1.32);
+        const cardLineHeight = 10 * 1.32;
+        const onCard = card.lines.slice(
+          0,
+          Math.max(0, Math.floor((card.height - 92) / cardLineHeight)),
+        );
+        drawRichLines(onCard, M + 30, top + 92, CONTENT_W - 60, 10, INK, 1.32);
         y = top + card.height + 14;
+        // A description taller than the card flows onto continuation pages as
+        // plain text under the same heading, so it can never be drawn into the
+        // footer area or clipped.
+        for (let i = onCard.length; i < card.lines.length; ) {
+          addContentPage('Add-On Services');
+          const perPage = Math.max(1, Math.floor((bodyBottom() - y - 10) / cardLineHeight));
+          const chunk = card.lines.slice(i, i + perPage);
+          y = drawRichLines(chunk, M + 30, y, CONTENT_W - 60, 10, INK, 1.32) + 10;
+          i += chunk.length;
+        }
       }
     }
   };
@@ -2023,8 +2073,11 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         const remaining = wrapPolicyLines(policy.lines);
         let continuation = false;
         while (remaining.length) {
-          if (BODY_BOTTOM - y < 46 + policyLineHeight) addContentPage('Policies');
-          const availableLines = Math.max(1, Math.floor((BODY_BOTTOM - y - 46) / policyLineHeight));
+          if (bodyBottom() - y < 46 + policyLineHeight) addContentPage('Policies');
+          const availableLines = Math.max(
+            1,
+            Math.floor((bodyBottom() - y - 46) / policyLineHeight),
+          );
           const chunk = remaining.splice(0, availableLines);
           const sectionHeight = 46 + chunk.length * policyLineHeight;
           const top = y;
@@ -2133,7 +2186,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       // inside the card together with photo/name/heading/contacts, continuation
       // chunks flow as plain text on follow-up pages. Lines are pre-wrapped so a
       // lone oversized paragraph is always splittable and nothing can ever be
-      // drawn below BODY_BOTTOM.
+      // drawn below the page's usable body bottom.
       const introLines = wrapRichLinesToWidth(
         htmlToRichTextLines(pdfExpert.customIntroduction || pdfExpert.bio),
         infoW,
@@ -2144,8 +2197,8 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         padTop + nameH + headingH + contactH + 10,
         hasPhoto ? imageH + 40 : 0,
       );
-      const firstBudget = Math.max(60, BODY_BOTTOM - y - fixedFirstH - padBottom);
-      const nextBudget = Math.max(60, BODY_BOTTOM - 133 - 12);
+      const firstBudget = Math.max(60, bodyBottom() - y - fixedFirstH - padBottom);
+      const nextBudget = Math.max(60, bodyBottom() - 133 - 12);
       const introChunks: ReturnType<typeof htmlToRichTextLines>[] = [];
       {
         let current: ReturnType<typeof htmlToRichTextLines> = [];
@@ -2259,10 +2312,10 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           faqSize,
           faqFactor,
         );
-        const remaining = faqChunks(answerLines, BODY_BOTTOM - y - questionH - 24);
+        const remaining = faqChunks(answerLines, bodyBottom() - y - questionH - 24);
         remaining.forEach((chunk, chunkIndex) => {
           const chunkH = measureRichHeight(chunk, faqTextW, faqSize, faqFactor);
-          if (BODY_BOTTOM - y < questionH + chunkH + 20)
+          if (bodyBottom() - y < questionH + chunkH + 20)
             addContentPage('Frequently Asked Questions');
           if (chunkIndex === 0) {
             doc.font('Bold').fontSize(12).fillColor(NAVY);
@@ -2295,6 +2348,24 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   };
   for (const id of resolveQuotationPdfSectionOrder(input.version.weblinkSectionOrder)) {
     sectionDrawers[id]?.();
+  }
+
+  // Price Breakdown — section-wise pricing (only when mode is SECTION_WISE)
+  {
+    if (pricing.pricingMode === 'SECTION_WISE') {
+      addContentPage('Section-wise Pricing');
+      const breakdownSections = pricing.sections.filter((s) => s.amount > 0);
+      for (const section of breakdownSections) {
+        const text = `${section.label}: ${money(section.amount, pricing.currency)}`;
+        if (y + 18 > bodyBottom()) addContentPage('Section-wise Pricing');
+        doc.font('Body').fontSize(10).fillColor(INK).text(text, M + 21, y, { width: CONTENT_W - 42 });
+        y += 14;
+      }
+      const totalText = `Grand Total: ${money(pricing.sectionTotal, pricing.currency)}`;
+      if (y + 20 > bodyBottom()) addContentPage('Section-wise Pricing');
+      doc.font('Bold').fontSize(12).fillColor(NAVY).text(totalText, M + 21, y, { width: CONTENT_W - 42 });
+      y += 18;
+    }
   }
 
   // Thank-you page ---------------------------------------------------------

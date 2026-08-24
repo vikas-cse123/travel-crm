@@ -8,7 +8,7 @@ import {
   useCreateAddOnService,
   useUpdateAddOnService,
 } from '@/features/masters/masters.api';
-import { fieldClass, MasterHeader, RichTextEditor } from './MasterUi';
+import { fieldClass, MasterHeader, RichTextEditor, CurrencySelect } from './MasterUi';
 
 interface FormValues {
   name: string;
@@ -38,7 +38,7 @@ export function AddOnServiceFormPage() {
     defaultValues: {
       name: '',
       description: '',
-      price: '0.00',
+      price: '',
       currency: 'INR',
       status: 'ACTIVE',
     },
@@ -50,8 +50,8 @@ export function AddOnServiceFormPage() {
     form.reset({
       name: value.name,
       description: value.description ?? '',
-      price: String(value.price),
-      currency: value.currency,
+      price: value.price != null ? String(value.price) : '',
+      currency: value.currency ?? 'INR',
       status: value.status as FormValues['status'],
     });
   }, [record.data, form]);
@@ -64,7 +64,7 @@ export function AddOnServiceFormPage() {
     const payload = {
       name: values.name.trim(),
       description: values.description || null,
-      price: Number(values.price || 0),
+      price: values.price === '' ? null : Number(values.price),
       currency: values.currency || 'INR',
       status: values.status,
     };
@@ -128,27 +128,35 @@ export function AddOnServiceFormPage() {
             />
 
             <div>
-              <label className="block text-sm font-medium text-slate-700">
-                Price <span className="text-red-600">*</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className={fieldClass}
-                  placeholder="0.00"
-                  aria-invalid={Boolean(form.formState.errors.price)}
-                  {...form.register('price', {
-                    required: 'Price is required.',
-                    validate: (value) => {
-                      const parsed = Number(value);
-                      if (Number.isNaN(parsed)) return 'Enter a valid price.';
-                      if (parsed < 0) return 'Price cannot be negative.';
-                      if (parsed > 99_999_999.99) return 'Price looks too large.';
-                      return true;
-                    },
-                  })}
-                />
-              </label>
+              <div className="block text-sm font-medium text-slate-700">
+                <span>Price</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                    placeholder="e.g. 5000"
+                    aria-label="Add-on service price"
+                    aria-invalid={Boolean(form.formState.errors.price)}
+                    {...form.register('price', {
+                      validate: (value) => {
+                        if (value === '' || value == null) return true;
+                        const parsed = Number(value);
+                        if (Number.isNaN(parsed)) return 'Enter a valid price.';
+                        if (parsed < 0) return 'Price cannot be negative.';
+                        if (parsed > 99_999_999.99) return 'Price looks too large.';
+                        return true;
+                      },
+                    })}
+                  />
+                  <CurrencySelect
+                    value={form.watch('currency')}
+                    onChange={(currency) => form.setValue('currency', currency)}
+                    aria-label="Add-on service price currency"
+                  />
+                </div>
+              </div>
               {form.formState.errors.price && (
                 <p role="alert" className="mt-1 text-xs font-medium text-red-600">
                   {form.formState.errors.price.message}

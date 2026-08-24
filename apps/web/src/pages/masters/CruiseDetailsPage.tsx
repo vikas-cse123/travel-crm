@@ -12,6 +12,10 @@ import {
 import { MasterImageGalleryView } from './MasterImageGallery';
 import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 
+function money(amount: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+}
+
 export function CruiseDetailsPage() {
   const { cruiseId = '' } = useParams<{ cruiseId: string }>();
   const cruise = useCruise(cruiseId);
@@ -104,6 +108,14 @@ export function CruiseDetailsPage() {
               <div className="col-span-2">
                 <dt className="text-xs text-slate-500">Cruise Name</dt>
                 <dd className="font-medium text-slate-900">{value.name}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Price</dt>
+                <dd className="text-slate-800">
+                  {value.price != null
+                    ? money(value.price, value.currency ?? 'INR')
+                    : '—'}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-500">Created</dt>

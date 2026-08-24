@@ -634,14 +634,14 @@ describe('Add-on services master', () => {
     expect(detail.body.data).not.toHaveProperty('normalizedName');
   });
 
-  it('defaults the price to zero when omitted', async () => {
+  it('leaves the price null when omitted', async () => {
     const client = await owner();
     const response = await client.post('/api/masters/add-on-services', {
       name: 'Arrival Card',
       status: 'ACTIVE',
     });
     expect(response.status).toBe(201);
-    expect(response.body.data.price).toBe(0);
+    expect(response.body.data.price).toBe(null);
   });
 
   it('rejects a duplicate service name', async () => {

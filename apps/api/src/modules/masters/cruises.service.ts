@@ -150,6 +150,7 @@ function presentCruise<T extends Record<string, unknown>>(
   return {
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    price: num(safe.price as Prisma.Decimal | null),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
     ...(list
@@ -205,6 +206,8 @@ function writeData(input: CruiseInput | CruiseUpdateInput) {
       ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) }
       : {}),
     ...(key('description') ? { description: blankToNull(input.description) } : {}),
+    ...(key('price') ? { price: input.price ?? null } : {}),
+    ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
   };
 }
 
@@ -305,6 +308,8 @@ export const cruisesService = {
       select: {
         id: true,
         name: true,
+        price: true,
+        currency: true,
         roomTypes: {
           where: { status: 'ACTIVE' },
           orderBy: { sortOrder: 'asc' },

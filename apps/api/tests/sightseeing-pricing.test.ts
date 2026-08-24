@@ -259,6 +259,8 @@ const baseVersion = () => ({
   title: 'Singapore Escape',
   introduction: null,
   currency: 'INR',
+  // Activity pricing is rendered only in section-wise pricing mode.
+  pricingMode: 'SECTION_WISE',
   finalAmount: '100',
   notes: null,
   perAdultPrice: '50',
@@ -307,12 +309,16 @@ const sightseeing = (activities: unknown[]) => ({
   ],
 });
 
-const render = (activities: unknown[]) =>
+const render = (activities: unknown[], versionOverride: Record<string, unknown> = {}) =>
   renderQuotationPdf({
     company,
     consultant: { name: 'Only Name', phone: null, email: null },
     quotation: quotation(),
-    version: { ...baseVersion(), sightseeingDetails: sightseeing(activities) },
+    version: {
+      ...baseVersion(),
+      sightseeingDetails: sightseeing(activities),
+      ...versionOverride,
+    },
   } as Parameters<typeof renderQuotationPdf>[0]);
 
 const isPdf = (buffer: Buffer) => buffer.subarray(0, 5).toString('latin1') === '%PDF-';
@@ -395,14 +401,19 @@ describe('sightseeing activity pricing — PDF', () => {
   });
 
   it('renders nothing pricing-related when an activity has no prices', async () => {
-    const pdf = await render([
-      { name: 'Singapore Zoo', description: '<p>Meet the animals.</p>' },
-      {
-        name: 'Gardens by the Bay',
-        description: '<p>Evening show.</p>',
-        pricingOptions: [],
-      },
-    ]);
+    // TOTAL mode hides both per-activity pricing and the global breakdown, so
+    // an unpriced activity renders cleanly with no price artefacts at all.
+    const pdf = await render(
+      [
+        { name: 'Singapore Zoo', description: '<p>Meet the animals.</p>' },
+        {
+          name: 'Gardens by the Bay',
+          description: '<p>Evening show.</p>',
+          pricingOptions: [],
+        },
+      ],
+      { pricingMode: 'TOTAL' },
+    );
     const text = visibleText(pdf);
     expect(text).toContain('Singapore Zoo');
     expect(text).not.toContain('PRICING');

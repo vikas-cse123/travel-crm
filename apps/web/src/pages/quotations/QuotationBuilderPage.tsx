@@ -28,8 +28,10 @@ import {
   formatItineraryDayTitle,
   hotelStayNights,
   labelForLookup,
+  normalizePricingMode,
   quotationVersionInputSchema,
   quotationSnapshotImageIdentity,
+  resolveQuotationPricing,
   resolveTaxNoteChoice,
   DEFAULT_WEBLINK_SECTION_ORDER,
   resolveWeblinkSectionOrder,
@@ -339,6 +341,7 @@ const TABS: TabDef[] = [
   { key: 'destinationExpert', label: 'Destination Expert' },
   { key: 'faqs', label: 'FAQs' },
   { key: 'summary', label: 'Summary & Pricing' },
+  { key: 'pricingBreakdown', label: 'Pricing Breakdown' },
   { key: 'setting', label: 'Settings' },
 ];
 
@@ -398,7 +401,7 @@ const defaults: QuotationVersionInput = {
   travelStartDate: null,
   travelEndDate: null,
   currency: 'INR',
-  pricingMode: 'ITEMIZED',
+  pricingMode: 'TOTAL',
   markupMode: 'NONE',
   markupValue: 0,
   taxRate: 0,
@@ -575,6 +578,28 @@ const toDate = (value: string | Date | null | undefined) => {
   return local.toISOString().slice(0, 10);
 };
 const nullable = (value: string) => (value === '' ? null : Number(value));
+
+/** A hotel's price for a travel date: the matching season rate, else the base price. */
+export const hotelRateForDate = (
+  master: {
+    price?: number | null;
+    seasons?: Array<{ startDate: string; endDate: string; price: number | null }>;
+  },
+  travelDate: string | Date | null | undefined,
+): number | null => {
+  const checkIn = toDate(travelDate);
+  if (checkIn) {
+    const match = (master.seasons ?? []).find(
+      (season) =>
+        season.price != null &&
+        checkIn >= season.startDate.slice(0, 10) &&
+        checkIn <= season.endDate.slice(0, 10),
+    );
+    if (match) return Number(match.price);
+  }
+  const base = master.price;
+  return base != null && Number(base) > 0 ? Number(base) : null;
+};
 
 type HotelInputRow = QuotationVersionInput['hotels'][number];
 
@@ -1672,7 +1697,7 @@ export function QuotationBuilderPage() {
       travelStartDate: version.travelStartDate ? new Date(version.travelStartDate) : null,
       travelEndDate: version.travelEndDate ? new Date(version.travelEndDate) : null,
       currency: version.currency,
-      pricingMode: version.pricingMode as QuotationVersionInput['pricingMode'],
+      pricingMode: normalizePricingMode(version.pricingMode) as QuotationVersionInput['pricingMode'],
       markupMode: version.markupMode as QuotationVersionInput['markupMode'],
       markupValue: Number(version.markupValue),
       taxRate: Number(version.taxRate),
@@ -1866,7 +1891,7 @@ export function QuotationBuilderPage() {
             }
           ).destinationExpertConfig as QuotationVersionInput['destinationExpertConfig'])
         : null,
-    });
+    }, { keepDirtyValues: true });
     // A brand-new quotation with a prefilled default hotel keeps the Hotel
     // section included unless the user explicitly turned it off. A saved
     // quotation's `hotelDetails.include` is authoritative (an explicitly
@@ -2104,6 +2129,8 @@ export function QuotationBuilderPage() {
       if (!defaultHotel) return;
       matched = true;
       const images = masterGallerySnapshot(defaultHotel.images, defaultHotel.name);
+      const matchedRate = hotelRateForDate(defaultHotel as never, row.checkInDate);
+      const price = matchedRate != null && Number(matchedRate) > 0 ? Number(matchedRate) : null;
       // Same mapping as a manual master selection (see HotelMasterFields).
       for (const [key, patchValue] of Object.entries({
         hotelId: defaultHotel.id,
@@ -2115,10 +2142,17 @@ export function QuotationBuilderPage() {
         images,
         imageSnapshotPresent: masterGalleryPresence(defaultHotel),
         pdfImageUrl: images[0] ? quotationSnapshotImageIdentity(images[0]) : null,
+        ...(price != null ? { sellingPrice: price } : {}),
       })) {
         form.setValue(`hotels.${index}.${key}` as 'hotels.0.hotelName', patchValue as never, {
           shouldDirty: true,
         });
+      }
+      if (price != null) {
+        const sectionAmount = form.getValues('hotelDetails.amount' as never) as unknown;
+        const sectionEmpty = sectionAmount == null || sectionAmount === '' || Number(sectionAmount) === 0;
+        if (sectionEmpty)
+          form.setValue('hotelDetails.amount', price as never, { shouldDirty: true });
       }
     });
     if (matched && !state.enabledByAuto) {
@@ -2269,6 +2303,57 @@ export function QuotationBuilderPage() {
       return `${code} ${safe.toFixed(digits)}`;
     }
   };
+  // Single shared pricing resolver for the builder. Every view (Summary &
+  // Pricing, Pricing Breakdown and the summary card) reads the same numbers so
+  // the grand total can never drift between them.
+  const resolveCurrentPricing = () =>
+    resolveQuotationPricing({
+      version: {
+        pricingMode: form.watch('pricingMode'),
+        finalAmount: packageTotal > 0 ? packageTotal : 0,
+        currency,
+        flightDetails: form.watch('flightDetails'),
+        hotelDetails: form.watch('hotelDetails'),
+        hotels: form.watch('hotels'),
+        sightseeingDetails: form.watch('sightseeingDetails'),
+        services: form.watch('services'),
+        includeVisa: form.watch('includeVisa'),
+        visaAmount: form.watch('visaAmount'),
+        visaServiceCharge: form.watch('visaServiceCharge'),
+        visaGstPercent: form.watch('visaGstPercent'),
+        visaVfsCharge: form.watch('visaVfsCharge'),
+      },
+      quotation: {
+        adults: pax.adults,
+        childrenWithBed: pax.cwb,
+        childrenWithoutBed: pax.cwob,
+        infants: pax.infants,
+        currency,
+      },
+    });
+  // The Quotation Summary card's single total: the section total in
+  // section-wise mode, otherwise the per-passenger package total (falling back
+  // to the live itemized final total for legacy quotations with no
+  // per-passenger prices). Add-ons are never shown as a separate bar — they
+  // live inside the section total. The section-wise decision always comes from
+  // the resolver's normalized pricing mode, never the raw form string, so the
+  // summary card, the Pricing Breakdown tab and the Summary & Pricing tab can
+  // never disagree about the mode.
+  const livePricing = resolveCurrentPricing();
+  const isSectionWisePricing = livePricing.pricingMode === 'SECTION_WISE';
+  // The single authoritative builder total. In section-wise mode this is always
+  // the resolver's sectionTotal. It also becomes the sectionTotal when the
+  // quotation is section-priced (no per-person package price) even if the
+  // stored pricing mode is the legacy TOTAL default — otherwise the summary
+  // card would show ₹0 instead of the sum of the priced sections. A real
+  // per-person package total always wins in TOTAL mode.
+  const hasPackagePrice = packageTotal > 0;
+  const summaryTotal =
+    isSectionWisePricing || (!hasPackagePrice && livePricing.sectionTotal > 0)
+      ? livePricing.sectionTotal
+      : hasPackagePrice
+        ? packageTotal
+        : estimate.final;
   const validationMessageFor = (path: string, message: string) => {
     const serviceMatch = path.match(/^services\.(\d+)\.(.+)$/);
     if (serviceMatch) {
@@ -2812,14 +2897,23 @@ export function QuotationBuilderPage() {
                       master?.images,
                       master?.name ?? 'Vehicle',
                     );
-                    setVehicleDraft((current) => ({
-                      ...current,
-                      vehicleId: master?.id ?? '',
-                      vehicleModel: master?.name ?? '',
-                      images: snapshot,
-                      imageSnapshotPresent: masterGalleryPresence(master),
-                      pdfImageUrl: snapshot[0] ? quotationSnapshotImageIdentity(snapshot[0]) : null,
-                    }));
+                    setVehicleDraft((current) => {
+                      const masterPrice = (master as unknown as { price?: number | null })?.price;
+                      const isEmpty = current.amount == null || Number(current.amount) === 0;
+                      const shouldPrefill =
+                        masterPrice != null && Number(masterPrice) > 0 && isEmpty;
+                      return {
+                        ...current,
+                        vehicleId: master?.id ?? '',
+                        vehicleModel: master?.name ?? '',
+                        images: snapshot,
+                        imageSnapshotPresent: masterGalleryPresence(master),
+                        pdfImageUrl: snapshot[0]
+                          ? quotationSnapshotImageIdentity(snapshot[0])
+                          : null,
+                        ...(shouldPrefill ? { amount: Number(masterPrice) } : {}),
+                      };
+                    });
                     if (master)
                       void importMasterGalleryPreviews(master.id, snapshot, vehicleImageUrl).then(
                         (images) => {
@@ -3014,13 +3108,50 @@ export function QuotationBuilderPage() {
                     onChange={(patch) => applyHotel(index, patch)}
                     onMasterSelect={(_hotelId, masterImages, name) => {
                       const snapshot = masterGallerySnapshot(masterImages, name);
-                      applyHotel(index, {
+                      const patch: HotelRowPatch = {
                         images: snapshot,
                         imageSnapshotPresent: Array.isArray(masterImages) ? true : undefined,
                         pdfImageUrl: snapshot[0]
                           ? quotationSnapshotImageIdentity(snapshot[0])
                           : null,
-                      });
+                      };
+                      const master = (hotelMasters.data?.data ?? []).find(
+                        (hotel) => hotel.id === _hotelId,
+                      ) as unknown as {
+                        price?: number | null;
+                        seasons?: Array<{
+                          startDate: string;
+                          endDate: string;
+                          price: number | null;
+                        }>;
+                      };
+                      const masterPrice = hotelRateForDate(master, hotel?.checkInDate);
+                      if (masterPrice != null && Number(masterPrice) > 0) {
+                        const current = form.getValues(`hotels.${index}.sellingPrice` as never) as unknown;
+                        const isEmpty =
+                          current == null ||
+                          current === '' ||
+                          (typeof current === 'number' && current === 0) ||
+                          Number(current) === 0;
+                        if (isEmpty) patch.sellingPrice = Number(masterPrice);
+                        // Prefill the section-wise Hotel Amount from the master
+                        // price too, so the section breakdown, weblink and PDFs
+                        // show it. Only when the section amount is still empty —
+                        // the employee can always edit it afterwards, and it is
+                        // never re-linked to the master.
+                        const sectionAmount = form.getValues(
+                          'hotelDetails.amount' as never,
+                        ) as unknown;
+                        const sectionEmpty =
+                          sectionAmount == null ||
+                          sectionAmount === '' ||
+                          Number(sectionAmount) === 0;
+                        if (sectionEmpty)
+                          form.setValue('hotelDetails.amount', Number(masterPrice) as never, {
+                            shouldDirty: true,
+                          });
+                      }
+                      applyHotel(index, patch);
                     }}
                   />
                 </div>
@@ -3306,6 +3437,18 @@ export function QuotationBuilderPage() {
                                   selectedMaster?.images,
                                   selectedMaster?.name ?? 'Cruise',
                                 );
+                                const masterPrice = (selectedMaster as unknown as { price?: number | null })?.price;
+                                const currentPrice = form.getValues(
+                                  `services.${index}.sellingPrice` as never,
+                                ) as unknown;
+                                const isEmpty =
+                                  currentPrice == null ||
+                                  currentPrice === '' ||
+                                  Number(currentPrice) === 0;
+                                const pricePatch =
+                                  masterPrice != null && Number(masterPrice) > 0 && isEmpty
+                                    ? { sellingPrice: Number(masterPrice) }
+                                    : {};
                                 applyService(index, {
                                   cruiseId: option?.id ?? null,
                                   cruiseRoomTypeId: null,
@@ -3317,6 +3460,7 @@ export function QuotationBuilderPage() {
                                     ? quotationSnapshotImageIdentity(snapshot[0])
                                     : null,
                                   ...(option ? { name: option.label } : {}),
+                                  ...pricePatch,
                                 });
                                 if (selectedMaster)
                                   void importMasterGalleryPreviews(
@@ -3983,7 +4127,7 @@ export function QuotationBuilderPage() {
           city: null,
           quantity: 1,
           internalCost: 0,
-          sellingPrice: master.price ?? 0,
+          sellingPrice: master.price != null ? Number(master.price) : 0,
           taxCategory: null,
           notes: null,
           sequence: services.fields.length + 1,
@@ -4738,6 +4882,13 @@ export function QuotationBuilderPage() {
               </div>
               <div className="space-y-5 p-5">
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
+                  Pricing Mode
+                  <select aria-label="Pricing mode" {...form.register('pricingMode')} className={`${field} mt-1`}>
+                    <option value="TOTAL">Total Pricing</option>
+                    <option value="SECTION_WISE">Section-wise Pricing</option>
+                  </select>
+                </label>
+                <label className="block max-w-sm text-sm font-semibold text-slate-800">
                   Currency <span className="text-red-500">*</span>
                   <select
                     aria-label="Currency"
@@ -4872,39 +5023,65 @@ export function QuotationBuilderPage() {
               </div>
             </section>
 
-            <div className="rounded-xl bg-teal-600 p-5 text-white">
-              <p className="font-semibold">Package Pricing Breakdown</p>
-              {packageTotal === 0 ? (
-                <p className="mt-1 text-sm text-white/80">Enter prices to see the breakdown.</p>
-              ) : (
-                <div className="mt-3 space-y-1 text-sm">
-                  {(
-                    [
-                      ['Adults', pax.adults, perPax.adult],
-                      ['CWB', pax.cwb, perPax.cwb],
-                      ['CWOB', pax.cwob, perPax.cwob],
-                      ['Infants', pax.infants, perPax.infant],
-                    ] as const
-                  )
-                    .filter(([, count, price]) => count > 0 && price > 0)
-                    .map(([label, count, price]) => (
-                      <div
-                        key={label}
-                        className="flex justify-between border-b border-white/20 py-1"
-                      >
-                        <span>
-                          {label}: {count} × {formatMoney(price)}
-                        </span>
-                        <span>{formatMoney(price * count)}</span>
-                      </div>
-                    ))}
-                  <div className="flex justify-between pt-2 font-bold">
-                    <span>Total Package Price:</span>
-                    <span>{formatMoney(packageTotal)}</span>
+            {!isSectionWisePricing && (
+              <div className="rounded-xl bg-teal-600 p-5 text-white">
+                <p className="font-semibold">Package Pricing Breakdown</p>
+                {packageTotal === 0 ? (
+                  <p className="mt-1 text-sm text-white/80">Enter prices to see the breakdown.</p>
+                ) : (
+                  <div className="mt-3 space-y-1 text-sm">
+                    {(
+                      [
+                        ['Adults', pax.adults, perPax.adult],
+                        ['CWB', pax.cwb, perPax.cwb],
+                        ['CWOB', pax.cwob, perPax.cwob],
+                        ['Infants', pax.infants, perPax.infant],
+                      ] as const
+                    )
+                      .filter(([, count, price]) => count > 0 && price > 0)
+                      .map(([label, count, price]) => (
+                        <div
+                          key={label}
+                          className="flex justify-between border-b border-white/20 py-1"
+                        >
+                          <span>
+                            {label}: {count} × {formatMoney(price)}
+                          </span>
+                          <span>{formatMoney(price * count)}</span>
+                        </div>
+                      ))}
+                    <div className="flex justify-between pt-2 font-bold">
+                      <span>Total Package Price:</span>
+                      <span>{formatMoney(packageTotal)}</span>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
+
+            {isSectionWisePricing &&
+              (() => {
+                const pricing = livePricing;
+                return (
+                  <div className="rounded-xl border bg-white p-5">
+                    <h3 className="font-semibold text-slate-800">Section-wise Price Breakdown</h3>
+                    <div className="mt-3 space-y-2 text-sm">
+                      {pricing.sections
+                        .filter((s) => s.amount > 0)
+                        .map((s) => (
+                          <div key={s.id} className="flex justify-between">
+                            <span className="text-slate-600">{s.label}</span>
+                            <span className="font-medium">{formatMoney(s.amount)}</span>
+                          </div>
+                        ))}
+                      <div className="flex justify-between border-t pt-2 font-bold">
+                        <span>Grand Total</span>
+                        <span>{formatMoney(pricing.sectionTotal)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
             <section className="rounded-xl border p-5">
               <h3 className="text-lg font-semibold text-slate-800">Initial Payment Details</h3>
@@ -4976,6 +5153,68 @@ export function QuotationBuilderPage() {
             </section>
           </div>
         )}
+
+        {/* Pricing Breakdown — every priced quotation section from the shared
+            resolver (single source of truth, incl. Visa). The section total is
+            the grand total for SECTION_WISE; TOTAL pricing keeps the package
+            total as the single authoritative number. */}
+        {activeTab === 'pricingBreakdown' &&
+          (() => {
+            const pricing = livePricing;
+            const isSectionWise = pricing.pricingMode === 'SECTION_WISE';
+            const destExpertEnabled =
+              (watchedExpertConfig as { enabled?: boolean } | null)?.enabled === true;
+            const sections: Array<{ id: string; label: string; amount: number }> = [
+              ...pricing.sections,
+              ...(destExpertEnabled
+                ? [{ id: 'destinationExpert', label: 'Destination Expert', amount: 0 }]
+                : []),
+            ];
+            // The grand total follows the same rule as the summary card: in
+            // section-wise mode it is always the resolver's sectionTotal, and it
+            // also becomes the sectionTotal when the quotation is section-priced
+            // (no per-person package price). A real per-person package total
+            // keeps the existing TOTAL behavior.
+            const grandTotal =
+              isSectionWise || (!packageTotal && pricing.sectionTotal > 0)
+                ? pricing.sectionTotal
+                : packageTotal;
+            return (
+              <div className="space-y-5">
+                <section className="overflow-hidden rounded-xl border">
+                  <div className="bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-3 font-semibold text-white">
+                    Pricing Breakdown
+                    <span className="ml-2 text-sm font-normal text-white/80">
+                      {isSectionWise ? 'Section-wise' : 'Total'} pricing
+                    </span>
+                  </div>
+                  <div className="p-5">
+                    <div className="overflow-hidden rounded-xl border bg-card">
+                      <div className="divide-y">
+                        {sections.map((section) => (
+                          <div
+                            key={section.id}
+                            className="flex items-center justify-between px-4 py-2.5 text-sm"
+                          >
+                            <span className="font-medium text-slate-700">{section.label}</span>
+                            <span className="text-slate-900">
+                              {section.id === 'destinationExpert' && section.amount === 0
+                                ? '—'
+                                : formatMoney(section.amount)}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
+                          <span>Grand Total</span>
+                          <span>{formatMoney(grandTotal)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            );
+          })()}
 
         {/* Settings and Destination Expert */}
         {(activeTab === 'setting' || activeTab === 'destinationExpert') && (
@@ -5478,16 +5717,11 @@ export function QuotationBuilderPage() {
             <div className="rounded-lg bg-emerald-600 p-4 text-white">
               <p className="text-sm opacity-90">Final Quotation Total</p>
               <p className="text-2xl font-bold">
-                {currency} {packageTotal.toFixed(2)}
+                {currency} {summaryTotal.toFixed(2)}
               </p>
-              <p className="text-xs opacity-80">(Package Price)</p>
-            </div>
-            <div className="rounded-lg bg-amber-500 p-4 text-white">
-              <p className="text-sm opacity-90">Add-on Services Total</p>
-              <p className="text-2xl font-bold">
-                {currency} {estimate.addon.toFixed(2)}
+              <p className="text-xs opacity-80">
+                {isSectionWisePricing ? '(Section-wise Total)' : '(Package Price)'}
               </p>
-              <p className="text-xs opacity-80">(Not added to final total)</p>
             </div>
           </div>
         </div>

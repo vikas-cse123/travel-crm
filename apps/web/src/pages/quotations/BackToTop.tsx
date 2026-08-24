@@ -2,22 +2,29 @@ import { useEffect, useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { scrollToTop } from './scroll';
 
-/** Scroll distance (px) at which the button fades in. */
-const SCROLL_THRESHOLD = 450;
+/** Fraction of the scrollable document the visitor must pass before showing. */
+const SCROLL_THRESHOLD = 0.4;
 
 /**
  * Floating "Back to top" button for the public quotation weblink.
  *
- * Fixed to the bottom-right, hidden until the visitor scrolls past the
- * threshold, then fades/slides in. Smooth-scrolls to the top on click. Uses the
- * quotation green theme with a soft rounded-square shape and a subtle shadow.
- * Positioning is fixed, so it never causes layout shift.
+ * Fixed to the bottom-right, hidden until the visitor has scrolled through at
+ * least 40% of the total scrollable document (scrollTop / (scrollHeight -
+ * clientHeight) >= 0.4), then fades/slides in. Hides again when scrolling back
+ * above the threshold. Smooth-scrolls to the top on click. Uses the quotation
+ * green theme with a soft rounded-square shape and a subtle shadow. Positioning
+ * is fixed, so it never causes layout shift.
  */
 export function BackToTop() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setVisible(window.scrollY > SCROLL_THRESHOLD);
+    const onScroll = () => {
+      const doc = document.documentElement;
+      const scrollable = doc.scrollHeight - doc.clientHeight;
+      const ratio = scrollable > 0 ? window.scrollY / scrollable : 0;
+      setVisible(ratio >= SCROLL_THRESHOLD);
+    };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);

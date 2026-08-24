@@ -31,9 +31,21 @@ import type {
   HotelImageUploadInput,
   HotelInput,
   HotelMealPlanInput,
+  HotelMealPlanMonthPriceInput,
+  HotelMealPlanMonthPriceUpdateInput,
+  HotelMealPlanSeasonInput,
+  HotelMealPlanSeasonUpdateInput,
   HotelMealPlanUpdateInput,
+  HotelMonthPriceInput,
+  HotelMonthPriceUpdateInput,
   HotelRoomTypeInput,
+  HotelRoomTypeMonthPriceInput,
+  HotelRoomTypeMonthPriceUpdateInput,
+  HotelRoomTypeSeasonInput,
+  HotelRoomTypeSeasonUpdateInput,
   HotelRoomTypeUpdateInput,
+  HotelSeasonInput,
+  HotelSeasonUpdateInput,
   HotelUpdateInput,
 } from '@interscale/shared';
 import { apiClient } from '@/api/client';
@@ -297,6 +309,8 @@ export interface HotelRoomType {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  seasons?: HotelRoomTypeSeason[];
+  monthPrices?: HotelRoomTypeMonthPrice[];
 }
 
 export interface HotelMealPlan {
@@ -314,6 +328,8 @@ export interface HotelMealPlan {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  seasons?: HotelMealPlanSeason[];
+  monthPrices?: HotelMealPlanMonthPrice[];
 }
 
 export interface HotelSummary extends MasterVisibilityMeta {
@@ -321,6 +337,8 @@ export interface HotelSummary extends MasterVisibilityMeta {
   name: string;
   starCategory: number | null;
   starRating: number | null;
+  price?: number | null;
+  currency?: string | null;
   status: string;
   isDefaultForCity: boolean;
   isFeatured: boolean;
@@ -331,6 +349,72 @@ export interface HotelSummary extends MasterVisibilityMeta {
   destination: { id: string; name: string };
   city: { id: string; name: string };
   _count?: { roomTypes: number; mealPlans: number };
+  seasons?: HotelSeason[];
+}
+
+export interface HotelSeason {
+  id: string;
+  hotelId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelRoomTypeSeason {
+  id: string;
+  hotelRoomTypeId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelMealPlanSeason {
+  id: string;
+  hotelMealPlanId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelMonthPrice {
+  id: string;
+  month: number;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelRoomTypeMonthPrice {
+  id: string;
+  hotelRoomTypeId: string;
+  month: number;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotelMealPlanMonthPrice {
+  id: string;
+  hotelMealPlanId: string;
+  month: number;
+  price: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Hotel extends Omit<HotelSummary, 'destination' | 'city'> {
@@ -363,6 +447,8 @@ export interface Hotel extends Omit<HotelSummary, 'destination' | 'city'> {
   createdBy: { id: string; fullName: string };
   roomTypes: HotelRoomType[];
   mealPlans: HotelMealPlan[];
+  seasons?: HotelSeason[];
+  monthPrices?: HotelMonthPrice[];
 }
 
 const hotelKeys = {
@@ -434,6 +520,231 @@ export function useCreateMealPlan(hotelId: string) {
     onSuccess: () => invalidateHotel(client, hotelId),
   });
 }
+export function useCreateHotelSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelSeasonInput) =>
+      apiClient.post<Hotel>(`/masters/hotels/${hotelId}/seasons`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateHotelSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: HotelSeasonUpdateInput }) =>
+      apiClient.patch<Hotel>(`/masters/hotels/${hotelId}/seasons/${id}`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteHotelSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.delete<{ deleted: true }>(`/masters/hotels/${hotelId}/seasons/${id}`),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateRoomTypeSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      roomTypeId,
+      input,
+    }: {
+      roomTypeId: string;
+      input: HotelRoomTypeSeasonInput;
+    }) => apiClient.post<Hotel>(`/masters/hotels/${hotelId}/room-types/${roomTypeId}/seasons`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateRoomTypeSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      roomTypeId,
+      id,
+      input,
+    }: {
+      roomTypeId: string;
+      id: string;
+      input: HotelRoomTypeSeasonUpdateInput;
+    }) =>
+      apiClient.patch<Hotel>(
+        `/masters/hotels/${hotelId}/room-types/${roomTypeId}/seasons/${id}`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteRoomTypeSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roomTypeId, id }: { roomTypeId: string; id: string }) =>
+      apiClient.delete<{ deleted: true }>(
+        `/masters/hotels/${hotelId}/room-types/${roomTypeId}/seasons/${id}`,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateMealPlanSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mealPlanId,
+      input,
+    }: {
+      mealPlanId: string;
+      input: HotelMealPlanSeasonInput;
+    }) =>
+      apiClient.post<Hotel>(`/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/seasons`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateMealPlanSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mealPlanId,
+      id,
+      input,
+    }: {
+      mealPlanId: string;
+      id: string;
+      input: HotelMealPlanSeasonUpdateInput;
+    }) =>
+      apiClient.patch<Hotel>(
+        `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/seasons/${id}`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteMealPlanSeason(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mealPlanId, id }: { mealPlanId: string; id: string }) =>
+      apiClient.delete<{ deleted: true }>(
+        `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/seasons/${id}`,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateHotelMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HotelMonthPriceInput) =>
+      apiClient.post<Hotel>(`/masters/hotels/${hotelId}/month-prices`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateHotelMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: HotelMonthPriceUpdateInput }) =>
+      apiClient.patch<Hotel>(`/masters/hotels/${hotelId}/month-prices/${id}`, input),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteHotelMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.delete<{ deleted: true }>(`/masters/hotels/${hotelId}/month-prices/${id}`),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateRoomTypeMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      roomTypeId,
+      input,
+    }: {
+      roomTypeId: string;
+      input: HotelRoomTypeMonthPriceInput;
+    }) =>
+      apiClient.post<Hotel>(
+        `/masters/hotels/${hotelId}/room-types/${roomTypeId}/month-prices`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateRoomTypeMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      roomTypeId,
+      id,
+      input,
+    }: {
+      roomTypeId: string;
+      id: string;
+      input: HotelRoomTypeMonthPriceUpdateInput;
+    }) =>
+      apiClient.patch<Hotel>(
+        `/masters/hotels/${hotelId}/room-types/${roomTypeId}/month-prices/${id}`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteRoomTypeMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roomTypeId, id }: { roomTypeId: string; id: string }) =>
+      apiClient.delete<{ deleted: true }>(
+        `/masters/hotels/${hotelId}/room-types/${roomTypeId}/month-prices/${id}`,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useCreateMealPlanMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mealPlanId,
+      input,
+    }: {
+      mealPlanId: string;
+      input: HotelMealPlanMonthPriceInput;
+    }) =>
+      apiClient.post<Hotel>(
+        `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/month-prices`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useUpdateMealPlanMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mealPlanId,
+      id,
+      input,
+    }: {
+      mealPlanId: string;
+      id: string;
+      input: HotelMealPlanMonthPriceUpdateInput;
+    }) =>
+      apiClient.patch<Hotel>(
+        `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/month-prices/${id}`,
+        input,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
+export function useDeleteMealPlanMonthPrice(hotelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mealPlanId, id }: { mealPlanId: string; id: string }) =>
+      apiClient.delete<{ deleted: true }>(
+        `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/month-prices/${id}`,
+      ),
+    onSuccess: () => invalidateHotel(client, hotelId),
+  });
+}
 export function useUpdateMealPlan(hotelId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -448,6 +759,56 @@ export async function createRoomType(hotelId: string, input: HotelRoomTypeInput)
 }
 export async function createMealPlan(hotelId: string, input: HotelMealPlanInput) {
   return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/meal-plans`, input);
+}
+export async function createHotelSeason(hotelId: string, input: HotelSeasonInput) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/seasons`, input);
+}
+export async function createRoomTypeSeason(
+  hotelId: string,
+  roomTypeId: string,
+  input: HotelRoomTypeSeasonInput,
+) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/room-types/${roomTypeId}/seasons`, input);
+}
+export async function createMealPlanSeason(
+  hotelId: string,
+  mealPlanId: string,
+  input: HotelMealPlanSeasonInput,
+) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/seasons`, input);
+}
+export async function createHotelMonthPrice(hotelId: string, input: HotelMonthPriceInput) {
+  return apiClient.post<Hotel>(`/masters/hotels/${hotelId}/month-prices`, input);
+}
+export async function createRoomTypeMonthPrice(
+  hotelId: string,
+  roomTypeId: string,
+  input: HotelRoomTypeMonthPriceInput,
+) {
+  return apiClient.post<Hotel>(
+    `/masters/hotels/${hotelId}/room-types/${roomTypeId}/month-prices`,
+    input,
+  );
+}
+export async function createMealPlanMonthPrice(
+  hotelId: string,
+  mealPlanId: string,
+  input: HotelMealPlanMonthPriceInput,
+) {
+  return apiClient.post<Hotel>(
+    `/masters/hotels/${hotelId}/meal-plans/${mealPlanId}/month-prices`,
+    input,
+  );
+}
+export async function updateHotelSeason(
+  hotelId: string,
+  seasonId: string,
+  input: HotelSeasonUpdateInput,
+) {
+  return apiClient.patch<Hotel>(`/masters/hotels/${hotelId}/seasons/${seasonId}`, input);
+}
+export async function deleteHotelSeason(hotelId: string, seasonId: string) {
+  return apiClient.delete<{ deleted: true }>(`/masters/hotels/${hotelId}/seasons/${seasonId}`);
 }
 export async function approveHotelImage(id: string, input: HotelImageUploadInput) {
   return apiClient.post<{ uploadUrl: string; expiresInSeconds: number }>(
@@ -581,6 +942,8 @@ export interface Cruise extends MasterVisibilityMeta {
   id: string;
   name: string;
   description: string | null;
+  price?: number | null;
+  currency?: string | null;
   status: string;
   hasImage: boolean;
   images: MasterImageMeta[];
@@ -684,6 +1047,8 @@ export interface Vehicle extends MasterVisibilityMeta {
   vehicleType: string;
   capacity: number | null;
   description: string | null;
+  price?: number | null;
+  currency?: string | null;
   status: string;
   hasImage: boolean;
   images: MasterImageMeta[];
@@ -793,6 +1158,7 @@ export interface Sightseeing extends MasterVisibilityMeta {
   suggestedStartTime: string | null;
   description: string | null;
   remarks: string | null;
+  pricing?: Array<{ label: string; price: number | null; currency?: string | null }> | null;
   status: string;
   hasImage: boolean;
   images: MasterImageMeta[];
@@ -859,6 +1225,7 @@ export interface SightseeingActivity {
   estimatedHours: number | null;
   suggestedStartTime: string | null;
   description: string | null;
+  pricing?: Array<{ label: string; price: number | null }> | null;
   images: MasterImageMeta[];
   destination: { id: string; name: string };
   city: { id: string; name: string };
@@ -992,7 +1359,7 @@ export interface AddOnService extends MasterVisibilityMeta {
   id: string;
   name: string;
   description: string | null;
-  price: number;
+  price: number | null;
   currency: string;
   status: string;
   createdAt: string;

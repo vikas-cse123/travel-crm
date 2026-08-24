@@ -12,7 +12,15 @@ export const QUOTATION_STATUSES = [
   'ARCHIVED',
 ] as const;
 export const QUOTATION_VERSION_STATUSES = ['DRAFT', 'FINALIZED', 'SUPERSEDED'] as const;
-export const PRICING_MODES = ['PER_PERSON', 'PACKAGE_TOTAL', 'ITEMIZED'] as const;
+export const PRICING_MODES = [
+  'TOTAL',
+  'SECTION_WISE',
+  'PER_PERSON',
+  'PACKAGE_TOTAL',
+  'ITEMIZED',
+] as const;
+export const QUOTATION_PRICING_MODES = ['TOTAL', 'SECTION_WISE'] as const;
+export type QuotationPricingMode = (typeof QUOTATION_PRICING_MODES)[number];
 export const MARKUP_MODES = ['NONE', 'FIXED', 'PERCENTAGE'] as const;
 
 /**
@@ -737,7 +745,7 @@ export const quotationVersionInputSchema = z
       .trim()
       .length(3)
       .transform((v) => v.toUpperCase()),
-    pricingMode: z.enum(PRICING_MODES).default('ITEMIZED'),
+    pricingMode: z.enum(PRICING_MODES).default('TOTAL'),
     markupMode: z.enum(MARKUP_MODES).default('NONE'),
     markupValue: money.default(0),
     taxRate: money.max(100).default(0),
@@ -1244,3 +1252,251 @@ export type QuotationUpdate = z.infer<typeof quotationUpdateSchema>;
 export type QuotationVersionInput = z.infer<typeof quotationVersionInputSchema>;
 export type QuotationVersionUpdate = z.infer<typeof quotationVersionUpdateSchema>;
 export type QuotationSendInput = z.infer<typeof quotationSendSchema>;
+
+// ---------------------------------------------------------------------------
+// Pricing resolver — single source of truth for Total vs Section-wise pricing
+// ---------------------------------------------------------------------------
+
+export type PricingMode = 'TOTAL' | 'SECTION_WISE';
+
+export function normalizePricingMode(value: unknown): PricingMode {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (normalized === 'SECTION_WISE' || normalized === 'SECTION-WISE' || normalized === 'SECTIONWISE') return 'SECTION_WISE';
+  if (normalized === 'TOTAL' || normalized === 'PACKAGE_TOTAL' || normalized === 'PER_PERSON') return 'TOTAL';
+  if (normalized === 'ITEMIZED') return 'TOTAL';
+  return 'TOTAL';
+}
+
+export interface SectionPrice {
+  id: 'flight' | 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon' | 'visa';
+  label: string;
+  amount: number;
+}
+
+export interface PaxCounts {
+  adults: number;
+  childrenWithBed: number;
+  childrenWithoutBed: number;
+  infants: number;
+}
+
+function toNumber(value: unknown): number {
+  const num = Number(value ?? 0);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function paxForLabel(label: string, pax: PaxCounts): number | null {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === 'adult' || normalized === 'adults') return pax.adults;
+  if (normalized === 'cwb' || normalized === 'child with bed' || normalized === 'child_with_bed') return pax.childrenWithBed;
+  if (normalized === 'cwob' || normalized === 'child without bed' || normalized === 'child_without_bed') return pax.childrenWithoutBed;
+  if (normalized === 'infant' || normalized === 'infants') return pax.infants;
+  if (normalized === 'child' || normalized === 'children') return pax.childrenWithBed + pax.childrenWithoutBed;
+  return null;
+}
+
+export function calculateSightseeingActivityTotal(
+  pricingOptions: Array<{ label: string; price: number | string | null | undefined }> | null | undefined,
+  pax: PaxCounts,
+): number {
+  if (!Array.isArray(pricingOptions) || !pricingOptions.length) return 0;
+  let total = 0;
+  for (const row of pricingOptions) {
+    const label = typeof row.label === 'string' ? row.label.trim() : '';
+    if (!label) continue;
+    const price = toNumber(row.price);
+    if (price === 0 && row.price !== 0 && row.price !== '0') {
+      // price 0 is valid, but if row.price was null/undefined treated as 0, skip if label has no price? Keep 0 as valid.
+    }
+    const quantity = paxForLabel(label, pax);
+    if (quantity === null) {
+      total += price;
+    } else {
+      total += price * quantity;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}
+
+export function calculateSightseeingSectionTotal(
+  sightseeingDetails: unknown,
+  pax: PaxCounts,
+): number {
+  if (!sightseeingDetails || typeof sightseeingDetails !== 'object') return 0;
+  const details = sightseeingDetails as { days?: unknown; amount?: unknown };
+  // If days not present, fallback to amount field
+  if (!Array.isArray(details.days)) {
+    return toNumber((details as { amount?: unknown }).amount);
+  }
+  let total = 0;
+  for (const day of details.days as unknown[]) {
+    if (!day || typeof day !== 'object') continue;
+    const activities = (day as { activities?: unknown }).activities;
+    if (!Array.isArray(activities)) continue;
+    for (const activity of activities) {
+      if (!activity || typeof activity !== 'object') continue;
+      const pricingOptions = (activity as { pricingOptions?: unknown }).pricingOptions;
+      total += calculateSightseeingActivityTotal(pricingOptions as never, pax);
+    }
+  }
+  // If no priced activities but amount exists, use amount as fallback
+  if (total === 0 && details.amount != null) {
+    return toNumber(details.amount);
+  }
+  return Math.round(total * 100) / 100;
+}
+
+export interface QuotationPricing {
+  pricingMode: PricingMode;
+  packageTotal: number;
+  /** Sum of every section amount (incl. visa). This is the authoritative
+   *  total for SECTION_WISE pricing. */
+  sectionTotal: number;
+  currency: string;
+  sections: SectionPrice[];
+  allocatedAmount: number;
+  remainingAmount: number;
+  overallocatedAmount: number;
+  isOverallocated: boolean;
+  isExactlyAllocated: boolean;
+}
+
+export function resolveQuotationPricing(input: {
+  version: {
+    pricingMode?: unknown;
+    finalAmount?: unknown;
+    currency?: unknown;
+    flightDetails?: unknown;
+    hotelDetails?: unknown;
+    hotels?: unknown;
+    sightseeingDetails?: unknown;
+    services?: unknown;
+    includeVisa?: unknown;
+    visaAmount?: unknown;
+    visaServiceCharge?: unknown;
+    visaGstPercent?: unknown;
+    visaVfsCharge?: unknown;
+  };
+  quotation: {
+    adults?: unknown;
+    childrenWithBed?: unknown;
+    childrenWithoutBed?: unknown;
+    infants?: unknown;
+    currency?: unknown;
+  };
+}): QuotationPricing {
+  const pricingMode = normalizePricingMode(input.version.pricingMode);
+  const currency =
+    (typeof input.version.currency === 'string' && input.version.currency.trim()) ||
+    (typeof input.quotation.currency === 'string' && input.quotation.currency.trim()) ||
+    'INR';
+  const packageTotal = Math.round(toNumber(input.version.finalAmount) * 100) / 100;
+
+  const pax: PaxCounts = {
+    adults: Math.max(0, Math.floor(toNumber(input.quotation.adults))),
+    childrenWithBed: Math.max(0, Math.floor(toNumber(input.quotation.childrenWithBed))),
+    childrenWithoutBed: Math.max(0, Math.floor(toNumber(input.quotation.childrenWithoutBed))),
+    infants: Math.max(0, Math.floor(toNumber(input.quotation.infants))),
+  };
+
+  const flightAmount =
+    (input.version.flightDetails as { include?: boolean; amount?: unknown } | null)?.include === false
+      ? 0
+      : toNumber((input.version.flightDetails as { amount?: unknown } | null)?.amount);
+  // Each hotel stay stores its own quotation price in hotels[].sellingPrice.
+  // The section-wise hotel amount is the SUM of every included stay's price,
+  // never a single shared value — so selecting a second hotel cannot clobber
+  // the first one's price. When no per-stay rows are supplied (legacy callers
+  // that only carry hotelDetails.amount), fall back to the section amount.
+  const hotelIncluded =
+    (input.version.hotelDetails as { include?: boolean } | null)?.include !== false;
+  const hotelRows = Array.isArray(input.version.hotels) ? (input.version.hotels as unknown[]) : [];
+  const hotelAmount = !hotelIncluded
+    ? 0
+    : hotelRows.length > 0
+      ? Math.round(
+          hotelRows.reduce<number>((sum, row) => {
+            if (!row || typeof row !== 'object') return sum;
+            const r = row as { selected?: unknown; sellingPrice?: unknown };
+            if (r.selected === false) return sum;
+            return sum + toNumber(r.sellingPrice);
+          }, 0) * 100,
+        ) / 100
+      : toNumber((input.version.hotelDetails as { amount?: unknown } | null)?.amount);
+
+  const services = Array.isArray(input.version.services) ? (input.version.services as unknown[]) : [];
+
+  const sumServices = (predicate: (row: Record<string, unknown>) => boolean): number => {
+    let sum = 0;
+    for (const row of services) {
+      if (!row || typeof row !== 'object') continue;
+      const r = row as Record<string, unknown>;
+      if (!predicate(r)) continue;
+      const quantity = toNumber(r.quantity ?? 1);
+      const unitPrice = toNumber(r.unitSellingPrice ?? r.sellingPrice);
+      const total = r.totalSellingPrice != null ? toNumber(r.totalSellingPrice) : quantity * unitPrice;
+      sum += total;
+    }
+    return Math.round(sum * 100) / 100;
+  };
+
+  const cruiseAmount = sumServices((r) => r.serviceType === 'CRUISE');
+  const vehicleAmount = sumServices((r) => r.serviceType === 'VEHICLE_TRANSFER');
+  const sightseeingAmount = calculateSightseeingSectionTotal(input.version.sightseeingDetails, pax);
+  const addonAmount = sumServices((r) => {
+    if (r.addOnServiceId) return true;
+    const t = String(r.serviceType ?? '');
+    return ['OTHER_ADD_ON', 'TRAVEL_INSURANCE', 'RAIL', 'PASSPORT_ASSISTANCE', 'MEAL', 'GUIDE', 'GENERAL_ENQUIRY'].includes(t);
+  });
+  // Visa is a single dedicated section: base visa amount plus the service
+  // charge, its GST, and the VFS charge — mirroring the builder's consolidated
+  // visa total. Kept out of the sum when the visa section is excluded.
+  const visaIncluded = input.version.includeVisa !== false;
+  const visaAmountRaw = toNumber(input.version.visaAmount);
+  const visaServiceCharge = toNumber(input.version.visaServiceCharge);
+  const visaGstPercent = toNumber(input.version.visaGstPercent);
+  const visaVfsCharge = toNumber(input.version.visaVfsCharge);
+  const visaAmount = !visaIncluded
+    ? 0
+    : Math.round(
+        (visaAmountRaw +
+          visaServiceCharge +
+          (visaServiceCharge * visaGstPercent) / 100 +
+          visaVfsCharge) *
+          100,
+      ) / 100;
+
+  const sections: SectionPrice[] = [
+    { id: 'flight', label: 'Flights', amount: flightAmount },
+    { id: 'hotel', label: 'Hotels', amount: hotelAmount },
+    { id: 'cruise', label: 'Cruise', amount: cruiseAmount },
+    { id: 'vehicle', label: 'Vehicle/Transportation', amount: vehicleAmount },
+    { id: 'sightseeing', label: 'Sightseeing', amount: sightseeingAmount },
+    { id: 'addon', label: 'Add-on Services', amount: addonAmount },
+    { id: 'visa', label: 'Visa', amount: visaAmount },
+  ];
+
+  // allocated is the sum of all section amounts (incl. visa). For SECTION_WISE
+  // pricing the sections ARE the price, so the section total is the quotation
+  // total. For TOTAL pricing the authoritative total stays the package total.
+  const allocatedAmount = Math.round(sections.reduce((sum, s) => sum + s.amount, 0) * 100) / 100;
+  const sectionTotal = allocatedAmount;
+  const remainingRaw = Math.round((packageTotal - allocatedAmount) * 100) / 100;
+  const isOverallocated = remainingRaw < 0;
+  const overallocatedAmount = isOverallocated ? Math.abs(remainingRaw) : 0;
+  const remainingAmount = isOverallocated ? 0 : remainingRaw;
+  const isExactlyAllocated = remainingRaw === 0;
+
+  return {
+    pricingMode,
+    packageTotal,
+    sectionTotal,
+    currency: currency.toUpperCase(),
+    sections,
+    allocatedAmount,
+    remainingAmount,
+    overallocatedAmount,
+    isOverallocated,
+    isExactlyAllocated,
+  };
+}

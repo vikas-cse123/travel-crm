@@ -20,7 +20,71 @@ const tabs = [
   ['amenities', 'Amenities'],
   ['roomTypes', 'Room Types'],
   ['mealPlans', 'Meal Plans'],
+  ['pricing', 'Pricing'],
 ] as const;
+
+/** Hotel price display (currency-aware), matching the pre-existing detail page. */
+function money(amount: number | null | undefined, currency: string): string {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+}
+
+/** Raw price display for room/meal/month/season rows (currency code + number). */
+const plainMoney = (amount: number | null | undefined, currency: string): string =>
+  amount == null ? '—' : `${currency} ${amount}`;
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+function RateList({
+  months,
+  seasons,
+}: {
+  months: Array<{ month: number; price: number | null; currency: string }> | undefined;
+  seasons: Array<{
+    name: string;
+    startDate: string;
+    endDate: string;
+    price: number | null;
+    currency: string;
+  }> | undefined;
+}) {
+  if (!months?.length && !seasons?.length)
+    return <p className="text-sm text-slate-500">No monthly or seasonal rates configured.</p>;
+  return (
+    <ul className="space-y-2 text-sm">
+      {(months ?? []).map((month) => (
+        <li key={`m-${month.month}`} className="flex justify-between gap-3 rounded-lg border p-2">
+          <span className="font-medium text-slate-700">{MONTH_NAMES[month.month - 1]}</span>
+          <span className="text-slate-600">{plainMoney(month.price, month.currency)}</span>
+        </li>
+      ))}
+      {(seasons ?? []).map((season) => (
+        <li key={`s-${season.name}-${season.startDate}`} className="flex justify-between gap-3 rounded-lg border p-2">
+          <span className="font-medium text-slate-700">
+            {season.name}
+            <span className="ml-2 text-xs text-slate-500">
+              {season.startDate.slice(0, 10)} → {season.endDate.slice(0, 10)}
+            </span>
+          </span>
+          <span className="text-slate-600">{plainMoney(season.price, season.currency)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function HotelDetailsPage() {
   const { hotelId } = useParams();
@@ -105,6 +169,10 @@ export function HotelDetailsPage() {
                 <dd className="font-medium">{value.mealPlans.length}</dd>
               </div>
               <div>
+                <dt className="text-slate-500">Price</dt>
+                <dd className="font-medium">{money(value.price, value.currency ?? 'INR')}</dd>
+              </div>
+              <div>
                 <dt className="text-slate-500">Created</dt>
                 <dd className="font-medium">{formatMasterDate(value.createdAt)}</dd>
               </div>
@@ -163,13 +231,9 @@ export function HotelDetailsPage() {
                       {[room.bedType, room.maxOccupancy ? `Sleeps ${room.maxOccupancy}` : null]
                         .filter(Boolean)
                         .join(' · ') || '—'}
-                      {canViewCosting && room.sellingPrice != null && (
-                        <>
-                          {' '}
-                          · {room.currency} {room.sellingPrice}
-                        </>
-                      )}
+                      {canViewCosting && <> · {plainMoney(room.sellingPrice, room.currency)}</>}
                     </p>
+                    {canViewCosting && <RateList months={room.monthPrices} seasons={room.seasons} />}
                   </div>
                 ))
               ) : (
@@ -185,18 +249,31 @@ export function HotelDetailsPage() {
                     </div>
                     <p className="text-xs text-slate-500">
                       {plan.type.replaceAll('_', ' ')}
-                      {canViewCosting && plan.sellingPrice != null && (
-                        <>
-                          {' '}
-                          · {plan.currency} {plan.sellingPrice}
-                        </>
-                      )}
+                      {canViewCosting && <> · {plainMoney(plan.sellingPrice, plan.currency)}</>}
                     </p>
+                    {canViewCosting && <RateList months={plan.monthPrices} seasons={plan.seasons} />}
                   </div>
                 ))
               ) : (
                 <p className="text-sm text-slate-500">No meal plans added.</p>
               ))}
+            {tab === 'pricing' && (
+              <div className="space-y-4">
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium text-slate-800">Hotel Base Price</p>
+                  <p className="mt-1 text-slate-600">{money(value.price, value.currency ?? 'INR')}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Used when no monthly or seasonal rate applies.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold text-slate-800">
+                    Hotel Monthly &amp; Seasonal Rates
+                  </h4>
+                  <RateList months={value.monthPrices} seasons={value.seasons} />
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>

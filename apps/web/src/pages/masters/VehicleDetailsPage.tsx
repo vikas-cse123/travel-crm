@@ -12,6 +12,11 @@ import {
 import { MasterImageGalleryView } from './MasterImageGallery';
 import { Breadcrumbs, formatMasterDate, LoadingCard, StatusBadge } from './MasterUi';
 
+function money(amount: number | null | undefined, currency: string): string {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+}
+
 export function VehicleDetailsPage() {
   const { vehicleId = '' } = useParams<{ vehicleId: string }>();
   const vehicle = useVehicle(vehicleId);
@@ -34,6 +39,10 @@ export function VehicleDetailsPage() {
     { label: 'Vehicle Name', value: value.name },
     { label: 'Vehicle Type', value: value.vehicleType },
     { label: 'Capacity', value: value.capacity != null ? `${value.capacity} persons` : '—' },
+    {
+      label: 'Price',
+      value: value.price != null ? money(value.price, value.currency ?? 'INR') : '—',
+    },
     { label: 'Created At', value: formatMasterDate(value.createdAt) },
     { label: 'Created By', value: value.createdBy?.fullName ?? '—' },
     { label: 'Last Updated', value: formatMasterDate(value.updatedAt) },

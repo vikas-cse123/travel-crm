@@ -379,16 +379,17 @@ describe('Phase 13D master pages', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('validates the add-on service name and price', async () => {
+  it('validates the add-on service name and rejects a negative price', async () => {
     const user = userEvent.setup();
     stubApi();
     renderWithProviders(<AddOnServiceFormPage />, { route: '/masters/add-on-services/new' });
 
-    const price = screen.getByLabelText(/price/i);
+    const price = screen.getByLabelText('Add-on service price');
     await user.clear(price);
     await user.click(screen.getByRole('button', { name: /^create$/i }));
+    // Price is optional, so only the required name is validated.
     expect(await screen.findByText('Service name is required.')).toBeInTheDocument();
-    expect(screen.getByText('Price is required.')).toBeInTheDocument();
+    expect(screen.queryByText('Price is required.')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/service name/i), 'Test Service');
     await user.type(price, '-5');

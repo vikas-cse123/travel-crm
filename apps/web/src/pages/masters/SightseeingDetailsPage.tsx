@@ -13,6 +13,11 @@ import { MasterImageGalleryView } from './MasterImageGallery';
 import { Breadcrumbs, formatMasterDate, LoadingCard, SafeRichText, StatusBadge } from './MasterUi';
 import { formatTime12Hour } from '@/utils/dateTime';
 
+function money(amount: number | null | undefined, currency: string): string {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+}
+
 export function SightseeingDetailsPage() {
   const { sightseeingId = '' } = useParams<{ sightseeingId: string }>();
   const record = useSightseeing(sightseeingId);
@@ -134,6 +139,19 @@ export function SightseeingDetailsPage() {
             <SafeRichText html={value.remarks} empty="No remarks added." />
           </div>
         </div>
+        {Array.isArray(value.pricing) && value.pricing.length > 0 && (
+          <div className="border-t p-4">
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">Pricing</h3>
+            <ul className="divide-y">
+              {value.pricing.map((row, index) => (
+                <li key={index} className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-slate-700">{row.label}</span>
+                  <span className="font-medium text-slate-900">{money(row.price, row.currency ?? 'INR')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
     </div>
   );

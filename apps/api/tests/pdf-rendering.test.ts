@@ -165,6 +165,147 @@ describe('Stylish quotation PDF', () => {
     }
   });
 
+  it('omits a whitespace-only introduction in both PDF styles', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: { ...baseVersionOverlap(), introduction: '   \n   ' },
+      images: { cover: PNG_1PX },
+    };
+    for (const rendered of [
+      await renderStylishQuotationPdf(input),
+      await renderQuotationPdf(input),
+    ]) {
+      expect(pdfText(rendered)).not.toContain('INTRODUCTION');
+    }
+  });
+
+  it('renders a non-empty introduction in both PDF styles', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        introduction: 'Welcome aboard this curated coastal journey.',
+      },
+      images: { cover: PNG_1PX },
+    };
+    for (const rendered of [
+      await renderStylishQuotationPdf(input),
+      await renderQuotationPdf(input),
+    ]) {
+      expect(pdfText(rendered)).toContain('INTRODUCTION');
+      expect(pdfText(rendered)).toContain('Welcome aboard this curated coastal journey.');
+    }
+  });
+
+  it('omits an empty Visa card from the Stylish Add-On Services section', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        // Visa flag is on but there is no actual visa content.
+        includeVisa: true,
+        visaSectionTitle: 'Visa',
+        visaAmount: '0',
+        visaDestination: null,
+        visaType: null,
+        visaServiceCharge: '0',
+        visaGstPercent: '0',
+        visaVfsCharge: '0',
+      },
+      images: { cover: PNG_1PX },
+    };
+    const rendered = await renderStylishQuotationPdf(input);
+    const text = pdfText(rendered);
+    // No Visa section, no empty card, no generated Add-On Services page.
+    expect(text).not.toContain('ADD-ON SERVICES');
+    expect(text).not.toMatch(/Visa/);
+    // Removing the empty Visa page leaves no extra or blank page: the baseline
+    // empty proposal is cover + personalised letter + thank you (3 pages).
+    const total = pageCount(rendered);
+    expect(total).toBe(3);
+    expect(pdfTextPage(rendered, total)).toMatch(/THANK\s+YOU/i);
+  });
+
+  it('still renders the Visa card in the Stylish PDF when visa content exists', async () => {
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        includeVisa: true,
+        visaSectionTitle: 'Visa Details',
+        visaAmount: '2000.00',
+        visaDestination: 'Singapore',
+        visaType: 'Tourist',
+        visaServiceCharge: '500.00',
+        visaGstPercent: '18',
+        visaVfsCharge: '300.00',
+      },
+      images: { cover: PNG_1PX },
+    };
+    const rendered = await renderStylishQuotationPdf(input);
+    const text = pdfText(rendered);
+    expect(text).toContain('ADD-ON SERVICES');
+    expect(text).toMatch(/Visa Details/);
+    expect(text).toContain('Singapore');
+    expect(text).toContain('Tourist');
+  });
+
+  it('keeps long policy content out of the footer area across many pages', async () => {
+    const veryLongPolicy =
+      'Cancellation, refund, force-majeure and liability terms. '.repeat(200);
+    const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
+      company: footerEmptyCompanyForOverlap(),
+      quotation: quotationOverlap(),
+      version: {
+        ...baseVersionOverlap(),
+        inclusionsHtml: `<ul>${'<li>An included amenity with enough words to wrap onto many rows and force multiple policy pages.</li>'.repeat(150)}</ul>`,
+        exclusionsHtml: `<ul>${'<li>An excluded item with enough words to wrap onto many rows across several pages.</li>'.repeat(150)}</ul>`,
+        paymentPolicies: `<p>${veryLongPolicy}</p>`,
+        cancellationPolicies: `<p>${veryLongPolicy}</p>`,
+        bookingTerms: `<p>${veryLongPolicy}</p>`,
+      },
+      images: { cover: PNG_1PX },
+    };
+    const rendered = await renderStylishQuotationPdf(input);
+    expect(isPdf(rendered)).toBe(true);
+    const total = pageCount(rendered);
+    // Deliberately long policy content must span multiple pages.
+    expect(total).toBeGreaterThan(3);
+    expect(pdfTextPage(rendered, total)).toMatch(/THANK\s+YOU/i);
+
+    // No body content word may sit inside a page's reserved footer area, and no
+    // word may render outside the physical page. Footer columns are the only
+    // words expected below the footer divider.
+    const footerTokens = new Set([
+      'CONTACT',
+      'US',
+      'OUR',
+      'ACHIEVEMENTS',
+      'LEGAL',
+      'INFO',
+      'TRAVEL',
+      'HOLIDAYS',
+      'Page',
+      'of',
+    ]);
+    for (const [pageIndex, page] of pageWordBoxes(rendered).entries()) {
+      // Page 1 is the cover, which carries no footer (the consultant strip is a
+      // designed cover element). Only numbered content pages have a footer.
+      if (pageIndex === 0) continue;
+      const footerTop = page.height - (841.89 - 769);
+      for (const word of page.words) {
+        expect(word.yMax).toBeLessThanOrEqual(page.height);
+        if (word.yMax <= footerTop - 1) continue;
+        // Words below the footer divider must belong to the footer itself.
+        expect(footerTokens.has(word.text) || /^\d+$/.test(word.text)).toBe(true);
+      }
+    }
+  });
+
   it('renders vehicle title, usage and description consistently in both PDF styles', async () => {
     const input: Parameters<typeof renderStylishQuotationPdf>[0] = {
       company: footerEmptyCompanyForOverlap(),

@@ -181,6 +181,8 @@ describe('Phase 13B master pages', () => {
       'Vehicles',
       'Sightseeing',
       'Add-On Services',
+      'Destination Experts',
+      'FAQs',
     ]);
   });
 
@@ -311,6 +313,41 @@ describe('Phase 13B master pages', () => {
     await userEvent.click(await screen.findByRole('tab', { name: 'Room Types' }));
     expect(screen.getByText('Deluxe Room')).toBeInTheDocument();
     expect(screen.queryByText(/6000/)).not.toBeInTheDocument();
+  });
+
+  it('renders the hotel detail price and a null price safely', async () => {
+    const pricedHotel = { ...hotel, price: 10001, currency: 'INR' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(pricedHotel)),
+    );
+    const view = renderWithProviders(
+      <Routes>
+        <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
+      </Routes>,
+      { route: `/masters/hotels/${hotelId}` },
+    );
+    expect((await screen.findAllByText('Shah Palace Hotel')).length).toBeGreaterThan(0);
+    // Saved price is rendered using the quotation/currency formatting.
+    expect(screen.getByText(/10,001/)).toBeInTheDocument();
+    view.unmount();
+
+    // A hotel with no price must render a safe empty marker, not invent 0.
+    const noPriceHotel = { ...hotel, price: null, currency: 'INR' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(noPriceHotel)),
+    );
+    renderWithProviders(
+      <Routes>
+        <Route path="/masters/hotels/:hotelId" element={<HotelDetailsPage />} />
+      </Routes>,
+      { route: `/masters/hotels/${hotelId}` },
+    );
+    await screen.findAllByText('Shah Palace Hotel');
+    // A missing price shows the empty marker, never an invented ₹0.
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/10,001/)).not.toBeInTheDocument();
   });
 
   it('hydrates hotel images immediately when navigating from View to Edit', async () => {

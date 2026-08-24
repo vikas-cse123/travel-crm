@@ -17,7 +17,7 @@ import {
   useVehicleTypes,
   vehicleImageUrl,
 } from '@/features/masters/masters.api';
-import { fieldClass, MasterHeader } from './MasterUi';
+import { fieldClass, MasterHeader, CurrencySelect } from './MasterUi';
 import { MasterImageGalleryField, useMasterImageGallery } from './MasterImageGallery';
 
 const MAX_IMAGE_MB = 5;
@@ -27,6 +27,8 @@ interface FormValues {
   vehicleType: string;
   capacity: string;
   description: string;
+  price: string;
+  currency: string;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 }
 
@@ -49,7 +51,7 @@ export function VehicleFormPage() {
   const [formError, setFormError] = useState('');
 
   const form = useForm<FormValues>({
-    defaultValues: { name: '', vehicleType: '', capacity: '', description: '', status: 'ACTIVE' },
+    defaultValues: { name: '', vehicleType: '', capacity: '', description: '', price: '', currency: 'INR', status: 'ACTIVE' },
   });
   const refreshImageQueries = useRefreshMasterImageQueries('vehicles');
   const imageGallery = useMasterImageGallery({
@@ -75,6 +77,8 @@ export function VehicleFormPage() {
       vehicleType: value.vehicleType,
       capacity: value.capacity != null ? String(value.capacity) : '',
       description: value.description ?? '',
+      price: value.price != null ? String(value.price) : '',
+      currency: value.currency ?? 'INR',
       status: value.status as FormValues['status'],
     });
   }, [vehicle.data, form]);
@@ -89,6 +93,8 @@ export function VehicleFormPage() {
       vehicleType: values.vehicleType.trim(),
       capacity: values.capacity === '' ? null : Number(values.capacity),
       description: values.description || null,
+      price: values.price === '' ? null : Number(values.price),
+      currency: values.currency || 'INR',
       status: values.status,
     };
     try {
@@ -196,6 +202,26 @@ export function VehicleFormPage() {
                     {form.formState.errors.capacity.message}
                   </p>
                 )}
+              </div>
+
+              <div className="block text-sm font-medium text-slate-700">
+                <span>Price</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                    placeholder="e.g. 7000"
+                    aria-label="Vehicle price"
+                    {...form.register('price')}
+                  />
+                  <CurrencySelect
+                    value={form.watch('currency')}
+                    onChange={(currency) => form.setValue('currency', currency)}
+                    aria-label="Vehicle price currency"
+                  />
+                </div>
               </div>
 
               <label className="block text-sm font-medium text-slate-700">

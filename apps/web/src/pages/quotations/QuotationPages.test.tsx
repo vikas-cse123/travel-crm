@@ -2899,6 +2899,116 @@ describe('Phase 8 quotation pages', () => {
     );
   });
 
+  it('does not render the public introduction when it is empty or whitespace-only', async () => {
+    for (const introduction of ['', '   ', null]) {
+      const publicData = {
+        company: {
+          name: 'Alpha Travel',
+          email: 'hello@alpha.test',
+          phone: null,
+          website: null,
+          address: null,
+          primaryColor: '#2563eb',
+        },
+        quotation: {
+          quotationNumber: 'QT-2026-000012',
+          customerName: 'Vikas Singh',
+          destinationSummary: 'Singapore',
+          travelStartDate: '2026-09-10T00:00:00.000Z',
+          travelEndDate: '2026-09-14T00:00:00.000Z',
+          adults: 2,
+          childrenWithBed: 0,
+          childrenWithoutBed: 0,
+          infants: 0,
+          rooms: 1,
+          validUntil: null,
+          createdAt: '2026-08-04T10:00:00.000Z',
+          status: 'VIEWED',
+        },
+        version: {
+          title: 'Singapore Package for Vikas Singh',
+          introduction,
+          versionNumber: 1,
+          currency: 'INR',
+          finalAmount: '16065.87',
+          hotels: [],
+          services: [],
+          itinerary: [],
+          inclusions: [],
+          exclusions: [],
+          terms: [],
+        },
+        downloadUrl: null,
+      };
+      const fetchMock = vi.fn(async () => response(publicData));
+      vi.stubGlobal('fetch', fetchMock);
+      renderWithProviders(
+        <Routes>
+          <Route path="/q/:token" element={<PublicQuotationPage />} />
+        </Routes>,
+        { route: `/q/token-empty-intro-${String(introduction ?? '').length}-characters` },
+      );
+      await screen.findByRole('heading', { name: 'Singapore' });
+      // The hero still renders, but the introduction paragraph is absent.
+      expect(screen.queryByTestId('public-hero-introduction')).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('renders the public introduction when the text is non-empty', async () => {
+    const publicData = {
+      company: {
+        name: 'Alpha Travel',
+        email: 'hello@alpha.test',
+        phone: null,
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000013',
+        customerName: 'Vikas Singh',
+        destinationSummary: 'Singapore',
+        travelStartDate: '2026-09-10T00:00:00.000Z',
+        travelEndDate: '2026-09-14T00:00:00.000Z',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Singapore Package for Vikas Singh',
+        introduction: 'A hand-crafted journey awaits you.',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '16065.87',
+        hotels: [],
+        services: [],
+        itinerary: [],
+        inclusions: [],
+        exclusions: [],
+        terms: [],
+      },
+      downloadUrl: null,
+    };
+    const fetchMock = vi.fn(async () => response(publicData));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/token-non-empty-intro-characters' },
+    );
+    await screen.findByRole('heading', { name: 'Singapore' });
+    expect(screen.getByTestId('public-hero-introduction')).toHaveTextContent(
+      'A hand-crafted journey awaits you.',
+    );
+  });
+
   it('renders a taller, balanced destination hero on public links', async () => {
     const publicData = {
       company: {
@@ -15076,6 +15186,43 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
   });
 
+  it('shows a single section-wise total and no separate add-on bar in the summary card', async () => {
+    const fetchMock = masterFetch(
+      builderQuotation({
+        pricingMode: 'SECTION_WISE',
+        perAdultPrice: '0',
+        hotels: [
+          { id: 'h1', city: 'Singapore', hotelName: 'Hotel A', sellingPrice: '15000', selected: true, sequence: 1 },
+        ],
+        services: [
+          { id: 's1', serviceType: 'CRUISE', name: 'Overnight cruise', quantity: '1', sellingPrice: '8000', unitSellingPrice: '8000', sequence: 1 },
+        ],
+        includeVisa: true,
+        visaAmount: '3000',
+        visaServiceCharge: '500',
+        visaGstPercent: '18',
+        visaVfsCharge: '200',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilderPage();
+    await screen.findByRole('heading', { name: 'Quotation builder' });
+
+    // The green Final Quotation Total card shows the section total
+    // (Hotel 15000 + Cruise 8000 + Visa 3000+500+90+200=3790 = 26790).
+    expect(screen.getByText('INR 26790.00')).toBeInTheDocument();
+    expect(screen.getByText('(Section-wise Total)')).toBeInTheDocument();
+    // The yellow add-on bar is gone — no separate add-on total anywhere.
+    expect(screen.queryByText('Add-on Services Total')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not added to final total')).not.toBeInTheDocument();
+
+    // The Summary & Pricing tab's breakdown agrees with the same resolver.
+    await openTab('Summary & Pricing');
+    expect(screen.getByText('Section-wise Price Breakdown')).toBeInTheDocument();
+    expect(screen.getByText('Grand Total')).toBeInTheDocument();
+    expect(screen.getAllByText('₹26,790.00').length).toBeGreaterThan(0);
+  });
+
   const publicPayload = (
     versionOverrides: Record<string, unknown> = {},
     quotationOverrides: Record<string, unknown> = {},
@@ -15258,6 +15405,279 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
       .getByRole('heading', { name: 'Secure Your Booking Now' })
       .closest('section') as HTMLElement;
     expect(card.textContent).not.toContain('https://');
+  });
+});
+
+describe('Public weblink — section-wise pricing breakdown', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('scrollTo', vi.fn());
+  });
+
+  const sectionWisePayload = (versionOverrides: Record<string, unknown> = {}) => ({
+    company: {
+      name: 'Alpha Travel',
+      email: 'a@b.test',
+      phone: null,
+      website: null,
+      address: null,
+      primaryColor: '#2563eb',
+    },
+    quotation: {
+      quotationNumber: 'QT-2026-000009',
+      customerName: 'Vikas Singh',
+      destinationSummary: 'Singapore',
+      travelStartDate: null,
+      travelEndDate: null,
+      adults: 2,
+      childrenWithBed: 1,
+      childrenWithoutBed: 1,
+      infants: 1,
+      rooms: 1,
+      validUntil: null,
+      status: 'VIEWED',
+    },
+    version: {
+      title: 'Singapore Package',
+      versionNumber: 1,
+      currency: 'INR',
+      finalAmount: '0',
+      pricingMode: 'SECTION_WISE',
+      perAdultPrice: '0',
+      perChildWithBedPrice: '0',
+      perChildWithoutBedPrice: '0',
+      perInfantPrice: '0',
+      flightDetails: { include: true, amount: '20000' },
+      hotelDetails: { include: true, sectionTitle: 'Accommodation Details' },
+      hotels: [
+        {
+          id: 'hotel-a',
+          city: 'Singapore',
+          hotelName: 'Days Inn Singapore Novena',
+          sellingPrice: '15000',
+          selected: true,
+          sequence: 1,
+        },
+        {
+          id: 'hotel-b',
+          city: 'Singapore',
+          hotelName: 'Marina Bay Sands',
+          sellingPrice: '25000',
+          selected: true,
+          sequence: 2,
+        },
+      ],
+      services: [
+        {
+          id: 'service-cruise',
+          serviceType: 'CRUISE',
+          name: 'Overnight cruise',
+          quantity: '1',
+          sellingPrice: '8000',
+          unitSellingPrice: '8000',
+          sequence: 1,
+        },
+      ],
+      sightseeingDetails: { include: false, days: [] },
+      includeVisa: true,
+      visaSectionTitle: 'Visa',
+      visaAmount: '3000',
+      visaDestination: 'Singapore',
+      visaType: 'Tourist',
+      visaServiceCharge: '500',
+      visaGstPercent: '18',
+      visaVfsCharge: '200',
+      initialPaymentAmount: '0',
+      paymentLink: null,
+      hotelPresentations: {},
+      vehiclePresentations: {},
+      airlinePresentations: {},
+      itinerary: [],
+      inclusions: [],
+      exclusions: [],
+      terms: [],
+      ...versionOverrides,
+    },
+    downloadUrl: null,
+  });
+
+  const renderSectionWise = (payload: unknown) => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(payload)));
+    renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+  };
+
+  it('renders a distinct section-wise breakdown with every section and the grand total', async () => {
+    renderSectionWise(sectionWisePayload());
+    await screen.findByText('Singapore Package');
+
+    // The hero price card uses a section-wise label (not "Total Package Price").
+    expect(screen.getByText('Quotation Total')).toBeInTheDocument();
+    // Flights 20000 + Hotels (15000+25000) + Cruise 8000 + Visa (3000+500+90+200=3790).
+    expect(screen.getAllByText('₹71,790').length).toBeGreaterThan(0);
+
+    expect(screen.getByRole('heading', { name: 'Section-wise Price Breakdown' })).toBeInTheDocument();
+    for (const label of ['Flights', 'Hotels', 'Cruise', 'Visa']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText('₹20,000')).toBeInTheDocument();
+    expect(screen.getByText('₹40,000')).toBeInTheDocument();
+    expect(screen.getByText('₹8,000')).toBeInTheDocument();
+    expect(screen.getByText('₹3,790')).toBeInTheDocument();
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
+
+    // No per-passenger lines leak into a section-wise quotation.
+    expect(screen.queryByText(/Adult ×/)).not.toBeInTheDocument();
+    // Internal reconciliation (Allocated/Remaining/Overallocated/Package Total)
+    // is never shown to the customer.
+    expect(screen.queryByText('Allocated')).not.toBeInTheDocument();
+    expect(screen.queryByText('Remaining')).not.toBeInTheDocument();
+    expect(screen.queryByText('Overallocated')).not.toBeInTheDocument();
+    expect(screen.queryByText('Package Total')).not.toBeInTheDocument();
+  });
+
+  it('does not duplicate the visa amount inside the visa card', async () => {
+    renderSectionWise(sectionWisePayload());
+    await screen.findByText('Singapore Package');
+    const visaCard = screen
+      .getByRole('heading', { name: 'Visa' })
+      .closest('section') as HTMLElement;
+    // The consolidated visa total lives only in the section-wise breakdown.
+    expect(visaCard.textContent).not.toContain('₹3,790');
+    expect(visaCard.textContent).not.toContain('Consolidated total');
+  });
+
+  it('keeps the package pricing card and hides the breakdown in total mode', async () => {
+    renderSectionWise(
+      sectionWisePayload({
+        pricingMode: 'TOTAL',
+        perAdultPrice: '15000',
+        perChildWithBedPrice: '0',
+        perChildWithoutBedPrice: '0',
+        perInfantPrice: '0',
+      }),
+    );
+    await screen.findByText('Singapore Package');
+    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    // 2 adults × 15000.
+    expect(screen.getAllByText('₹30,000').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('heading', { name: 'Section-wise Price Breakdown' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Pricing Breakdown — section amounts, multi-hotel sum and grand total', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('scrollTo', vi.fn());
+    auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
+  });
+
+  const breakdownQuotation = (versionOverrides: Record<string, unknown> = {}) => ({
+    ...builderQuotation({
+      pricingMode: 'SECTION_WISE',
+      perAdultPrice: '15000',
+      perChildWithBedPrice: '0',
+      perChildWithoutBedPrice: '0',
+      perInfantPrice: '0',
+      hotels: [
+        {
+          id: 'hotel-a',
+          city: 'Singapore',
+          hotelName: 'Days Inn Singapore Novena',
+          rooms: 1,
+          nights: 1,
+          sellingPrice: '45678',
+          selected: true,
+          sequence: 1,
+        },
+        {
+          id: 'hotel-b',
+          city: 'Singapore',
+          hotelName: 'Marina Bay Sands',
+          rooms: 1,
+          nights: 1,
+          sellingPrice: '453',
+          selected: true,
+          sequence: 2,
+        },
+      ],
+      services: [
+        {
+          id: 'service-cruise',
+          serviceType: 'CRUISE',
+          name: 'Overnight cruise',
+          quantity: '1',
+          sellingPrice: '8000',
+          unitSellingPrice: '8000',
+          sequence: 1,
+        },
+      ],
+      ...versionOverrides,
+    }),
+    adults: 2,
+    childrenWithBed: 0,
+    childrenWithoutBed: 0,
+    infants: 0,
+  });
+
+  it('sums multiple hotels into one section and shows every section plus grand total', async () => {
+    vi.stubGlobal('fetch', masterFetch(breakdownQuotation()));
+    renderBuilderPage();
+    await openTab('Pricing Breakdown');
+
+    // Multi-hotel prices are summed inside the Hotels section: 45678 + 453.
+    expect(screen.getByText('Hotels')).toBeInTheDocument();
+    expect(screen.getByText(/46,131/)).toBeInTheDocument();
+
+    // All priced sections are present (names may also appear on tab buttons).
+    for (const name of ['Flights', 'Cruise', 'Vehicle/Transportation', 'Sightseeing', 'Add-on Services', 'Visa']) {
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText(/8,000/)).toBeInTheDocument();
+
+    // Grand total is the section total (46131 + 8000) — not the per-passenger
+    // package total. Section-wise pricing is defined by the allocated sections.
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
+    expect(screen.getByText(/54,131/)).toBeInTheDocument();
+  });
+
+  it('does not show the legacy allocation/reconciliation block in section-wise mode', async () => {
+    // Per-passenger price is intentionally higher than the sections: the new
+    // section-wise UI must not surface Allocated/Remaining/Overallocated or a
+    // separate Package Total — a single Grand Total is enough.
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(breakdownQuotation({ perAdultPrice: '30000' })),
+    );
+    renderBuilderPage();
+    await openTab('Pricing Breakdown');
+
+    expect(screen.queryByText('Section-wise Allocation')).not.toBeInTheDocument();
+    expect(screen.queryByText('Allocated')).not.toBeInTheDocument();
+    expect(screen.queryByText('Remaining')).not.toBeInTheDocument();
+    expect(screen.queryByText('Overallocated')).not.toBeInTheDocument();
+    expect(screen.queryByText('Package Total')).not.toBeInTheDocument();
+    // The grand total is still shown as the section total.
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
+    expect(screen.getByText(/54,131/)).toBeInTheDocument();
+  });
+
+  it('hides the section-wise allocation block in total pricing mode', async () => {
+    vi.stubGlobal(
+      'fetch',
+      masterFetch(breakdownQuotation({ pricingMode: 'TOTAL' })),
+    );
+    renderBuilderPage();
+    await openTab('Pricing Breakdown');
+
+    expect(screen.queryByText('Section-wise Allocation')).not.toBeInTheDocument();
+    // Actual section totals are still shown.
+    expect(screen.getByText('Hotels')).toBeInTheDocument();
+    expect(screen.getByText(/46,131/)).toBeInTheDocument();
   });
 });
 
@@ -15503,6 +15923,8 @@ describe('Public weblink — activity pricing', () => {
     title: 'Singapore Escape',
     versionNumber: 1,
     currency: 'INR',
+    // Activity pricing renders only in section-wise pricing mode.
+    pricingMode: 'SECTION_WISE',
     finalAmount: '100',
     hotelDetails: { sectionTitle: 'Accommodation Details', amount: 0, description: null },
     hotels: [],
@@ -15513,7 +15935,10 @@ describe('Public weblink — activity pricing', () => {
     terms: [],
   };
 
-  const renderWithActivities = async (activities: unknown[]) => {
+  const renderWithActivities = async (
+    activities: unknown[],
+    versionOverrides: Record<string, unknown> = {},
+  ) => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, options?: RequestInit) => Promise<Response>>(
       async () =>
         response({
@@ -15541,6 +15966,7 @@ describe('Public weblink — activity pricing', () => {
           },
           version: {
             ...pricingBaseVersion,
+            ...versionOverrides,
             sightseeingDetails: {
               include: true,
               sectionTitle: 'Sightseeing & Experiences',
@@ -15627,14 +16053,19 @@ describe('Public weblink — activity pricing', () => {
   });
 
   it('renders nothing at all when the activity has no pricing', async () => {
-    await renderWithActivities([
-      {
-        name: 'Singapore Zoo',
-        description: '<p>Meet the animals.</p>',
-        dailyTransfer: 'SHARED',
-        pricingOptions: [],
-      },
-    ]);
+    // TOTAL mode keeps unpriced activities free of every pricing artefact
+    // (no activity heading and no section-wise breakdown).
+    await renderWithActivities(
+      [
+        {
+          name: 'Singapore Zoo',
+          description: '<p>Meet the animals.</p>',
+          dailyTransfer: 'SHARED',
+          pricingOptions: [],
+        },
+      ],
+      { pricingMode: 'TOTAL' },
+    );
     expect(screen.queryByText('Pricing')).not.toBeInTheDocument();
     expect(screen.queryByText('₹0')).not.toBeInTheDocument();
     expect(screen.queryByText('₹—')).not.toBeInTheDocument();
@@ -15686,16 +16117,21 @@ describe('Public weblink — activity pricing', () => {
   });
 
   it('does not add activity pricing to the quotation total', async () => {
-    await renderWithActivities([
-      {
-        name: 'Singapore Zoo',
-        description: '<p>Meet the animals.</p>',
-        pricingOptions: [
-          { label: 'Adult', price: 3500 },
-          { label: 'Child', price: 2500 },
-        ],
-      },
-    ]);
+    // TOTAL mode: activity pricing stays informational and never reaches any
+    // section amount or the package total.
+    await renderWithActivities(
+      [
+        {
+          name: 'Singapore Zoo',
+          description: '<p>Meet the animals.</p>',
+          pricingOptions: [
+            { label: 'Adult', price: 3500 },
+            { label: 'Child', price: 2500 },
+          ],
+        },
+      ],
+      { pricingMode: 'TOTAL' },
+    );
     // 3 adults × ₹3,500 must not appear anywhere; the total stays ₹100.
     expect(screen.queryByText('₹10,500')).not.toBeInTheDocument();
     expect(screen.queryByText('₹16,000')).not.toBeInTheDocument();
@@ -16171,9 +16607,20 @@ describe('Public weblink — Back to Top button', () => {
     );
   }
 
-  it('stays hidden at the top, appears after scrolling, and smooth-scrolls to the top on click', async () => {
+  it('stays hidden until 40% of the scrollable document, then smooth-scrolls to the top on click', async () => {
     const scrollTo = vi.fn();
     Object.defineProperty(window, 'scrollTo', { value: scrollTo, writable: true, configurable: true });
+    // Deterministic document metrics: scrollable = 2000 - 1000 = 1000px.
+    Object.defineProperty(document.documentElement, 'scrollHeight', {
+      value: 2000,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(document.documentElement, 'clientHeight', {
+      value: 1000,
+      writable: true,
+      configurable: true,
+    });
     const setScrollY = (value: number) => {
       Object.defineProperty(window, 'scrollY', { value, writable: true, configurable: true });
       window.dispatchEvent(new Event('scroll'));
@@ -16183,29 +16630,33 @@ describe('Public weblink — Back to Top button', () => {
     renderPublicPage();
     await screen.findByRole('heading', { name: 'Contact Us' });
 
-    // Hidden initially at the top (opacity-0 + not interactive).
-    const hiddenButton = screen.getByRole('button', { name: 'Back to top' });
-    expect(hiddenButton).toHaveClass('opacity-0', 'pointer-events-none');
+    const button = () => screen.getByRole('button', { name: 'Back to top' });
+    // Hidden at the top (opacity-0 + not interactive).
+    expect(button()).toHaveClass('opacity-0', 'pointer-events-none');
 
-    // Scroll past the threshold → button fades in.
+    // 20% and 39% → still hidden.
+    setScrollY(200);
+    expect(button()).toHaveClass('opacity-0', 'pointer-events-none');
+    setScrollY(390);
+    expect(button()).toHaveClass('opacity-0', 'pointer-events-none');
+
+    // Exactly 40% → visible.
+    setScrollY(400);
+    await waitFor(() => expect(button()).toHaveClass('opacity-100'));
+    expect(button()).not.toHaveClass('opacity-0');
+
+    // 60% → still visible.
     setScrollY(600);
-    const button = await screen.findByRole('button', { name: 'Back to top' });
-    expect(button).toHaveClass('opacity-100');
-    expect(button).not.toHaveClass('opacity-0');
+    expect(button()).toHaveClass('opacity-100');
 
-    // Returning near the top hides it again.
-    setScrollY(0);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Back to top' })).toHaveClass(
-        'opacity-0',
-        'pointer-events-none',
-      );
-    });
+    // Scrolling back below 40% hides it again.
+    setScrollY(300);
+    await waitFor(() => expect(button()).toHaveClass('opacity-0', 'pointer-events-none'));
 
     // Click smooth-scrolls to the top.
     setScrollY(600);
-    const visibleButton = await screen.findByRole('button', { name: 'Back to top' });
-    fireEvent.click(visibleButton);
+    await waitFor(() => expect(button()).toHaveClass('opacity-100'));
+    fireEvent.click(button());
     expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
   });
 });

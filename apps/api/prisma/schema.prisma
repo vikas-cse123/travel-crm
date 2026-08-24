@@ -300,6 +300,8 @@ enum PricingMode {
   PER_PERSON
   PACKAGE_TOTAL
   ITEMIZED
+  TOTAL
+  SECTION_WISE
 }
 
 enum MarkupMode {
@@ -1050,6 +1052,12 @@ model Company {
   hotels                       Hotel[]
   hotelRoomTypes               HotelRoomType[]
   hotelMealPlans               HotelMealPlan[]
+  hotelSeasons                 HotelSeason[]
+  hotelMonthPrices             HotelMonthPrice[]
+  hotelRoomTypeSeasons         HotelRoomTypeSeason[]
+  hotelMealPlanSeasons         HotelMealPlanSeason[]
+  hotelRoomTypeMonthPrices     HotelRoomTypeMonthPrice[]
+  hotelMealPlanMonthPrices     HotelMealPlanMonthPrice[]
   airlines                     Airline[]
   cruises                      Cruise[]
   visaTypes                    VisaType[]
@@ -1062,10 +1070,10 @@ model Company {
   addOnServices                AddOnService[]
   bookingRefunds               BookingRefund[]
 
-  customDomains       CustomDomain[]
-  liveSearchBookmarks LiveSearchBookmark[]
-  searchApiKeys       SearchApiKey[]
-  searchApiUsage      SearchApiUsage[]
+  customDomains            CustomDomain[]
+  liveSearchBookmarks      LiveSearchBookmark[]
+  searchApiKeys            SearchApiKey[]
+  searchApiUsage           SearchApiUsage[]
   destinationExpertPresets DestinationExpertPreset[]
 
   @@index([status])
@@ -1210,25 +1218,25 @@ model User {
 
   // Destination Expert — explicit gender for default avatar + expert profile details.
   // Gender is explicit; never inferred. Custom profile photo overrides gender avatar.
-  gender                UserGender?
-  jobTitle              String?          @db.VarChar(120)
-  bio                   String?          @db.Text
-  specialization        String?          @db.VarChar(200)
-  yearsOfExperience     Int?
-  tripsPlanned          Int?
-  languages             String?          @db.VarChar(200)
-  whatsappNumber        String?          @db.VarChar(32)
+  gender                       UserGender?
+  jobTitle                     String?          @db.VarChar(120)
+  bio                          String?          @db.Text
+  specialization               String?          @db.VarChar(200)
+  yearsOfExperience            Int?
+  tripsPlanned                 Int?
+  languages                    String?          @db.VarChar(200)
+  whatsappNumber               String?          @db.VarChar(32)
   // Custom profile photo (two-phase upload, pending until confirmed)
-  profileImageObjectKey         String?          @db.VarChar(1000)
-  profileImageBucket            String?          @db.VarChar(255)
-  profileImageStorageProvider   StorageProvider?
-  profileImageMimeType          String?          @db.VarChar(120)
-  profileImageFileSize          Int?
-  profileImageConfirmedAt       DateTime?
-  pendingProfileImageObjectKey  String?          @db.VarChar(1000)
-  pendingProfileImageFileName   String?          @db.VarChar(255)
-  pendingProfileImageMimeType   String?          @db.VarChar(120)
-  pendingProfileImageFileSize   Int?
+  profileImageObjectKey        String?          @db.VarChar(1000)
+  profileImageBucket           String?          @db.VarChar(255)
+  profileImageStorageProvider  StorageProvider?
+  profileImageMimeType         String?          @db.VarChar(120)
+  profileImageFileSize         Int?
+  profileImageConfirmedAt      DateTime?
+  pendingProfileImageObjectKey String?          @db.VarChar(1000)
+  pendingProfileImageFileName  String?          @db.VarChar(255)
+  pendingProfileImageMimeType  String?          @db.VarChar(120)
+  pendingProfileImageFileSize  Int?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1318,10 +1326,10 @@ model User {
   faqsCreated                 Faq[]                      @relation("FaqCreatedBy")
   faqsUpdated                 Faq[]                      @relation("FaqUpdatedBy")
 
-    hiddenMasterRows    CompanyHiddenMaster[]
-  liveSearchBookmarks LiveSearchBookmark[]
-  searchApiKeys       SearchApiKey[]
-  searchApiUsage      SearchApiUsage[]
+  hiddenMasterRows         CompanyHiddenMaster[]
+  liveSearchBookmarks      LiveSearchBookmark[]
+  searchApiKeys            SearchApiKey[]
+  searchApiUsage           SearchApiUsage[]
   destinationExpertPresets DestinationExpertPreset[]
 
   @@unique([companyId, username])
@@ -1341,40 +1349,40 @@ model User {
 /// save multiple presets keyed by destination (e.g., Singapore, Bali). Managed
 /// in Settings → Destination Expert and imported in the Quotation Builder.
 model DestinationExpertPreset {
-  id                 String   @id @default(uuid()) @db.Uuid
-  companyId          String   @db.Uuid
-  userId             String   @db.Uuid
-  destination        String   @db.VarChar(120)
-  heading            String?  @db.VarChar(200)
-  customIntroduction String?  @db.Text
-  whatsappNumber     String?  @db.VarChar(32)
-  callNumber         String?  @db.VarChar(32)
-  email              String?  @db.VarChar(255)
-  jobTitle           String?  @db.VarChar(120)
-  bio                String?  @db.Text
-  specialization     String?  @db.VarChar(200)
-  yearsOfExperience  Int?
-  tripsPlanned       Int?
-  languages          String?  @db.VarChar(200)
-  gender             UserGender?
-  showWhatsapp       Boolean  @default(true)
-  showCall           Boolean  @default(true)
-  showEmail          Boolean  @default(true)
-  showExperience     Boolean  @default(true)
-  showTripsPlanned   Boolean  @default(true)
-  showLanguages      Boolean  @default(true)
-  profileImageObjectKey         String?          @db.VarChar(1000)
-  profileImageBucket            String?          @db.VarChar(255)
-  profileImageStorageProvider   StorageProvider?
-  profileImageMimeType          String?          @db.VarChar(120)
-  profileImageFileSize          Int?
-  profileImageConfirmedAt       DateTime?
-  pendingProfileImageObjectKey  String?          @db.VarChar(1000)
-  pendingProfileImageFileName   String?          @db.VarChar(255)
-  pendingProfileImageMimeType   String?          @db.VarChar(120)
-  pendingProfileImageFileSize   Int?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                           String           @id @default(uuid()) @db.Uuid
+  companyId                    String           @db.Uuid
+  userId                       String           @db.Uuid
+  destination                  String           @db.VarChar(120)
+  heading                      String?          @db.VarChar(200)
+  customIntroduction           String?          @db.Text
+  whatsappNumber               String?          @db.VarChar(32)
+  callNumber                   String?          @db.VarChar(32)
+  email                        String?          @db.VarChar(255)
+  jobTitle                     String?          @db.VarChar(120)
+  bio                          String?          @db.Text
+  specialization               String?          @db.VarChar(200)
+  yearsOfExperience            Int?
+  tripsPlanned                 Int?
+  languages                    String?          @db.VarChar(200)
+  gender                       UserGender?
+  showWhatsapp                 Boolean          @default(true)
+  showCall                     Boolean          @default(true)
+  showEmail                    Boolean          @default(true)
+  showExperience               Boolean          @default(true)
+  showTripsPlanned             Boolean          @default(true)
+  showLanguages                Boolean          @default(true)
+  profileImageObjectKey        String?          @db.VarChar(1000)
+  profileImageBucket           String?          @db.VarChar(255)
+  profileImageStorageProvider  StorageProvider?
+  profileImageMimeType         String?          @db.VarChar(120)
+  profileImageFileSize         Int?
+  profileImageConfirmedAt      DateTime?
+  pendingProfileImageObjectKey String?          @db.VarChar(1000)
+  pendingProfileImageFileName  String?          @db.VarChar(255)
+  pendingProfileImageMimeType  String?          @db.VarChar(120)
+  pendingProfileImageFileSize  Int?
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1585,59 +1593,66 @@ model DestinationCity {
 /// A reusable hotel content record. A master entity in its own right — never
 /// merged with Vendor. May later be referenced by quotations and bookings.
 model Hotel {
-  id                    String           @id @default(uuid()) @db.Uuid
-  companyId             String           @db.Uuid
-  destinationId         String           @db.Uuid
-  cityId                String           @db.Uuid
-  name                  String           @db.VarChar(200)
-  normalizedName        String           @db.VarChar(200)
+  id                    String                    @id @default(uuid()) @db.Uuid
+  companyId             String                    @db.Uuid
+  destinationId         String                    @db.Uuid
+  cityId                String                    @db.Uuid
+  name                  String                    @db.VarChar(200)
+  normalizedName        String                    @db.VarChar(200)
   starCategory          Int?
-  starRating            Decimal?         @db.Decimal(2, 1)
-  propertyType          String?          @db.VarChar(80)
-  address               String?          @db.VarChar(1000)
-  landmark              String?          @db.VarChar(200)
-  postalCode            String?          @db.VarChar(20)
-  latitude              Decimal?         @db.Decimal(9, 6)
-  longitude             Decimal?         @db.Decimal(9, 6)
-  contactName           String?          @db.VarChar(160)
-  phone                 String?          @db.VarChar(40)
-  email                 String?          @db.VarChar(255)
-  website               String?          @db.VarChar(255)
-  reviewLink            String?          @db.VarChar(500)
-  checkInTime           String?          @db.VarChar(5)
-  checkOutTime          String?          @db.VarChar(5)
-  description           String?          @db.Text
-  amenities             String?          @db.Text
-  internalNotes         String?          @db.Text
-  externalCode          String?          @db.VarChar(80)
-  isDefaultForCity      Boolean          @default(false)
-  isFeatured            Boolean          @default(false)
-  sortOrder             Int              @default(0)
+  starRating            Decimal?                  @db.Decimal(2, 1)
+  propertyType          String?                   @db.VarChar(80)
+  address               String?                   @db.VarChar(1000)
+  landmark              String?                   @db.VarChar(200)
+  postalCode            String?                   @db.VarChar(20)
+  latitude              Decimal?                  @db.Decimal(9, 6)
+  longitude             Decimal?                  @db.Decimal(9, 6)
+  contactName           String?                   @db.VarChar(160)
+  phone                 String?                   @db.VarChar(40)
+  email                 String?                   @db.VarChar(255)
+  website               String?                   @db.VarChar(255)
+  reviewLink            String?                   @db.VarChar(500)
+  checkInTime           String?                   @db.VarChar(5)
+  checkOutTime          String?                   @db.VarChar(5)
+  description           String?                   @db.Text
+  amenities             String?                   @db.Text
+  internalNotes         String?                   @db.Text
+  externalCode          String?                   @db.VarChar(80)
+  isDefaultForCity      Boolean                   @default(false)
+  isFeatured            Boolean                   @default(false)
+  sortOrder             Int                       @default(0)
+  price                 Decimal?                  @db.Decimal(14, 2)
+  currency              String                    @default("INR") @db.VarChar(3)
   imageStorageProvider  StorageProvider?
-  imageBucket           String?          @db.VarChar(255)
-  imageObjectKey        String?          @db.VarChar(1000)
-  imageFileName         String?          @db.VarChar(255)
-  imageMimeType         String?          @db.VarChar(120)
+  imageBucket           String?                   @db.VarChar(255)
+  imageObjectKey        String?                   @db.VarChar(1000)
+  imageFileName         String?                   @db.VarChar(255)
+  imageMimeType         String?                   @db.VarChar(120)
   imageFileSize         Int?
   imageConfirmedAt      DateTime?
-  pendingImageObjectKey String?          @db.VarChar(1000)
-  pendingImageFileName  String?          @db.VarChar(255)
-  pendingImageMimeType  String?          @db.VarChar(120)
+  pendingImageObjectKey String?                   @db.VarChar(1000)
+  pendingImageFileName  String?                   @db.VarChar(255)
+  pendingImageMimeType  String?                   @db.VarChar(120)
   pendingImageFileSize  Int?
   /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
-  images                Json?            @db.Json
-  status                MasterStatus     @default(ACTIVE)
-  createdById           String           @db.Uuid
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
+  images                Json?                     @db.Json
+  status                MasterStatus              @default(ACTIVE)
+  createdById           String                    @db.Uuid
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
   deletedAt             DateTime?
-
-  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  destination Destination     @relation(fields: [destinationId], references: [id], onDelete: Restrict)
-  city        City            @relation(fields: [cityId], references: [id], onDelete: Restrict)
-  createdBy   User            @relation("HotelCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  roomTypes   HotelRoomType[]
-  mealPlans   HotelMealPlan[]
+  company               Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  destination           Destination               @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  city                  City                      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  createdBy             User                      @relation("HotelCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  roomTypes             HotelRoomType[]
+  mealPlans             HotelMealPlan[]
+  seasons               HotelSeason[]
+  monthPrices           HotelMonthPrice[]
+  roomTypeSeasons       HotelRoomTypeSeason[]
+  mealPlanSeasons       HotelMealPlanSeason[]
+  roomTypeMonthPrices   HotelRoomTypeMonthPrice[]
+  mealPlanMonthPrices   HotelMealPlanMonthPrice[]
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
@@ -1675,8 +1690,10 @@ model HotelRoomType {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  company     Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel       Hotel                     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  seasons     HotelRoomTypeSeason[]
+  monthPrices HotelRoomTypeMonthPrice[]
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
@@ -1704,8 +1721,10 @@ model HotelMealPlan {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  company     Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel       Hotel                     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  seasons     HotelMealPlanSeason[]
+  monthPrices HotelMealPlanMonthPrice[]
 
   quotationTemplateOptions QuotationTemplateHotelOption[]
   quotationVersionOptions  QuotationVersionHotelOption[]
@@ -1714,6 +1733,152 @@ model HotelMealPlan {
   @@index([companyId, hotelId])
   @@index([hotelId, sortOrder])
   @@map("hotel_meal_plans")
+}
+
+/// A date-range rate for a hotel room type (e.g. "Summer", "Peak"). A room
+/// type can have multiple seasons; at most one should cover any given date.
+/// The room type's base `sellingPrice` applies when neither a monthly nor a
+/// seasonal rate covers the travel date. `price`/`currency` keep the same shape
+/// as other master prices so no conversion is ever performed.
+model HotelRoomTypeSeason {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  hotelId         String   @db.Uuid
+  hotelRoomTypeId String   @db.Uuid
+  name            String   @db.VarChar(160)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  price           Decimal? @db.Decimal(14, 2)
+  currency        String   @default("INR") @db.VarChar(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomType HotelRoomType @relation(fields: [hotelRoomTypeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, hotelRoomTypeId])
+  @@index([hotelRoomTypeId, startDate, endDate])
+  @@map("hotel_room_type_seasons")
+}
+
+/// A date-range rate for a hotel meal plan (e.g. "Summer", "Peak"). A meal
+/// plan can have multiple seasons; at most one should cover any given date.
+/// The meal plan's base `sellingPrice` applies when neither a monthly nor a
+/// seasonal rate covers the travel date.
+model HotelMealPlanSeason {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  hotelId         String   @db.Uuid
+  hotelMealPlanId String   @db.Uuid
+  name            String   @db.VarChar(160)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  price           Decimal? @db.Decimal(14, 2)
+  currency        String   @default("INR") @db.VarChar(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  mealPlan HotelMealPlan @relation(fields: [hotelMealPlanId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, hotelMealPlanId])
+  @@index([hotelMealPlanId, startDate, endDate])
+  @@map("hotel_meal_plan_seasons")
+}
+
+/// An optional calendar-month price for a hotel (month 1 = January). Multiple
+/// months may be configured; the base `price` applies when no monthly or
+/// seasonal rate covers the travel date. `price`/`currency` keep the exact same
+/// shape as the Hotel price so no conversion is ever performed.
+model HotelMonthPrice {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  hotelId   String   @db.Uuid
+  month     Int      @db.SmallInt
+  price     Decimal? @db.Decimal(14, 2)
+  currency  String   @default("INR") @db.VarChar(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, hotelId, month])
+  @@index([companyId, hotelId])
+  @@map("hotel_month_prices")
+}
+
+/// An optional calendar-month price for a hotel room type. Multiple months may
+/// be configured; the room type's base `sellingPrice` applies when no monthly
+/// or seasonal rate covers the travel date.
+model HotelRoomTypeMonthPrice {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  hotelId         String   @db.Uuid
+  hotelRoomTypeId String   @db.Uuid
+  month           Int      @db.SmallInt
+  price           Decimal? @db.Decimal(14, 2)
+  currency        String   @default("INR") @db.VarChar(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomType HotelRoomType @relation(fields: [hotelRoomTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, hotelRoomTypeId, month])
+  @@index([companyId, hotelRoomTypeId])
+  @@map("hotel_room_type_month_prices")
+}
+
+/// An optional calendar-month price for a hotel meal plan. Multiple months may
+/// be configured; the meal plan's base `sellingPrice` applies when no monthly
+/// or seasonal rate covers the travel date.
+model HotelMealPlanMonthPrice {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  hotelId         String   @db.Uuid
+  hotelMealPlanId String   @db.Uuid
+  month           Int      @db.SmallInt
+  price           Decimal? @db.Decimal(14, 2)
+  currency        String   @default("INR") @db.VarChar(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  mealPlan HotelMealPlan @relation(fields: [hotelMealPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, hotelMealPlanId, month])
+  @@index([companyId, hotelMealPlanId])
+  @@map("hotel_meal_plan_month_prices")
+}
+
+/// A date-range rate for a hotel (e.g. "Peak Season", "Summer"). A hotel can
+/// have multiple seasons; at most one should cover any given date. Quotations
+/// use the season whose range contains the stay's check-in date, falling back
+/// to the hotel's base `price` when no season matches. `price`/`currency` keep
+/// the exact same shape as the Hotel price so no conversion is ever performed.
+model HotelSeason {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  hotelId   String   @db.Uuid
+  name      String   @db.VarChar(160)
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  price     Decimal? @db.Decimal(14, 2)
+  currency  String   @default("INR") @db.VarChar(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  hotel   Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, hotelId])
+  @@index([hotelId, startDate, endDate])
+  @@map("hotel_seasons")
 }
 
 model Airline {
@@ -1801,6 +1966,9 @@ model Sightseeing {
   pendingImageFileSize  Int?
   /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
   images                Json?            @db.Json
+  /// Optional multi-category pricing (e.g. Adult, Child, Senior, custom).
+  /// Stored as JSON array of { label, price }. All optional, display-only on master.
+  pricing               Json?            @db.Json
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -1847,10 +2015,9 @@ model AddOnService {
   /// Rich-text HTML from the description editor.
   description    String? @db.Text
 
-  /// Single public price. The reference shows one price with no cost split,
-  /// which is why this module has no costing permissions.
-  price    Decimal @default(0) @db.Decimal(14, 2)
-  currency String  @default("INR") @db.VarChar(3)
+  /// Single public price. Optional — empty means no prefilled price.
+  price    Decimal? @db.Decimal(14, 2)
+  currency String   @default("INR") @db.VarChar(3)
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -1977,18 +2144,18 @@ model Testimonial {
 }
 
 model Faq {
-  id        String       @id @default(uuid()) @db.Uuid
-  companyId String       @db.Uuid
-  question  String       @db.VarChar(500)
-  answer    String       @db.Text
+  id           String       @id @default(uuid()) @db.Uuid
+  companyId    String       @db.Uuid
+  question     String       @db.VarChar(500)
+  answer       String       @db.Text
   /// Destinations this FAQ applies to. Empty array = applies to every destination.
-  destinations Json?     @db.JsonB
-  status    MasterStatus @default(ACTIVE)
-  createdById String     @db.Uuid
-  updatedById String?    @db.Uuid
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  deletedAt DateTime?
+  destinations Json?        @db.JsonB
+  status       MasterStatus @default(ACTIVE)
+  createdById  String       @db.Uuid
+  updatedById  String?      @db.Uuid
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
 
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdBy User    @relation("FaqCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -2030,6 +2197,8 @@ model Cruise {
   pendingImageFileSize  Int?
   /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
   images                Json?            @db.Json
+  price                 Decimal?         @db.Decimal(14, 2)
+  currency              String           @default("INR") @db.VarChar(3)
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -2115,6 +2284,8 @@ model Vehicle {
   pendingImageFileSize  Int?
   /// Ordered multi-image metadata. Legacy single-image columns remain the fallback.
   images                Json?            @db.Json
+  price                 Decimal?         @db.Decimal(14, 2)
+  currency              String           @default("INR") @db.VarChar(3)
 
   status      MasterStatus @default(ACTIVE)
   createdById String       @db.Uuid
@@ -3420,10 +3591,10 @@ model QuotationVersion {
   // Weblink customization: quotation-specific FAQs and custom section order.
   // `faqs` is an ordered array of { question, answer }; `weblinkSectionOrder`
   // is an ordered list of section ids. Both are nullable for backward compatibility.
-  faqs                       Json?                @db.Json
-  weblinkSectionOrder        Json?                @db.Json
+  faqs                         Json?                  @db.Json
+  weblinkSectionOrder          Json?                  @db.Json
   // Destination Expert — per-quotation config (nullable for old quotations)
-  destinationExpertConfig Json?                @db.Json
+  destinationExpertConfig      Json?                  @db.Json
   notes                        String?                @db.VarChar(4000)
   internalNotes                String?                @db.VarChar(4000)
   status                       QuotationVersionStatus @default(DRAFT)

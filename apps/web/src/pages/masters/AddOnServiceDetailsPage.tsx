@@ -95,7 +95,7 @@ export function AddOnServiceDetailsPage() {
                 Price
               </th>
               <td className="px-4 py-2.5 font-medium text-slate-900">
-                {money(value.price, value.currency)}
+                {money(value.price ?? 0, value.currency)}
               </td>
             </tr>
             <tr>

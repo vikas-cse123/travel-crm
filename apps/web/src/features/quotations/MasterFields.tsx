@@ -348,13 +348,17 @@ function CruiseFields({
         value={value.cruiseId}
         loading={cruises.isPending}
         fallbackLabel={detail.data?.name}
-        onSelect={(option) =>
+        onSelect={(option) => {
+          const selected = (cruises.data?.data ?? []).find((cruise) => cruise.id === option?.id);
           onChange({
             cruiseId: option?.id ?? null,
             cruiseRoomTypeId: null,
             ...(option ? { name: option.label } : {}),
-          })
-        }
+            ...(selected?.price != null && Number(selected.price) > 0
+              ? { sellingPrice: Number(selected.price) }
+              : {}),
+          });
+        }}
       />
       <MasterSelect
         ariaLabel="Cruise room type master"
@@ -374,7 +378,7 @@ function CruiseFields({
           onChange({
             cruiseRoomTypeId: option?.id ?? null,
             // price is absent for viewers without the costing permission.
-            ...(room?.price ? { sellingPrice: room.price } : {}),
+            ...(room?.price != null ? { sellingPrice: Number(room.price) } : {}),
           });
         }}
       />
@@ -401,9 +405,16 @@ function VehicleField({
       }))}
       value={value}
       loading={vehicles.isPending}
-      onSelect={(option) =>
-        onChange({ vehicleId: option?.id ?? null, ...(option ? { name: option.label } : {}) })
-      }
+      onSelect={(option) => {
+        const selected = (vehicles.data?.data ?? []).find((row) => row.id === option?.id);
+        onChange({
+          vehicleId: option?.id ?? null,
+          ...(option ? { name: option.label } : {}),
+          ...(selected?.price != null && Number(selected.price) > 0
+            ? { sellingPrice: Number(selected.price) }
+            : {}),
+        });
+      }}
     />
   );
 }
@@ -451,7 +462,7 @@ function AddOnField({
         onChange({
           addOnServiceId: option?.id ?? null,
           ...(option ? { name: option.label } : {}),
-          ...(row?.price ? { sellingPrice: row.price } : {}),
+          ...(row?.price != null ? { sellingPrice: Number(row.price) } : {}),
         });
       }}
     />

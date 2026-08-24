@@ -99,9 +99,15 @@ function presentVehicle<T extends Record<string, unknown>>(row: T, scope: Master
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
+  const num = (v: unknown) => {
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
   return {
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
+    price: num((safe as Record<string, unknown>).price),
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
@@ -149,6 +155,8 @@ function writeData(input: VehicleInput | VehicleUpdateInput) {
     ...(key('vehicleType') ? { vehicleType: input.vehicleType!.trim() } : {}),
     ...(key('capacity') ? { capacity: input.capacity ?? null } : {}),
     ...(key('description') ? { description: blankToNull(input.description) } : {}),
+    ...(key('price') ? { price: input.price ?? null } : {}),
+    ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
   };
 }
 
@@ -243,7 +251,7 @@ export const vehiclesService = {
       },
       orderBy: { name: 'asc' },
       take: 100,
-      select: { id: true, name: true, vehicleType: true, capacity: true },
+      select: { id: true, name: true, vehicleType: true, capacity: true, price: true, currency: true },
     });
     return { vehicles };
   },

@@ -1,19 +1,35 @@
 import { Plus, X } from 'lucide-react';
-import { fieldClass } from './MasterUi';
+import { fieldClass, CurrencySelect } from './MasterUi';
+import {
+  HotelRatesEditor,
+  type MonthRateDraft,
+  type SeasonRateDraft,
+} from './HotelRatesEditor';
 
 /** A room-type / meal-plan row collected locally before the hotel exists. */
 export interface PlanDraft {
   name: string;
   description: string;
   price: string;
+  currency: string;
+  monthRates: MonthRateDraft[];
+  seasonRates: SeasonRateDraft[];
 }
 
-export const emptyPlanDraft = (): PlanDraft => ({ name: '', description: '', price: '' });
+export const emptyPlanDraft = (): PlanDraft => ({
+  name: '',
+  description: '',
+  price: '',
+  currency: 'INR',
+  monthRates: [],
+  seasonRates: [],
+});
 
 /**
  * Repeatable inline blocks for "Room Types" / "Meal Plans", matching the
- * reference create-hotel screen. Each block edits name / description / price;
- * "+ Add" appends another block. Rows are persisted after the hotel is created.
+ * reference create-hotel screen. Each block edits name / description, its own
+ * base price/currency and optional monthly & seasonal rates. "+ Add" appends
+ * another block. Rows are persisted after the hotel is created.
  */
 export function HotelPlanDraftPanel({
   kind,
@@ -90,18 +106,38 @@ export function HotelPlanDraftPanel({
                   onChange={(event) => update(index, { description: event.target.value })}
                   aria-label={`${itemLabel} ${index + 1} description`}
                 />
-                <span className="mt-3 block text-sm font-semibold text-slate-800">Price</span>
-                <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
-                  <span className="flex items-center bg-slate-100 px-3 text-sm text-slate-500">
-                    $
-                  </span>
-                  <input
-                    className="min-w-0 flex-1 bg-card px-3 py-2 text-sm text-slate-800 outline-none"
-                    type="number"
-                    placeholder="Enter price"
-                    value={draft.price}
-                    onChange={(event) => update(index, { price: event.target.value })}
-                    aria-label={`${itemLabel} ${index + 1} price`}
+                <div className="mt-3 rounded-lg border border-dashed p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-800">Base Price</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="Base price"
+                      value={draft.price}
+                      onChange={(event) => update(index, { price: event.target.value })}
+                      aria-label={`${itemLabel} ${index + 1} base price`}
+                    />
+                    <CurrencySelect
+                      value={draft.currency}
+                      onChange={(currency) => update(index, { currency })}
+                      aria-label={`${itemLabel} ${index + 1} base currency`}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Used when no monthly or seasonal rate applies.
+                  </p>
+                </div>
+                <div className="mt-3">
+                  <HotelRatesEditor
+                    entityKind={kind}
+                    monthRates={draft.monthRates}
+                    seasonRates={draft.seasonRates}
+                    onMonthRatesChange={(rows) => update(index, { monthRates: rows })}
+                    onSeasonRatesChange={(rows) => update(index, { seasonRates: rows })}
                   />
                 </div>
               </div>

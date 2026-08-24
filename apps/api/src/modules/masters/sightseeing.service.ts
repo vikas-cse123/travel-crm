@@ -90,6 +90,28 @@ function audit(
 }
 
 /** Strip tenant internals and raw storage keys before anything leaves the API. */
+function normalizePricing(
+  pricing: unknown,
+): Array<{ label: string; price: number | null; currency: string }> | null {
+  if (!Array.isArray(pricing)) return null;
+  const out: Array<{ label: string; price: number | null; currency: string }> = [];
+  for (const row of pricing) {
+    if (!row || typeof row !== 'object') continue;
+    const label = typeof (row as Record<string, unknown>).label === 'string' ? String((row as Record<string, unknown>).label).trim() : '';
+    if (!label) continue;
+    const rawPrice = (row as Record<string, unknown>).price;
+    const price = rawPrice == null || rawPrice === '' ? null : Number(rawPrice);
+    if (price !== null && (!Number.isFinite(price) || price < 0)) continue;
+    const rawCurrency = (row as Record<string, unknown>).currency;
+    const currency =
+      typeof rawCurrency === 'string' && /^[A-Za-z]{3}$/.test(rawCurrency.trim())
+        ? rawCurrency.trim().toUpperCase()
+        : 'INR';
+    out.push({ label: label.slice(0, 60), price, currency });
+  }
+  return out.length ? out : null;
+}
+
 function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) {
   const {
     companyId,
@@ -113,10 +135,12 @@ function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) 
   void pendingImageFileName;
   void pendingImageMimeType;
   void pendingImageFileSize;
+  const pricing = normalizePricing((safe as Record<string, unknown>).pricing);
   return {
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
     estimatedHours: num(safe.estimatedHours as Prisma.Decimal | null),
+    pricing,
     hasImage: Boolean(imageObjectKey && row.imageConfirmedAt),
     images: presentMasterImages(row as unknown as Parameters<typeof presentMasterImages>[0]),
   };
@@ -181,6 +205,13 @@ function writeData(input: SightseeingInput | SightseeingUpdateInput) {
       : {}),
     ...(key('description') ? { description: blankToNull(input.description) } : {}),
     ...(key('remarks') ? { remarks: blankToNull(input.remarks) } : {}),
+    ...(key('pricing')
+      ? {
+          pricing:
+            (normalizePricing((input as Record<string, unknown>).pricing) as unknown as Prisma.InputJsonValue) ??
+            Prisma.DbNull,
+        }
+      : {}),
   };
 }
 
@@ -300,6 +331,7 @@ export const sightseeingService = {
         sequence: true,
         estimatedHours: true,
         suggestedStartTime: true,
+        pricing: true,
         destination: { select: { id: true, name: true } },
         city: { select: { id: true, name: true } },
       },
@@ -308,6 +340,7 @@ export const sightseeingService = {
       sightseeings: sightseeings.map((row) => ({
         ...row,
         estimatedHours: num(row.estimatedHours),
+        pricing: normalizePricing((row as unknown as Record<string, unknown>).pricing),
       })),
     };
   },
@@ -856,6 +889,7 @@ export const sightseeingService = {
         estimatedHours: true,
         suggestedStartTime: true,
         description: true,
+        pricing: true,
         images: true,
         imageObjectKey: true,
         imageFileName: true,
@@ -877,6 +911,7 @@ export const sightseeingService = {
         estimatedHours: num(row.estimatedHours),
         suggestedStartTime: row.suggestedStartTime,
         description: row.description,
+        pricing: normalizePricing((row as Record<string, unknown>).pricing),
         destination: row.destination,
         city: row.city,
         images: presentMasterImages(row),

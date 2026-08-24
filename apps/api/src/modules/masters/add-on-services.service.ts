@@ -68,10 +68,11 @@ function present<T extends Record<string, unknown>>(row: T, scope: MasterScope) 
   void companyId;
   void normalizedName;
   void deletedAt;
+  const priceRaw = safe.price as Prisma.Decimal | null | undefined;
   return {
     ...safe,
     ...masterRecordMeta({ companyId: String(companyId) }, scope),
-    price: Number(safe.price as Prisma.Decimal),
+    price: priceRaw == null ? null : Number(priceRaw),
   };
 }
 
@@ -111,7 +112,7 @@ function writeData(input: AddOnServiceInput | AddOnServiceUpdateInput) {
       ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) }
       : {}),
     ...(key('description') ? { description: blankToNull(input.description) } : {}),
-    ...(key('price') ? { price: input.price ?? 0 } : {}),
+    ...(key('price') ? { price: input.price ?? null } : {}),
     ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
   };
 }
@@ -179,7 +180,7 @@ export const addOnServicesService = {
       select: { id: true, name: true, price: true, currency: true },
     });
     return {
-      addOnServices: services.map((row) => ({ ...row, price: Number(row.price) })),
+      addOnServices: services.map((row) => ({ ...row, price: row.price == null ? null : Number(row.price) })),
     };
   },
 
