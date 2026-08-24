@@ -7,6 +7,8 @@ import {
   normalizeFaqs,
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
+  resolveQuotationPdfSectionOrder,
+  type QuotationPdfSectionId,
 } from '@interscale/shared';
 import {
   colorEmojiPng,
@@ -438,6 +440,11 @@ export interface QuotationPdfInput {
     terms: Array<{ content: string }>;
     /** Quotation FAQs (same data as the public weblink accordion). */
     faqs?: Array<{ question: string; answer: string }> | null;
+    /**
+     * Single saved section order shared with the public weblink. When absent
+     * the renderer falls back to the legacy PDF sequence.
+     */
+    weblinkSectionOrder?: unknown;
   };
   /** Hotel Master presentation fields, aligned to version.hotels. */
   hotelPresentations?: Array<{
@@ -1701,628 +1708,633 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   // ==========================================================================
   // FLIGHTS — one journey, measured segment cards, continuation at boundaries
   // ==========================================================================
-  const segHasData = (s: FlightSegment) =>
-    Boolean(s.airlineName || s.from || s.to || s.flightNumber);
-  const legs = hasFlights
-    ? (
-        [
-          flightData?.journeyType === 'ONEWAY_RETURN'
-            ? null
-            : { title: 'Outbound Journey', journey: flightData?.outbound, color: BLUE },
-          flightData?.journeyType === 'ONEWAY_OUTBOUND'
-            ? null
-            : { title: 'Return Journey', journey: flightData?.returnJourney, color: GREEN },
-        ] as Array<{ title: string; journey?: FlightJourney; color: string } | null>
-      ).filter((l): l is { title: string; journey?: FlightJourney; color: string } => Boolean(l))
-    : [];
-  const drawableLegs = legs.filter((l) => (l.journey?.segments ?? []).some(segHasData));
+  const drawFlightsSection = () => {
+    const segHasData = (s: FlightSegment) =>
+      Boolean(s.airlineName || s.from || s.to || s.flightNumber);
+    const legs = hasFlights
+      ? (
+          [
+            flightData?.journeyType === 'ONEWAY_RETURN'
+              ? null
+              : { title: 'Outbound Journey', journey: flightData?.outbound, color: BLUE },
+            flightData?.journeyType === 'ONEWAY_OUTBOUND'
+              ? null
+              : { title: 'Return Journey', journey: flightData?.returnJourney, color: GREEN },
+          ] as Array<{ title: string; journey?: FlightJourney; color: string } | null>
+        ).filter((l): l is { title: string; journey?: FlightJourney; color: string } => Boolean(l))
+      : [];
+    const drawableLegs = legs.filter((l) => (l.journey?.segments ?? []).some(segHasData));
 
-  const buildSegmentCard = (s: FlightSegment, index: number): PdfBlock => {
-    const noteLines = htmlToLines(s.notes);
-    const padX = FLIGHT_CARD_PADDING_X;
-    const padTop = FLIGHT_CARD_PADDING_TOP;
-    const padBottom = FLIGHT_CARD_PADDING_BOTTOM;
-    const badgeRowH = 20;
-    const imageW = 120;
-    const imageH = 64;
-    const tlH = 64;
-    const nameH = hOf(s.airlineName || 'Airline', 11, imageW + 4, 'Body');
-    const numH = s.flightNumber ? hOf(s.flightNumber, 10, imageW + 4, 'Body') : 0;
-    const leftColH = imageH + 6 + nameH + (numH ? 2 + numH : 0);
-    const mainRowH = Math.max(leftColH, tlH);
-    const baggageH = 14;
-    const notesLabelH = noteLines.length ? 12 : 0;
-    const notesWidth = CONTENT_W - padX * 2;
-    const notesH = noteLines.length ? flowBlock(noteLines, M + padX, notesWidth, 10, 1).height : 0;
-    const cardH =
-      padTop +
-      badgeRowH +
-      FLIGHT_CARD_SECTION_GAP +
-      mainRowH +
-      FLIGHT_CARD_SECTION_GAP +
-      1 + // divider
-      FLIGHT_CARD_SECTION_GAP +
-      baggageH +
-      (noteLines.length
-        ? FLIGHT_CARD_SECTION_GAP + notesLabelH + notesH + FLIGHT_CARD_SECTION_GAP
-        : 0) +
-      padBottom;
+    const buildSegmentCard = (s: FlightSegment, index: number): PdfBlock => {
+      const noteLines = htmlToLines(s.notes);
+      const padX = FLIGHT_CARD_PADDING_X;
+      const padTop = FLIGHT_CARD_PADDING_TOP;
+      const padBottom = FLIGHT_CARD_PADDING_BOTTOM;
+      const badgeRowH = 20;
+      const imageW = 120;
+      const imageH = 64;
+      const tlH = 64;
+      const nameH = hOf(s.airlineName || 'Airline', 11, imageW + 4, 'Body');
+      const numH = s.flightNumber ? hOf(s.flightNumber, 10, imageW + 4, 'Body') : 0;
+      const leftColH = imageH + 6 + nameH + (numH ? 2 + numH : 0);
+      const mainRowH = Math.max(leftColH, tlH);
+      const baggageH = 14;
+      const notesLabelH = noteLines.length ? 12 : 0;
+      const notesWidth = CONTENT_W - padX * 2;
+      const notesH = noteLines.length
+        ? flowBlock(noteLines, M + padX, notesWidth, 10, 1).height
+        : 0;
+      const cardH =
+        padTop +
+        badgeRowH +
+        FLIGHT_CARD_SECTION_GAP +
+        mainRowH +
+        FLIGHT_CARD_SECTION_GAP +
+        1 + // divider
+        FLIGHT_CARD_SECTION_GAP +
+        baggageH +
+        (noteLines.length
+          ? FLIGHT_CARD_SECTION_GAP + notesLabelH + notesH + FLIGHT_CARD_SECTION_GAP
+          : 0) +
+        padBottom;
 
-    return {
-      height: cardH + FLIGHT_CARD_SEGMENT_GAP,
-      render: (y0) => {
-        const top = y0;
-        doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
-        badge(`Segment ${index + 1}`, M + padX, top + padTop, GREEN, '#ffffff');
-        if (s.travelClass) {
-          doc.font('Body').fontSize(10);
-          const w = doc.widthOfString(`${s.travelClass} Class`) + 20;
-          doc
-            .save()
-            .roundedRect(PDF_PAGE_WIDTH - M - 16 - w, top + padTop, w, 20, 4)
-            .fill('#F2F3F5')
-            .restore();
-          doc
-            .fillColor(DARK)
-            .text(`${s.travelClass} Class`, PDF_PAGE_WIDTH - M - 16 - w + 10, top + padTop + 5.5);
-        }
-        const mainY = top + padTop + badgeRowH + FLIGHT_CARD_SECTION_GAP;
-        // Airline logo / placeholder (contain-fit).
-        const logo = s.airlineId ? images.airlines?.[s.airlineId] : undefined;
-        drawImageFit(logo, M + padX, mainY, imageW, imageH, 'Airline');
-        doc
-          .fillColor(DARK)
-          .font('Body')
-          .fontSize(11)
-          .text(s.airlineName || 'Airline', M + padX, mainY + imageH + 6, {
-            width: imageW + 4,
-          });
-        if (s.flightNumber) {
-          doc
-            .fillColor(MUTED)
-            .fontSize(10)
-            .text(s.flightNumber, M + padX, doc.y + 2, {
-              width: imageW + 4,
-            });
-        }
-        // timeline
-        const tlY = mainY;
-        const depX = M + padX + imageW + 34;
-        const arrX = PDF_PAGE_WIDTH - M - 90;
-        const departureTime = s.departureTime ? formatClock12Hour(s.departureTime) : '--:--';
-        const arrivalTime = s.arrivalTime ? formatClock12Hour(s.arrivalTime) : '--:--';
-        // AM/PM makes some values wider than the original 24-hour text. Use a
-        // shared fitted size so both ends stay aligned and never wrap into the
-        // date row (for example, "10:00 AM").
-        doc.font('Bold').fontSize(16);
-        const widestTime = Math.max(
-          doc.widthOfString(departureTime),
-          doc.widthOfString(arrivalTime),
-        );
-        const flightTimeSize = Math.max(12, Math.min(16, (16 * 80) / widestTime));
-        doc
-          .fillColor(DARK)
-          .fontSize(flightTimeSize)
-          .text(departureTime, depX, tlY, { width: 80, lineBreak: false });
-        doc
-          .font('Body')
-          .fontSize(9)
-          .fillColor(MUTED)
-          .text(dateFmt(s.departureDate), depX, tlY + 20, { width: 90 });
-        doc.text((s.from || '').toUpperCase(), depX, tlY + 32, { width: 90 });
-        doc
-          .fillColor(DARK)
-          .font('Bold')
-          .fontSize(flightTimeSize)
-          .text(arrivalTime, arrX, tlY, { width: 80, align: 'right', lineBreak: false });
-        doc
-          .font('Body')
-          .fontSize(9)
-          .fillColor(MUTED)
-          .text(dateFmt(s.arrivalDate), arrX - 10, tlY + 20, { width: 90, align: 'right' });
-        doc.text((s.to || '').toUpperCase(), arrX - 10, tlY + 32, { width: 90, align: 'right' });
-        const lineY = tlY + 10;
-        const lx1 = depX + 92;
-        const lx2 = arrX - 18;
-        doc
-          .save()
-          .lineWidth(2)
-          .strokeColor(BORDER)
-          .moveTo(lx1, lineY)
-          .lineTo(lx2, lineY)
-          .stroke()
-          .restore();
-        doc.save().circle(lx1, lineY, 4).fill(GREEN).restore();
-        doc.save().circle(lx2, lineY, 4).fill(GREEN).restore();
-        if (s.duration)
-          doc
-            .fillColor(MUTED)
-            .font('Body')
-            .fontSize(9)
-            .text(s.duration, lx1, lineY + 6, { width: lx2 - lx1, align: 'center' });
-        // divider
-        const dividerY = mainY + mainRowH + FLIGHT_CARD_SECTION_GAP;
-        doc
-          .save()
-          .lineWidth(0.7)
-          .strokeColor(BORDER)
-          .moveTo(M + padX, dividerY)
-          .lineTo(PDF_PAGE_WIDTH - M - padX, dividerY)
-          .stroke()
-          .restore();
-        // baggage
-        const bagY = dividerY + FLIGHT_CARD_SECTION_GAP;
-        const bag = [
-          s.cabinLuggage && `Cabin: ${cabinLuggageLabel(s.cabinLuggage) ?? s.cabinLuggage}`,
-          s.checkInLuggage && `Check-in: ${s.checkInLuggage}`,
-        ]
-          .filter(Boolean)
-          .join('  •  ');
-        doc
-          .fillColor(DARK)
-          .font('Body')
-          .fontSize(10)
-          .text(`Baggage: ${bag || '—'}`, M + padX, bagY, {
-            width: CONTENT_W - padX * 2,
-          });
-        // notes
-        if (noteLines.length) {
-          const noteY = bagY + baggageH + FLIGHT_CARD_SECTION_GAP;
-          doc
-            .fillColor(MUTED)
-            .font('Bold')
-            .fontSize(10)
-            .text('Note:', M + padX, noteY);
-          const noteBlock = flowBlock(noteLines, M + padX, notesWidth, 10, 1);
-          noteBlock.render(noteY + notesLabelH);
-        }
-        doc.fillColor(DARK);
-        return y0 + cardH + FLIGHT_CARD_SEGMENT_GAP;
-      },
-    };
-  };
-
-  if (hasFlights && flightImageMode) {
-    const flightImages = images.flights?.length
-      ? images.flights
-      : images.flight
-        ? [{ description: null, image: images.flight }]
-        : [];
-    flightImages.forEach((item, index) => {
-      const description = item.description?.trim() || '';
-      planner.pageBreak();
-      planner.add(sectionHeaderBlock(flightData?.sectionTitle || 'Flight Details'));
-      if (description) {
-        doc.font('Body').fontSize(10);
-        const descriptionHeight = doc.heightOfString(description, { width: CONTENT_W });
-        planner.add({
-          height: descriptionHeight + 12,
-          render: (y0) => {
-            doc
-              .font('Body')
-              .fontSize(10)
-              .fillColor(DARK)
-              .text(description, M, y0, { width: CONTENT_W });
-            return y0 + descriptionHeight + 12;
-          },
-        });
-      }
-      if (item.url)
-        planner.add({
-          height: 38,
-          render: (y0) => {
-            const buttonW = 82;
-            const buttonH = 28;
-            const buttonX = M + CONTENT_W - buttonW;
-            doc.roundedRect(buttonX, y0, buttonW, buttonH, 6).fillAndStroke('#F8FAFC', BORDER);
-            doc
-              .font('Bold')
-              .fontSize(9)
-              .fillColor(BLUE)
-              .text('Preview', buttonX + 12, y0 + 9, { width: 48 });
-            doc
-              .moveTo(buttonX + 63, y0 + 17)
-              .lineTo(buttonX + 71, y0 + 9)
-              .strokeColor(BLUE)
-              .lineWidth(1.2)
-              .stroke();
-            doc
-              .moveTo(buttonX + 66, y0 + 9)
-              .lineTo(buttonX + 71, y0 + 9)
-              .lineTo(buttonX + 71, y0 + 14)
-              .stroke();
-            doc.link(buttonX, y0, buttonW, buttonH, item.url!);
-            doc.fillColor(DARK);
-            return y0 + 38;
-          },
-        });
-      planner.add({
-        height: 500,
-        render: (y0) => {
-          drawImageFit(
-            item.image,
-            M,
-            y0,
-            CONTENT_W,
-            480,
-            description || `Flight itinerary ${index + 1}`,
-          );
-          return y0 + 500;
-        },
-      });
-    });
-  }
-
-  if (!flightImageMode)
-    drawableLegs.forEach((leg, legIndex) => {
-      planner.pageBreak();
-      if (legIndex === 0) planner.add(sectionHeaderBlock('Flight Details'));
-      // Coloured journey bar.
-      planner.add({
-        height: 46 + 12,
-        render: (y0) => {
-          doc.save().roundedRect(M, y0, CONTENT_W, 46, 6).fill(leg.color).restore();
-          doc
-            .fillColor('#ffffff')
-            .font('Bold')
-            .fontSize(16)
-            .text(leg.title, M + 16, y0 + 8);
-          const route = [leg.journey?.fromCity, leg.journey?.toCity].filter(Boolean).join(' > ');
-          if (route)
-            doc
-              .font('Body')
-              .fontSize(10)
-              .text(route, M + 16, y0 + 28);
-          doc.fillColor(DARK);
-          return y0 + 46 + 12;
-        },
-      });
-      const segs = (leg.journey?.segments ?? []).filter(segHasData);
-      segs.forEach((s, i) => planner.add(buildSegmentCard(s, i)));
-    });
-
-  // ==========================================================================
-  // HOTELS — measured cards, continuation at card boundaries
-  // ==========================================================================
-  if (hotelIncluded) {
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock('Hotels'));
-    const imageW = 150;
-    const cardPadX = 14;
-    const cardPadTop = 14;
-    const cardPadBottom = 14;
-    v.hotels.forEach((hotel, i) => {
-      const tx = M + cardPadX + imageW + 16;
-      const tw = PDF_PAGE_WIDTH - M - 14 - tx;
-      const stayNights = hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights;
-
-      // Measure the text column height so the card never clips its content.
-      doc.font('Bold').fontSize(15);
-      const titleH = doc.heightOfString(hotel.hotelName, { width: tw });
-      const stars = Number((hotel.category || '').match(/\d+/)?.[0] ?? 0);
-      let textY = cardPadTop + titleH;
-      if (stars > 0) textY += 16 + 4;
-      // Keep the nights badge in the content flow, below the title/stars,
-      // rather than pinning it against the hotel name.
-      textY += 8 + 20 + 6;
-      const rows = [
-        hotel.city && `City: ${hotel.city}`,
-        hotel.roomType && `Room Type: ${hotel.roomType}`,
-        hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
-        hotel.rooms != null && `Rooms: ${hotel.rooms}`,
-        hotel.checkInDate &&
-          `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
-        hotel.checkOutDate &&
-          `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
-      ].filter(Boolean) as string[];
-      doc.font('Body').fontSize(10);
-      const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));
-      const rowGap = 4;
-      const textH = rowHeights.reduce((sum, h) => sum + h + rowGap, 0);
-      const textBottom = textY + textH;
-
-      // Card height = max(text bottom, image area minimum) + bottom padding.
-      // The image stretches to the available height, so only a minimum keeps
-      // the left column from collapsing on short cards.
-      const minImageH = cardPadTop + 40;
-      const cardH = Math.max(textBottom, minImageH) + cardPadBottom;
-      planner.add({
-        height: cardH + 12,
+      return {
+        height: cardH + FLIGHT_CARD_SEGMENT_GAP,
         render: (y0) => {
           const top = y0;
           doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
-          drawImage(
-            images.hotels?.[i],
-            M + cardPadX,
-            top + cardPadTop,
-            imageW,
-            cardH - cardPadTop - cardPadBottom,
-            'Hotel',
+          badge(`Segment ${index + 1}`, M + padX, top + padTop, GREEN, '#ffffff');
+          if (s.travelClass) {
+            doc.font('Body').fontSize(10);
+            const w = doc.widthOfString(`${s.travelClass} Class`) + 20;
+            doc
+              .save()
+              .roundedRect(PDF_PAGE_WIDTH - M - 16 - w, top + padTop, w, 20, 4)
+              .fill('#F2F3F5')
+              .restore();
+            doc
+              .fillColor(DARK)
+              .text(`${s.travelClass} Class`, PDF_PAGE_WIDTH - M - 16 - w + 10, top + padTop + 5.5);
+          }
+          const mainY = top + padTop + badgeRowH + FLIGHT_CARD_SECTION_GAP;
+          // Airline logo / placeholder (contain-fit).
+          const logo = s.airlineId ? images.airlines?.[s.airlineId] : undefined;
+          drawImageFit(logo, M + padX, mainY, imageW, imageH, 'Airline');
+          doc
+            .fillColor(DARK)
+            .font('Body')
+            .fontSize(11)
+            .text(s.airlineName || 'Airline', M + padX, mainY + imageH + 6, {
+              width: imageW + 4,
+            });
+          if (s.flightNumber) {
+            doc
+              .fillColor(MUTED)
+              .fontSize(10)
+              .text(s.flightNumber, M + padX, doc.y + 2, {
+                width: imageW + 4,
+              });
+          }
+          // timeline
+          const tlY = mainY;
+          const depX = M + padX + imageW + 34;
+          const arrX = PDF_PAGE_WIDTH - M - 90;
+          const departureTime = s.departureTime ? formatClock12Hour(s.departureTime) : '--:--';
+          const arrivalTime = s.arrivalTime ? formatClock12Hour(s.arrivalTime) : '--:--';
+          // AM/PM makes some values wider than the original 24-hour text. Use a
+          // shared fitted size so both ends stay aligned and never wrap into the
+          // date row (for example, "10:00 AM").
+          doc.font('Bold').fontSize(16);
+          const widestTime = Math.max(
+            doc.widthOfString(departureTime),
+            doc.widthOfString(arrivalTime),
           );
-          let yy = top + cardPadTop;
+          const flightTimeSize = Math.max(12, Math.min(16, (16 * 80) / widestTime));
+          doc
+            .fillColor(DARK)
+            .fontSize(flightTimeSize)
+            .text(departureTime, depX, tlY, { width: 80, lineBreak: false });
+          doc
+            .font('Body')
+            .fontSize(9)
+            .fillColor(MUTED)
+            .text(dateFmt(s.departureDate), depX, tlY + 20, { width: 90 });
+          doc.text((s.from || '').toUpperCase(), depX, tlY + 32, { width: 90 });
           doc
             .fillColor(DARK)
             .font('Bold')
-            .fontSize(15)
-            .text(hotel.hotelName, tx, yy, { width: tw });
-          yy = doc.y;
-          if (stars > 0) {
-            yy += 4;
+            .fontSize(flightTimeSize)
+            .text(arrivalTime, arrX, tlY, { width: 80, align: 'right', lineBreak: false });
+          doc
+            .font('Body')
+            .fontSize(9)
+            .fillColor(MUTED)
+            .text(dateFmt(s.arrivalDate), arrX - 10, tlY + 20, { width: 90, align: 'right' });
+          doc.text((s.to || '').toUpperCase(), arrX - 10, tlY + 32, { width: 90, align: 'right' });
+          const lineY = tlY + 10;
+          const lx1 = depX + 92;
+          const lx2 = arrX - 18;
+          doc
+            .save()
+            .lineWidth(2)
+            .strokeColor(BORDER)
+            .moveTo(lx1, lineY)
+            .lineTo(lx2, lineY)
+            .stroke()
+            .restore();
+          doc.save().circle(lx1, lineY, 4).fill(GREEN).restore();
+          doc.save().circle(lx2, lineY, 4).fill(GREEN).restore();
+          if (s.duration)
             doc
-              .fillColor(AMBER)
+              .fillColor(MUTED)
+              .font('Body')
+              .fontSize(9)
+              .text(s.duration, lx1, lineY + 6, { width: lx2 - lx1, align: 'center' });
+          // divider
+          const dividerY = mainY + mainRowH + FLIGHT_CARD_SECTION_GAP;
+          doc
+            .save()
+            .lineWidth(0.7)
+            .strokeColor(BORDER)
+            .moveTo(M + padX, dividerY)
+            .lineTo(PDF_PAGE_WIDTH - M - padX, dividerY)
+            .stroke()
+            .restore();
+          // baggage
+          const bagY = dividerY + FLIGHT_CARD_SECTION_GAP;
+          const bag = [
+            s.cabinLuggage && `Cabin: ${cabinLuggageLabel(s.cabinLuggage) ?? s.cabinLuggage}`,
+            s.checkInLuggage && `Check-in: ${s.checkInLuggage}`,
+          ]
+            .filter(Boolean)
+            .join('  •  ');
+          doc
+            .fillColor(DARK)
+            .font('Body')
+            .fontSize(10)
+            .text(`Baggage: ${bag || '—'}`, M + padX, bagY, {
+              width: CONTENT_W - padX * 2,
+            });
+          // notes
+          if (noteLines.length) {
+            const noteY = bagY + baggageH + FLIGHT_CARD_SECTION_GAP;
+            doc
+              .fillColor(MUTED)
               .font('Bold')
-              .fontSize(12)
-              .text('★'.repeat(Math.min(5, stars)), tx, yy);
-            yy = doc.y + 4;
+              .fontSize(10)
+              .text('Note:', M + padX, noteY);
+            const noteBlock = flowBlock(noteLines, M + padX, notesWidth, 10, 1);
+            noteBlock.render(noteY + notesLabelH);
           }
-          yy += 8;
-          badge(`Nights: ${stayNights}`, tx, yy, GREEN, '#ffffff');
-          yy += 26;
-          doc.fillColor(MUTED).font('Body').fontSize(10);
-          rows.forEach((r) => {
-            doc.text(r, tx, yy, { width: tw });
-            yy = doc.y + rowGap;
-          });
           doc.fillColor(DARK);
-          return y0 + cardH + 12;
+          return y0 + cardH + FLIGHT_CARD_SEGMENT_GAP;
         },
-      });
-    });
-  }
+      };
+    };
 
-  // ==========================================================================
-  // TOUR ITINERARY — day heading once, then one self-contained block per
-  // activity with that activity's own image and transfer.
-  if (sightDays.length) {
-    // The itinerary section starts on a fresh page; individual days flow
-    // continuously so sparse days share pages instead of wasting a page each.
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock('Tour Itinerary'));
-    sightDays.forEach((day, i) => {
-      const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
-      const dayTitle = formatItineraryDayTitle(day.dayNumber ?? i + 1, day.title);
-      const mealEntries = [
-        ['breakfast', '(B) Breakfast'],
-        ['lunch', '(L) Lunch'],
-        ['dinner', '(D) Dinner'],
-      ] as const;
-      const meals = mealEntries
-        .map(([key, label]) => {
-          if (!day.meals?.[key]) return null;
-          const pref = day.mealPreferences?.[key];
-          const modeLabel = pdfMealModeLabel(pref, day.mealMode);
-          return modeLabel ? `${label} (${modeLabel})` : label;
-        })
-        .filter(Boolean) as string[];
-
-      const dayImage = resolveItineraryDayImage(day.activities ?? [], {
-        document: (documentId) => images.itineraryDocuments?.[documentId],
-        snapshot: (imageUrl) => images.itinerary?.[imageUrl],
-        sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
-        // An explicitly emptied quotation gallery must render the normal
-        // placeholder, not silently replace the removed activity image with
-        // the unrelated destination cover.
-        destination: pdfDayAllowsDestinationFallback(day.activities ?? []) ? images.cover : null,
-      });
-
-      // Day heading: title + date + day-level meals, kept with the first
-      // activity so a heading is never orphaned at the bottom of a page.
-      {
-        let headingH = hOf(dayTitle, 15, CONTENT_W, 'Bold');
-        if (day.date) headingH += hOf(dateFmt(day.date, true), 10, CONTENT_W, 'Body') + 4;
-        headingH += 6;
-        if (meals.length) {
-          doc.font('Bold').fontSize(12);
-          headingH += 14 + meals.length * (hOf('x', 10.5, CONTENT_W - 10, 'Body') + 3);
+    if (hasFlights && flightImageMode) {
+      const flightImages = images.flights?.length
+        ? images.flights
+        : images.flight
+          ? [{ description: null, image: images.flight }]
+          : [];
+      flightImages.forEach((item, index) => {
+        const description = item.description?.trim() || '';
+        planner.pageBreak();
+        planner.add(sectionHeaderBlock(flightData?.sectionTitle || 'Flight Details'));
+        if (description) {
+          doc.font('Body').fontSize(10);
+          const descriptionHeight = doc.heightOfString(description, { width: CONTENT_W });
+          planner.add({
+            height: descriptionHeight + 12,
+            render: (y0) => {
+              doc
+                .font('Body')
+                .fontSize(10)
+                .fillColor(DARK)
+                .text(description, M, y0, { width: CONTENT_W });
+              return y0 + descriptionHeight + 12;
+            },
+          });
         }
+        if (item.url)
+          planner.add({
+            height: 38,
+            render: (y0) => {
+              const buttonW = 82;
+              const buttonH = 28;
+              const buttonX = M + CONTENT_W - buttonW;
+              doc.roundedRect(buttonX, y0, buttonW, buttonH, 6).fillAndStroke('#F8FAFC', BORDER);
+              doc
+                .font('Bold')
+                .fontSize(9)
+                .fillColor(BLUE)
+                .text('Preview', buttonX + 12, y0 + 9, { width: 48 });
+              doc
+                .moveTo(buttonX + 63, y0 + 17)
+                .lineTo(buttonX + 71, y0 + 9)
+                .strokeColor(BLUE)
+                .lineWidth(1.2)
+                .stroke();
+              doc
+                .moveTo(buttonX + 66, y0 + 9)
+                .lineTo(buttonX + 71, y0 + 9)
+                .lineTo(buttonX + 71, y0 + 14)
+                .stroke();
+              doc.link(buttonX, y0, buttonW, buttonH, item.url!);
+              doc.fillColor(DARK);
+              return y0 + 38;
+            },
+          });
         planner.add({
-          height: headingH + 10,
-          keepWithNext: validActivities.length > 0,
+          height: 500,
           render: (y0) => {
+            drawImageFit(
+              item.image,
+              M,
+              y0,
+              CONTENT_W,
+              480,
+              description || `Flight itinerary ${index + 1}`,
+            );
+            return y0 + 500;
+          },
+        });
+      });
+    }
+
+    if (!flightImageMode)
+      drawableLegs.forEach((leg, legIndex) => {
+        planner.pageBreak();
+        if (legIndex === 0) planner.add(sectionHeaderBlock('Flight Details'));
+        // Coloured journey bar.
+        planner.add({
+          height: 46 + 12,
+          render: (y0) => {
+            doc.save().roundedRect(M, y0, CONTENT_W, 46, 6).fill(leg.color).restore();
+            doc
+              .fillColor('#ffffff')
+              .font('Bold')
+              .fontSize(16)
+              .text(leg.title, M + 16, y0 + 8);
+            const route = [leg.journey?.fromCity, leg.journey?.toCity].filter(Boolean).join(' > ');
+            if (route)
+              doc
+                .font('Body')
+                .fontSize(10)
+                .text(route, M + 16, y0 + 28);
+            doc.fillColor(DARK);
+            return y0 + 46 + 12;
+          },
+        });
+        const segs = (leg.journey?.segments ?? []).filter(segHasData);
+        segs.forEach((s, i) => planner.add(buildSegmentCard(s, i)));
+      });
+  };
+  // ==========================================================================
+  // HOTELS — measured cards, continuation at card boundaries
+  // ==========================================================================
+  const drawHotelsSection = () => {
+    if (hotelIncluded) {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Hotels'));
+      const imageW = 150;
+      const cardPadX = 14;
+      const cardPadTop = 14;
+      const cardPadBottom = 14;
+      v.hotels.forEach((hotel, i) => {
+        const tx = M + cardPadX + imageW + 16;
+        const tw = PDF_PAGE_WIDTH - M - 14 - tx;
+        const stayNights = hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights;
+
+        // Measure the text column height so the card never clips its content.
+        doc.font('Bold').fontSize(15);
+        const titleH = doc.heightOfString(hotel.hotelName, { width: tw });
+        const stars = Number((hotel.category || '').match(/\d+/)?.[0] ?? 0);
+        let textY = cardPadTop + titleH;
+        if (stars > 0) textY += 16 + 4;
+        // Keep the nights badge in the content flow, below the title/stars,
+        // rather than pinning it against the hotel name.
+        textY += 8 + 20 + 6;
+        const rows = [
+          hotel.city && `City: ${hotel.city}`,
+          hotel.roomType && `Room Type: ${hotel.roomType}`,
+          hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
+          hotel.rooms != null && `Rooms: ${hotel.rooms}`,
+          hotel.checkInDate &&
+            `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
+          hotel.checkOutDate &&
+            `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
+        ].filter(Boolean) as string[];
+        doc.font('Body').fontSize(10);
+        const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));
+        const rowGap = 4;
+        const textH = rowHeights.reduce((sum, h) => sum + h + rowGap, 0);
+        const textBottom = textY + textH;
+
+        // Card height = max(text bottom, image area minimum) + bottom padding.
+        // The image stretches to the available height, so only a minimum keeps
+        // the left column from collapsing on short cards.
+        const minImageH = cardPadTop + 40;
+        const cardH = Math.max(textBottom, minImageH) + cardPadBottom;
+        planner.add({
+          height: cardH + 12,
+          render: (y0) => {
+            const top = y0;
+            doc.save().roundedRect(M, top, CONTENT_W, cardH, 6).stroke(BORDER).restore();
+            drawImage(
+              images.hotels?.[i],
+              M + cardPadX,
+              top + cardPadTop,
+              imageW,
+              cardH - cardPadTop - cardPadBottom,
+              'Hotel',
+            );
+            let yy = top + cardPadTop;
             doc
               .fillColor(DARK)
               .font('Bold')
               .fontSize(15)
-              .text(dayTitle, M, y0, { width: CONTENT_W });
-            let yy = doc.y;
-            if (day.date) {
+              .text(hotel.hotelName, tx, yy, { width: tw });
+            yy = doc.y;
+            if (stars > 0) {
+              yy += 4;
               doc
-                .font('Body')
-                .fontSize(10)
-                .fillColor(MUTED)
-                .text(dateFmt(day.date, true), M, yy + 2, {
-                  width: CONTENT_W,
-                });
-              yy = doc.y + 6;
+                .fillColor(AMBER)
+                .font('Bold')
+                .fontSize(12)
+                .text('★'.repeat(Math.min(5, stars)), tx, yy);
+              yy = doc.y + 4;
             }
-            if (meals.length) {
+            yy += 8;
+            badge(`Nights: ${stayNights}`, tx, yy, GREEN, '#ffffff');
+            yy += 26;
+            doc.fillColor(MUTED).font('Body').fontSize(10);
+            rows.forEach((r) => {
+              doc.text(r, tx, yy, { width: tw });
+              yy = doc.y + rowGap;
+            });
+            doc.fillColor(DARK);
+            return y0 + cardH + 12;
+          },
+        });
+      });
+    }
+  };
+  // ==========================================================================
+  // TOUR ITINERARY — day heading once, then one self-contained block per
+  // activity with that activity's own image and transfer.
+  const drawItinerarySection = () => {
+    if (sightDays.length) {
+      // The itinerary section starts on a fresh page; individual days flow
+      // continuously so sparse days share pages instead of wasting a page each.
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Tour Itinerary'));
+      sightDays.forEach((day, i) => {
+        const validActivities = (day.activities ?? []).filter((a) => a.name || a.description);
+        const dayTitle = formatItineraryDayTitle(day.dayNumber ?? i + 1, day.title);
+        const mealEntries = [
+          ['breakfast', '(B) Breakfast'],
+          ['lunch', '(L) Lunch'],
+          ['dinner', '(D) Dinner'],
+        ] as const;
+        const meals = mealEntries
+          .map(([key, label]) => {
+            if (!day.meals?.[key]) return null;
+            const pref = day.mealPreferences?.[key];
+            const modeLabel = pdfMealModeLabel(pref, day.mealMode);
+            return modeLabel ? `${label} (${modeLabel})` : label;
+          })
+          .filter(Boolean) as string[];
+
+        const dayImage = resolveItineraryDayImage(day.activities ?? [], {
+          document: (documentId) => images.itineraryDocuments?.[documentId],
+          snapshot: (imageUrl) => images.itinerary?.[imageUrl],
+          sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
+          // An explicitly emptied quotation gallery must render the normal
+          // placeholder, not silently replace the removed activity image with
+          // the unrelated destination cover.
+          destination: pdfDayAllowsDestinationFallback(day.activities ?? []) ? images.cover : null,
+        });
+
+        // Day heading: title + date + day-level meals, kept with the first
+        // activity so a heading is never orphaned at the bottom of a page.
+        {
+          let headingH = hOf(dayTitle, 15, CONTENT_W, 'Bold');
+          if (day.date) headingH += hOf(dateFmt(day.date, true), 10, CONTENT_W, 'Body') + 4;
+          headingH += 6;
+          if (meals.length) {
+            doc.font('Bold').fontSize(12);
+            headingH += 14 + meals.length * (hOf('x', 10.5, CONTENT_W - 10, 'Body') + 3);
+          }
+          planner.add({
+            height: headingH + 10,
+            keepWithNext: validActivities.length > 0,
+            render: (y0) => {
               doc
                 .fillColor(DARK)
                 .font('Bold')
-                .fontSize(12)
-                .text('Meals Included:', M, yy + 4);
-              doc.font('Body').fontSize(10.5).fillColor('#333');
-              meals.forEach((m) => doc.text(m, M + 10, doc.y + 3, { width: CONTENT_W - 10 }));
-              doc.fillColor(DARK);
-            }
-            return y0 + headingH + 10;
-          },
-        });
-      }
-
-      // One complete visual block per activity (own image, name, description,
-      // start time and transfer), alternating the image side like the weblink.
-      validActivities.forEach((a, ai) => {
-        const imgLeft = ai % 2 === 0;
-        const imgW = 190;
-        const gap = 22;
-        const imgX = imgLeft ? M : PDF_PAGE_WIDTH - M - imgW;
-        const contentX = imgLeft ? M + imgW + gap : M;
-        const contentW = CONTENT_W - imgW - gap;
-
-        // Canonical activity image: snapshot imageUrl first, then the
-        // sightseeing master image — exactly the weblink's per-activity source.
-        const aImg =
-          validActivities.length === 1
-            ? dayImage
-            : resolveItineraryActivityImage(a, {
-                document: (documentId) => images.itineraryDocuments?.[documentId],
-                snapshot: (imageUrl) => images.itinerary?.[imageUrl],
-                sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
-              });
-        const aTransfer = pdfTransferLabel(a.dailyTransfer ?? day.dailyTransfer);
-        const aMeta =
-          a.showTime !== false && a.startTime ? `STARTS: ${formatClock12Hour(a.startTime)}` : '';
-
-        let imgColH = imgW + 8;
-        if (aMeta) imgColH += 22 + 8;
-
-        const titleH = a.name ? hOf(a.name, 12, contentW, 'Bold') + 3 : 0;
-        const descLines = htmlToRichTextLines(a.description);
-        const descBlock = colorEmojiFlowBlock(descLines, contentX, contentW, 10.5, 2);
-        const transferH = aTransfer ? 6 + 20 + 6 : 0;
-
-        // Informational prices use a compact two-column grid. The shared
-        // measurement below is also used for rendering, so a wrapped label can
-        // never collide with the next activity or footer.
-        const aPrices = pdfActivityPrices(a.pricingOptions);
-        const pricingGap = 8;
-        const pricingPadX = 8;
-        const pricingPadY = 6;
-        const pricingCols = 2;
-        const pricingBoxW = (contentW - pricingGap) / pricingCols;
-        const pricingInnerW = pricingBoxW - pricingPadX * 2;
-        const pricingRows = Array.from(
-          { length: Math.ceil(aPrices.length / pricingCols) },
-          (_, rowIndex) =>
-            aPrices.slice(rowIndex * pricingCols, rowIndex * pricingCols + pricingCols),
-        );
-        const pricingRowHeights = pricingRows.map((row) => {
-          doc.font('Body').fontSize(8.5);
-          const labelsH = row.map((price) =>
-            doc.heightOfString(price.label, { width: pricingInnerW }),
-          );
-          doc.font('Bold').fontSize(10);
-          const pricesH = row.map((price) =>
-            doc.heightOfString(money(price.price), { width: pricingInnerW }),
-          );
-          return (
-            Math.max(...row.map((_, index) => labelsH[index]! + 2 + pricesH[index]!), 0) +
-            pricingPadY * 2
-          );
-        });
-        const pricingGridH =
-          pricingRowHeights.reduce((sum, height) => sum + height, 0) +
-          Math.max(0, pricingRowHeights.length - 1) * pricingGap;
-        const pricingH = aPrices.length
-          ? 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH
-          : 0;
-
-        const textColH = titleH + descBlock.height + transferH + pricingH;
-        const blockH = Math.max(imgColH, textColH);
-
-        // Shared body drawing: image, start time, title, optional inline
-        // description, transfer badge and pricing. `height` is the measured
-        // block height this render is drawn for, so the next y always matches
-        // the planned layout and nothing is drawn past the block boundary.
-        const drawActivityBody = (y0: number, withDesc: boolean, height: number): number => {
-          const top = y0;
-          drawImage(aImg, imgX, top, imgW, imgW, 'Activity');
-          let underY = top + imgW + 8;
-          if (aMeta) {
-            doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
-            doc
-              .fillColor(DARK)
-              .font('Bold')
-              .fontSize(10)
-              .text(aMeta, imgX, underY + 6, {
-                width: imgW,
-                align: 'center',
-              });
-            underY += 30;
-          }
-          let yy = top;
-          if (a.name) {
-            doc
-              .font('Bold')
-              .fontSize(12)
-              .fillColor(DARK)
-              .text(a.name, contentX, yy, { width: contentW });
-            yy = doc.y + 3;
-          }
-          if (withDesc) yy = descBlock.render(yy);
-          if (aTransfer) {
-            yy += 6;
-            badge(aTransfer, contentX, yy, AMBER, DARK);
-            yy += 26;
-          }
-          if (aPrices.length) {
-            yy += 10;
-            doc
-              .font('Bold')
-              .fontSize(9)
-              .fillColor(MUTED)
-              .text('PRICING', contentX, yy, { width: contentW });
-            yy = doc.y + 4;
-            pricingRows.forEach((row, rowIndex) => {
-              const rowH = pricingRowHeights[rowIndex]!;
-              row.forEach((price, colIndex) => {
-                const x = contentX + colIndex * (pricingBoxW + pricingGap);
-                doc
-                  .save()
-                  .roundedRect(x, yy, pricingBoxW, rowH, 3)
-                  .fill('#F7F8FA')
-                  .stroke(BORDER)
-                  .restore();
+                .fontSize(15)
+                .text(dayTitle, M, y0, { width: CONTENT_W });
+              let yy = doc.y;
+              if (day.date) {
                 doc
                   .font('Body')
-                  .fontSize(8.5)
-                  .fillColor(MUTED)
-                  .text(price.label, x + pricingPadX, yy + pricingPadY, {
-                    width: pricingInnerW,
-                  });
-                const priceY = doc.y + 2;
-                doc
-                  .font('Bold')
                   .fontSize(10)
-                  .fillColor(DARK)
-                  .text(money(price.price), x + pricingPadX, priceY, {
-                    width: pricingInnerW,
+                  .fillColor(MUTED)
+                  .text(dateFmt(day.date, true), M, yy + 2, {
+                    width: CONTENT_W,
                   });
-              });
-              yy += rowH + pricingGap;
-            });
-          }
-          return y0 + height;
-        };
-
-        // The whole activity fits one page: keep the atomic layout unchanged.
-        if (blockH + 10 <= PDF_MAX_CONTENT_HEIGHT) {
-          planner.add({
-            height: blockH + 10,
-            render: (y0) => drawActivityBody(y0, true, blockH + 10),
+                yy = doc.y + 6;
+              }
+              if (meals.length) {
+                doc
+                  .fillColor(DARK)
+                  .font('Bold')
+                  .fontSize(12)
+                  .text('Meals Included:', M, yy + 4);
+                doc.font('Body').fontSize(10.5).fillColor('#333');
+                meals.forEach((m) => doc.text(m, M + 10, doc.y + 3, { width: CONTENT_W - 10 }));
+                doc.fillColor(DARK);
+              }
+              return y0 + headingH + 10;
+            },
           });
-          return;
         }
-        // The description is longer than a page. Keep the image + title +
-        // transfer + pricing together as a self-contained header (it sits with
-        // the day heading, so the activity title and transfer badge are never
-        // orphaned) and let the description bullets flow across page-safe
-        // blocks. The header deliberately has NO keepWithNext: chaining it to
-        // the first description chunk would overfill the page budget and push
-        // bullets below the footer divider.
-        const headerH = Math.max(imgColH, titleH + transferH + pricingH) + 10;
-        planner.add({
-          height: headerH,
-          render: (y0) => drawActivityBody(y0, false, headerH),
-        });
-        colorEmojiFlowBlocks(descLines, contentX, contentW, 10.5, 2).forEach((block) =>
-          planner.add(block),
-        );
-      });
-    });
-  }
 
+        // One complete visual block per activity (own image, name, description,
+        // start time and transfer), alternating the image side like the weblink.
+        validActivities.forEach((a, ai) => {
+          const imgLeft = ai % 2 === 0;
+          const imgW = 190;
+          const gap = 22;
+          const imgX = imgLeft ? M : PDF_PAGE_WIDTH - M - imgW;
+          const contentX = imgLeft ? M + imgW + gap : M;
+          const contentW = CONTENT_W - imgW - gap;
+
+          // Canonical activity image: snapshot imageUrl first, then the
+          // sightseeing master image — exactly the weblink's per-activity source.
+          const aImg =
+            validActivities.length === 1
+              ? dayImage
+              : resolveItineraryActivityImage(a, {
+                  document: (documentId) => images.itineraryDocuments?.[documentId],
+                  snapshot: (imageUrl) => images.itinerary?.[imageUrl],
+                  sightseeing: (sightseeingId) => images.sightseeing?.[sightseeingId],
+                });
+          const aTransfer = pdfTransferLabel(a.dailyTransfer ?? day.dailyTransfer);
+          const aMeta =
+            a.showTime !== false && a.startTime ? `STARTS: ${formatClock12Hour(a.startTime)}` : '';
+
+          let imgColH = imgW + 8;
+          if (aMeta) imgColH += 22 + 8;
+
+          const titleH = a.name ? hOf(a.name, 12, contentW, 'Bold') + 3 : 0;
+          const descLines = htmlToRichTextLines(a.description);
+          const descBlock = colorEmojiFlowBlock(descLines, contentX, contentW, 10.5, 2);
+          const transferH = aTransfer ? 6 + 20 + 6 : 0;
+
+          // Informational prices use a compact two-column grid. The shared
+          // measurement below is also used for rendering, so a wrapped label can
+          // never collide with the next activity or footer.
+          const aPrices = pdfActivityPrices(a.pricingOptions);
+          const pricingGap = 8;
+          const pricingPadX = 8;
+          const pricingPadY = 6;
+          const pricingCols = 2;
+          const pricingBoxW = (contentW - pricingGap) / pricingCols;
+          const pricingInnerW = pricingBoxW - pricingPadX * 2;
+          const pricingRows = Array.from(
+            { length: Math.ceil(aPrices.length / pricingCols) },
+            (_, rowIndex) =>
+              aPrices.slice(rowIndex * pricingCols, rowIndex * pricingCols + pricingCols),
+          );
+          const pricingRowHeights = pricingRows.map((row) => {
+            doc.font('Body').fontSize(8.5);
+            const labelsH = row.map((price) =>
+              doc.heightOfString(price.label, { width: pricingInnerW }),
+            );
+            doc.font('Bold').fontSize(10);
+            const pricesH = row.map((price) =>
+              doc.heightOfString(money(price.price), { width: pricingInnerW }),
+            );
+            return (
+              Math.max(...row.map((_, index) => labelsH[index]! + 2 + pricesH[index]!), 0) +
+              pricingPadY * 2
+            );
+          });
+          const pricingGridH =
+            pricingRowHeights.reduce((sum, height) => sum + height, 0) +
+            Math.max(0, pricingRowHeights.length - 1) * pricingGap;
+          const pricingH = aPrices.length
+            ? 10 + hOf('PRICING', 9, contentW, 'Bold') + 4 + pricingGridH
+            : 0;
+
+          const textColH = titleH + descBlock.height + transferH + pricingH;
+          const blockH = Math.max(imgColH, textColH);
+
+          // Shared body drawing: image, start time, title, optional inline
+          // description, transfer badge and pricing. `height` is the measured
+          // block height this render is drawn for, so the next y always matches
+          // the planned layout and nothing is drawn past the block boundary.
+          const drawActivityBody = (y0: number, withDesc: boolean, height: number): number => {
+            const top = y0;
+            drawImage(aImg, imgX, top, imgW, imgW, 'Activity');
+            let underY = top + imgW + 8;
+            if (aMeta) {
+              doc.save().roundedRect(imgX, underY, imgW, 22, 4).fill('#F2F3F5').restore();
+              doc
+                .fillColor(DARK)
+                .font('Bold')
+                .fontSize(10)
+                .text(aMeta, imgX, underY + 6, {
+                  width: imgW,
+                  align: 'center',
+                });
+              underY += 30;
+            }
+            let yy = top;
+            if (a.name) {
+              doc
+                .font('Bold')
+                .fontSize(12)
+                .fillColor(DARK)
+                .text(a.name, contentX, yy, { width: contentW });
+              yy = doc.y + 3;
+            }
+            if (withDesc) yy = descBlock.render(yy);
+            if (aTransfer) {
+              yy += 6;
+              badge(aTransfer, contentX, yy, AMBER, DARK);
+              yy += 26;
+            }
+            if (aPrices.length) {
+              yy += 10;
+              doc
+                .font('Bold')
+                .fontSize(9)
+                .fillColor(MUTED)
+                .text('PRICING', contentX, yy, { width: contentW });
+              yy = doc.y + 4;
+              pricingRows.forEach((row, rowIndex) => {
+                const rowH = pricingRowHeights[rowIndex]!;
+                row.forEach((price, colIndex) => {
+                  const x = contentX + colIndex * (pricingBoxW + pricingGap);
+                  doc
+                    .save()
+                    .roundedRect(x, yy, pricingBoxW, rowH, 3)
+                    .fill('#F7F8FA')
+                    .stroke(BORDER)
+                    .restore();
+                  doc
+                    .font('Body')
+                    .fontSize(8.5)
+                    .fillColor(MUTED)
+                    .text(price.label, x + pricingPadX, yy + pricingPadY, {
+                      width: pricingInnerW,
+                    });
+                  const priceY = doc.y + 2;
+                  doc
+                    .font('Bold')
+                    .fontSize(10)
+                    .fillColor(DARK)
+                    .text(money(price.price), x + pricingPadX, priceY, {
+                      width: pricingInnerW,
+                    });
+                });
+                yy += rowH + pricingGap;
+              });
+            }
+            return y0 + height;
+          };
+
+          // The whole activity fits one page: keep the atomic layout unchanged.
+          if (blockH + 10 <= PDF_MAX_CONTENT_HEIGHT) {
+            planner.add({
+              height: blockH + 10,
+              render: (y0) => drawActivityBody(y0, true, blockH + 10),
+            });
+            return;
+          }
+          // The description is longer than a page. Keep the image + title +
+          // transfer + pricing together as a self-contained header (it sits with
+          // the day heading, so the activity title and transfer badge are never
+          // orphaned) and let the description bullets flow across page-safe
+          // blocks. The header deliberately has NO keepWithNext: chaining it to
+          // the first description chunk would overfill the page budget and push
+          // bullets below the footer divider.
+          const headerH = Math.max(imgColH, titleH + transferH + pricingH) + 10;
+          planner.add({
+            height: headerH,
+            render: (y0) => drawActivityBody(y0, false, headerH),
+          });
+          colorEmojiFlowBlocks(descLines, contentX, contentW, 10.5, 2).forEach((block) =>
+            planner.add(block),
+          );
+        });
+      });
+    }
+  };
   // ==========================================================================
   // VEHICLE / CRUISE / ADD-ONS
   // ==========================================================================
@@ -2385,286 +2397,343 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     ];
   };
 
-  if (vehicleServices.length) {
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock(vehicleServices[0]?.taxCategory?.trim() || 'Transportation'));
-    vehicleServices.forEach((row) => {
-      planner.add(
-        buildServiceCard(
-          row,
-          [
-            ['Type', row.city],
-            ['Usage', row.notes],
-          ],
-          'Vehicle',
-        ),
-      );
-      serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
-    });
-  }
-  if (cruiseServices.length) {
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock('Cruise Details'));
-    cruiseServices.forEach((row) => {
-      planner.add(
-        buildServiceCard(
-          row,
-          [
-            ['Duration', row.notes],
-            ['Cabin', row.city],
-          ],
-          'Cruise',
-        ),
-      );
-      serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
-    });
-  }
-  const hasAddonSection = addonServices.length > 0 || hasVisa;
-  if (hasAddonSection) {
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock('Add-on Services'));
-    addonServices.forEach((row) => {
-      const plainDescLines = htmlToLines(row.description);
-      const hasEmoji = containsPdfEmoji(row.description ?? '');
-      const nameH = hOf(row.name, 12, CONTENT_W, 'Bold') + 3;
-      planner.add({
-        height: nameH,
-        render: (y0) => {
-          doc.font('Bold').fontSize(12).fillColor(DARK).text(row.name, M, y0, { width: CONTENT_W });
-          return y0 + nameH;
-        },
+  const drawTransportationSection = () => {
+    if (vehicleServices.length) {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock(vehicleServices[0]?.taxCategory?.trim() || 'Transportation'));
+      vehicleServices.forEach((row) => {
+        planner.add(
+          buildServiceCard(
+            row,
+            [
+              ['Type', row.city],
+              ['Usage', row.notes],
+            ],
+            'Vehicle',
+          ),
+        );
+        serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
       });
-      const descriptionBlocks = hasEmoji
-        ? colorEmojiFlowBlocks(htmlToRichTextLines(row.description), M, CONTENT_W, 10.5, 2)
-        : flowBlocks(plainDescLines, M, CONTENT_W, 10.5, 2);
-      descriptionBlocks.forEach((block) => planner.add(block));
-    });
-    if (hasVisa) {
-      const visaLines = [
-        v.visaType && `Visa type: ${v.visaType}`,
-        v.visaDestination && `Destination: ${v.visaDestination}`,
-        num(v.visaAmount) > 0 && `Amount: ${money(v.visaAmount, 2)}`,
-      ].filter(Boolean) as string[];
-      const visaTitleH =
-        hOf(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), 12, CONTENT_W, 'Bold') +
-        3;
-      planner.add({
-        height: visaTitleH,
-        render: (y0) => {
-          doc
-            .font('Bold')
-            .fontSize(12)
-            .fillColor(DARK)
-            .text(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), M, y0, {
-              width: CONTENT_W,
-            });
-          return y0 + visaTitleH;
-        },
-      });
-      flowBlocks(visaLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
     }
-  }
-
-  // ==========================================================================
-  // CUSTOMER NOTES — deliberately placed immediately before policies/thanks.
-  const customerNoteLines = customerCopyLines(v.notes);
-  if (customerNoteLines.length) {
-    planner.add(sectionHeaderBlock('Notes for Customer'));
-    flowBlocks(customerNoteLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
-  }
-
-  // POLICIES — measured blocks split between list items
-  // ==========================================================================
-  const policyBlocks: Array<[string, string, string[]]> = [
-    [
-      'Inclusions',
-      GREEN,
-      v.inclusionsHtml ? htmlToLines(v.inclusionsHtml) : v.inclusions.map((r) => `• ${r.content}`),
-    ],
-    [
-      'Exclusions',
-      RED,
-      v.exclusionsHtml ? htmlToLines(v.exclusionsHtml) : v.exclusions.map((r) => `• ${r.content}`),
-    ],
-    ['Payment Policies', AMBER, htmlToLines(v.paymentPolicies)],
-    ['Cancellation Policies', RED, htmlToLines(v.cancellationPolicies)],
-    [
-      'Booking Terms',
-      BLUE,
-      v.bookingTerms ? htmlToLines(v.bookingTerms) : v.terms.map((r) => `• ${r.content}`),
-    ],
-  ].filter((block) => (block[2] ?? []).length) as Array<[string, string, string[]]>;
-  if (policyBlocks.length) {
-    planner.pageBreak();
-    const policiesTitleHeight = hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
-    planner.add({
-      height: policiesTitleHeight,
-      keepWithNext: true,
-      render: (y0) => {
-        doc.font('Bold').fontSize(22).fillColor(DARK).text('Policies', M, y0, {
-          width: CONTENT_W,
-          align: 'center',
+  };
+  const drawCruiseSection = () => {
+    if (cruiseServices.length) {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Cruise Details'));
+      cruiseServices.forEach((row) => {
+        planner.add(
+          buildServiceCard(
+            row,
+            [
+              ['Duration', row.notes],
+              ['Cabin', row.city],
+            ],
+            'Cruise',
+          ),
+        );
+        serviceDescriptionBlocks(row).forEach((block) => planner.add(block));
+      });
+    }
+  };
+  const drawAddonsSection = () => {
+    const hasAddonSection = addonServices.length > 0 || hasVisa;
+    if (hasAddonSection) {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Add-on Services'));
+      addonServices.forEach((row) => {
+        const plainDescLines = htmlToLines(row.description);
+        const hasEmoji = containsPdfEmoji(row.description ?? '');
+        const nameH = hOf(row.name, 12, CONTENT_W, 'Bold') + 3;
+        planner.add({
+          height: nameH,
+          render: (y0) => {
+            doc
+              .font('Bold')
+              .fontSize(12)
+              .fillColor(DARK)
+              .text(row.name, M, y0, { width: CONTENT_W });
+            return y0 + nameH;
+          },
         });
-        return y0 + hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
-      },
-    });
-    policyBlocks.forEach(([title, col, lines], index) => {
-      const sectionGap = index === 0 ? 0 : 16;
-      const headingHeight = sectionGap + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
+        const descriptionBlocks = hasEmoji
+          ? colorEmojiFlowBlocks(htmlToRichTextLines(row.description), M, CONTENT_W, 10.5, 2)
+          : flowBlocks(plainDescLines, M, CONTENT_W, 10.5, 2);
+        descriptionBlocks.forEach((block) => planner.add(block));
+      });
+      if (hasVisa) {
+        const visaLines = [
+          v.visaType && `Visa type: ${v.visaType}`,
+          v.visaDestination && `Destination: ${v.visaDestination}`,
+          num(v.visaAmount) > 0 && `Amount: ${money(v.visaAmount, 2)}`,
+        ].filter(Boolean) as string[];
+        const visaTitleH =
+          hOf(
+            v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(),
+            12,
+            CONTENT_W,
+            'Bold',
+          ) + 3;
+        planner.add({
+          height: visaTitleH,
+          render: (y0) => {
+            doc
+              .font('Bold')
+              .fontSize(12)
+              .fillColor(DARK)
+              .text(v.visaSectionTitle || `${v.visaDestination ?? ''} Visa`.trim(), M, y0, {
+                width: CONTENT_W,
+              });
+            return y0 + visaTitleH;
+          },
+        });
+        flowBlocks(visaLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+      }
+    }
+  };
+
+  // ==========================================================================
+  // CUSTOMER NOTES + POLICIES — notes deliberately sit immediately before the
+  // policies block; both travel together when sections are reordered.
+  // ==========================================================================
+  const drawPoliciesSection = () => {
+    const customerNoteLines = customerCopyLines(v.notes);
+    if (customerNoteLines.length) {
+      planner.add(sectionHeaderBlock('Notes for Customer'));
+      flowBlocks(customerNoteLines, M, CONTENT_W, 10.5, 2).forEach((block) => planner.add(block));
+    }
+
+    // POLICIES — measured blocks split between list items
+    // ==========================================================================
+    const policyBlocks: Array<[string, string, string[]]> = [
+      [
+        'Inclusions',
+        GREEN,
+        v.inclusionsHtml
+          ? htmlToLines(v.inclusionsHtml)
+          : v.inclusions.map((r) => `• ${r.content}`),
+      ],
+      [
+        'Exclusions',
+        RED,
+        v.exclusionsHtml
+          ? htmlToLines(v.exclusionsHtml)
+          : v.exclusions.map((r) => `• ${r.content}`),
+      ],
+      ['Payment Policies', AMBER, htmlToLines(v.paymentPolicies)],
+      ['Cancellation Policies', RED, htmlToLines(v.cancellationPolicies)],
+      [
+        'Booking Terms',
+        BLUE,
+        v.bookingTerms ? htmlToLines(v.bookingTerms) : v.terms.map((r) => `• ${r.content}`),
+      ],
+    ].filter((block) => (block[2] ?? []).length) as Array<[string, string, string[]]>;
+    if (policyBlocks.length) {
+      planner.pageBreak();
+      const policiesTitleHeight = hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
       planner.add({
-        height: headingHeight,
+        height: policiesTitleHeight,
         keepWithNext: true,
         render: (y0) => {
-          const headingY = y0 + sectionGap;
-          doc.font('Bold').fontSize(14).fillColor(col).text(title.toUpperCase(), M, headingY, {
+          doc.font('Bold').fontSize(22).fillColor(DARK).text('Policies', M, y0, {
             width: CONTENT_W,
+            align: 'center',
           });
-          return headingY + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
+          return y0 + hOf('Policies', 22, CONTENT_W, 'Bold') + 14;
         },
       });
-      // Measure every paragraph/bullet before drawing. The first item also
-      // reserves the Policies title so neither heading can be orphaned.
-      const itemBudget =
-        PDF_MAX_CONTENT_HEIGHT - headingHeight - (index === 0 ? policiesTitleHeight : 0);
-      lines.forEach((line) => {
-        flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) =>
-          planner.add(block),
-        );
+      policyBlocks.forEach(([title, col, lines], index) => {
+        const sectionGap = index === 0 ? 0 : 16;
+        const headingHeight = sectionGap + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
+        planner.add({
+          height: headingHeight,
+          keepWithNext: true,
+          render: (y0) => {
+            const headingY = y0 + sectionGap;
+            doc.font('Bold').fontSize(14).fillColor(col).text(title.toUpperCase(), M, headingY, {
+              width: CONTENT_W,
+            });
+            return headingY + hOf(title.toUpperCase(), 14, CONTENT_W, 'Bold') + 4;
+          },
+        });
+        // Measure every paragraph/bullet before drawing. The first item also
+        // reserves the Policies title so neither heading can be orphaned.
+        const itemBudget =
+          PDF_MAX_CONTENT_HEIGHT - headingHeight - (index === 0 ? policiesTitleHeight : 0);
+        lines.forEach((line) => {
+          flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) =>
+            planner.add(block),
+          );
+        });
       });
-    });
-  }
+    }
+  };
 
   // ==========================================================================
   // DESTINATION EXPERT — resolved server-side, same data as the weblink
   // ==========================================================================
-  const expert = input.destinationExpert;
-  if (expert?.fullName) {
-    planner.pageBreak();
-    planner.add(sectionHeaderBlock('Your Destination Expert'));
+  const drawDestinationExpertSection = () => {
+    const expert = input.destinationExpert;
+    if (expert?.fullName) {
+      planner.pageBreak();
+      planner.add(sectionHeaderBlock('Your Destination Expert'));
 
-    const hasPhoto = Boolean(images.expertProfile);
-    const introLines = htmlToLines(expert.customIntroduction || expert.bio);
-    const textSize = 10.5;
-    const textGap = 2;
-    const imageW = 96;
-    const imageH = 118;
-    // The text column only reserves photo space when a photo was actually
-    // resolved; without one the section renders as clean text (never an
-    // empty image placeholder box).
-    const textLeft = M + (hasPhoto ? imageW + 20 : 0);
-    const rightW = CONTENT_W - (hasPhoto ? imageW + 20 : 0);
+      const hasPhoto = Boolean(images.expertProfile);
+      const introLines = htmlToLines(expert.customIntroduction || expert.bio);
+      const textSize = 10.5;
+      const textGap = 2;
+      const imageW = 96;
+      const imageH = 118;
+      // The text column only reserves photo space when a photo was actually
+      // resolved; without one the section renders as clean text (never an
+      // empty image placeholder box).
+      const textLeft = M + (hasPhoto ? imageW + 20 : 0);
+      const rightW = CONTENT_W - (hasPhoto ? imageW + 20 : 0);
 
-    const contactParts: Array<{ label: string; value: string; href: string }> = [];
-    const waDigits = expert.whatsappNumber?.replace(/\D/g, '');
-    const callDigits = expert.callNumber?.replace(/[^+\d]/g, '');
-    if (expert.showWhatsapp !== false && waDigits) {
-      contactParts.push({
-        label: 'WhatsApp',
-        value: expert.whatsappNumber || waDigits,
-        href: `https://wa.me/${waDigits}`,
-      });
-    }
-    if (expert.showCall !== false && callDigits) {
-      contactParts.push({
-        label: 'Call',
-        value: expert.callNumber || callDigits,
-        href: `tel:${callDigits}`,
-      });
-    }
-    if (expert.showEmail !== false && expert.email) {
-      contactParts.push({ label: 'Email', value: expert.email, href: `mailto:${expert.email}` });
-    }
-    // One clickable contact row per present value (WhatsApp/Call/Email).
-    const contactRowH = 14;
+      const contactParts: Array<{ label: string; value: string; href: string }> = [];
+      const waDigits = expert.whatsappNumber?.replace(/\D/g, '');
+      const callDigits = expert.callNumber?.replace(/[^+\d]/g, '');
+      if (expert.showWhatsapp !== false && waDigits) {
+        contactParts.push({
+          label: 'WhatsApp',
+          value: expert.whatsappNumber || waDigits,
+          href: `https://wa.me/${waDigits}`,
+        });
+      }
+      if (expert.showCall !== false && callDigits) {
+        contactParts.push({
+          label: 'Call',
+          value: expert.callNumber || callDigits,
+          href: `tel:${callDigits}`,
+        });
+      }
+      if (expert.showEmail !== false && expert.email) {
+        contactParts.push({ label: 'Email', value: expert.email, href: `mailto:${expert.email}` });
+      }
+      // One clickable contact row per present value (WhatsApp/Call/Email).
+      const contactRowH = 14;
 
-    const nameH = 20;
-    const headingH = expert.heading ? 16 : 0;
+      const nameH = 20;
+      const headingH = expert.heading ? 16 : 0;
 
-    // Photo + name + heading as one measured header block. The photo height
-    // participates in the measurement so the reserved block is never shorter
-    // than the image.
-    const headerTextH = nameH + headingH + 4;
-    const headerBlockH = Math.max(hasPhoto ? imageH : 0, headerTextH) + 6;
-    planner.add({
-      height: headerBlockH,
-      render: (y0) => {
-        if (hasPhoto) drawImage(images.expertProfile, M, y0, imageW, imageH, 'EXPERT');
-        let yy = y0 + 2;
-        doc.font('Bold').fontSize(16).fillColor(DARK);
-        doc.text(expert.fullName.toUpperCase(), textLeft, yy, { width: rightW, lineBreak: false });
-        yy += nameH;
-        if (expert.heading) {
-          doc.font('Bold').fontSize(12).fillColor(GREEN);
-          doc.text(expert.heading, textLeft, yy, { width: rightW, lineBreak: false });
-        }
-        doc.fillColor(DARK).font('Body').fontSize(11);
-        return y0 + headerBlockH;
-      },
-    });
-
-    // Introduction flows through the standard splitter so even a very long bio
-    // paginates safely and can never be drawn into the footer area.
-    flowBlocks(introLines, textLeft, rightW, textSize, textGap).forEach((block) =>
-      planner.add(block),
-    );
-
-    if (contactParts.length) {
-      const contactBlockH = contactParts.length * contactRowH + 8;
+      // Photo + name + heading as one measured header block. The photo height
+      // participates in the measurement so the reserved block is never shorter
+      // than the image.
+      const headerTextH = nameH + headingH + 4;
+      const headerBlockH = Math.max(hasPhoto ? imageH : 0, headerTextH) + 6;
       planner.add({
-        height: contactBlockH,
+        height: headerBlockH,
         render: (y0) => {
-          let yy = y0;
-          for (const part of contactParts) {
-            const labelW = doc.widthOfString(`${part.label}: `);
-            doc.font('Bold').fontSize(10).fillColor(GREEN);
-            doc.text(`${part.label}: `, textLeft, yy, { width: labelW, height: 13, lineBreak: false });
-            doc.font('Body').fontSize(10).fillColor(BLUE);
-            doc.text(part.value, textLeft + labelW, yy, {
-              width: rightW - labelW,
-              height: 13,
-              lineBreak: false,
-              link: part.href,
-            });
-            doc.fillColor(DARK);
-            yy += contactRowH;
+          if (hasPhoto) drawImage(images.expertProfile, M, y0, imageW, imageH, 'EXPERT');
+          let yy = y0 + 2;
+          doc.font('Bold').fontSize(16).fillColor(DARK);
+          doc.text(expert.fullName.toUpperCase(), textLeft, yy, {
+            width: rightW,
+            lineBreak: false,
+          });
+          yy += nameH;
+          if (expert.heading) {
+            doc.font('Bold').fontSize(12).fillColor(GREEN);
+            doc.text(expert.heading, textLeft, yy, { width: rightW, lineBreak: false });
           }
-          doc.font('Body').fontSize(11);
-          return y0 + contactBlockH;
+          doc.fillColor(DARK).font('Body').fontSize(11);
+          return y0 + headerBlockH;
         },
       });
+
+      // Introduction flows through the standard splitter so even a very long bio
+      // paginates safely and can never be drawn into the footer area.
+      flowBlocks(introLines, textLeft, rightW, textSize, textGap).forEach((block) =>
+        planner.add(block),
+      );
+
+      if (contactParts.length) {
+        const contactBlockH = contactParts.length * contactRowH + 8;
+        planner.add({
+          height: contactBlockH,
+          render: (y0) => {
+            let yy = y0;
+            for (const part of contactParts) {
+              const labelW = doc.widthOfString(`${part.label}: `);
+              doc.font('Bold').fontSize(10).fillColor(GREEN);
+              doc.text(`${part.label}: `, textLeft, yy, {
+                width: labelW,
+                height: 13,
+                lineBreak: false,
+              });
+              doc.font('Body').fontSize(10).fillColor(BLUE);
+              doc.text(part.value, textLeft + labelW, yy, {
+                width: rightW - labelW,
+                height: 13,
+                lineBreak: false,
+                link: part.href,
+              });
+              doc.fillColor(DARK);
+              yy += contactRowH;
+            }
+            doc.font('Body').fontSize(11);
+            return y0 + contactBlockH;
+          },
+        });
+      }
     }
-  }
+  };
 
   // ==========================================================================
   // FREQUENTLY ASKED QUESTIONS — plain question + answer blocks, not the
   // weblink accordion. Question is kept with its first answer lines; long
   // answers paginate via the existing flow-block splitting.
   // ==========================================================================
-  const faqRows = normalizeFaqs((v as unknown as { faqs?: unknown }).faqs);
-  if (faqRows.length) {
-    if (!expert?.fullName) planner.pageBreak();
-    planner.add(sectionHeaderBlock('Frequently Asked Questions'));
-    faqRows.forEach((faq, index) => {
-      const questionText = `${index + 1}. ${faq.question}`;
-      const qHeight = hOf(questionText, 12, CONTENT_W, 'Bold') + 4;
-      planner.add({
-        height: qHeight,
-        keepWithNext: true,
-        render: (y0) => {
-          doc.font('Bold').fontSize(12).fillColor(GREEN);
-          doc.text(questionText, M, y0, { width: CONTENT_W });
-          doc.fillColor(DARK).font('Body').fontSize(11);
-          return y0 + qHeight;
-        },
+  const drawFaqsSection = () => {
+    const faqRows = normalizeFaqs((v as unknown as { faqs?: unknown }).faqs);
+    if (faqRows.length) {
+      if (!input.destinationExpert?.fullName) planner.pageBreak();
+      planner.add(sectionHeaderBlock('Frequently Asked Questions'));
+      faqRows.forEach((faq, index) => {
+        const questionText = `${index + 1}. ${faq.question}`;
+        const qHeight = hOf(questionText, 12, CONTENT_W, 'Bold') + 4;
+        planner.add({
+          height: qHeight,
+          keepWithNext: true,
+          render: (y0) => {
+            doc.font('Bold').fontSize(12).fillColor(GREEN);
+            doc.text(questionText, M, y0, { width: CONTENT_W });
+            doc.fillColor(DARK).font('Body').fontSize(11);
+            return y0 + qHeight;
+          },
+        });
+        flowBlocks(htmlToLines(faq.answer), M, CONTENT_W, 10.5, 3).forEach((block) =>
+          planner.add(block),
+        );
+        planner.add({
+          height: 8,
+          render: (y0) => y0 + 8,
+        });
       });
-      flowBlocks(htmlToLines(faq.answer), M, CONTENT_W, 10.5, 3).forEach((block) =>
-        planner.add(block),
-      );
-      planner.add({
-        height: 8,
-        render: (y0) => y0 + 8,
-      });
-    });
+    }
+  };
+
+  // ==========================================================================
+  // SECTION DISPATCH — one shared order for both PDF styles. The saved
+  // weblink order drives the sequence; when nothing is saved the legacy PDF
+  // layout is preserved exactly.
+  // ==========================================================================
+  const sectionDrawers: Partial<Record<QuotationPdfSectionId, () => void>> = {
+    flights: drawFlightsSection,
+    hotels: drawHotelsSection,
+    itinerary: drawItinerarySection,
+    transportation: drawTransportationSection,
+    cruise: drawCruiseSection,
+    addons: drawAddonsSection,
+    policies: drawPoliciesSection,
+    destinationExpert: drawDestinationExpertSection,
+    faqs: drawFaqsSection,
+    // 'services' has no dedicated classic-PDF section; it renders on the cover
+    // "services include" strip and in the stylish style's Travel Services pages.
+  };
+  for (const id of resolveQuotationPdfSectionOrder(
+    (v as unknown as { weblinkSectionOrder?: unknown }).weblinkSectionOrder,
+  )) {
+    sectionDrawers[id]?.();
   }
 
   // ==========================================================================

@@ -2987,10 +2987,7 @@ describe('Destination Expert and FAQs in both PDF styles', () => {
     const input = expertTestInput({
       destinationExpert: expertFixture,
       includeExpertKey: true,
-      faqs: [
-        ...faqFixture,
-        { question: 'What is the cancellation policy?', answer: longAnswer },
-      ],
+      faqs: [...faqFixture, { question: 'What is the cancellation policy?', answer: longAnswer }],
     });
     for (const [style, rendered] of [
       ['classic', await renderQuotationPdf(input)],
@@ -3004,9 +3001,7 @@ describe('Destination Expert and FAQs in both PDF styles', () => {
       expect(pageCount(rendered)).toBeGreaterThan(3);
       // No FAQ body word may enter the reserved footer area of any page.
       const footerTop =
-        style === 'classic'
-          ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT
-          : 756; // stylish BODY_BOTTOM
+        style === 'classic' ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT : 756; // stylish BODY_BOTTOM
       const offender = wordBoxes(rendered).find(
         (word) =>
           word.text.startsWith('FAQDETAIL') &&
@@ -3038,9 +3033,7 @@ describe('Destination Expert and FAQs in both PDF styles', () => {
         expect(text).toContain(`EXPERTDETAIL${String(i).padStart(2, '0')}`);
       }
       const footerTop =
-        style === 'classic'
-          ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT
-          : 756; // stylish BODY_BOTTOM
+        style === 'classic' ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT : 756; // stylish BODY_BOTTOM
       const offender = wordBoxes(rendered).find(
         (word) =>
           word.text.startsWith('EXPERTDETAIL') &&
@@ -3071,6 +3064,171 @@ describe('Destination Expert and FAQs in both PDF styles', () => {
       expect(pages.length).toBe(pageCount(rendered));
       expect(pdfTextPage(rendered, pages.length)).toMatch(/THANK\s+YOU/i);
       expect(pages[pages.length - 1]!.words.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// =============================================================================
+// Section reorder — ONE shared saved order (the quotation's weblinkSectionOrder)
+// drives BOTH PDF styles. No custom order → the legacy PDF layout is kept.
+// =============================================================================
+
+const reorderHotel = {
+  city: 'Kuala Lumpur',
+  hotelName: 'Reorder Grand Hotel',
+  category: '5 Star',
+  roomType: 'Deluxe',
+  mealPlan: 'Breakfast',
+  rooms: 1,
+  nights: 2,
+  selected: true,
+  notes: null,
+};
+
+const reorderFlightDetails = {
+  include: true,
+  journeyType: 'ONEWAY_OUTBOUND',
+  outbound: {
+    fromCity: 'Mumbai Airport',
+    toCity: 'Kuala Lumpur Airport',
+    segments: [
+      {
+        airlineName: 'FlyFast Airways',
+        from: 'Mumbai',
+        to: 'Kuala Lumpur',
+        departureDate: '2027-02-01',
+        departureTime: '09:00',
+        arrivalDate: '2027-02-01',
+        arrivalTime: '16:00',
+        duration: '6h 30m',
+      },
+    ],
+  },
+  returnJourney: { segments: [] },
+};
+
+/** Full input with every reorderable section present, in a saved order or not. */
+function reorderInput(weblinkSectionOrder: unknown) {
+  return {
+    company: footerEmptyCompanyForOverlap(),
+    quotation: quotationOverlap(),
+    version: {
+      ...baseVersionOverlap(),
+      flightDetails: reorderFlightDetails,
+      hotels: [reorderHotel],
+      sightseeingDetails: {
+        include: true,
+        days: [
+          {
+            dayNumber: 1,
+            title: 'Arrival Day Reorder',
+            city: 'Kuala Lumpur',
+            meals: { breakfast: false, lunch: false, dinner: false },
+            activities: [
+              {
+                name: 'City Orientation Drive Reorder',
+                description: '<p>Panoramic city orientation drive.</p>',
+              },
+            ],
+          },
+        ],
+      },
+      inclusionsHtml: '<ul><li>DepositProtectionMarker for policies</li></ul>',
+      faqs: faqFixture,
+      ...(Array.isArray(weblinkSectionOrder) || weblinkSectionOrder === null
+        ? { weblinkSectionOrder }
+        : {}),
+    },
+    images: { cover: PNG_1PX },
+    destinationExpert: expertFixture,
+  } as unknown as Parameters<typeof renderStylishQuotationPdf>[0];
+}
+
+describe('PDF section reorder (single shared weblink order)', () => {
+  it('follows one custom order in both PDF styles', async () => {
+    // Deliberately reversed relative to the legacy layout.
+    const savedOrder = [
+      'faqs',
+      'destinationExpert',
+      'policies',
+      'hotels',
+      'itinerary',
+      'flights',
+      'transportation',
+      'cruise',
+      'services',
+      'addons',
+      'visa',
+    ];
+    const input = reorderInput(savedOrder);
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const lower = pdfText(rendered).toLowerCase();
+      expect(lower).toContain('frequently asked questions');
+      expect(lower).toContain('tisha menon');
+      expect(lower).toContain('depositprotectionmarker');
+      expect(lower).toContain('reorder grand hotel');
+      expect(lower).toContain('panoramic city orientation drive');
+      expect(lower).toContain('flyfast airways');
+      const faqAt = lower.indexOf('frequently asked questions');
+      const expertAt = lower.indexOf('tisha menon');
+      const policiesAt = lower.indexOf('depositprotectionmarker');
+      const hotelsAt = lower.indexOf('reorder grand hotel');
+      const itineraryAt = lower.indexOf('panoramic city orientation drive');
+      const flightsAt = lower.indexOf('flyfast airways');
+      expect(faqAt).toBeGreaterThanOrEqual(0);
+      expect(expertAt).toBeGreaterThan(faqAt);
+      expect(policiesAt).toBeGreaterThan(expertAt);
+      expect(hotelsAt).toBeGreaterThan(policiesAt);
+      expect(itineraryAt).toBeGreaterThan(hotelsAt);
+      expect(flightsAt).toBeGreaterThan(itineraryAt);
+      // Thank You still closes the document.
+      expect(pdfTextPage(rendered, pageCount(rendered))).toMatch(/THANK\s+YOU/i);
+    }
+  });
+
+  it('keeps the legacy layout when no custom order is saved', async () => {
+    const absent = reorderInput(undefined); // key omitted entirely (old snapshots)
+    const empty = reorderInput(null); // normalized null on newer rows
+    for (const input of [absent, empty]) {
+      for (const rendered of [
+        await renderQuotationPdf(input),
+        await renderStylishQuotationPdf(input),
+      ]) {
+        const lower = pdfText(rendered).toLowerCase();
+        const flightsAt = lower.indexOf('flyfast airways');
+        const hotelsAt = lower.indexOf('reorder grand hotel');
+        const itineraryAt = lower.indexOf('panoramic city orientation drive');
+        const policiesAt = lower.indexOf('depositprotectionmarker');
+        const faqAt = lower.indexOf('frequently asked questions');
+        expect(flightsAt).toBeGreaterThanOrEqual(0);
+        expect(hotelsAt).toBeGreaterThan(flightsAt);
+        expect(itineraryAt).toBeGreaterThan(hotelsAt);
+        expect(policiesAt).toBeGreaterThan(itineraryAt);
+        expect(faqAt).toBeGreaterThan(policiesAt);
+        expect(pdfTextPage(rendered, pageCount(rendered))).toMatch(/THANK\s+YOU/i);
+      }
+    }
+  });
+
+  it('falls back safely when the saved order contains unknown values', async () => {
+    const input = reorderInput(['bogus-section', 42, null, '   ', 'faqs']);
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const lower = pdfText(rendered).toLowerCase();
+      // Known id honoured; unknown/garbage dropped; remaining ids appended so
+      // no section ever disappears.
+      const faqAt = lower.indexOf('frequently asked questions');
+      const flightsAt = lower.indexOf('flyfast airways');
+      expect(faqAt).toBeGreaterThanOrEqual(0);
+      expect(flightsAt).toBeGreaterThan(faqAt);
+      expect(lower).toContain('reorder grand hotel');
+      expect(lower).toContain('panoramic city orientation drive');
+      expect(lower).toContain('depositprotectionmarker');
     }
   });
 });

@@ -944,6 +944,51 @@ export function resolveWeblinkSectionOrder(
 }
 
 /**
+ * Quotation PDFs follow the SAME single saved `weblinkSectionOrder` as the
+ * public weblink — there is no separate per-PDF ordering. Visa has no
+ * independent PDF renderer (both styles fold it into the add-on pages), so it
+ * is not an independently placeable PDF section.
+ */
+export const QUOTATION_PDF_SECTION_IDS = [
+  'flights',
+  'hotels',
+  'itinerary',
+  'transportation',
+  'cruise',
+  'services',
+  'addons',
+  'policies',
+  'destinationExpert',
+  'faqs',
+] as const;
+export type QuotationPdfSectionId = (typeof QUOTATION_PDF_SECTION_IDS)[number];
+
+/** Sequence used when no custom order is saved — preserves the legacy PDF layout. */
+export const DEFAULT_QUOTATION_PDF_SECTION_ORDER: QuotationPdfSectionId[] = [
+  ...QUOTATION_PDF_SECTION_IDS,
+];
+
+/**
+ * Type guard for weblink section ids that are independently placeable PDF
+ * sections. Excludes 'visa', which both PDF styles render inside the add-on
+ * pages rather than as its own section.
+ */
+function isQuotationPdfSectionId(id: string): id is QuotationPdfSectionId {
+  return (QUOTATION_PDF_SECTION_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * Resolve the PDF section order from the version's saved weblink order.
+ * Falls back to the legacy PDF sequence when nothing (or something invalid)
+ * is saved, so existing quotations keep their current layout.
+ */
+export function resolveQuotationPdfSectionOrder(saved: unknown): QuotationPdfSectionId[] {
+  if (!Array.isArray(saved) || saved.length === 0) return [...DEFAULT_QUOTATION_PDF_SECTION_ORDER];
+  // resolveWeblinkSectionOrder() also emits 'visa'; the guard filters it out.
+  return resolveWeblinkSectionOrder(saved).filter(isQuotationPdfSectionId);
+}
+
+/**
  * Validate and normalize FAQs stored on a quotation version.
  * Invalid entries are dropped so a single bad row never breaks public rendering.
  */

@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import sharp from 'sharp';
-import { stripItineraryDayPrefixes, normalizeFaqs } from '@interscale/shared';
+import {
+  normalizeFaqs,
+  resolveQuotationPdfSectionOrder,
+  stripItineraryDayPrefixes,
+  type QuotationPdfSectionId,
+} from '@interscale/shared';
 import {
   colorEmojiPng,
   containsPdfEmoji,
@@ -914,12 +919,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       ),
       TEAL,
     ],
-    [
-      overviewIcons.travelDate,
-      'TRAVEL DATE',
-      date(input.quotation.travelStartDate),
-      '#f29e2e',
-    ],
+    [overviewIcons.travelDate, 'TRAVEL DATE', date(input.quotation.travelStartDate), '#f29e2e'],
     [
       overviewIcons.travelers,
       'TRAVELERS',
@@ -1122,614 +1122,638 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   drawCustomerCopy('Introduction', input.version.introduction);
 
   // Flights ----------------------------------------------------------------
-  const flightDetails = input.version.flightDetails as FlightDetails | null;
-  const journeys: Array<{ label: string; journey: FlightJourney }> = [];
-  if (flightDetails?.outbound?.segments?.length)
-    journeys.push({ label: 'OUTBOUND', journey: flightDetails.outbound });
-  if (flightDetails?.returnJourney?.segments?.length)
-    journeys.push({ label: 'RETURN', journey: flightDetails.returnJourney });
-  let flightPage = 0;
-  if (flightDetails?.include) {
-    if (flightDetails.entryMode === 'IMAGE') {
-      const flightImages = input.images?.flights?.length
-        ? input.images.flights
-        : input.images?.flight
-          ? [{ description: null, image: input.images.flight }]
-          : [];
-      flightImages.forEach((item) => {
-        const description = item.description?.trim() || '';
-        addContentPage(flightDetails.sectionTitle || 'Flight Itinerary');
-        const metaTop = y;
-        if (description)
-          doc
-            .font('Body')
-            .fontSize(9)
-            .fillColor(INK)
-            .text(description, M, metaTop, { width: CONTENT_W - 105, height: 34, ellipsis: true });
-        if (item.url) {
-          const buttonW = 74;
-          const buttonH = 26;
-          const buttonX = M + CONTENT_W - buttonW;
-          const buttonY = metaTop - 4;
-          rounded(buttonX, buttonY, buttonW, buttonH, '#f8fafc', LINE, 6);
-          doc
-            .font('Bold')
-            .fontSize(7.5)
-            .fillColor(NAVY)
-            .text('Preview', buttonX + 10, buttonY + 9, { width: 42 });
-          doc
-            .moveTo(buttonX + 56, buttonY + 16)
-            .lineTo(buttonX + 64, buttonY + 8)
-            .strokeColor(NAVY)
-            .lineWidth(1)
-            .stroke();
-          doc
-            .moveTo(buttonX + 59, buttonY + 8)
-            .lineTo(buttonX + 64, buttonY + 8)
-            .lineTo(buttonX + 64, buttonY + 13)
-            .stroke();
-          doc.link(buttonX, buttonY, buttonW, buttonH, item.url);
-        }
-        const imageTop = description || item.url ? metaTop + 38 : metaTop;
-        rounded(M, imageTop, CONTENT_W, 504, '#ffffff', LINE, 8);
-        drawImage(item.image, M + 12, imageTop + 12, CONTENT_W - 24, 480, 'contain');
-      });
-    }
-    if (flightDetails.entryMode !== 'IMAGE') {
-      for (const { label, journey } of journeys) {
-        for (const segment of journey.segments ?? []) {
-          const top = flightPage === 0 ? 130 : 85;
-          const cardTop = top + 40;
-          const noteText = htmlToLines(segment.notes).join(' ');
-          const baggage = [
-            segment.cabinLuggage ? `Cabin: ${segment.cabinLuggage}` : null,
-            segment.checkInLuggage ? `Check-in: ${segment.checkInLuggage}` : null,
-          ]
-            .filter(Boolean)
-            .join('  |  ');
-          const hasBaggage = Boolean(baggage);
-          const cardHeight = hasBaggage ? (noteText ? 228 : 196) : noteText ? 204 : 174;
-          const contentBottom = cardTop + cardHeight;
-          const measuredPage = computePageHeight(contentBottom - PDF_TOP_MARGIN);
-          addContentPage(
-            flightPage === 0 ? 'Flight Itinerary' : undefined,
-            measuredPage.pageHeight,
-          );
-
-          rounded(M, top, CONTENT_W, 30, PALE, NAVY, 5);
-          doc.roundedRect(M, top, 88, 30, 5).fill(NAVY);
-          doc
-            .font('Bold')
-            .fontSize(9)
-            .fillColor('#ffffff')
-            .text(label, M, top + 10, { width: 88, align: 'center', lineBreak: false });
-          const routeText = `${journey.fromCity || segment.from || '-'}  →  ${journey.toCity || segment.to || '-'}`;
-          const routeWidth = CONTENT_W - 116;
-          doc.font('Body').fontSize(9);
-          const routeFontSize = Math.max(
-            7,
-            Math.min(9, (9 * routeWidth) / Math.max(1, doc.widthOfString(routeText))),
-          );
-          doc
-            .font('Body')
-            .fontSize(routeFontSize)
-            .fillColor(NAVY)
-            .text(routeText, M + 102, top + 10, {
-              width: routeWidth,
-              height: 11,
-              ellipsis: true,
-              lineBreak: true,
-            });
-
-          const sideWidth = 124;
-          rounded(M, cardTop, sideWidth, cardHeight, '#ffffff', LINE, 5);
-          doc
-            .moveTo(M + 1, cardTop)
-            .lineTo(M + 1, cardTop + cardHeight)
-            .lineWidth(2)
-            .strokeColor(NAVY)
-            .stroke();
-          const airlineLogo = segment.airlineId
-            ? input.images?.airlines?.[segment.airlineId]
-            : null;
-          if (!drawImage(airlineLogo, M + 17, cardTop + 14, 90, 54, 'contain')) {
-            doc.rect(M + 17, cardTop + 14, 90, 54).fill('#f7f7f7');
-            doc
-              .font('Bold')
-              .fontSize(11)
-              .fillColor(RED)
-              .text(clean(segment.airlineName) || 'AIRLINE', M + 17, cardTop + 34, {
-                width: 90,
-                align: 'center',
-                ellipsis: true,
-              });
-          }
-          doc
-            .font('Body')
-            .fontSize(11)
-            .fillColor(INK)
-            .text(clean(segment.airlineName) || 'Airline', M + 10, cardTop + 78, {
-              width: sideWidth - 20,
-              align: 'center',
-              height: 30,
-              ellipsis: true,
-            });
-          doc
-            .font('Body')
-            .fontSize(10)
-            .fillColor(MUTED)
-            .text(clean(segment.flightNumber), M + 10, cardTop + 111, {
-              width: sideWidth - 20,
-              align: 'center',
-            });
-          pill(clean(segment.travelClass) || 'ECONOMY', M + 11, cardTop + cardHeight - 27, {
-            fill: NAVY,
-            color: '#ffffff',
-            minWidth: sideWidth - 22,
-            height: 18,
-            size: 9,
-          });
-
-          const mainX = M + sideWidth;
-          const mainW = CONTENT_W - sideWidth;
-          rounded(mainX, cardTop, mainW, cardHeight, '#ffffff', LINE, 5);
-          const endpointWidth = 128;
-          const departureX = mainX + 18;
-          const arrivalX = mainX + mainW - endpointWidth - 18;
-          doc
-            .font('Body')
-            .fontSize(9)
-            .fillColor(MUTED)
-            .text('DEPARTURE', departureX, cardTop + 15, {
-              width: endpointWidth,
-              align: 'center',
-            });
-          doc
-            .font('Bold')
-            .fontSize(9)
-            .fillColor(NAVY)
-            .text(clean(segment.from) || clean(journey.fromCity) || '-', departureX, cardTop + 29, {
-              width: endpointWidth,
-              height: 38,
-              align: 'center',
-              ellipsis: true,
-            });
-          doc
-            .font('Body')
-            .fontSize(9)
-            .fillColor(MUTED)
-            .text('ARRIVAL', arrivalX, cardTop + 15, {
-              width: endpointWidth,
-              align: 'center',
-            });
-          doc
-            .font('Bold')
-            .fontSize(9)
-            .fillColor(NAVY)
-            .text(clean(segment.to) || clean(journey.toCity) || '-', arrivalX, cardTop + 29, {
-              width: endpointWidth,
-              height: 38,
-              align: 'center',
-              ellipsis: true,
-            });
-          const arcLeft = departureX + endpointWidth + 7;
-          const arcRight = arrivalX - 7;
-          const arcTop = cardTop + 27;
-          doc
-            .moveTo(arcLeft, arcTop + 15)
-            .bezierCurveTo(
-              arcLeft + 42,
-              arcTop - 2,
-              arcRight - 42,
-              arcTop - 2,
-              arcRight,
-              arcTop + 15,
-            )
-            .lineWidth(1.4)
-            .strokeColor(NAVY)
-            .stroke();
-          doc
-            .circle(arcLeft, arcTop + 15, 3)
-            .fill(NAVY)
-            .circle(arcRight, arcTop + 15, 3)
-            .fill(NAVY);
-          const flightIconSize = 14;
-          const flightIconX = (arcLeft + arcRight) / 2 - flightIconSize / 2;
-          const flightIconY = arcTop - 6;
-          doc
-            .circle(flightIconX + flightIconSize / 2, flightIconY + flightIconSize / 2, 8)
-            .fill('#ffffff');
-          drawImage(
-            STYLISH_SERVICE_ICONS.Flights,
-            flightIconX,
-            flightIconY,
-            flightIconSize,
-            flightIconSize,
-            'contain',
-            // The transparent aircraft artwork is wider than its body. A
-            // circular image mask clips the wings and tail on the route arc.
-            0,
-          );
-          doc
-            .font('Bold')
-            .fontSize(9)
-            .fillColor(NAVY)
-            .text(clean(segment.duration), (arcLeft + arcRight) / 2 - 30, arcTop + 15, {
-              width: 60,
-              align: 'center',
-            });
-          doc
-            .moveTo(mainX + 15, cardTop + 75)
-            .lineTo(mainX + mainW - 15, cardTop + 75)
-            .lineWidth(0.5)
-            .strokeColor(LINE)
-            .stroke();
-          const timing = [
-            [
-              'DEPARTS',
-              segment.departureTime ? formatClock12Hour(segment.departureTime) : '-',
-              date(segment.departureDate, true),
-            ],
-            [
-              'ARRIVES',
-              segment.arrivalTime ? formatClock12Hour(segment.arrivalTime) : '-',
-              date(segment.arrivalDate, true),
-            ],
-          ] as const;
-          timing.forEach(([key, value, dateValue], index) => {
-            const left = index === 0 ? departureX : arrivalX;
-            doc
-              .font('Body')
-              .fontSize(9)
-              .fillColor(MUTED)
-              .text(key, left, cardTop + 86, { width: endpointWidth, align: 'center' });
-            doc
-              .font('Bold')
-              .fontSize(16)
-              .fillColor(NAVY)
-              .text(value, left, cardTop + 101, {
-                width: endpointWidth,
-                align: 'center',
-                lineBreak: false,
-              });
+  const drawFlightsSection = () => {
+    const flightDetails = input.version.flightDetails as FlightDetails | null;
+    const journeys: Array<{ label: string; journey: FlightJourney }> = [];
+    if (flightDetails?.outbound?.segments?.length)
+      journeys.push({ label: 'OUTBOUND', journey: flightDetails.outbound });
+    if (flightDetails?.returnJourney?.segments?.length)
+      journeys.push({ label: 'RETURN', journey: flightDetails.returnJourney });
+    let flightPage = 0;
+    if (flightDetails?.include) {
+      if (flightDetails.entryMode === 'IMAGE') {
+        const flightImages = input.images?.flights?.length
+          ? input.images.flights
+          : input.images?.flight
+            ? [{ description: null, image: input.images.flight }]
+            : [];
+        flightImages.forEach((item) => {
+          const description = item.description?.trim() || '';
+          addContentPage(flightDetails.sectionTitle || 'Flight Itinerary');
+          const metaTop = y;
+          if (description)
             doc
               .font('Body')
               .fontSize(9)
               .fillColor(INK)
-              .text(dateValue, left, cardTop + 125, { width: endpointWidth, align: 'center' });
-          });
-
-          if (hasBaggage || noteText)
+              .text(description, M, metaTop, {
+                width: CONTENT_W - 105,
+                height: 34,
+                ellipsis: true,
+              });
+          if (item.url) {
+            const buttonW = 74;
+            const buttonH = 26;
+            const buttonX = M + CONTENT_W - buttonW;
+            const buttonY = metaTop - 4;
+            rounded(buttonX, buttonY, buttonW, buttonH, '#f8fafc', LINE, 6);
             doc
-              .moveTo(mainX + 15, cardTop + 150)
-              .lineTo(mainX + mainW - 15, cardTop + 150)
+              .font('Bold')
+              .fontSize(7.5)
+              .fillColor(NAVY)
+              .text('Preview', buttonX + 10, buttonY + 9, { width: 42 });
+            doc
+              .moveTo(buttonX + 56, buttonY + 16)
+              .lineTo(buttonX + 64, buttonY + 8)
+              .strokeColor(NAVY)
+              .lineWidth(1)
+              .stroke();
+            doc
+              .moveTo(buttonX + 59, buttonY + 8)
+              .lineTo(buttonX + 64, buttonY + 8)
+              .lineTo(buttonX + 64, buttonY + 13)
+              .stroke();
+            doc.link(buttonX, buttonY, buttonW, buttonH, item.url);
+          }
+          const imageTop = description || item.url ? metaTop + 38 : metaTop;
+          rounded(M, imageTop, CONTENT_W, 504, '#ffffff', LINE, 8);
+          drawImage(item.image, M + 12, imageTop + 12, CONTENT_W - 24, 480, 'contain');
+        });
+      }
+      if (flightDetails.entryMode !== 'IMAGE') {
+        for (const { label, journey } of journeys) {
+          for (const segment of journey.segments ?? []) {
+            const top = flightPage === 0 ? 130 : 85;
+            const cardTop = top + 40;
+            const noteText = htmlToLines(segment.notes).join(' ');
+            const baggage = [
+              segment.cabinLuggage ? `Cabin: ${segment.cabinLuggage}` : null,
+              segment.checkInLuggage ? `Check-in: ${segment.checkInLuggage}` : null,
+            ]
+              .filter(Boolean)
+              .join('  |  ');
+            const hasBaggage = Boolean(baggage);
+            const cardHeight = hasBaggage ? (noteText ? 228 : 196) : noteText ? 204 : 174;
+            const contentBottom = cardTop + cardHeight;
+            const measuredPage = computePageHeight(contentBottom - PDF_TOP_MARGIN);
+            addContentPage(
+              flightPage === 0 ? 'Flight Itinerary' : undefined,
+              measuredPage.pageHeight,
+            );
+
+            rounded(M, top, CONTENT_W, 30, PALE, NAVY, 5);
+            doc.roundedRect(M, top, 88, 30, 5).fill(NAVY);
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor('#ffffff')
+              .text(label, M, top + 10, { width: 88, align: 'center', lineBreak: false });
+            const routeText = `${journey.fromCity || segment.from || '-'}  →  ${journey.toCity || segment.to || '-'}`;
+            const routeWidth = CONTENT_W - 116;
+            doc.font('Body').fontSize(9);
+            const routeFontSize = Math.max(
+              7,
+              Math.min(9, (9 * routeWidth) / Math.max(1, doc.widthOfString(routeText))),
+            );
+            doc
+              .font('Body')
+              .fontSize(routeFontSize)
+              .fillColor(NAVY)
+              .text(routeText, M + 102, top + 10, {
+                width: routeWidth,
+                height: 11,
+                ellipsis: true,
+                lineBreak: true,
+              });
+
+            const sideWidth = 124;
+            rounded(M, cardTop, sideWidth, cardHeight, '#ffffff', LINE, 5);
+            doc
+              .moveTo(M + 1, cardTop)
+              .lineTo(M + 1, cardTop + cardHeight)
+              .lineWidth(2)
+              .strokeColor(NAVY)
+              .stroke();
+            const airlineLogo = segment.airlineId
+              ? input.images?.airlines?.[segment.airlineId]
+              : null;
+            if (!drawImage(airlineLogo, M + 17, cardTop + 14, 90, 54, 'contain')) {
+              doc.rect(M + 17, cardTop + 14, 90, 54).fill('#f7f7f7');
+              doc
+                .font('Bold')
+                .fontSize(11)
+                .fillColor(RED)
+                .text(clean(segment.airlineName) || 'AIRLINE', M + 17, cardTop + 34, {
+                  width: 90,
+                  align: 'center',
+                  ellipsis: true,
+                });
+            }
+            doc
+              .font('Body')
+              .fontSize(11)
+              .fillColor(INK)
+              .text(clean(segment.airlineName) || 'Airline', M + 10, cardTop + 78, {
+                width: sideWidth - 20,
+                align: 'center',
+                height: 30,
+                ellipsis: true,
+              });
+            doc
+              .font('Body')
+              .fontSize(10)
+              .fillColor(MUTED)
+              .text(clean(segment.flightNumber), M + 10, cardTop + 111, {
+                width: sideWidth - 20,
+                align: 'center',
+              });
+            pill(clean(segment.travelClass) || 'ECONOMY', M + 11, cardTop + cardHeight - 27, {
+              fill: NAVY,
+              color: '#ffffff',
+              minWidth: sideWidth - 22,
+              height: 18,
+              size: 9,
+            });
+
+            const mainX = M + sideWidth;
+            const mainW = CONTENT_W - sideWidth;
+            rounded(mainX, cardTop, mainW, cardHeight, '#ffffff', LINE, 5);
+            const endpointWidth = 128;
+            const departureX = mainX + 18;
+            const arrivalX = mainX + mainW - endpointWidth - 18;
+            doc
+              .font('Body')
+              .fontSize(9)
+              .fillColor(MUTED)
+              .text('DEPARTURE', departureX, cardTop + 15, {
+                width: endpointWidth,
+                align: 'center',
+              });
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor(NAVY)
+              .text(
+                clean(segment.from) || clean(journey.fromCity) || '-',
+                departureX,
+                cardTop + 29,
+                {
+                  width: endpointWidth,
+                  height: 38,
+                  align: 'center',
+                  ellipsis: true,
+                },
+              );
+            doc
+              .font('Body')
+              .fontSize(9)
+              .fillColor(MUTED)
+              .text('ARRIVAL', arrivalX, cardTop + 15, {
+                width: endpointWidth,
+                align: 'center',
+              });
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor(NAVY)
+              .text(clean(segment.to) || clean(journey.toCity) || '-', arrivalX, cardTop + 29, {
+                width: endpointWidth,
+                height: 38,
+                align: 'center',
+                ellipsis: true,
+              });
+            const arcLeft = departureX + endpointWidth + 7;
+            const arcRight = arrivalX - 7;
+            const arcTop = cardTop + 27;
+            doc
+              .moveTo(arcLeft, arcTop + 15)
+              .bezierCurveTo(
+                arcLeft + 42,
+                arcTop - 2,
+                arcRight - 42,
+                arcTop - 2,
+                arcRight,
+                arcTop + 15,
+              )
+              .lineWidth(1.4)
+              .strokeColor(NAVY)
+              .stroke();
+            doc
+              .circle(arcLeft, arcTop + 15, 3)
+              .fill(NAVY)
+              .circle(arcRight, arcTop + 15, 3)
+              .fill(NAVY);
+            const flightIconSize = 14;
+            const flightIconX = (arcLeft + arcRight) / 2 - flightIconSize / 2;
+            const flightIconY = arcTop - 6;
+            doc
+              .circle(flightIconX + flightIconSize / 2, flightIconY + flightIconSize / 2, 8)
+              .fill('#ffffff');
+            drawImage(
+              STYLISH_SERVICE_ICONS.Flights,
+              flightIconX,
+              flightIconY,
+              flightIconSize,
+              flightIconSize,
+              'contain',
+              // The transparent aircraft artwork is wider than its body. A
+              // circular image mask clips the wings and tail on the route arc.
+              0,
+            );
+            doc
+              .font('Bold')
+              .fontSize(9)
+              .fillColor(NAVY)
+              .text(clean(segment.duration), (arcLeft + arcRight) / 2 - 30, arcTop + 15, {
+                width: 60,
+                align: 'center',
+              });
+            doc
+              .moveTo(mainX + 15, cardTop + 75)
+              .lineTo(mainX + mainW - 15, cardTop + 75)
               .lineWidth(0.5)
               .strokeColor(LINE)
               .stroke();
-          if (hasBaggage)
-            doc
-              .font('Body')
-              .fontSize(10)
-              .fillColor(INK)
-              .text(`Baggage: ${baggage}`, mainX + 18, cardTop + 163, {
-                width: mainW - 36,
-              });
-          if (noteText)
-            doc
-              .font('Body')
-              .fontSize(10)
-              .fillColor(MUTED)
-              .text(`Note: ${noteText}`, mainX + 18, cardTop + (hasBaggage ? 188 : 163), {
-                width: mainW - 36,
-                height: 29,
-                ellipsis: true,
-              });
-          flightPage += 1;
+            const timing = [
+              [
+                'DEPARTS',
+                segment.departureTime ? formatClock12Hour(segment.departureTime) : '-',
+                date(segment.departureDate, true),
+              ],
+              [
+                'ARRIVES',
+                segment.arrivalTime ? formatClock12Hour(segment.arrivalTime) : '-',
+                date(segment.arrivalDate, true),
+              ],
+            ] as const;
+            timing.forEach(([key, value, dateValue], index) => {
+              const left = index === 0 ? departureX : arrivalX;
+              doc
+                .font('Body')
+                .fontSize(9)
+                .fillColor(MUTED)
+                .text(key, left, cardTop + 86, { width: endpointWidth, align: 'center' });
+              doc
+                .font('Bold')
+                .fontSize(16)
+                .fillColor(NAVY)
+                .text(value, left, cardTop + 101, {
+                  width: endpointWidth,
+                  align: 'center',
+                  lineBreak: false,
+                });
+              doc
+                .font('Body')
+                .fontSize(9)
+                .fillColor(INK)
+                .text(dateValue, left, cardTop + 125, { width: endpointWidth, align: 'center' });
+            });
+
+            if (hasBaggage || noteText)
+              doc
+                .moveTo(mainX + 15, cardTop + 150)
+                .lineTo(mainX + mainW - 15, cardTop + 150)
+                .lineWidth(0.5)
+                .strokeColor(LINE)
+                .stroke();
+            if (hasBaggage)
+              doc
+                .font('Body')
+                .fontSize(10)
+                .fillColor(INK)
+                .text(`Baggage: ${baggage}`, mainX + 18, cardTop + 163, {
+                  width: mainW - 36,
+                });
+            if (noteText)
+              doc
+                .font('Body')
+                .fontSize(10)
+                .fillColor(MUTED)
+                .text(`Note: ${noteText}`, mainX + 18, cardTop + (hasBaggage ? 188 : 163), {
+                  width: mainW - 36,
+                  height: 29,
+                  ellipsis: true,
+                });
+            flightPage += 1;
+          }
         }
       }
     }
-  }
+  };
 
   // Hotels -----------------------------------------------------------------
-  const selectedHotels = input.version.hotels
-    .map((hotel, index) => ({ hotel, index }))
-    .filter(({ hotel }) => hotel.selected);
-  if (selectedHotels.length) {
-    for (const [selectedIndex, { hotel, index }] of selectedHotels.entries()) {
-      if (selectedIndex % 3 === 0) {
-        const cardsOnPage = Math.min(3, selectedHotels.length - selectedIndex);
-        const contentBottom = 118 + cardsOnPage * 169;
-        const layout = computePageHeight(contentBottom - PDF_TOP_MARGIN);
-        addContentPage('Hotel Accommodations', layout.pageHeight);
-      }
-      const top = y;
-      const presentation = input.hotelPresentations?.[index];
-      const categoryStars = Number.parseInt(hotel.category ?? '', 10);
-      const starCount = Math.max(
-        0,
-        Math.min(
-          5,
-          presentation?.starCategory ?? (Number.isFinite(categoryStars) ? categoryStars : 0),
-        ),
-      );
-      const address = presentation?.address?.trim() ?? '';
-      const rating = presentation?.starRating == null ? null : Number(presentation.starRating);
-      const reviewLink = presentation?.reviewLink?.trim() ?? '';
-      const validReviewLink = /^https?:\/\//i.test(reviewLink) ? reviewLink : '';
-      rounded(M, top, CONTENT_W, 154, '#ffffff', LINE, 8);
-      doc
-        .moveTo(M + 1, top)
-        .lineTo(M + 1, top + 154)
-        .lineWidth(2)
-        .strokeColor(NAVY)
-        .stroke();
-      if (!drawImage(input.images?.hotels?.[index], M + 17, top + 11, 106, 122)) {
-        doc.roundedRect(M + 17, top + 11, 106, 122, 7).fill('#e7edf4');
-        drawEmoji('🏨', M + 53, top + 54, 34);
-      }
-      const infoX = M + 136;
-      const title = hotel.hotelName.trim();
-      doc.font('Bold').fontSize(11);
-      const starsText = '★'.repeat(starCount);
-      const starsWidth = starCount ? doc.widthOfString(starsText) : 0;
-      const titleWidth = Math.min(doc.widthOfString(title), Math.max(120, 360 - starsWidth - 10));
-      doc
-        .font('Bold')
-        .fontSize(11)
-        .fillColor(NAVY)
-        .text(title, infoX, top + 13, {
-          width: titleWidth,
-          height: 15,
-          ellipsis: true,
-        });
-      if (starCount) {
+  const drawHotelsSection = () => {
+    const selectedHotels = input.version.hotels
+      .map((hotel, index) => ({ hotel, index }))
+      .filter(({ hotel }) => hotel.selected);
+    if (selectedHotels.length) {
+      for (const [selectedIndex, { hotel, index }] of selectedHotels.entries()) {
+        if (selectedIndex % 3 === 0) {
+          const cardsOnPage = Math.min(3, selectedHotels.length - selectedIndex);
+          const contentBottom = 118 + cardsOnPage * 169;
+          const layout = computePageHeight(contentBottom - PDF_TOP_MARGIN);
+          addContentPage('Hotel Accommodations', layout.pageHeight);
+        }
+        const top = y;
+        const presentation = input.hotelPresentations?.[index];
+        const categoryStars = Number.parseInt(hotel.category ?? '', 10);
+        const starCount = Math.max(
+          0,
+          Math.min(
+            5,
+            presentation?.starCategory ?? (Number.isFinite(categoryStars) ? categoryStars : 0),
+          ),
+        );
+        const address = presentation?.address?.trim() ?? '';
+        const rating = presentation?.starRating == null ? null : Number(presentation.starRating);
+        const reviewLink = presentation?.reviewLink?.trim() ?? '';
+        const validReviewLink = /^https?:\/\//i.test(reviewLink) ? reviewLink : '';
+        rounded(M, top, CONTENT_W, 154, '#ffffff', LINE, 8);
+        doc
+          .moveTo(M + 1, top)
+          .lineTo(M + 1, top + 154)
+          .lineWidth(2)
+          .strokeColor(NAVY)
+          .stroke();
+        if (!drawImage(input.images?.hotels?.[index], M + 17, top + 11, 106, 122)) {
+          doc.roundedRect(M + 17, top + 11, 106, 122, 7).fill('#e7edf4');
+          drawEmoji('🏨', M + 53, top + 54, 34);
+        }
+        const infoX = M + 136;
+        const title = hotel.hotelName.trim();
+        doc.font('Bold').fontSize(11);
+        const starsText = '★'.repeat(starCount);
+        const starsWidth = starCount ? doc.widthOfString(starsText) : 0;
+        const titleWidth = Math.min(doc.widthOfString(title), Math.max(120, 360 - starsWidth - 10));
         doc
           .font('Bold')
           .fontSize(11)
-          .fillColor(GOLD)
-          .text(starsText, infoX + titleWidth + 7, top + 12, { width: starsWidth + 2 });
-      }
-      pill(hotel.city || 'Destination', infoX, top + 32, {
-        fill: NAVY,
-        color: '#ffffff',
-        minWidth: 58,
-        height: 17,
-        size: 6.5,
-      });
-      if (address) {
-        doc
-          .font('Body')
-          .fontSize(6.5)
-          .fillColor(MUTED)
-          .text(address, infoX + 68, top + 36, {
-            width: 292,
-            height: 10,
+          .fillColor(NAVY)
+          .text(title, infoX, top + 13, {
+            width: titleWidth,
+            height: 15,
             ellipsis: true,
           });
-      }
-      const hotelFacts: Array<[string, string, string]> = [
-        [
-          'CHECK-IN',
-          date(hotel.checkInDate),
-          hotel.checkInTime && hotel.showCheckInTime !== false
-            ? formatClock12Hour(hotel.checkInTime)
-            : '',
-        ],
-        [
-          'CHECK-OUT',
-          date(hotel.checkOutDate),
-          hotel.checkOutTime && hotel.showCheckOutTime !== false
-            ? formatClock12Hour(hotel.checkOutTime)
-            : '',
-        ],
-      ];
-      // Room type / meal plan are optional: an empty value renders no fact
-      // box at all (no "-", "N/A" or other placeholder). Remaining boxes
-      // reflow into the vacated columns.
-      const roomType = hotel.roomType?.trim();
-      if (roomType) {
-        hotelFacts.push([
-          'ROOM TYPE',
-          roomType,
-          hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
-        ]);
-      }
-      const mealPlan = hotel.mealPlan?.trim();
-      if (mealPlan) {
-        hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
-      }
-      hotelFacts.forEach(([label, value, sub], factIndex) => {
-        const left = infoX + factIndex * 88;
-        rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
-        doc
-          .font('Body')
-          .fontSize(6.2)
-          .fillColor(MUTED)
-          .text(label, left + 8, top + 64, { width: 66 });
-        doc
-          .font('Bold')
-          .fontSize(7.5)
-          .fillColor(NAVY)
-          .text(value, left + 8, top + 80, { width: 66, height: 14 });
-        doc
-          .font('Body')
-          .fontSize(6.5)
-          .fillColor(MUTED)
-          .text(sub, left + 8, top + 98, { width: 66 });
-      });
-      if (validReviewLink) {
-        let reviewX = infoX;
-        if (rating != null && Number.isFinite(rating)) {
-          rounded(reviewX, top + 121, 28, 20, GOLD, GOLD, 4);
+        if (starCount) {
+          doc
+            .font('Bold')
+            .fontSize(11)
+            .fillColor(GOLD)
+            .text(starsText, infoX + titleWidth + 7, top + 12, { width: starsWidth + 2 });
+        }
+        pill(hotel.city || 'Destination', infoX, top + 32, {
+          fill: NAVY,
+          color: '#ffffff',
+          minWidth: 58,
+          height: 17,
+          size: 6.5,
+        });
+        if (address) {
+          doc
+            .font('Body')
+            .fontSize(6.5)
+            .fillColor(MUTED)
+            .text(address, infoX + 68, top + 36, {
+              width: 292,
+              height: 10,
+              ellipsis: true,
+            });
+        }
+        const hotelFacts: Array<[string, string, string]> = [
+          [
+            'CHECK-IN',
+            date(hotel.checkInDate),
+            hotel.checkInTime && hotel.showCheckInTime !== false
+              ? formatClock12Hour(hotel.checkInTime)
+              : '',
+          ],
+          [
+            'CHECK-OUT',
+            date(hotel.checkOutDate),
+            hotel.checkOutTime && hotel.showCheckOutTime !== false
+              ? formatClock12Hour(hotel.checkOutTime)
+              : '',
+          ],
+        ];
+        // Room type / meal plan are optional: an empty value renders no fact
+        // box at all (no "-", "N/A" or other placeholder). Remaining boxes
+        // reflow into the vacated columns.
+        const roomType = hotel.roomType?.trim();
+        if (roomType) {
+          hotelFacts.push([
+            'ROOM TYPE',
+            roomType,
+            hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
+          ]);
+        }
+        const mealPlan = hotel.mealPlan?.trim();
+        if (mealPlan) {
+          hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
+        }
+        hotelFacts.forEach(([label, value, sub], factIndex) => {
+          const left = infoX + factIndex * 88;
+          rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
+          doc
+            .font('Body')
+            .fontSize(6.2)
+            .fillColor(MUTED)
+            .text(label, left + 8, top + 64, { width: 66 });
           doc
             .font('Bold')
             .fontSize(7.5)
-            .fillColor(NAVY_DARK)
-            .text(String(rating), reviewX, top + 127, { width: 28, align: 'center' });
-          reviewX += 38;
-        }
-        if (validReviewLink) {
-          const reviewText = 'Check Hotel Review >>';
+            .fillColor(NAVY)
+            .text(value, left + 8, top + 80, { width: 66, height: 14 });
           doc
             .font('Body')
-            .fontSize(7)
-            .fillColor(NAVY)
-            .text(reviewText, reviewX, top + 127, { width: 145, link: validReviewLink });
+            .fontSize(6.5)
+            .fillColor(MUTED)
+            .text(sub, left + 8, top + 98, { width: 66 });
+        });
+        if (validReviewLink) {
+          let reviewX = infoX;
+          if (rating != null && Number.isFinite(rating)) {
+            rounded(reviewX, top + 121, 28, 20, GOLD, GOLD, 4);
+            doc
+              .font('Bold')
+              .fontSize(7.5)
+              .fillColor(NAVY_DARK)
+              .text(String(rating), reviewX, top + 127, { width: 28, align: 'center' });
+            reviewX += 38;
+          }
+          if (validReviewLink) {
+            const reviewText = 'Check Hotel Review >>';
+            doc
+              .font('Body')
+              .fontSize(7)
+              .fillColor(NAVY)
+              .text(reviewText, reviewX, top + 127, { width: 145, link: validReviewLink });
+          }
         }
+        y += 169;
       }
-      y += 169;
     }
-  }
+  };
 
   // Day-wise itinerary -----------------------------------------------------
-  const sightseeing = input.version.sightseeingDetails as {
-    include?: boolean;
-    days?: SightDay[];
-  } | null;
-  const days: SightDay[] =
-    sightseeing?.include && sightseeing.days?.length
-      ? sightseeing.days
-      : input.version.itinerary.map((day) => ({
-          dayNumber: day.dayNumber,
-          title: day.title,
-          city: day.destination,
-          mealsText: day.meals,
-          activities: [{ name: day.title, description: day.description }],
-        }));
-  let activityPage = 0;
-  for (const [dayIndex, day] of days.entries()) {
-    const activities = day.activities?.length
-      ? day.activities
-      : [{ name: day.title ?? `Day ${day.dayNumber}`, description: '' }];
-    for (const activity of activities) {
-      const top = activityPage === 0 ? 132 : 85;
-      const descriptionTop = top + 184;
-      const richDescription = htmlToRichTextLines(activity.description);
-      const availableHeight = BODY_BOTTOM - descriptionTop - 11;
-      let bodySize = 9;
-      let measured = measureRichHeight(richDescription, CONTENT_W - 54, bodySize, 1.38);
-      if (ITIN_DESC_OFFSET + measured + ITIN_BOTTOM_PAD > availableHeight) {
-        bodySize = 8.2;
-        measured = measureRichHeight(richDescription, CONTENT_W - 54, bodySize, 1.38);
-      }
-      // Dynamic card height = title offset + actual content + bottom padding
-      // For "aaa" this is ~67pt; for long rich text it grows naturally; never oversized
-      const bodyHeight = Math.min(
-        availableHeight,
-        Math.max(ITIN_MIN_CARD_H, ITIN_DESC_OFFSET + measured + ITIN_BOTTOM_PAD),
-      );
-      addContentPage(activityPage === 0 ? 'Day Wise Itinerary' : undefined);
-      doc
-        .save()
-        .roundedRect(M + 2, top + 4, CONTENT_W, 166, 12)
-        .fill('#e8edf4')
-        .restore();
-      doc.save().roundedRect(M, top, CONTENT_W, 166, 12).fill('#ffffff').restore();
-      const activityImage =
-        (activity.imageDocumentId
-          ? input.images?.itineraryDocuments?.[activity.imageDocumentId]
-          : null) ??
-        (activity.imageUrl ? input.images?.itinerary?.[activity.imageUrl] : null) ??
-        (activity.sightseeingId ? input.images?.sightseeing?.[activity.sightseeingId] : null);
-      const imageValue = pdfActivityImageOrCover(activity, activityImage, input.images?.cover);
-      if (!drawImage(imageValue, M + 12, top + 12, 165, 142, 'cover', 10)) {
-        doc.roundedRect(M + 12, top + 12, 165, 142, 10).fill('#e3ebf3');
-        drawEmoji('🌍', M + 73, top + 63, 42);
-      }
-      const dayX = M + 195;
-      doc.roundedRect(dayX, top + 17, 55, 54, 9).fill(PALE_BLUE);
-      doc
-        .font('Body')
-        .fontSize(6.7)
-        .fillColor(TEAL)
-        .text('DAY', dayX, top + 25, { width: 55, align: 'center' });
-      doc
-        .font('Bold')
-        .fontSize(20)
-        .fillColor(NAVY)
-        .text(String(day.dayNumber ?? dayIndex + 1).padStart(2, '0'), dayX, top + 38, {
-          width: 55,
-          align: 'center',
-          lineBreak: false,
-        });
-      const displayTitle =
-        clean(activity.name) || stripItineraryDayPrefixes(day.title) || `Day ${day.dayNumber}`;
-      doc
-        .font('Bold')
-        .fontSize(12)
-        .fillColor(INK)
-        .text(displayTitle, dayX + 68, top + 20, { width: 240, height: 37, ellipsis: true });
-      doc
-        .font('Body')
-        .fontSize(7.5)
-        .fillColor(MUTED)
-        .text(`${date(day.date, true)}${day.city ? `  ·  ${day.city}` : ''}`, dayX + 68, top + 55, {
-          width: 240,
-        });
-      let metaTop = top + 88;
-      if (activity.showTime !== false && activity.startTime) {
-        doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Time', dayX, metaTop);
+  const drawItinerarySection = () => {
+    const sightseeing = input.version.sightseeingDetails as {
+      include?: boolean;
+      days?: SightDay[];
+    } | null;
+    const days: SightDay[] =
+      sightseeing?.include && sightseeing.days?.length
+        ? sightseeing.days
+        : input.version.itinerary.map((day) => ({
+            dayNumber: day.dayNumber,
+            title: day.title,
+            city: day.destination,
+            mealsText: day.meals,
+            activities: [{ name: day.title, description: day.description }],
+          }));
+    let activityPage = 0;
+    for (const [dayIndex, day] of days.entries()) {
+      const activities = day.activities?.length
+        ? day.activities
+        : [{ name: day.title ?? `Day ${day.dayNumber}`, description: '' }];
+      for (const activity of activities) {
+        const top = activityPage === 0 ? 132 : 85;
+        const descriptionTop = top + 184;
+        const richDescription = htmlToRichTextLines(activity.description);
+        const availableHeight = BODY_BOTTOM - descriptionTop - 11;
+        let bodySize = 9;
+        let measured = measureRichHeight(richDescription, CONTENT_W - 54, bodySize, 1.38);
+        if (ITIN_DESC_OFFSET + measured + ITIN_BOTTOM_PAD > availableHeight) {
+          bodySize = 8.2;
+          measured = measureRichHeight(richDescription, CONTENT_W - 54, bodySize, 1.38);
+        }
+        // Dynamic card height = title offset + actual content + bottom padding
+        // For "aaa" this is ~67pt; for long rich text it grows naturally; never oversized
+        const bodyHeight = Math.min(
+          availableHeight,
+          Math.max(ITIN_MIN_CARD_H, ITIN_DESC_OFFSET + measured + ITIN_BOTTOM_PAD),
+        );
+        addContentPage(activityPage === 0 ? 'Day Wise Itinerary' : undefined);
+        doc
+          .save()
+          .roundedRect(M + 2, top + 4, CONTENT_W, 166, 12)
+          .fill('#e8edf4')
+          .restore();
+        doc.save().roundedRect(M, top, CONTENT_W, 166, 12).fill('#ffffff').restore();
+        const activityImage =
+          (activity.imageDocumentId
+            ? input.images?.itineraryDocuments?.[activity.imageDocumentId]
+            : null) ??
+          (activity.imageUrl ? input.images?.itinerary?.[activity.imageUrl] : null) ??
+          (activity.sightseeingId ? input.images?.sightseeing?.[activity.sightseeingId] : null);
+        const imageValue = pdfActivityImageOrCover(activity, activityImage, input.images?.cover);
+        if (!drawImage(imageValue, M + 12, top + 12, 165, 142, 'cover', 10)) {
+          doc.roundedRect(M + 12, top + 12, 165, 142, 10).fill('#e3ebf3');
+          drawEmoji('🌍', M + 73, top + 63, 42);
+        }
+        const dayX = M + 195;
+        doc.roundedRect(dayX, top + 17, 55, 54, 9).fill(PALE_BLUE);
         doc
           .font('Body')
-          .fontSize(8)
+          .fontSize(6.7)
+          .fillColor(TEAL)
+          .text('DAY', dayX, top + 25, { width: 55, align: 'center' });
+        doc
+          .font('Bold')
+          .fontSize(20)
+          .fillColor(NAVY)
+          .text(String(day.dayNumber ?? dayIndex + 1).padStart(2, '0'), dayX, top + 38, {
+            width: 55,
+            align: 'center',
+            lineBreak: false,
+          });
+        const displayTitle =
+          clean(activity.name) || stripItineraryDayPrefixes(day.title) || `Day ${day.dayNumber}`;
+        doc
+          .font('Bold')
+          .fontSize(12)
           .fillColor(INK)
+          .text(displayTitle, dayX + 68, top + 20, { width: 240, height: 37, ellipsis: true });
+        doc
+          .font('Body')
+          .fontSize(7.5)
+          .fillColor(MUTED)
           .text(
-            `${formatClock12Hour(activity.startTime)}${activity.duration ? `  |  ${activity.duration}` : ''}`,
-            dayX + 38,
-            metaTop,
+            `${date(day.date, true)}${day.city ? `  ·  ${day.city}` : ''}`,
+            dayX + 68,
+            top + 55,
+            {
+              width: 240,
+            },
           );
-        metaTop += 20;
-      }
-      const mealText =
-        day.mealsText ||
-        (day.meals?.breakfast
-          ? `Breakfast (${day.mealMode === 'NO_TRANSFER' ? 'No Transfer' : 'Hotel'})`
-          : null) ||
-        (day.meals?.lunch ? 'Lunch' : null) ||
-        (day.meals?.dinner ? 'Dinner' : null);
-      if (mealText) {
-        doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Meals', dayX, metaTop);
-        doc.circle(dayX + 42, metaTop + 4, 4).fill(GOLD);
-        doc
-          .font('Body')
-          .fontSize(8)
-          .fillColor(INK)
-          .text(mealText, dayX + 54, metaTop, { width: 185 });
-        metaTop += 20;
-      }
-      const transfer = transferLabel(activity.dailyTransfer ?? day.dailyTransfer);
-      if (transfer) pill(transfer, dayX, metaTop, { minWidth: 92, height: 20, size: 6.5 });
+        let metaTop = top + 88;
+        if (activity.showTime !== false && activity.startTime) {
+          doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Time', dayX, metaTop);
+          doc
+            .font('Body')
+            .fontSize(8)
+            .fillColor(INK)
+            .text(
+              `${formatClock12Hour(activity.startTime)}${activity.duration ? `  |  ${activity.duration}` : ''}`,
+              dayX + 38,
+              metaTop,
+            );
+          metaTop += 20;
+        }
+        const mealText =
+          day.mealsText ||
+          (day.meals?.breakfast
+            ? `Breakfast (${day.mealMode === 'NO_TRANSFER' ? 'No Transfer' : 'Hotel'})`
+            : null) ||
+          (day.meals?.lunch ? 'Lunch' : null) ||
+          (day.meals?.dinner ? 'Dinner' : null);
+        if (mealText) {
+          doc.font('Bold').fontSize(7.2).fillColor(NAVY).text('Meals', dayX, metaTop);
+          doc.circle(dayX + 42, metaTop + 4, 4).fill(GOLD);
+          doc
+            .font('Body')
+            .fontSize(8)
+            .fillColor(INK)
+            .text(mealText, dayX + 54, metaTop, { width: 185 });
+          metaTop += 20;
+        }
+        const transfer = transferLabel(activity.dailyTransfer ?? day.dailyTransfer);
+        if (transfer) pill(transfer, dayX, metaTop, { minWidth: 92, height: 20, size: 6.5 });
 
-      const descriptionTitle = displayTitle;
-      doc
-        .save()
-        .roundedRect(M + 2, descriptionTop + 3, CONTENT_W, bodyHeight, 10)
-        .fill('#e8edf4')
-        .restore();
-      doc.save().roundedRect(M, descriptionTop, CONTENT_W, bodyHeight, 10).fill('#f7f9fc').restore();
-      doc.circle(ITIN_TIMELINE_X, descriptionTop + 22, ITIN_CIRCLE_OUTER_R).fill(GOLD);
-      doc.circle(ITIN_TIMELINE_X, descriptionTop + 22, ITIN_CIRCLE_INNER_R).fill(NAVY);
-      doc
-        .font('Bold')
-        .fontSize(11.5)
-        .fillColor(NAVY)
-        .text(descriptionTitle, ITIN_TITLE_LEFT, descriptionTop + 14, {
-          width: CONTENT_W - 66,
-          height: 22,
-          ellipsis: true,
-        });
-      drawRichLines(
-        richDescription,
-        ITIN_TEXT_LEFT,
-        descriptionTop + ITIN_DESC_OFFSET,
-        CONTENT_W - 54,
-        bodySize,
-        INK,
-        1.38,
-      );
-      activityPage += 1;
+        const descriptionTitle = displayTitle;
+        doc
+          .save()
+          .roundedRect(M + 2, descriptionTop + 3, CONTENT_W, bodyHeight, 10)
+          .fill('#e8edf4')
+          .restore();
+        doc
+          .save()
+          .roundedRect(M, descriptionTop, CONTENT_W, bodyHeight, 10)
+          .fill('#f7f9fc')
+          .restore();
+        doc.circle(ITIN_TIMELINE_X, descriptionTop + 22, ITIN_CIRCLE_OUTER_R).fill(GOLD);
+        doc.circle(ITIN_TIMELINE_X, descriptionTop + 22, ITIN_CIRCLE_INNER_R).fill(NAVY);
+        doc
+          .font('Bold')
+          .fontSize(11.5)
+          .fillColor(NAVY)
+          .text(descriptionTitle, ITIN_TITLE_LEFT, descriptionTop + 14, {
+            width: CONTENT_W - 66,
+            height: 22,
+            ellipsis: true,
+          });
+        drawRichLines(
+          richDescription,
+          ITIN_TEXT_LEFT,
+          descriptionTop + ITIN_DESC_OFFSET,
+          CONTENT_W - 54,
+          bodySize,
+          INK,
+          1.38,
+        );
+        activityPage += 1;
+      }
     }
-  }
+  };
 
   // Travel services and add-ons -------------------------------------------
   const serviceRows = input.version.services
@@ -1747,12 +1771,17 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
   const addOns = input.version.services
     .map((service, index) => ({ service, index }))
     .filter(({ service }) => Boolean(service.addOnServiceId));
-  if (serviceRows.length || addOns.length || input.version.includeVisa) {
-    const serviceGroup = (type: string) =>
-      type === 'VEHICLE_TRANSFER' ? 'vehicle' : type === 'CRUISE' ? 'cruise' : 'other';
-    let activeServiceGroup = '';
-    let serviceGroupStart = 0;
-    let servicesTitle = '';
+  const serviceGroupOf = (type: string) =>
+    type === 'VEHICLE_TRANSFER' ? 'vehicle' : type === 'CRUISE' ? 'cruise' : 'other';
+  const drawServiceGroup = (group: 'vehicle' | 'cruise' | 'other') => {
+    const rows = serviceRows.filter(({ service }) => serviceGroupOf(service.serviceType) === group);
+    if (!rows.length) return;
+    const servicesTitle =
+      group === 'vehicle'
+        ? rows[0]!.service.taxCategory?.trim() || 'Transportation'
+        : group === 'cruise'
+          ? 'Cruise Details'
+          : 'Travel Services';
     const addServicePage = (cardsRemaining: number) => {
       const cardsOnPage = Math.min(3, cardsRemaining);
       const contentBottom = 133 + cardsOnPage * 169;
@@ -1761,29 +1790,11 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         computePageHeight(contentBottom - PDF_TOP_MARGIN).pageHeight,
       );
     };
-    for (const [rowIndex, { service, index }] of serviceRows.entries()) {
-      const group = serviceGroup(service.serviceType);
-      if (group !== activeServiceGroup) {
-        activeServiceGroup = group;
-        serviceGroupStart = rowIndex;
-        servicesTitle =
-          group === 'vehicle'
-            ? service.taxCategory?.trim() || 'Transportation'
-            : group === 'cruise'
-              ? 'Cruise Details'
-              : 'Travel Services';
-        const groupCount = serviceRows.filter(
-          ({ service: candidate }) => serviceGroup(candidate.serviceType) === group,
-        ).length;
-        addServicePage(groupCount);
-      }
-      const rowInGroup = rowIndex - serviceGroupStart;
+    addServicePage(rows.length);
+    for (const [rowInGroup, { service, index }] of rows.entries()) {
       const rowHeight = 160;
       if (rowInGroup > 0 && rowInGroup % 3 === 0) {
-        const groupCount = serviceRows.filter(
-          ({ service: candidate }) => serviceGroup(candidate.serviceType) === group,
-        ).length;
-        addServicePage(groupCount - rowInGroup);
+        addServicePage(rows.length - rowInGroup);
       }
       const top = y;
       rounded(M, top, CONTENT_W, rowHeight - 8, '#ffffff', LINE, 9);
@@ -1871,9 +1882,10 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           height: 28,
           ellipsis: true,
         });
-      y += rowHeight + 9;
     }
+  };
 
+  const drawAddonsSection = () => {
     const hasVisaCard =
       input.version.includeVisa && !addOns.some(({ service }) => /visa/i.test(service.name));
     if (addOns.length || hasVisaCard) {
@@ -1923,11 +1935,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           .fill('#e8edf4')
           .restore();
         doc.save().roundedRect(M, top, CONTENT_W, card.height, 12).fill('#ffffff').restore();
-        doc
-          .save()
-          .roundedRect(M, top, CONTENT_W, 62, 12)
-          .fill(NAVY)
-          .restore();
+        doc.save().roundedRect(M, top, CONTENT_W, 62, 12).fill(NAVY).restore();
         doc.rect(M, top + 45, CONTENT_W, 17).fill(NAVY);
         doc.rect(M, top + 59, CONTENT_W, 3).fill(GOLD);
         doc.circle(M + 32, top + 31, 17).fill(GOLD);
@@ -1958,304 +1966,335 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         y = top + card.height + 14;
       }
     }
-  }
+  };
 
   // Customer notes belong near the end of the proposal and remain fully
-  // paginated before Policies and the final Thank You page.
-  drawCustomerCopy('Notes for Customer', input.version.notes);
+  // paginated before Policies and the final Thank You page. Notes travel with
+  // the policies step so they keep their designed adjacency under any order.
+  const drawPoliciesSection = () => {
+    drawCustomerCopy('Notes for Customer', input.version.notes);
 
-  // Policies ---------------------------------------------------------------
-  const policies = [
-    ['INCLUSIONS', GREEN, input.version.inclusionsHtml, input.version.inclusions],
-    ['EXCLUSIONS', RED, input.version.exclusionsHtml, input.version.exclusions],
-    ['PAYMENT POLICIES', NAVY, input.version.paymentPolicies, []],
-    ['CANCELLATION POLICIES', NAVY, input.version.cancellationPolicies, []],
-    ['BOOKING TERMS & CONDITIONS', NAVY, input.version.bookingTerms, input.version.terms],
-  ] as const;
-  const visiblePolicies = policies
-    .map(([title, color, html, rows]) => ({
-      title,
-      color,
-      lines: html
-        ? htmlToRichTextLines(html)
-        : rows.map((row) => [{ text: `• ${row.content}`, bold: false }]),
-    }))
-    .filter((policy) => policy.lines.length);
-  if (visiblePolicies.length) {
-    addContentPage('Policies');
-    const policySize = 8.5;
-    const policyLineFactor = 1.3;
-    const policyLineHeight = policySize * policyLineFactor;
-    const policyTextWidth = CONTENT_W - 64;
-    const wrapPolicyLines = (lines: PdfRichTextLine[]): PdfRichTextLine[] => {
-      doc.font('Body').fontSize(policySize);
-      const wrapped: PdfRichTextLine[] = [];
-      for (const richLine of lines) {
-        const words = richLine
-          .map((run) => run.text)
-          .join('')
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean);
-        let current = '';
-        for (const word of words) {
-          const candidate = current ? `${current} ${word}` : word;
-          if (current && doc.widthOfString(candidate) > policyTextWidth) {
-            wrapped.push([{ text: current, bold: false }]);
-            current = word;
-          } else current = candidate;
+    // Policies ---------------------------------------------------------------
+    const policies = [
+      ['INCLUSIONS', GREEN, input.version.inclusionsHtml, input.version.inclusions],
+      ['EXCLUSIONS', RED, input.version.exclusionsHtml, input.version.exclusions],
+      ['PAYMENT POLICIES', NAVY, input.version.paymentPolicies, []],
+      ['CANCELLATION POLICIES', NAVY, input.version.cancellationPolicies, []],
+      ['BOOKING TERMS & CONDITIONS', NAVY, input.version.bookingTerms, input.version.terms],
+    ] as const;
+    const visiblePolicies = policies
+      .map(([title, color, html, rows]) => ({
+        title,
+        color,
+        lines: html
+          ? htmlToRichTextLines(html)
+          : rows.map((row) => [{ text: `• ${row.content}`, bold: false }]),
+      }))
+      .filter((policy) => policy.lines.length);
+    if (visiblePolicies.length) {
+      addContentPage('Policies');
+      const policySize = 8.5;
+      const policyLineFactor = 1.3;
+      const policyLineHeight = policySize * policyLineFactor;
+      const policyTextWidth = CONTENT_W - 64;
+      const wrapPolicyLines = (lines: PdfRichTextLine[]): PdfRichTextLine[] => {
+        doc.font('Body').fontSize(policySize);
+        const wrapped: PdfRichTextLine[] = [];
+        for (const richLine of lines) {
+          const words = richLine
+            .map((run) => run.text)
+            .join('')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+          let current = '';
+          for (const word of words) {
+            const candidate = current ? `${current} ${word}` : word;
+            if (current && doc.widthOfString(candidate) > policyTextWidth) {
+              wrapped.push([{ text: current, bold: false }]);
+              current = word;
+            } else current = candidate;
+          }
+          if (current) wrapped.push([{ text: current, bold: false }]);
         }
-        if (current) wrapped.push([{ text: current, bold: false }]);
-      }
-      return wrapped;
-    };
-    for (const [policyIndex, policy] of visiblePolicies.entries()) {
-      const remaining = wrapPolicyLines(policy.lines);
-      let continuation = false;
-      while (remaining.length) {
-        if (BODY_BOTTOM - y < 46 + policyLineHeight) addContentPage('Policies');
-        const availableLines = Math.max(1, Math.floor((BODY_BOTTOM - y - 46) / policyLineHeight));
-        const chunk = remaining.splice(0, availableLines);
-        const sectionHeight = 46 + chunk.length * policyLineHeight;
-        const top = y;
-        doc
-          .save()
-          .fillOpacity(0.08)
-          .roundedRect(M, top, CONTENT_W, 34, 8)
-          .fill(policy.color)
-          .restore();
-        doc.circle(M + 31, top + 17, 12).fill(policy.color);
-        doc
-          .font('Bold')
-          .fontSize(8)
-          .fillColor('#ffffff')
-          .text(String(policyIndex + 1), M + 23, top + 13, { width: 16, align: 'center' });
-        doc
-          .font('Bold')
-          .fontSize(11)
-          .fillColor(policy.color)
-          .text(`${policy.title}${continuation ? ' (CONTINUED)' : ''}`, M + 53, top + 12, {
-            width: CONTENT_W - 74,
-            height: 14,
-            ellipsis: true,
-          });
-        doc
-          .moveTo(M + 1, top)
-          .lineTo(M + 1, top + sectionHeight - 6)
-          .lineWidth(2)
-          .strokeColor(policy.color)
-          .stroke();
-        const end = drawRichLines(
-          chunk,
-          M + 31,
-          top + 40,
-          CONTENT_W - 62,
-          policySize,
-          INK,
-          policyLineFactor,
-        );
-        doc
-          .moveTo(M + 29, end + 4)
-          .lineTo(M + 170, end + 4)
-          .lineWidth(0.7)
-          .strokeColor(policy.color)
-          .stroke();
-        y = Math.max(top + sectionHeight, end + 10);
-        continuation = true;
-        if (remaining.length) {
-          const nextPageStart = 133;
-          const nextPageCapacity = Math.max(
-            1,
-            Math.floor((BODY_BOTTOM - nextPageStart - 46) / policyLineHeight),
+        return wrapped;
+      };
+      for (const [policyIndex, policy] of visiblePolicies.entries()) {
+        const remaining = wrapPolicyLines(policy.lines);
+        let continuation = false;
+        while (remaining.length) {
+          if (BODY_BOTTOM - y < 46 + policyLineHeight) addContentPage('Policies');
+          const availableLines = Math.max(1, Math.floor((BODY_BOTTOM - y - 46) / policyLineHeight));
+          const chunk = remaining.splice(0, availableLines);
+          const sectionHeight = 46 + chunk.length * policyLineHeight;
+          const top = y;
+          doc
+            .save()
+            .fillOpacity(0.08)
+            .roundedRect(M, top, CONTENT_W, 34, 8)
+            .fill(policy.color)
+            .restore();
+          doc.circle(M + 31, top + 17, 12).fill(policy.color);
+          doc
+            .font('Bold')
+            .fontSize(8)
+            .fillColor('#ffffff')
+            .text(String(policyIndex + 1), M + 23, top + 13, { width: 16, align: 'center' });
+          doc
+            .font('Bold')
+            .fontSize(11)
+            .fillColor(policy.color)
+            .text(`${policy.title}${continuation ? ' (CONTINUED)' : ''}`, M + 53, top + 12, {
+              width: CONTENT_W - 74,
+              height: 14,
+              ellipsis: true,
+            });
+          doc
+            .moveTo(M + 1, top)
+            .lineTo(M + 1, top + sectionHeight - 6)
+            .lineWidth(2)
+            .strokeColor(policy.color)
+            .stroke();
+          const end = drawRichLines(
+            chunk,
+            M + 31,
+            top + 40,
+            CONTENT_W - 62,
+            policySize,
+            INK,
+            policyLineFactor,
           );
-          const nextPageLines = Math.min(remaining.length, nextPageCapacity);
-          const nextContentBottom = nextPageStart + 46 + nextPageLines * policyLineHeight;
-          const nextLayout = computePageHeight(nextContentBottom - PDF_TOP_MARGIN);
-          addContentPage('Policies', nextLayout.pageHeight);
+          doc
+            .moveTo(M + 29, end + 4)
+            .lineTo(M + 170, end + 4)
+            .lineWidth(0.7)
+            .strokeColor(policy.color)
+            .stroke();
+          y = Math.max(top + sectionHeight, end + 10);
+          continuation = true;
+          if (remaining.length) {
+            const nextPageStart = 133;
+            const nextPageCapacity = Math.max(
+              1,
+              Math.floor((BODY_BOTTOM - nextPageStart - 46) / policyLineHeight),
+            );
+            const nextPageLines = Math.min(remaining.length, nextPageCapacity);
+            const nextContentBottom = nextPageStart + 46 + nextPageLines * policyLineHeight;
+            const nextLayout = computePageHeight(nextContentBottom - PDF_TOP_MARGIN);
+            addContentPage('Policies', nextLayout.pageHeight);
+          }
         }
       }
     }
-  }
+  };
 
   // Destination Expert -----------------------------------------------------
-  const pdfExpert = input.destinationExpert;
-  if (pdfExpert?.fullName) {
-    addContentPage('Destination Expert');
-    const hasPhoto = Boolean(input.images?.expertProfile);
-    const imageW = 120;
-    const imageH = 150;
-    const infoX = M + (hasPhoto ? imageW + 28 : 26);
-    const infoW = CONTENT_W - infoX - M + 20;
-    const introSize = 10;
-    const introFactor = 1.4;
-
-    const contactParts: Array<{ label: string; value: string; href: string }> = [];
-    const waDigits = pdfExpert.whatsappNumber?.replace(/\D/g, '');
-    const callDigits = pdfExpert.callNumber?.replace(/[^+\d]/g, '');
-    if (pdfExpert.showWhatsapp !== false && waDigits)
-      contactParts.push({
-        label: 'WhatsApp',
-        value: pdfExpert.whatsappNumber || waDigits,
-        href: `https://wa.me/${waDigits}`,
-      });
-    if (pdfExpert.showCall !== false && callDigits)
-      contactParts.push({
-        label: 'Call',
-        value: pdfExpert.callNumber || callDigits,
-        href: `tel:${callDigits}`,
-      });
-    if (pdfExpert.showEmail !== false && pdfExpert.email)
-      contactParts.push({
-        label: 'Email',
-        value: pdfExpert.email,
-        href: `mailto:${pdfExpert.email}`,
-      });
-
-    const nameH = 24;
-    const headingH = pdfExpert.heading ? 18 : 0;
-    const contactH = contactParts.length ? contactParts.length * 16 + 4 : 0;
-    const padTop = 26;
-    const padBottom = 24;
-
-    // Split the introduction into page-safe chunks: the first chunk must fit
-    // inside the card together with photo/name/heading/contacts, continuation
-    // chunks flow as plain text on follow-up pages. Lines are pre-wrapped so a
-    // lone oversized paragraph is always splittable and nothing can ever be
-    // drawn below BODY_BOTTOM.
-    const introLines = wrapRichLinesToWidth(
-      htmlToRichTextLines(pdfExpert.customIntroduction || pdfExpert.bio),
-      infoW,
-      introSize,
-      introFactor,
-    );
-    const fixedFirstH = Math.max(
-      padTop + nameH + headingH + contactH + 10,
-      hasPhoto ? imageH + 40 : 0,
-    );
-    const firstBudget = Math.max(60, BODY_BOTTOM - y - fixedFirstH - padBottom);
-    const nextBudget = Math.max(60, BODY_BOTTOM - 133 - 12);
-    const introChunks: ReturnType<typeof htmlToRichTextLines>[] = [];
-    {
-      let current: ReturnType<typeof htmlToRichTextLines> = [];
-      let currentHeight = 0;
-      let budget = firstBudget;
-      for (const line of introLines) {
-        const lineH = measureRichHeight([line], infoW, introSize, introFactor);
-        if (current.length && currentHeight + lineH > budget) {
-          introChunks.push(current);
-          current = [];
-          currentHeight = 0;
-          budget = nextBudget;
-        }
-        current.push(line);
-        currentHeight += lineH;
-      }
-      if (current.length) introChunks.push(current);
-    }
-
-    const deTop = y;
-    const firstChunk = introChunks.shift() ?? [];
-    const firstChunkH = firstChunk.length
-      ? measureRichHeight(firstChunk, infoW, introSize, introFactor)
-      : 0;
-    const cardH =
-      Math.max(hasPhoto ? imageH + 40 : 0, padTop + nameH + headingH + firstChunkH + contactH + 10) +
-      padBottom;
-    rounded(M, deTop, CONTENT_W, cardH, '#ffffff', LINE, 14);
-    if (hasPhoto) {
-      drawImage(input.images?.expertProfile, M + 22, deTop + 20, imageW, imageH, 'cover', 12);
-    }
-    let yy = deTop + padTop;
-    doc.font('Bold').fontSize(18).fillColor(NAVY);
-    doc.text(pdfExpert.fullName.toUpperCase(), infoX, yy, {
-      width: infoW,
-      lineBreak: false,
-    });
-    yy += nameH;
-    if (pdfExpert.heading) {
-      doc.font('Bold').fontSize(12).fillColor(GOLD);
-      doc.text(pdfExpert.heading, infoX, yy, { width: infoW, lineBreak: false });
-      yy += headingH;
-    }
-    if (firstChunk.length) {
-      yy = drawRichLines(firstChunk, infoX, yy, infoW, introSize, INK, introFactor) + 6;
-    }
-    for (const part of contactParts) {
-      doc.font('Bold').fontSize(9.5).fillColor(NAVY);
-      doc.text(`${part.label}: `, infoX, yy, { width: 62, lineBreak: false });
-      doc.font('Body').fontSize(9.5).fillColor(TEAL);
-      doc.text(part.value, infoX + 62, yy, {
-        width: infoW - 62,
-        lineBreak: false,
-        link: part.href,
-      });
-      yy += 16;
-    }
-    doc.fillColor(INK);
-    y = deTop + cardH + 20;
-
-    // Continuation pages for a very long introduction — plain paragraphs under
-    // the same section heading, never inside a half-drawn card.
-    while (introChunks.length) {
+  const drawDestinationExpertSection = () => {
+    const pdfExpert = input.destinationExpert;
+    if (pdfExpert?.fullName) {
       addContentPage('Destination Expert');
-      const chunk = introChunks.shift()!;
-      y = drawRichLines(chunk, M + 26, y, CONTENT_W - 52, introSize, INK, introFactor) + 12;
+      const hasPhoto = Boolean(input.images?.expertProfile);
+      const imageW = 120;
+      const imageH = 150;
+      const infoX = M + (hasPhoto ? imageW + 28 : 26);
+      const infoW = CONTENT_W - infoX - M + 20;
+      const introSize = 10;
+      const introFactor = 1.4;
+
+      const contactParts: Array<{ label: string; value: string; href: string }> = [];
+      const waDigits = pdfExpert.whatsappNumber?.replace(/\D/g, '');
+      const callDigits = pdfExpert.callNumber?.replace(/[^+\d]/g, '');
+      if (pdfExpert.showWhatsapp !== false && waDigits)
+        contactParts.push({
+          label: 'WhatsApp',
+          value: pdfExpert.whatsappNumber || waDigits,
+          href: `https://wa.me/${waDigits}`,
+        });
+      if (pdfExpert.showCall !== false && callDigits)
+        contactParts.push({
+          label: 'Call',
+          value: pdfExpert.callNumber || callDigits,
+          href: `tel:${callDigits}`,
+        });
+      if (pdfExpert.showEmail !== false && pdfExpert.email)
+        contactParts.push({
+          label: 'Email',
+          value: pdfExpert.email,
+          href: `mailto:${pdfExpert.email}`,
+        });
+
+      const nameH = 24;
+      const headingH = pdfExpert.heading ? 18 : 0;
+      const contactH = contactParts.length ? contactParts.length * 16 + 4 : 0;
+      const padTop = 26;
+      const padBottom = 24;
+
+      // Split the introduction into page-safe chunks: the first chunk must fit
+      // inside the card together with photo/name/heading/contacts, continuation
+      // chunks flow as plain text on follow-up pages. Lines are pre-wrapped so a
+      // lone oversized paragraph is always splittable and nothing can ever be
+      // drawn below BODY_BOTTOM.
+      const introLines = wrapRichLinesToWidth(
+        htmlToRichTextLines(pdfExpert.customIntroduction || pdfExpert.bio),
+        infoW,
+        introSize,
+        introFactor,
+      );
+      const fixedFirstH = Math.max(
+        padTop + nameH + headingH + contactH + 10,
+        hasPhoto ? imageH + 40 : 0,
+      );
+      const firstBudget = Math.max(60, BODY_BOTTOM - y - fixedFirstH - padBottom);
+      const nextBudget = Math.max(60, BODY_BOTTOM - 133 - 12);
+      const introChunks: ReturnType<typeof htmlToRichTextLines>[] = [];
+      {
+        let current: ReturnType<typeof htmlToRichTextLines> = [];
+        let currentHeight = 0;
+        let budget = firstBudget;
+        for (const line of introLines) {
+          const lineH = measureRichHeight([line], infoW, introSize, introFactor);
+          if (current.length && currentHeight + lineH > budget) {
+            introChunks.push(current);
+            current = [];
+            currentHeight = 0;
+            budget = nextBudget;
+          }
+          current.push(line);
+          currentHeight += lineH;
+        }
+        if (current.length) introChunks.push(current);
+      }
+
+      const deTop = y;
+      const firstChunk = introChunks.shift() ?? [];
+      const firstChunkH = firstChunk.length
+        ? measureRichHeight(firstChunk, infoW, introSize, introFactor)
+        : 0;
+      const cardH =
+        Math.max(
+          hasPhoto ? imageH + 40 : 0,
+          padTop + nameH + headingH + firstChunkH + contactH + 10,
+        ) + padBottom;
+      rounded(M, deTop, CONTENT_W, cardH, '#ffffff', LINE, 14);
+      if (hasPhoto) {
+        drawImage(input.images?.expertProfile, M + 22, deTop + 20, imageW, imageH, 'cover', 12);
+      }
+      let yy = deTop + padTop;
+      doc.font('Bold').fontSize(18).fillColor(NAVY);
+      doc.text(pdfExpert.fullName.toUpperCase(), infoX, yy, {
+        width: infoW,
+        lineBreak: false,
+      });
+      yy += nameH;
+      if (pdfExpert.heading) {
+        doc.font('Bold').fontSize(12).fillColor(GOLD);
+        doc.text(pdfExpert.heading, infoX, yy, { width: infoW, lineBreak: false });
+        yy += headingH;
+      }
+      if (firstChunk.length) {
+        yy = drawRichLines(firstChunk, infoX, yy, infoW, introSize, INK, introFactor) + 6;
+      }
+      for (const part of contactParts) {
+        doc.font('Bold').fontSize(9.5).fillColor(NAVY);
+        doc.text(`${part.label}: `, infoX, yy, { width: 62, lineBreak: false });
+        doc.font('Body').fontSize(9.5).fillColor(TEAL);
+        doc.text(part.value, infoX + 62, yy, {
+          width: infoW - 62,
+          lineBreak: false,
+          link: part.href,
+        });
+        yy += 16;
+      }
       doc.fillColor(INK);
+      y = deTop + cardH + 20;
+
+      // Continuation pages for a very long introduction — plain paragraphs under
+      // the same section heading, never inside a half-drawn card.
+      while (introChunks.length) {
+        addContentPage('Destination Expert');
+        const chunk = introChunks.shift()!;
+        y = drawRichLines(chunk, M + 26, y, CONTENT_W - 52, introSize, INK, introFactor) + 12;
+        doc.fillColor(INK);
+      }
     }
-  }
+  };
 
   // Frequently Asked Questions ---------------------------------------------
-  const pdfFaqs = normalizeFaqs((input.version as unknown as { faqs?: unknown }).faqs);
-  if (pdfFaqs.length) {
-    addContentPage('Frequently Asked Questions');
-    const faqSize = 9.5;
-    const faqFactor = 1.38;
-    const faqTextW = CONTENT_W - 64;
-    const faqChunks = (
-      lines: ReturnType<typeof htmlToRichTextLines>,
-      maxHeight: number,
-    ): ReturnType<typeof htmlToRichTextLines>[] => {
-      const chunks: ReturnType<typeof htmlToRichTextLines>[] = [];
-      let current: ReturnType<typeof htmlToRichTextLines> = [];
-      let currentHeight = 0;
-      for (const line of lines) {
-        const lineH = measureRichHeight([line], faqTextW, faqSize, faqFactor);
-        if (current.length && currentHeight + lineH > maxHeight) {
-          chunks.push(current);
-          current = [];
-          currentHeight = 0;
+  const drawFaqsSection = () => {
+    const pdfFaqs = normalizeFaqs((input.version as unknown as { faqs?: unknown }).faqs);
+    if (pdfFaqs.length) {
+      addContentPage('Frequently Asked Questions');
+      const faqSize = 9.5;
+      const faqFactor = 1.38;
+      const faqTextW = CONTENT_W - 64;
+      const faqChunks = (
+        lines: ReturnType<typeof htmlToRichTextLines>,
+        maxHeight: number,
+      ): ReturnType<typeof htmlToRichTextLines>[] => {
+        const chunks: ReturnType<typeof htmlToRichTextLines>[] = [];
+        let current: ReturnType<typeof htmlToRichTextLines> = [];
+        let currentHeight = 0;
+        for (const line of lines) {
+          const lineH = measureRichHeight([line], faqTextW, faqSize, faqFactor);
+          if (current.length && currentHeight + lineH > maxHeight) {
+            chunks.push(current);
+            current = [];
+            currentHeight = 0;
+          }
+          current.push(line);
+          currentHeight += lineH;
         }
-        current.push(line);
-        currentHeight += lineH;
-      }
-      if (current.length) chunks.push(current);
-      return chunks;
-    };
+        if (current.length) chunks.push(current);
+        return chunks;
+      };
 
-    pdfFaqs.forEach((faq, index) => {
-      const questionText = `${index + 1}. ${faq.question}`;
-      const questionH = 20;
-      // Pre-wrap answers into single-row lines first: a lone oversized
-      // paragraph must be splittable across pages, never drawn unsplit.
-      const answerLines = wrapRichLinesToWidth(
-        htmlToRichTextLines(faq.answer),
-        faqTextW,
-        faqSize,
-        faqFactor,
-      );
-      const remaining = faqChunks(answerLines, BODY_BOTTOM - y - questionH - 24);
-      remaining.forEach((chunk, chunkIndex) => {
-        const chunkH = measureRichHeight(chunk, faqTextW, faqSize, faqFactor);
-        if (BODY_BOTTOM - y < questionH + chunkH + 20) addContentPage('Frequently Asked Questions');
-        if (chunkIndex === 0) {
-          doc.font('Bold').fontSize(12).fillColor(NAVY);
-          doc.text(questionText, M + 32, y, { width: faqTextW, lineBreak: false });
-          y += questionH;
-        }
-        y = drawRichLines(chunk, M + 32, y, faqTextW, faqSize, INK, faqFactor) + 12;
+      pdfFaqs.forEach((faq, index) => {
+        const questionText = `${index + 1}. ${faq.question}`;
+        const questionH = 20;
+        // Pre-wrap answers into single-row lines first: a lone oversized
+        // paragraph must be splittable across pages, never drawn unsplit.
+        const answerLines = wrapRichLinesToWidth(
+          htmlToRichTextLines(faq.answer),
+          faqTextW,
+          faqSize,
+          faqFactor,
+        );
+        const remaining = faqChunks(answerLines, BODY_BOTTOM - y - questionH - 24);
+        remaining.forEach((chunk, chunkIndex) => {
+          const chunkH = measureRichHeight(chunk, faqTextW, faqSize, faqFactor);
+          if (BODY_BOTTOM - y < questionH + chunkH + 20)
+            addContentPage('Frequently Asked Questions');
+          if (chunkIndex === 0) {
+            doc.font('Bold').fontSize(12).fillColor(NAVY);
+            doc.text(questionText, M + 32, y, { width: faqTextW, lineBreak: false });
+            y += questionH;
+          }
+          y = drawRichLines(chunk, M + 32, y, faqTextW, faqSize, INK, faqFactor) + 12;
+        });
+        y += 8;
       });
-      y += 8;
-    });
+    }
+  };
+
+  // =========================================================================
+  // SECTION DISPATCH — one shared order for both PDF styles. The saved
+  // weblink order drives the sequence; when nothing is saved the legacy PDF
+  // layout is preserved exactly.
+  // =========================================================================
+  const sectionDrawers: Partial<Record<QuotationPdfSectionId, () => void>> = {
+    flights: drawFlightsSection,
+    hotels: drawHotelsSection,
+    itinerary: drawItinerarySection,
+    transportation: () => drawServiceGroup('vehicle'),
+    cruise: () => drawServiceGroup('cruise'),
+    services: () => drawServiceGroup('other'),
+    addons: drawAddonsSection,
+    policies: drawPoliciesSection,
+    destinationExpert: drawDestinationExpertSection,
+    faqs: drawFaqsSection,
+  };
+  for (const id of resolveQuotationPdfSectionOrder(input.version.weblinkSectionOrder)) {
+    sectionDrawers[id]?.();
   }
 
   // Thank-you page ---------------------------------------------------------
