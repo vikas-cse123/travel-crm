@@ -32,6 +32,7 @@ import { activityLogsRepository } from '../activity-logs/activity-logs.repositor
 import {
   ensurePermissionCatalog,
   provisionCompanyDefaults,
+  reconcileRolePermissionsForCompany,
 } from '../companies/company-provisioning.service.js';
 import { emailService, sendEmailSafely } from '../../services/email/email.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
@@ -445,6 +446,12 @@ export const authService = {
       await recordFailure('invalid_password');
       throw new UnauthorizedError(GENERIC_LOGIN_ERROR);
     }
+
+    // Self-heal permissions: a module shipping after a company registered (e.g.
+    // a new master) must appear without a re-seed. Idempotent and cheap on the
+    // happy path (only grants the new default keys once).
+    await ensurePermissionCatalog();
+    await reconcileRolePermissionsForCompany(user.companyId);
 
     // Company settings can require the account to be active regardless of the
     // password being correct.

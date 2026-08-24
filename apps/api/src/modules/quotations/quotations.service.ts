@@ -1629,6 +1629,10 @@ async function resolveDestinationExpertPresentation(
     gender: user.gender,
     profileImageUrl: avatarUrl,
     avatarKind,
+    // Internal-only: used by the PDF path to fetch the profile image bytes.
+    // Stripped before the public weblink response.
+    profileImageObjectKey: user.profileImageObjectKey,
+    profileImageConfirmedAt: user.profileImageConfirmedAt,
     config: {
       heading: config.heading,
       customIntroduction: config.customIntroduction,
@@ -2944,6 +2948,48 @@ export const quotationsService = {
     }
 
     const renderer = options.style === 'STYLISH' ? renderStylishQuotationPdf : renderQuotationPdf;
+
+    // Destination Expert — same resolved data the weblink uses, plus the
+    // profile image bytes for the PDF (the weblink gets a signed URL instead).
+    let destinationExpert: QuotationPdfInput['destinationExpert'] = null;
+    if (images) {
+      const expert = await resolveDestinationExpertPresentation(
+        auth.companyId,
+        normalizeDestinationExpertConfig(
+          (version as unknown as { destinationExpertConfig?: unknown }).destinationExpertConfig,
+        ),
+      );
+      if (expert) {
+        destinationExpert = {
+          fullName: expert.fullName,
+          heading: expert.config.heading ?? null,
+          customIntroduction: expert.config.customIntroduction ?? null,
+          whatsappNumber: expert.whatsappNumber,
+          callNumber: expert.phone,
+          email: expert.email,
+          jobTitle: expert.jobTitle,
+          bio: expert.bio,
+          specialization: expert.specialization,
+          showWhatsapp: expert.config.showWhatsapp,
+          showCall: expert.config.showCall,
+          showEmail: expert.config.showEmail,
+        };
+        if (
+          (expert as { profileImageObjectKey?: string | null }).profileImageObjectKey &&
+          (expert as { profileImageConfirmedAt?: Date | null }).profileImageConfirmedAt
+        ) {
+          try {
+            const profile = await storageService.getObject(
+              (expert as { profileImageObjectKey: string }).profileImageObjectKey,
+            );
+            if (profile) images.expertProfile = profile;
+          } catch {
+            // A missing profile photo never blocks the PDF.
+          }
+        }
+      }
+    }
+
     const pdfInput: QuotationPdfInput = {
       company,
       consultant,
@@ -2964,6 +3010,7 @@ export const quotationsService = {
       } as unknown as QuotationPdfInput['version'],
       ...(hotelPresentations ? { hotelPresentations } : {}),
       ...(images ? { images } : {}),
+      ...(destinationExpert ? { destinationExpert } : {}),
     };
     const pdf = await renderer(pdfInput);
     const checksum = createHash('sha256').update(pdf).digest('hex');
@@ -3702,6 +3749,14 @@ export const quotationsService = {
         (version as unknown as { destinationExpertConfig?: unknown }).destinationExpertConfig,
       ),
     );
+    // Internal storage keys never leave the API.
+    const {
+      profileImageObjectKey: _profileImageObjectKey,
+      profileImageConfirmedAt: _profileImageConfirmedAt,
+      ...safeDestinationExpert
+    } = destinationExpert ?? {};
+    void _profileImageObjectKey;
+    void _profileImageConfirmedAt;
     return {
       company: {
         name: quotation.company.name,
@@ -3725,7 +3780,7 @@ export const quotationsService = {
       sightseeingPresentations,
       sightseeingDocumentPresentations,
       cruisePresentations,
-      destinationExpert,
+      destinationExpert: Object.keys(safeDestinationExpert).length ? safeDestinationExpert : null,
       quotation: {
         quotationNumber: quotation.quotationNumber,
         customerName: quotation.customerName,

@@ -35,6 +35,7 @@ export const PERMISSION_MODULE = {
   MASTER_ADD_ON_SERVICES: 'masters.add_on_services',
   MASTER_VISA_TYPES: 'masters.visa_types',
   MASTER_TESTIMONIALS: 'masters.testimonials',
+  MASTER_FAQS: 'masters.faqs',
   REPORTS: 'reports',
 } as const;
 
@@ -69,6 +70,7 @@ export const PERMISSION_MODULE_LABELS: Record<PermissionModule, string> = {
   'masters.add_on_services': 'Masters — Add-On Services',
   'masters.visa_types': 'Masters — Visa Types',
   'masters.testimonials': 'Masters — Testimonials',
+  'masters.faqs': 'Masters — FAQs',
   reports: 'Reports',
 };
 
@@ -277,6 +279,10 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   available(M.MASTER_TESTIMONIALS, 'update', 'Edit testimonials and change status'),
   available(M.MASTER_TESTIMONIALS, 'delete', 'Archive testimonials'),
   available(M.MASTER_TESTIMONIALS, 'manage_media', 'Manage testimonial images'),
+  available(M.MASTER_FAQS, 'view', 'View active FAQs'),
+  available(M.MASTER_FAQS, 'create', 'Create FAQs'),
+  available(M.MASTER_FAQS, 'update', 'Edit FAQs and change status'),
+  available(M.MASTER_FAQS, 'delete', 'Archive FAQs'),
 
   available(M.REPORTS, 'view', 'View reports and export report CSVs'),
   // Scheduled/emailed report delivery is deliberately out of scope for now.
@@ -451,6 +457,10 @@ export const PERMISSIONS = {
   MASTER_TESTIMONIALS_UPDATE: 'masters.testimonials.update',
   MASTER_TESTIMONIALS_DELETE: 'masters.testimonials.delete',
   MASTER_TESTIMONIALS_MANAGE_MEDIA: 'masters.testimonials.manage_media',
+  MASTER_FAQS_VIEW: 'masters.faqs.view',
+  MASTER_FAQS_CREATE: 'masters.faqs.create',
+  MASTER_FAQS_UPDATE: 'masters.faqs.update',
+  MASTER_FAQS_DELETE: 'masters.faqs.delete',
 
   REPORTS_VIEW: 'reports.view',
 } as const;

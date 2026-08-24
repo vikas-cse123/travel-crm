@@ -906,6 +906,11 @@ enum ActivityAction {
   TESTIMONIAL_IMAGE_UPLOADED
   TESTIMONIAL_IMAGE_REPLACED
   TESTIMONIAL_IMAGE_DELETED
+  FAQ_CREATED
+  FAQ_UPDATED
+  FAQ_STATUS_CHANGED
+  FAQ_ARCHIVED
+  FAQ_RESTORED
   SYSTEM_COMPANY_BOOTSTRAPPED
   SYSTEM_ADMIN_CREATED
   MASTER_HIDDEN_FOR_TENANT
@@ -1050,6 +1055,7 @@ model Company {
   visaTypes                    VisaType[]
   visaTypeSections             VisaTypeSection[]
   testimonials                 Testimonial[]
+  faqs                         Faq[]
   cruiseRoomTypes              CruiseRoomType[]
   vehicles                     Vehicle[]
   sightseeings                 Sightseeing[]
@@ -1060,6 +1066,7 @@ model Company {
   liveSearchBookmarks LiveSearchBookmark[]
   searchApiKeys       SearchApiKey[]
   searchApiUsage      SearchApiUsage[]
+  destinationExpertPresets DestinationExpertPreset[]
 
   @@index([status])
   @@index([createdAt])
@@ -1308,11 +1315,14 @@ model User {
   visaTypesUpdated            VisaType[]                 @relation("VisaTypeUpdatedBy")
   testimonialsCreated         Testimonial[]              @relation("TestimonialCreatedBy")
   testimonialsUpdated         Testimonial[]              @relation("TestimonialUpdatedBy")
+  faqsCreated                 Faq[]                      @relation("FaqCreatedBy")
+  faqsUpdated                 Faq[]                      @relation("FaqUpdatedBy")
 
-  hiddenMasterRows    CompanyHiddenMaster[]
+    hiddenMasterRows    CompanyHiddenMaster[]
   liveSearchBookmarks LiveSearchBookmark[]
   searchApiKeys       SearchApiKey[]
   searchApiUsage      SearchApiUsage[]
+  destinationExpertPresets DestinationExpertPreset[]
 
   @@unique([companyId, username])
   @@index([companyId, status])
@@ -1321,6 +1331,58 @@ model User {
   @@index([roleId])
   @@index([permissionTemplateId])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Destination Expert presets — user-level, destination-based, multiple per user
+// ---------------------------------------------------------------------------
+
+/// A user-saved Destination Expert preset, scoped to company+user. Each user can
+/// save multiple presets keyed by destination (e.g., Singapore, Bali). Managed
+/// in Settings → Destination Expert and imported in the Quotation Builder.
+model DestinationExpertPreset {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @db.Uuid
+  userId             String   @db.Uuid
+  destination        String   @db.VarChar(120)
+  heading            String?  @db.VarChar(200)
+  customIntroduction String?  @db.Text
+  whatsappNumber     String?  @db.VarChar(32)
+  callNumber         String?  @db.VarChar(32)
+  email              String?  @db.VarChar(255)
+  jobTitle           String?  @db.VarChar(120)
+  bio                String?  @db.Text
+  specialization     String?  @db.VarChar(200)
+  yearsOfExperience  Int?
+  tripsPlanned       Int?
+  languages          String?  @db.VarChar(200)
+  gender             UserGender?
+  showWhatsapp       Boolean  @default(true)
+  showCall           Boolean  @default(true)
+  showEmail          Boolean  @default(true)
+  showExperience     Boolean  @default(true)
+  showTripsPlanned   Boolean  @default(true)
+  showLanguages      Boolean  @default(true)
+  profileImageObjectKey         String?          @db.VarChar(1000)
+  profileImageBucket            String?          @db.VarChar(255)
+  profileImageStorageProvider   StorageProvider?
+  profileImageMimeType          String?          @db.VarChar(120)
+  profileImageFileSize          Int?
+  profileImageConfirmedAt       DateTime?
+  pendingProfileImageObjectKey  String?          @db.VarChar(1000)
+  pendingProfileImageFileName   String?          @db.VarChar(255)
+  pendingProfileImageMimeType   String?          @db.VarChar(120)
+  pendingProfileImageFileSize   Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, destination])
+  @@index([companyId, userId])
+  @@index([userId, destination])
+  @@map("destination_expert_presets")
 }
 
 // ---------------------------------------------------------------------------
@@ -1912,6 +1974,31 @@ model Testimonial {
   @@index([createdById])
   @@index([updatedById])
   @@map("testimonials")
+}
+
+model Faq {
+  id        String       @id @default(uuid()) @db.Uuid
+  companyId String       @db.Uuid
+  question  String       @db.VarChar(500)
+  answer    String       @db.Text
+  /// Destinations this FAQ applies to. Empty array = applies to every destination.
+  destinations Json?     @db.JsonB
+  status    MasterStatus @default(ACTIVE)
+  createdById String     @db.Uuid
+  updatedById String?    @db.Uuid
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("FaqCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User?   @relation("FaqUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, deletedAt])
+  @@index([companyId, createdAt])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("faqs")
 }
 
 /// A cruise product offered to travellers, with its sellable room types.

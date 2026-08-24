@@ -805,17 +805,26 @@ describe('Phase 8 quotation pages', () => {
       expect(tab.textContent).toContain('*');
     }
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    const destinationExpertTab = screen.getByRole('button', { name: 'Destination Expert' });
+    const faqsTab = screen.getByRole('button', { name: 'FAQs' });
+    expect(
+      destinationExpertTab.compareDocumentPosition(faqsTab) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Setting' })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByRole('heading', { name: 'Quotation Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Weblink Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Destination Expert' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Destination Expert' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Quotation Summary')).toHaveLength(1);
     expect(screen.getByLabelText('Settings actions')).toHaveClass('sm:flex-row');
 
     await userEvent.click(screen.getByRole('button', { name: /Weblink Section Order/i }));
     expect(screen.getByRole('button', { name: 'Reset to default order' })).toBeInTheDocument();
+
+    await userEvent.click(destinationExpertTab);
+    expect(screen.getByRole('heading', { name: 'Destination Expert' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Quotation Settings' })).not.toBeInTheDocument();
   });
 
   it('shows version history and runs revision, PDF, public-link and send actions', async () => {
@@ -1706,7 +1715,7 @@ describe('Phase 8 quotation pages', () => {
     const hotelImg = screen.getByAltText('Coastal Bay Resort');
     expect(hotelImg).toHaveAttribute('src', 'https://storage.example.test/coastal-bay.jpg');
     expect(hotelImg).toHaveAttribute('class', expect.stringContaining('object-cover'));
-    expect(hotelImg.parentElement?.className).toContain('aspect-[4/3]');
+    expect(hotelImg.parentElement?.parentElement?.className).toContain('aspect-[16/9]');
     // The hotel card container is a full-width single-column grid, not narrow tiles.
     const hotelsSection = screen.getByRole('heading', { name: 'Your Hotels' }).closest('section');
     expect(hotelsSection?.querySelector('div.grid')?.className).not.toContain('md:grid-cols-2');
@@ -2792,7 +2801,7 @@ describe('Phase 8 quotation pages', () => {
     const marina = screen.getByAltText('Marina Bay Sands');
     expect(marina).toHaveAttribute('src', 'https://storage.example.test/marina-bay.jpg');
     expect(marina).toHaveAttribute('class', expect.stringContaining('object-cover'));
-    expect(marina.parentElement?.className).toContain('aspect-[4/3]');
+    expect(marina.parentElement?.parentElement?.className).toContain('aspect-[16/9]');
     expect(screen.queryByText('4.8')).not.toBeInTheDocument();
     expect(screen.queryByText('Hotel Review')).not.toBeInTheDocument();
     // Second hotel has no presentation and uses the fallback.
@@ -3073,7 +3082,11 @@ describe('Phase 8 quotation pages', () => {
     // 6. No negative-margin/overlap utilities remain anywhere on the page.
     expect(document.querySelector('.mx-auto')).not.toBeNull();
     expect(document.querySelector('[class*="-mt-"]')).toBeNull();
-    expect(document.querySelector('[class*="translate"]')).toBeNull();
+    // The floating Back to Top button legitimately uses translate for its
+    // slide-in animation; the content cards must not be lifted with translate.
+    expect(
+      document.querySelector('[class*="translate"]:not([aria-label="Back to top"])'),
+    ).toBeNull();
   });
 
   it('renders included services as separate cards with the Services Include heading', async () => {
@@ -4035,8 +4048,8 @@ describe('Phase 8 quotation pages', () => {
     expect(img).toHaveAttribute('src', 'https://storage.example.test/merlion.jpg');
     // Responsive activity-owned image wrapper (stacked on mobile, fixed beside content above sm).
     const wrapper = img.parentElement?.parentElement as HTMLElement;
-    expect(wrapper.className).toContain('sm:w-60');
-    expect(wrapper.className).toContain('sm:h-40');
+    expect(wrapper.className).toContain('sm:w-64');
+    expect(wrapper.className).toContain('aspect-[16/9]');
     expect(wrapper.className).not.toContain('h-full');
     // Transfer badge + meals.
     expect(within(article).getByText('Shared Transfer')).toBeInTheDocument();
@@ -4666,7 +4679,15 @@ describe('Phase 8 quotation pages', () => {
       'src',
       'https://storage.example.test/a1.jpg',
     );
-    expect(within(marina).queryByRole('button')).not.toBeInTheDocument();
+    // Single-image galleries open a viewer on click but show no prev/next arrows.
+    expect(
+      within(marina).queryByRole('button', { name: /previous|next/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(marina).getByRole('button', {
+        name: 'Open Marina Bay & Gardens by the Bay image viewer',
+      }),
+    ).toBeInTheDocument();
     expect(within(safari).getByRole('img')).toHaveAttribute(
       'src',
       'https://storage.example.test/b1.jpg',
@@ -4792,7 +4813,11 @@ describe('Phase 8 quotation pages', () => {
     expect(within(activityA).getByText('1 / 2')).toBeInTheDocument();
     expect(within(activityB).queryByRole('img')).not.toBeInTheDocument();
     expect(within(activityC).getByText('1 / 5')).toBeInTheDocument();
-    expect(within(activityD).queryByRole('button')).not.toBeInTheDocument();
+    // Single-image gallery: no prev/next arrows, but a viewer button on click.
+    expect(within(activityD).queryByRole('button', { name: /previous|next/i })).not.toBeInTheDocument();
+    expect(
+      within(activityD).getByRole('button', { name: 'Open Activity D image viewer' }),
+    ).toBeInTheDocument();
 
     await userEvent.click(within(activityC).getByRole('button', { name: 'Next activity c image' }));
     expect(within(activityC).getByText('2 / 5')).toBeInTheDocument();
@@ -4811,7 +4836,7 @@ describe('Phase 8 quotation pages', () => {
       'src',
       'https://storage.example.test/c-2.jpg',
     );
-    expect(activityA).toHaveClass('w-full', 'sm:w-52');
+    expect(activityA).toHaveClass('w-full', 'sm:w-64');
     expect(activityA.parentElement).toHaveClass('flex-col', 'sm:flex-row');
   });
 
@@ -16089,5 +16114,212 @@ describe('Quotation service description validation', () => {
     expect(richHtml.length).toBeGreaterThan(4000);
     expect(richHtml.replace(/<[^>]*>/g, '').length).toBeLessThan(SERVICE_DESCRIPTION_MAX_LENGTH);
     expect(quotationVersionInputSchema.safeParse(validVersion(richHtml)).success).toBe(true);
+  });
+});
+
+describe('Public weblink — Back to Top button', () => {
+  function publicPageData() {
+    return {
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: '+91 90000 00000',
+        website: null,
+        address: '1 MG Road, Bengaluru',
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000101',
+        customerName: 'Priya Sharma',
+        destinationSummary: 'Singapore',
+        destinations: 'Singapore',
+        travelStartDate: '2026-10-23',
+        travelEndDate: '2026-10-29',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Back To Top Test',
+        versionNumber: 1,
+        currency: 'INR',
+        destinationSummary: 'Singapore',
+        finalAmount: '100000',
+        notes: null,
+        itinerary: [],
+        hotels: [],
+        services: [],
+        faqs: [],
+        weblinkSectionOrder: null,
+      },
+      destinationExpert: null,
+      downloadUrl: null,
+    };
+  }
+
+  function renderPublicPage() {
+    vi.stubGlobal('fetch', vi.fn(async () => response(publicPageData())));
+    return renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+  }
+
+  it('stays hidden at the top, appears after scrolling, and smooth-scrolls to the top on click', async () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(window, 'scrollTo', { value: scrollTo, writable: true, configurable: true });
+    const setScrollY = (value: number) => {
+      Object.defineProperty(window, 'scrollY', { value, writable: true, configurable: true });
+      window.dispatchEvent(new Event('scroll'));
+    };
+    setScrollY(0);
+
+    renderPublicPage();
+    await screen.findByRole('heading', { name: 'Contact Us' });
+
+    // Hidden initially at the top (opacity-0 + not interactive).
+    const hiddenButton = screen.getByRole('button', { name: 'Back to top' });
+    expect(hiddenButton).toHaveClass('opacity-0', 'pointer-events-none');
+
+    // Scroll past the threshold → button fades in.
+    setScrollY(600);
+    const button = await screen.findByRole('button', { name: 'Back to top' });
+    expect(button).toHaveClass('opacity-100');
+    expect(button).not.toHaveClass('opacity-0');
+
+    // Returning near the top hides it again.
+    setScrollY(0);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Back to top' })).toHaveClass(
+        'opacity-0',
+        'pointer-events-none',
+      );
+    });
+
+    // Click smooth-scrolls to the top.
+    setScrollY(600);
+    const visibleButton = await screen.findByRole('button', { name: 'Back to top' });
+    fireEvent.click(visibleButton);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+});
+
+describe('Public weblink — image viewer & Download PDF', () => {
+  function galleryPageData() {
+    return {
+      company: {
+        name: 'Alpha Travel',
+        email: 'a@b.test',
+        phone: '+91 90000 00000',
+        website: null,
+        address: null,
+        primaryColor: '#2563eb',
+      },
+      quotation: {
+        quotationNumber: 'QT-2026-000101',
+        customerName: 'Priya Sharma',
+        destinationSummary: 'Singapore',
+        destinations: 'Singapore',
+        travelStartDate: '2026-10-23',
+        travelEndDate: '2026-10-29',
+        adults: 2,
+        childrenWithBed: 0,
+        childrenWithoutBed: 0,
+        infants: 0,
+        rooms: 1,
+        validUntil: null,
+        status: 'VIEWED',
+      },
+      version: {
+        title: 'Gallery & PDF',
+        versionNumber: 1,
+        currency: 'INR',
+        finalAmount: '100000',
+        hotelDetails: { sectionTitle: 'Your Hotels', amount: 0, description: null },
+        hotels: [
+          {
+            id: 'h1',
+            hotelName: 'Marina Bay Sands',
+            city: 'Singapore',
+            category: '5 Star',
+            roomType: 'Deluxe Room',
+            mealPlan: 'Breakfast',
+            rooms: 1,
+            nights: 2,
+            selected: true,
+            sequence: 1,
+            images: [
+              { id: 'i1', url: 'https://cdn.example/h1.jpg', alt: 'Marina one' },
+              { id: 'i2', url: 'https://cdn.example/h2.jpg', alt: 'Marina two' },
+            ],
+            imageSnapshotPresent: true,
+          },
+        ],
+        services: [],
+        itinerary: [],
+        faqs: [],
+        weblinkSectionOrder: null,
+      },
+      downloadUrl: 'https://storage.example.test/quotation.pdf',
+    };
+  }
+
+  function renderGallery() {
+    vi.stubGlobal('fetch', vi.fn(async () => response(galleryPageData())));
+    return renderWithProviders(
+      <Routes>
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
+      </Routes>,
+      { route: '/q/public-token-value-with-at-least-32-characters' },
+    );
+  }
+
+  it('opens the fullscreen viewer, navigates, and closes with Escape', async () => {
+    const { container } = renderGallery();
+    await screen.findByRole('heading', { name: 'Your Hotels' });
+
+    const openButton = screen.getByRole('button', {
+      name: 'Open Hotel image viewer',
+    });
+    await userEvent.click(openButton);
+
+    const dialog = screen.getByRole('dialog', { name: 'Image viewer' });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText('1 / 2')).toBeInTheDocument();
+    // Background scroll is locked while open.
+    expect(container.ownerDocument.body.style.overflow).toBe('hidden');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next image' }));
+    expect(within(dialog).getByText('2 / 2')).toBeInTheDocument();
+    expect(within(dialog).getByRole('img')).toHaveAttribute(
+      'src',
+      'https://cdn.example/h2.jpg',
+    );
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close image viewer' }));
+    expect(screen.queryByRole('dialog', { name: 'Image viewer' })).not.toBeInTheDocument();
+    expect(container.ownerDocument.body.style.overflow).toBe('');
+  });
+
+  it('shows a Download PDF action and triggers the quotation PDF download', async () => {
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    renderGallery();
+    const button = await screen.findByRole('button', { name: 'Download PDF' });
+    expect(button).toBeInTheDocument();
+
+    await userEvent.click(button);
+    expect(anchorClick).toHaveBeenCalled();
+    expect(button).toHaveTextContent('Preparing…');
+    expect(button).toBeDisabled();
+
+    anchorClick.mockRestore();
   });
 });

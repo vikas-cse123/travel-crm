@@ -12,6 +12,7 @@ import {
   Clock,
   Compass,
   CreditCard,
+  Download,
   ExternalLink,
   FileText,
   Image as ImageIcon,
@@ -51,6 +52,9 @@ import type {
 } from '@/features/quotations/quotations.api';
 import { PublicQuotationContact } from './PublicQuotationContact';
 import { PublicQuotationFooter } from './PublicQuotationFooter';
+import { BackToTop } from './BackToTop';
+import { QuotationLightbox } from './QuotationLightbox';
+import { scrollToSectionId } from './scroll';
 import { serviceCardIcon, type ServiceCard } from './serviceCards';
 import { formatPublicQuotationNumber } from './quotationContact';
 
@@ -388,7 +392,7 @@ function SectionNav({ sticky }: { sticky: boolean }) {
 
   const goTo = (id: string) => {
     setActiveId(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollToSectionId(id);
   };
 
   return (
@@ -398,7 +402,7 @@ function SectionNav({ sticky }: { sticky: boolean }) {
         sticky ? 'sticky top-3 z-30' : ''
       } rounded-full border border-slate-200 bg-card/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/70`}
     >
-      <div className="flex items-center gap-1">
+      <div className="relative flex items-center gap-1">
         <span className="ml-2 mr-1 flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
           <Compass className="h-4 w-4 text-emerald-600" aria-hidden="true" />
           <span className="hidden sm:inline">Jump to</span>
@@ -430,6 +434,15 @@ function SectionNav({ sticky }: { sticky: boolean }) {
             );
           })}
         </div>
+        {/* Subtle edge fades when more items are scrolled off-screen (mobile). */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-12 w-6 bg-gradient-to-r from-card/90 to-transparent"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-card/90 to-transparent"
+        />
       </div>
     </nav>
   );
@@ -1226,13 +1239,13 @@ function SightseeingItineraryView({
                 />
                 <article className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-card p-4 shadow-sm md:gap-5 md:p-5">
                   {validActivities.length === 0 && (
-                    <div className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-lg md:h-[180px] md:w-[285px]">
-                      {dayImages.length ? (
-                        <QuotationImageCarousel images={dayImages} label="Itinerary day" />
-                      ) : (
-                        <ItineraryImage src={null} alt={title} />
-                      )}
-                    </div>
+                    <QuotationMediaFrame
+                      images={dayImages}
+                      label="Itinerary day"
+                      radius="rounded-lg"
+                      className="shrink-0 md:w-[285px]"
+                      placeholder={<ItineraryImage src={null} alt={title} />}
+                    />
                   )}
                   <div className="min-w-0 flex-1">
                     <h3 className="text-lg font-bold text-slate-800">{title}</h3>
@@ -1263,19 +1276,16 @@ function SightseeingItineraryView({
                                 Activities &amp; Details
                               </p>
                               <div className="flex flex-col gap-3 bg-white p-3 sm:flex-row">
-                                <div
+                                <QuotationMediaFrame
                                   aria-label={`${activity.name ?? 'Activity'} image gallery`}
-                                  className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-md sm:h-40 sm:w-60"
-                                >
-                                  {activityImages.length ? (
-                                    <QuotationImageCarousel
-                                      images={activityImages}
-                                      label={activity.name ?? 'Activity'}
-                                    />
-                                  ) : (
+                                  images={activityImages}
+                                  label={activity.name ?? 'Activity'}
+                                  radius="rounded-md"
+                                  className="shrink-0 sm:w-64"
+                                  placeholder={
                                     <ItineraryThumb src={null} alt={activity.name ?? 'Activity'} />
-                                  )}
-                                </div>
+                                  }
+                                />
                                 <div className="min-w-0 flex-1">
                                   <p className="flex items-center gap-2 font-semibold text-slate-800">
                                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1339,22 +1349,19 @@ function SightseeingItineraryView({
                                   key={`${activity.sightseeingId ?? 'activity'}-${activityIndex}`}
                                 >
                                   <div className="flex flex-col gap-3 sm:flex-row">
-                                    <div
+                                    <QuotationMediaFrame
                                       aria-label={`${activity.name ?? 'Activity'} image gallery`}
-                                      className="aspect-[16/9] w-full shrink-0 overflow-hidden rounded-md sm:h-32 sm:w-52"
-                                    >
-                                      {activityImages.length ? (
-                                        <QuotationImageCarousel
-                                          images={activityImages}
-                                          label={activity.name ?? 'Activity'}
-                                        />
-                                      ) : (
+                                      images={activityImages}
+                                      label={activity.name ?? 'Activity'}
+                                      radius="rounded-md"
+                                      className="shrink-0 sm:w-64"
+                                      placeholder={
                                         <ItineraryThumb
                                           src={null}
                                           alt={activity.name ?? 'Activity'}
                                         />
-                                      )}
-                                    </div>
+                                      }
+                                    />
                                     <div className="min-w-0 flex-1">
                                       <p className="flex items-center gap-2 font-semibold text-slate-800">
                                         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1481,6 +1488,7 @@ function QuotationImageCarousel({
 }) {
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const count = images.length;
   if (count === 0) return null;
   const current = images[Math.min(active, count - 1)]!;
@@ -1497,50 +1505,155 @@ function QuotationImageCarousel({
 
   if (count === 1) {
     return (
-      <div className="h-full w-full bg-slate-100">
-        <img
-          src={currentUrl}
-          alt={alt}
-          loading="lazy"
-          onError={onError}
-          className="h-full w-full object-cover"
-        />
-      </div>
+      <>
+        <button
+          type="button"
+          aria-label={`Open ${label} image viewer`}
+          onClick={() => setLightboxIndex(0)}
+          className="block h-full w-full cursor-zoom-in bg-slate-100"
+        >
+          <img
+            src={currentUrl}
+            alt={alt}
+            loading="lazy"
+            onError={onError}
+            className="h-full w-full object-cover"
+          />
+        </button>
+        {lightboxIndex !== null && (
+          <QuotationLightbox
+            images={images}
+            index={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+            onIndexChange={setLightboxIndex}
+          />
+        )}
+      </>
     );
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-100">
-      <img
-        src={currentUrl}
-        alt={alt}
-        loading="lazy"
-        onError={onError}
-        className="h-full w-full object-cover"
-      />
-      <div className="absolute inset-y-0 left-0 flex items-center">
+    <>
+      <div className="group relative h-full w-full overflow-hidden bg-slate-100">
+        <button
+          type="button"
+          aria-label={`Open ${label} image viewer`}
+          onClick={() => setLightboxIndex(active)}
+          className="block h-full w-full cursor-zoom-in"
+        >
+          <img
+            src={currentUrl}
+            alt={alt}
+            loading="lazy"
+            onError={onError}
+            className="h-full w-full object-cover"
+          />
+        </button>
+        {/* Subtle edge gradients keep the slim chevrons legible on any photo. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-black/30 via-black/10 to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-black/30 via-black/10 to-transparent opacity-60 transition-opacity duration-300 group-hover:opacity-100"
+        />
         <button
           type="button"
           aria-label={`Previous ${label.toLowerCase()} image`}
           onClick={previous}
-          className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
+          className="absolute inset-y-0 left-0 flex w-12 items-center justify-start pl-3 opacity-80 transition-opacity duration-300 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 group-hover:opacity-100"
         >
-          <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+          <ChevronLeft className="h-8 w-8 text-white drop-shadow-md" aria-hidden="true" />
         </button>
-      </div>
-      <div className="absolute inset-y-0 right-0 flex items-center">
         <button
           type="button"
           aria-label={`Next ${label.toLowerCase()} image`}
           onClick={next}
-          className="mx-2 rounded-full bg-white/80 p-2 text-slate-700 shadow transition hover:bg-white"
+          className="absolute inset-y-0 right-0 flex w-12 items-center justify-end pr-3 opacity-80 transition-opacity duration-300 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 group-hover:opacity-100"
         >
-          <ChevronRight className="h-5 w-5" aria-hidden="true" />
+          <ChevronRight className="h-8 w-8 text-white drop-shadow-md" aria-hidden="true" />
         </button>
+        <p className="absolute bottom-2 right-3 rounded-full bg-black/45 px-2.5 py-0.5 text-[11px] font-medium tracking-wide text-white">
+          {active + 1} / {count}
+        </p>
       </div>
-      <p className="absolute bottom-2 right-3 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white">
-        {active + 1} / {count}
-      </p>
+      {lightboxIndex !== null && (
+        <QuotationLightbox
+          images={images}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Single shared media frame for every weblink image card (Hotels,
+ * Transportation, Cruise, Sightseeing activities). Enforces one fixed
+ * 16:9 aspect ratio so source image dimensions/aspect ratios never change the
+ * displayed card height. Images are cropped with object-fit: cover; the
+ * carousel arrows and "1 / N" counter stay anchored inside the fixed frame.
+ */
+function QuotationMediaFrame({
+  images,
+  imageUrl,
+  label,
+  imageAlt,
+  placeholder,
+  radius = 'rounded-xl',
+  className,
+  'aria-label': ariaLabel,
+}: {
+  images: QuotationGalleryImage[];
+  imageUrl?: string | null;
+  /** Carousel button label + fallback alt (e.g. "Hotel", "Cruise"). */
+  label: string;
+  /** Alt text for the single direct image (usually the item name). */
+  imageAlt?: string;
+  placeholder?: ReactNode;
+  radius?: string;
+  className?: string;
+  'aria-label'?: string;
+}) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const lightboxImages = imageUrl
+    ? [imageAlt ? { url: imageUrl, alt: imageAlt } : { url: imageUrl }]
+    : [];
+  return (
+    <div
+      aria-label={ariaLabel}
+      className={`relative aspect-[16/9] w-full overflow-hidden bg-slate-100 ${radius} ${className ?? ''}`}
+    >
+      {images.length > 0 ? (
+        <QuotationImageCarousel images={images} label={label} />
+      ) : imageUrl ? (
+        <button
+          type="button"
+          aria-label={`Open ${label} image viewer`}
+          onClick={() => setLightboxOpen(true)}
+          className="block h-full w-full cursor-zoom-in"
+        >
+          <img
+            src={imageUrl}
+            alt={imageAlt ?? label}
+            loading="lazy"
+            className="h-full w-full object-cover object-center"
+          />
+        </button>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">{placeholder}</div>
+      )}
+      {lightboxOpen && lightboxImages.length > 0 && (
+        <QuotationLightbox
+          images={lightboxImages}
+          index={0}
+          onClose={() => setLightboxOpen(false)}
+          onIndexChange={() => undefined}
+        />
+      )}
     </div>
   );
 }
@@ -1559,6 +1672,7 @@ export function PublicQuotationPage() {
   // Public Policies accordion: only one section is open at a time; Inclusions
   // (or the first non-empty section) starts open.
   const [openPolicy, setOpenPolicy] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const policyDefaultSetRef = useRef(false);
   useEffect(() => {
     if (policyDefaultSetRef.current || !data) return;
@@ -1953,6 +2067,34 @@ export function PublicQuotationPage() {
                 {heroIntroduction}
               </p>
             )}
+            {data.downloadUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (downloadingPdf || !data.downloadUrl) return;
+                  setDownloadingPdf(true);
+                  try {
+                    const anchor = document.createElement('a');
+                    anchor.href = data.downloadUrl;
+                    anchor.target = '_blank';
+                    anchor.rel = 'noopener noreferrer';
+                    anchor.click();
+                  } catch {
+                    window.open(data.downloadUrl, '_blank', 'noopener,noreferrer');
+                  }
+                  window.setTimeout(() => setDownloadingPdf(false), 2000);
+                }}
+                disabled={downloadingPdf}
+                className="mt-6 inline-flex items-center gap-2 rounded-lg bg-white/95 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-white hover:shadow disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {downloadingPdf ? (
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent" />
+                ) : (
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                )}
+                {downloadingPdf ? 'Preparing…' : 'Download PDF'}
+              </button>
+            )}
           </div>
         </header>
 
@@ -2121,111 +2263,139 @@ export function PublicQuotationPage() {
                     const showScore = Number.isFinite(reviewScore) && reviewScore > 0;
                     const rawReviewLink = presentation?.reviewLink?.trim() ?? '';
                     const reviewUrl = /^https?:\/\//i.test(rawReviewLink) ? rawReviewLink : null;
+                    const nights =
+                      hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights;
                     return (
                       <article
                         key={hotel.id}
                         className="overflow-hidden rounded-xl border bg-card shadow-sm sm:grid sm:grid-cols-[42%_1fr]"
                       >
-                        <div className="flex aspect-[4/3] items-center justify-center bg-slate-100 sm:self-start">
-                          {snapshotImages.length > 0 ? (
-                            <QuotationImageCarousel images={snapshotImages} />
-                          ) : cardImageUrl ? (
-                            <img
-                              src={cardImageUrl}
-                              alt={hotel.hotelName}
-                              className="h-full w-full object-cover object-center"
-                            />
-                          ) : (
+                        <QuotationMediaFrame
+                          images={snapshotImages}
+                          imageUrl={cardImageUrl}
+                          label="Hotel"
+                          imageAlt={hotel.hotelName}
+                          className="sm:self-start"
+                          placeholder={
                             <div className="text-center text-slate-400">
                               <Building2 className="mx-auto h-12 w-12" />
                               <p className="mt-2 text-xs">Hotel image unavailable</p>
                             </div>
-                          )}
-                        </div>
+                          }
+                        />
                         <div className="p-5">
                           <div className="flex items-start justify-between gap-3">
-                            <h3 className="text-lg font-bold leading-tight text-slate-800">
-                              {hotel.hotelName}
-                            </h3>
-                            {reviewUrl && (
-                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                <a
-                                  href={reviewUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-blue-600 hover:underline"
+                            <div className="min-w-0">
+                              <h3 className="text-xl font-bold leading-tight text-slate-900">
+                                {hotel.hotelName}
+                              </h3>
+                              {category > 0 && (
+                                <div
+                                  className="mt-1.5 flex gap-0.5"
+                                  aria-label={`${category} star hotel`}
                                 >
-                                  Hotel Review <ExternalLink className="inline h-3 w-3" />
-                                </a>
+                                  {Array.from({ length: Math.min(5, category) }, (_, index) => (
+                                    <Star
+                                      key={index}
+                                      className="h-4 w-4 fill-amber-400 text-amber-400"
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {reviewUrl && (
+                              <a
+                                href={reviewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 inline-flex shrink-0 items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                              >
+                                Hotel Review <ExternalLink className="inline h-3 w-3" />
                                 {showScore && (
-                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
+                                  <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
                                     {presentation?.starRating}
                                   </span>
                                 )}
-                              </div>
+                              </a>
                             )}
                           </div>
-                          {category > 0 && (
-                            <div
-                              className="mt-2 flex gap-0.5"
-                              aria-label={`${category} star hotel`}
-                            >
-                              {Array.from({ length: Math.min(5, category) }, (_, index) => (
-                                <Star
-                                  key={index}
-                                  className="h-4 w-4 fill-amber-400 text-amber-400"
-                                />
-                              ))}
-                            </div>
+
+                          {(hotel.city || presentation?.country) && (
+                            <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
+                              <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                              {[hotel.city, presentation?.country].filter(Boolean).join(', ')}
+                            </p>
                           )}
-                          <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-500">
-                            <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-                            {hotel.city}
-                            {presentation?.country ? `, ${presentation.country}` : ''}
-                          </p>
                           {presentation?.address?.trim() && (
                             <p className="mt-1.5 text-sm text-slate-500">
                               {presentation.address.trim()}
                             </p>
                           )}
-                          <div className="mt-5 space-y-1.5 text-sm text-slate-700">
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
                             {hotel.roomType?.trim() ? (
-                              <p>
-                                <strong>Room Type:</strong> {hotel.roomType}
-                              </p>
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
+                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                  Room
+                                </strong>
+                                {' '}
+                                {hotel.roomType}
+                              </span>
                             ) : null}
                             {hotel.mealPlan?.trim() ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
+                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                  Meals
+                                </strong>
+                                {' '}
+                                {hotel.mealPlan}
+                              </span>
+                            ) : null}
+                            {hotel.rooms != null ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
+                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                  Rooms:
+                                </strong>
+                                {' '}
+                                {hotel.rooms}
+                              </span>
+                            ) : null}
+                            {nights != null && (
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">
+                                <strong className="text-xs font-medium uppercase tracking-wide text-white/85">
+                                  Nights:
+                                </strong>
+                                {' '}
+                                {nights}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="mt-4 grid gap-1.5 text-sm text-slate-600 sm:grid-cols-2">
+                            {dateShort(hotel.checkInDate) ? (
                               <p>
-                                <strong>Meal Plan:</strong> {hotel.mealPlan}
+                                <strong className="font-semibold text-slate-700">
+                                  Check-in:
+                                </strong>{' '}
+                                {dateShort(hotel.checkInDate)}
+                                {hotel.checkInTime && hotel.showCheckInTime !== false
+                                  ? ` · ${formatTime12Hour(hotel.checkInTime)}`
+                                  : ''}
                               </p>
                             ) : null}
-                            {hotel.rooms != null && (
+                            {dateShort(hotel.checkOutDate) ? (
                               <p>
-                                <strong>Rooms:</strong> {hotel.rooms}
+                                <strong className="font-semibold text-slate-700">
+                                  Check-out:
+                                </strong>{' '}
+                                {dateShort(hotel.checkOutDate)}
+                                {hotel.checkOutTime && hotel.showCheckOutTime !== false
+                                  ? ` · ${formatTime12Hour(hotel.checkOutTime)}`
+                                  : ''}
                               </p>
-                            )}
-                            <p>
-                              <strong>Nights:</strong>{' '}
-                              <span className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">
-                                {hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ??
-                                  hotel.nights}
-                              </span>
-                            </p>
+                            ) : null}
                           </div>
-                          <div className="mt-4 space-y-1 text-xs text-slate-500">
-                            <p>
-                              Check-in: {dateShort(hotel.checkInDate) ?? '—'}
-                              {hotel.checkInTime && hotel.showCheckInTime !== false
-                                ? ` | ${formatTime12Hour(hotel.checkInTime)}`
-                                : ''}
-                            </p>
-                            <p>
-                              Check-out: {dateShort(hotel.checkOutDate) ?? '—'}
-                              {hotel.checkOutTime && hotel.showCheckOutTime !== false
-                                ? ` | ${formatTime12Hour(hotel.checkOutTime)}`
-                                : ''}
-                            </p>
-                          </div>
+
                           {hotel.notes && (
                             <p className="mt-3 text-xs italic text-slate-500">{hotel.notes}</p>
                           )}
@@ -2296,16 +2466,17 @@ export function PublicQuotationPage() {
                           key={vehicle.id}
                           className="max-w-xl overflow-hidden rounded-xl border bg-card shadow-sm"
                         >
-                          <div className="flex min-h-56 items-center justify-center bg-slate-100">
-                            {displayImages.length ? (
-                              <QuotationImageCarousel images={displayImages} label="Vehicle" />
-                            ) : (
+                          <QuotationMediaFrame
+                            images={displayImages}
+                            label="Vehicle"
+                            imageAlt={vehicle.name || presentation?.name || 'Vehicle'}
+                            placeholder={
                               <div className="text-center text-slate-400">
                                 <CarFront className="mx-auto h-14 w-14" />
                                 <p className="mt-2 text-xs">Vehicle image unavailable</p>
                               </div>
-                            )}
-                          </div>
+                            }
+                          />
                           <div className="space-y-3 p-5">
                             <h3 className="text-xl font-bold text-slate-800">
                               {vehicle.name || presentation?.name || 'Vehicle'}
@@ -2360,16 +2531,17 @@ export function PublicQuotationPage() {
                           key={cruise.id}
                           className="overflow-hidden rounded-xl border bg-card shadow-sm"
                         >
-                          <div className="aspect-[16/9] bg-slate-100">
-                            {displayImages.length ? (
-                              <QuotationImageCarousel images={displayImages} label="Cruise" />
-                            ) : (
-                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-slate-400">
+                          <QuotationMediaFrame
+                            images={displayImages}
+                            label="Cruise"
+                            imageAlt={cruise.name}
+                            placeholder={
+                              <div className="flex flex-col items-center justify-center gap-1 text-slate-400">
                                 <Ship className="h-10 w-10" />
                                 <p className="text-xs">Cruise image unavailable</p>
                               </div>
-                            )}
-                          </div>
+                            }
+                          />
                           <div className="space-y-2 p-5">
                             <h3 className="text-lg font-bold text-slate-800">{cruise.name}</h3>
                             {duration && (
@@ -2560,6 +2732,8 @@ export function PublicQuotationPage() {
         quotationNumber={q.quotationNumber}
         generatedAt={q.createdAt}
       />
+
+      <BackToTop />
     </main>
   );
 }

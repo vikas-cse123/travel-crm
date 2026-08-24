@@ -24,6 +24,7 @@ import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { reportsRoutes } from './modules/reports/reports.routes.js';
 import { searchRoutes } from './modules/search/search.routes.js';
+import { destinationExpertPresetsRoutes } from './modules/destination-expert-presets/destination-expert-presets.routes.js';
 
 /**
  * Single mount point for every module router.
@@ -57,5 +58,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/search', searchRoutes);
+router.use('/destination-expert-presets', destinationExpertPresetsRoutes);
 
 export { router as apiRoutes };

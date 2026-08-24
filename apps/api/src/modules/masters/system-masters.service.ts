@@ -54,6 +54,7 @@ async function loadRegistryRecord(
     title: row.title != null ? String(row.title) : null,
     clientName: row.clientName != null ? String(row.clientName) : null,
     destinationName: row.destinationName != null ? String(row.destinationName) : null,
+    question: row.question != null ? String(row.question) : null,
   };
 }
 

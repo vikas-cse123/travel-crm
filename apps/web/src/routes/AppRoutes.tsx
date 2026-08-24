@@ -85,6 +85,12 @@ import { SightseeingFormPage } from '@/pages/masters/SightseeingFormPage';
 import { AddOnServicesPage } from '@/pages/masters/AddOnServicesPage';
 import { AddOnServiceDetailsPage } from '@/pages/masters/AddOnServiceDetailsPage';
 import { AddOnServiceFormPage } from '@/pages/masters/AddOnServiceFormPage';
+import { DestinationExpertsPage } from '@/pages/masters/DestinationExpertsPage';
+import { DestinationExpertDetailsPage } from '@/pages/masters/DestinationExpertDetailsPage';
+import { DestinationExpertFormPage } from '@/pages/masters/DestinationExpertFormPage';
+import { FaqsPage } from '@/pages/masters/FaqsPage';
+import { FaqDetailsPage } from '@/pages/masters/FaqDetailsPage';
+import { FaqFormPage } from '@/pages/masters/FaqFormPage';
 import { VisaTypesPage } from '@/pages/masters/VisaTypesPage';
 import { VisaTypeDetailsPage } from '@/pages/masters/VisaTypeDetailsPage';
 import { VisaTypeFormPage } from '@/pages/masters/VisaTypeFormPage';
@@ -816,6 +822,70 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTER_ADD_ON_SERVICES_UPDATE}>
                 <AddOnServiceFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destination-experts"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <DestinationExpertsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destination-experts/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <DestinationExpertFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destination-experts/:expertId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <DestinationExpertDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/destination-experts/:expertId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.QUOTATIONS_VIEW}>
+                <DestinationExpertFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/faqs"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_FAQS_VIEW}>
+                <FaqsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/faqs/new"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_FAQS_CREATE}>
+                <FaqFormPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/faqs/:faqId"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_FAQS_VIEW}>
+                <FaqDetailsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/faqs/:faqId/edit"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTER_FAQS_UPDATE}>
+                <FaqFormPage />
               </PermissionRoute>
             }
           />

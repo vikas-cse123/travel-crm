@@ -44,6 +44,8 @@ import {
   testimonialInputSchema,
   testimonialUpdateSchema,
   testimonialImageUploadSchema,
+  faqInputSchema,
+  faqUpdateSchema,
 } from '@interscale/shared';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/authenticate.js';
 import { requirePermission, requireAnyPermission } from '../../middleware/require-permission.js';
@@ -62,6 +64,7 @@ import {
   addOnServicesController as addOnServices,
   visaTypesController as visaTypes,
   testimonialsController as testimonials,
+  faqsController as faqs,
 } from './masters.controller.js';
 import { systemMastersController as systemMasters } from './system-masters.controller.js';
 
@@ -1008,6 +1011,56 @@ router.patch(
   requirePermission(PERMISSIONS.MASTER_TESTIMONIALS_MANAGE_MEDIA),
   validateRequest({ params: testimonialId, body: imageReorder }),
   asyncHandler(testimonials.imageReorder),
+);
+
+// ---------------------------------------------------------------------------
+// FAQs
+// ---------------------------------------------------------------------------
+const faqId = z.object({ faqId: z.string().uuid() });
+const faqList = z.object({
+  page: commonList.page,
+  pageSize: commonList.pageSize,
+  search: commonList.search,
+  status: commonList.status,
+  sortOrder: commonList.sortOrder,
+  destination: z.string().trim().max(200).optional(),
+  sortBy: z.enum(['question', 'createdAt', 'updatedAt']).optional(),
+});
+router.get(
+  '/faqs',
+  requirePermission(PERMISSIONS.MASTER_FAQS_VIEW),
+  validateRequest({ query: faqList }),
+  asyncHandler(faqs.list),
+);
+router.post(
+  '/faqs',
+  requirePermission(PERMISSIONS.MASTER_FAQS_CREATE),
+  validateRequest({ body: faqInputSchema }),
+  asyncHandler(faqs.create),
+);
+router.get(
+  '/faqs/:faqId',
+  requirePermission(PERMISSIONS.MASTER_FAQS_VIEW),
+  validateRequest({ params: faqId }),
+  asyncHandler(faqs.details),
+);
+router.patch(
+  '/faqs/:faqId',
+  requirePermission(PERMISSIONS.MASTER_FAQS_UPDATE),
+  validateRequest({ params: faqId, body: faqUpdateSchema }),
+  asyncHandler(faqs.update),
+);
+router.patch(
+  '/faqs/:faqId/status',
+  requirePermission(PERMISSIONS.MASTER_FAQS_UPDATE),
+  validateRequest({ params: faqId, body: masterStatusSchema }),
+  asyncHandler(faqs.status),
+);
+router.delete(
+  '/faqs/:faqId',
+  requirePermission(PERMISSIONS.MASTER_FAQS_DELETE),
+  validateRequest({ params: faqId }),
+  asyncHandler(faqs.archive),
 );
 
 export { router as mastersRoutes };

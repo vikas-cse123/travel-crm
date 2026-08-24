@@ -19,7 +19,7 @@ export interface MasterTypeInfo {
   /** Prisma delegate name — statically allow-listed, never client input. */
   model: keyof PrismaClientDelegates;
   /** Column holding the primary display label, when a plain field exists. */
-  nameField: 'name' | 'title' | 'clientName' | null;
+  nameField: 'name' | 'title' | 'clientName' | 'question' | null;
   viewPermission: string;
   /** Best-effort human label for a record, used by the hidden-list screen. */
   displayName: (row: {
@@ -27,6 +27,7 @@ export interface MasterTypeInfo {
     title?: string | null;
     clientName?: string | null;
     destinationName?: string | null;
+    question?: string | null;
   }) => string;
 }
 
@@ -42,6 +43,7 @@ interface PrismaClientDelegates {
   addOnService: unknown;
   visaType: unknown;
   testimonial: unknown;
+  faq: unknown;
 }
 
 const labelOf = (row: Record<string, unknown>, key: string): string =>
@@ -133,6 +135,14 @@ export const MASTER_TYPE_REGISTRY: Record<MasterType, MasterTypeInfo> = {
       labelOf(row as Record<string, unknown>, 'destinationName') ||
       'Untitled testimonial',
   },
+  [MASTER_TYPE.FAQ]: {
+    type: MASTER_TYPE.FAQ,
+    label: MASTER_TYPE_LABELS[MASTER_TYPE.FAQ],
+    model: 'faq',
+    nameField: 'question',
+    viewPermission: MASTER_PERMISSIONS[MASTER_TYPE.FAQ].viewPermission,
+    displayName: (row) => labelOf(row as Record<string, unknown>, 'question') || 'Untitled FAQ',
+  },
 };
 
 /** Minimal row shape the registry loads for a record. */
@@ -145,6 +155,7 @@ export interface MasterRegistryRow {
   title: string | null;
   clientName: string | null;
   destinationName: string | null;
+  question: string | null;
 }
 
 export function masterTypeInfo(type: MasterType): MasterTypeInfo {

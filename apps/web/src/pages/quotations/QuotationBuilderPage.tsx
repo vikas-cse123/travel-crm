@@ -59,6 +59,7 @@ import {
   type QuotationVersion,
 } from '@/features/quotations/quotations.api';
 import { useSettings } from '@/features/settings/settings.api';
+import { useDestinationExpertPresets } from '@/features/destination-expert/destination-expert.api';
 import {
   cruiseImageUrl,
   hotelImageUrl,
@@ -79,6 +80,7 @@ import {
   type Sightseeing,
 } from '@/features/masters/masters.api';
 import { useUsers } from '@/features/users/users.api';
+import { useFaqs } from '@/features/masters/masters.api';
 import {
   CLEARED_SERVICE_MASTERS,
   HotelMasterFields,
@@ -334,6 +336,7 @@ const TABS: TabDef[] = [
   ...(SHOW_VISA_QUOTATION_TAB ? [{ key: 'visa', label: 'Visa' }] : []),
   { key: 'addon', label: 'Add-on Services', types: ADDON_TYPES },
   { key: 'inclusions', label: 'Inclusions & Exclusions' },
+  { key: 'destinationExpert', label: 'Destination Expert' },
   { key: 'faqs', label: 'FAQs' },
   { key: 'summary', label: 'Summary & Pricing' },
   { key: 'setting', label: 'Settings' },
@@ -1035,7 +1038,7 @@ function PersistInitialQuotationSnapshot({
 export function QuotationBuilderPage() {
   const { quotationId = '', versionId = '' } = useParams();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canCost = hasPermission(PERMISSIONS.QUOTATIONS_VIEW_COSTING);
   const canManageAirlineMedia = hasPermission(PERMISSIONS.MASTER_AIRLINES_MANAGE_MEDIA);
   const quotation = useQuotation(quotationId);
@@ -1203,7 +1206,14 @@ export function QuotationBuilderPage() {
   const queryClient = useQueryClient();
   const expertUsersQuery = useUsers(useMemo(() => new URLSearchParams({ pageSize: '100' }), []));
   const settingsQuery = useSettings();
+  const destinationExpertPresetsQuery = useDestinationExpertPresets();
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const watchedExpertConfig = useWatch({ control: form.control, name: 'destinationExpertConfig' });
+  const masterFaqsQuery = useFaqs(
+    useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
+  );
+  const faqPrefillAttemptedRef = useRef(false);
+  const [importedFaqDestination, setImportedFaqDestination] = useState<string | null>(null);
 
   // Real company/expert fallback contacts (never fake). Used to prefill when selecting expert.
   const getExpertFallback = (expertId: string | null) => {
@@ -1218,6 +1228,26 @@ export function QuotationBuilderPage() {
     const email = expert?.email?.trim() || companyEmail?.trim() || null;
     return { whatsappNumber, callNumber, email };
   };
+  // Always force Destination Expert to current user (particular user can create data for itself)
+  useEffect(() => {
+    if (watchedExpertConfig?.enabled && user?.id && watchedExpertConfig.expertUserId !== user.id) {
+      const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
+      const fallback = getExpertFallback(user.id);
+      form.setValue(
+        'destinationExpertConfig',
+        {
+          ...(cur ?? {}),
+          enabled: true,
+          expertUserId: user.id,
+          whatsappNumber: (cur as Record<string, unknown> | null)?.whatsappNumber || fallback.whatsappNumber,
+          callNumber: (cur as Record<string, unknown> | null)?.callNumber || fallback.callNumber,
+          email: (cur as Record<string, unknown> | null)?.email || fallback.email,
+        } as never,
+        { shouldDirty: true },
+      );
+    }
+  }, [user?.id, watchedExpertConfig?.enabled, watchedExpertConfig?.expertUserId]);
+
   // Sightseeing master resolved by destinationId for each lead itinerary stay
   // instead of imprecise free-text search — guarantees complete city coverage.
   const destinationIdSet = useMemo(() => {
@@ -1264,6 +1294,68 @@ export function QuotationBuilderPage() {
     () => (version ? normalizeQuotationVersionForBuilder(version) : undefined),
     [version],
   );
+
+  // Quotation destination name tokens (lead itinerary country/destination + summary)
+  // used to match destination-attached master FAQs.
+  const quotationDestinationTokens = useMemo(() => {
+    const tokens = new Set<string>();
+    const add = (value: string | null | undefined) => {
+      for (const part of (value ?? '').split(/[•,>/→|-]+/)) {
+        const trimmed = part.trim().toLowerCase();
+        if (trimmed) tokens.add(trimmed);
+      }
+    };
+    for (const stay of quotation.data?.query?.itinerary ?? []) {
+      add(stay.country);
+      add(stay.destination);
+    }
+    add(quotation.data?.destinationSummary);
+    return tokens;
+  }, [quotation.data?.query?.itinerary, quotation.data?.destinationSummary]);
+
+  // Prefill quotation FAQs from the FAQ master based on this quotation's
+  // destination. Runs once when the FAQ list is still empty so saved FAQs are
+  // never overwritten, and a manual "Import FAQs" button stays available.
+  const importMasterFaqs = () => {
+    const master = masterFaqsQuery.data?.data ?? [];
+    if (!master.length) return;
+    const matches = (destinations: string[] | null | undefined) => {
+      if (!destinations?.length) return true;
+      return destinations.some((destination) => {
+        const key = destination.trim().toLowerCase();
+        return [...quotationDestinationTokens].some(
+          (token) => key === token || key.includes(token) || token.includes(key),
+        );
+      });
+    };
+    const rows = master.filter((faq) => matches(faq.destinations));
+    if (!rows.length) return;
+    const current = (form.getValues('faqs') ?? []).map((f) => f.question.trim().toLowerCase());
+    const toAdd = rows.filter(
+      (row) => !current.includes(row.question.trim().toLowerCase()),
+    );
+    if (!toAdd.length) return;
+    toAdd.forEach((row) => faqs.append({ question: row.question, answer: row.answer }));
+    const destNames = [
+      ...new Set(
+        (rows.flatMap((r) => r.destinations ?? []) as string[]).filter(Boolean),
+      ),
+    ];
+    setImportedFaqDestination(destNames.length ? destNames.join(', ') : 'this destination');
+  };
+  useEffect(() => {
+    if (faqPrefillAttemptedRef.current) return;
+    if (!builderVersion) return;
+    if (faqs.fields.length > 0) {
+      faqPrefillAttemptedRef.current = true;
+      return;
+    }
+    if (!masterFaqsQuery.data) return;
+    faqPrefillAttemptedRef.current = true;
+    importMasterFaqs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [builderVersion, faqs.fields.length, masterFaqsQuery.data]);
+
   useEffect(() => {
     const details = builderVersion?.flightDetails;
     const documentIds = details?.images?.length
@@ -4534,18 +4626,35 @@ export function QuotationBuilderPage() {
                 Add useful questions and answers for this quotation. They appear as an accordion on
                 the public weblink. Leave empty if not needed.
               </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => faqs.append({ question: '', answer: '' })}
-              >
-                <Plus className="h-4 w-4" /> Add FAQ
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!masterFaqsQuery.data?.data?.length}
+                  onClick={importMasterFaqs}
+                >
+                  <Plus className="h-4 w-4" /> Import FAQs for destination
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => faqs.append({ question: '', answer: '' })}
+                >
+                  <Plus className="h-4 w-4" /> Add FAQ
+                </Button>
+              </div>
             </div>
+            {importedFaqDestination && (
+              <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                Imported FAQs for {importedFaqDestination}. You can edit or remove them before saving.
+              </p>
+            )}
             {faqs.fields.length === 0 && (
               <p className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-500">
-                No FAQs added yet. Click &quot;Add FAQ&quot; to create one.
+                No FAQs added yet. Click &quot;Add FAQ&quot; or import FAQs for this destination from
+                the FAQ master.
               </p>
             )}
             <div className="space-y-4">
@@ -4868,18 +4977,20 @@ export function QuotationBuilderPage() {
           </div>
         )}
 
-        {/* Settings — Weblink Customization */}
-        {activeTab === 'setting' && (
+        {/* Settings and Destination Expert */}
+        {(activeTab === 'setting' || activeTab === 'destinationExpert') && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
-              <h2 className="text-base font-semibold text-slate-900">Quotation Settings</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Manage the public weblink, destination expert, and final quotation review.
-              </p>
-            </div>
+            {activeTab === 'setting' && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                <h2 className="text-base font-semibold text-slate-900">Quotation Settings</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Manage the public weblink and final quotation review.
+                </p>
+              </div>
+            )}
 
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(22rem,0.92fr)]">
-              <div className="space-y-4">
+            <div className="grid items-start gap-4">
+              {activeTab === 'setting' && <div className="space-y-4">
                 {/* Weblink Settings */}
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                   <h3 className="text-sm font-semibold text-slate-900">Weblink Settings</h3>
@@ -5099,10 +5210,10 @@ export function QuotationBuilderPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </div>}
 
               {/* Destination Expert */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              {activeTab === 'destinationExpert' && <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between xl:flex-col">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">Destination Expert</h3>
@@ -5119,9 +5230,10 @@ export function QuotationBuilderPage() {
                       onChange={(e) => {
                         const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
                         const enabled = e.target.checked;
+                        const currentUserId = user?.id ?? null;
                         let next: Record<string, unknown> = {
                           enabled,
-                          expertUserId: (cur as Record<string, unknown> | null)?.expertUserId ?? null,
+                          expertUserId: currentUserId,
                           heading: (cur as Record<string, unknown> | null)?.heading ?? null,
                           customIntroduction: (cur as Record<string, unknown> | null)?.customIntroduction ?? null,
                           whatsappNumber: (cur as Record<string, unknown> | null)?.whatsappNumber ?? null,
@@ -5150,40 +5262,63 @@ export function QuotationBuilderPage() {
                   <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
                     <label className="block text-sm font-semibold text-slate-800">
                       Expert
-                      <select
-                        className={`${field} mt-1 bg-white`}
-                        value={watchedExpertConfig?.expertUserId ?? ''}
-                        onChange={(e) => {
-                          const newId = e.target.value || null;
+                      <input
+                        className={`${field} mt-1 bg-slate-100`}
+                        value={user?.fullName ?? ''}
+                        disabled
+                        readOnly
+                      />
+                    </label>
+                    <div className="flex items-end gap-2">
+                      <label className="block flex-1 text-sm font-semibold text-slate-800">
+                        Import destination preset
+                        <select
+                          className={`${field} mt-1 bg-white`}
+                          value={selectedPresetId}
+                          onChange={(e) => setSelectedPresetId(e.target.value)}
+                        >
+                          <option value="">Select destination preset</option>
+                          {(destinationExpertPresetsQuery.data ?? []).map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.destination}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={!selectedPresetId}
+                        onClick={() => {
+                          const preset = (destinationExpertPresetsQuery.data ?? []).find((p) => p.id === selectedPresetId);
+                          if (!preset) return;
                           const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
-                          const fallback = getExpertFallback(newId);
-                          const next: Record<string, unknown> = {
-                            ...(cur ?? {}),
-                            expertUserId: newId,
-                          } as Record<string, unknown>;
-                          // Prefill only when field is empty (no explicit override yet)
-                          if (!(cur as Record<string, unknown> | null)?.whatsappNumber && fallback.whatsappNumber) {
-                            next.whatsappNumber = fallback.whatsappNumber;
-                          }
-                          if (!(cur as Record<string, unknown> | null)?.callNumber && fallback.callNumber) {
-                            next.callNumber = fallback.callNumber;
-                          }
-                          if (!(cur as Record<string, unknown> | null)?.email && fallback.email) {
-                            next.email = fallback.email;
-                          }
-                          form.setValue('destinationExpertConfig', next as never, { shouldDirty: true });
+                          form.setValue(
+                            'destinationExpertConfig',
+                            {
+                              ...(cur ?? {}),
+                              enabled: true,
+                              expertUserId: user?.id ?? null,
+                              heading: preset.heading ?? cur?.heading ?? null,
+                              customIntroduction: preset.customIntroduction ?? cur?.customIntroduction ?? null,
+                              whatsappNumber: preset.whatsappNumber ?? null,
+                              callNumber: preset.callNumber ?? null,
+                              email: preset.email ?? null,
+                              showWhatsapp: preset.showWhatsapp,
+                              showCall: preset.showCall,
+                              showEmail: preset.showEmail,
+                              showExperience: preset.showExperience,
+                              showTripsPlanned: preset.showTripsPlanned,
+                              showLanguages: preset.showLanguages,
+                            } as never,
+                            { shouldDirty: true },
+                          );
                         }}
                       >
-                        <option value="">Select expert</option>
-                        {(expertUsersQuery.data?.data ?? []).map(
-                          (u: { id: string; fullName: string }) => (
-                            <option key={u.id} value={u.id}>
-                              {u.fullName}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                    </label>
+                        Import
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-400">Presets are managed in Settings → Destination Expert (per user, per destination).</p>
                     <label className="block text-sm font-semibold text-slate-800">
                       Heading
                       <input
@@ -5302,7 +5437,7 @@ export function QuotationBuilderPage() {
                     </div>
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
           </div>
         )}

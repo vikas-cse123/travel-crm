@@ -4,6 +4,7 @@ import {
   formatItineraryDayTitle,
   hotelStayNights,
   isPublicTaxNote,
+  normalizeFaqs,
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
 } from '@interscale/shared';
@@ -323,9 +324,27 @@ export interface QuotationPdfConsultant {
   email: string | null;
 }
 
+/** Resolved Destination Expert data, mirroring the public weblink payload. */
+export interface QuotationPdfDestinationExpert {
+  fullName: string;
+  heading: string | null;
+  customIntroduction: string | null;
+  whatsappNumber: string | null;
+  callNumber: string | null;
+  email: string | null;
+  jobTitle: string | null;
+  bio: string | null;
+  specialization: string | null;
+  showWhatsapp: boolean;
+  showCall: boolean;
+  showEmail: boolean;
+}
+
 export interface QuotationPdfInput {
   company?: QuotationPdfCompany | null;
   consultant?: QuotationPdfConsultant | null;
+  /** Resolved Destination Expert (server-side), when the quotation enables one. */
+  destinationExpert?: QuotationPdfDestinationExpert | null;
   quotation: {
     quotationNumber: string;
     customerName: string;
@@ -417,6 +436,8 @@ export interface QuotationPdfInput {
     inclusions: Array<{ content: string }>;
     exclusions: Array<{ content: string }>;
     terms: Array<{ content: string }>;
+    /** Quotation FAQs (same data as the public weblink accordion). */
+    faqs?: Array<{ question: string; answer: string }> | null;
   };
   /** Hotel Master presentation fields, aligned to version.hotels. */
   hotelPresentations?: Array<{
@@ -438,6 +459,8 @@ export interface QuotationPdfInput {
     airlines?: Record<string, Img>; // keyed by flight-segment airlineId
     flight?: Img;
     flights?: Array<{ description?: string | null; image: Img; url?: string }>;
+    /** Destination Expert profile photo bytes. */
+    expertProfile?: Img;
   };
 }
 
@@ -2507,6 +2530,139 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         flowBlocks([line], M, CONTENT_W, 10.5, 2, itemBudget).forEach((block) =>
           planner.add(block),
         );
+      });
+    });
+  }
+
+  // ==========================================================================
+  // DESTINATION EXPERT — resolved server-side, same data as the weblink
+  // ==========================================================================
+  const expert = input.destinationExpert;
+  if (expert?.fullName) {
+    planner.pageBreak();
+    planner.add(sectionHeaderBlock('Your Destination Expert'));
+
+    const hasPhoto = Boolean(images.expertProfile);
+    const introLines = htmlToLines(expert.customIntroduction || expert.bio);
+    const textSize = 10.5;
+    const textGap = 2;
+    const imageW = 96;
+    const imageH = 118;
+    // The text column only reserves photo space when a photo was actually
+    // resolved; without one the section renders as clean text (never an
+    // empty image placeholder box).
+    const textLeft = M + (hasPhoto ? imageW + 20 : 0);
+    const rightW = CONTENT_W - (hasPhoto ? imageW + 20 : 0);
+
+    const contactParts: Array<{ label: string; value: string; href: string }> = [];
+    const waDigits = expert.whatsappNumber?.replace(/\D/g, '');
+    const callDigits = expert.callNumber?.replace(/[^+\d]/g, '');
+    if (expert.showWhatsapp !== false && waDigits) {
+      contactParts.push({
+        label: 'WhatsApp',
+        value: expert.whatsappNumber || waDigits,
+        href: `https://wa.me/${waDigits}`,
+      });
+    }
+    if (expert.showCall !== false && callDigits) {
+      contactParts.push({
+        label: 'Call',
+        value: expert.callNumber || callDigits,
+        href: `tel:${callDigits}`,
+      });
+    }
+    if (expert.showEmail !== false && expert.email) {
+      contactParts.push({ label: 'Email', value: expert.email, href: `mailto:${expert.email}` });
+    }
+    // One clickable contact row per present value (WhatsApp/Call/Email).
+    const contactRowH = 14;
+
+    const nameH = 20;
+    const headingH = expert.heading ? 16 : 0;
+
+    // Photo + name + heading as one measured header block. The photo height
+    // participates in the measurement so the reserved block is never shorter
+    // than the image.
+    const headerTextH = nameH + headingH + 4;
+    const headerBlockH = Math.max(hasPhoto ? imageH : 0, headerTextH) + 6;
+    planner.add({
+      height: headerBlockH,
+      render: (y0) => {
+        if (hasPhoto) drawImage(images.expertProfile, M, y0, imageW, imageH, 'EXPERT');
+        let yy = y0 + 2;
+        doc.font('Bold').fontSize(16).fillColor(DARK);
+        doc.text(expert.fullName.toUpperCase(), textLeft, yy, { width: rightW, lineBreak: false });
+        yy += nameH;
+        if (expert.heading) {
+          doc.font('Bold').fontSize(12).fillColor(GREEN);
+          doc.text(expert.heading, textLeft, yy, { width: rightW, lineBreak: false });
+        }
+        doc.fillColor(DARK).font('Body').fontSize(11);
+        return y0 + headerBlockH;
+      },
+    });
+
+    // Introduction flows through the standard splitter so even a very long bio
+    // paginates safely and can never be drawn into the footer area.
+    flowBlocks(introLines, textLeft, rightW, textSize, textGap).forEach((block) =>
+      planner.add(block),
+    );
+
+    if (contactParts.length) {
+      const contactBlockH = contactParts.length * contactRowH + 8;
+      planner.add({
+        height: contactBlockH,
+        render: (y0) => {
+          let yy = y0;
+          for (const part of contactParts) {
+            const labelW = doc.widthOfString(`${part.label}: `);
+            doc.font('Bold').fontSize(10).fillColor(GREEN);
+            doc.text(`${part.label}: `, textLeft, yy, { width: labelW, height: 13, lineBreak: false });
+            doc.font('Body').fontSize(10).fillColor(BLUE);
+            doc.text(part.value, textLeft + labelW, yy, {
+              width: rightW - labelW,
+              height: 13,
+              lineBreak: false,
+              link: part.href,
+            });
+            doc.fillColor(DARK);
+            yy += contactRowH;
+          }
+          doc.font('Body').fontSize(11);
+          return y0 + contactBlockH;
+        },
+      });
+    }
+  }
+
+  // ==========================================================================
+  // FREQUENTLY ASKED QUESTIONS — plain question + answer blocks, not the
+  // weblink accordion. Question is kept with its first answer lines; long
+  // answers paginate via the existing flow-block splitting.
+  // ==========================================================================
+  const faqRows = normalizeFaqs((v as unknown as { faqs?: unknown }).faqs);
+  if (faqRows.length) {
+    if (!expert?.fullName) planner.pageBreak();
+    planner.add(sectionHeaderBlock('Frequently Asked Questions'));
+    faqRows.forEach((faq, index) => {
+      const questionText = `${index + 1}. ${faq.question}`;
+      const qHeight = hOf(questionText, 12, CONTENT_W, 'Bold') + 4;
+      planner.add({
+        height: qHeight,
+        keepWithNext: true,
+        render: (y0) => {
+          doc.font('Bold').fontSize(12).fillColor(GREEN);
+          doc.text(questionText, M, y0, { width: CONTENT_W });
+          doc.fillColor(DARK).font('Body').fontSize(11);
+          return y0 + qHeight;
+        },
+      });
+      flowBlocks(htmlToLines(faq.answer), M, CONTENT_W, 10.5, 3).forEach((block) =>
+        planner.add(block),
+      );
+      planner.add({
+        height: 8,
+        render: (y0) => y0 + 8,
       });
     });
   }

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import sharp from 'sharp';
-import { stripItineraryDayPrefixes } from '@interscale/shared';
+import { stripItineraryDayPrefixes, normalizeFaqs } from '@interscale/shared';
 import {
   colorEmojiPng,
   containsPdfEmoji,
@@ -677,6 +677,56 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       total += lineHeight;
     }
     return total;
+  };
+
+  /**
+   * Pre-wrap rich text lines into single-visual-row lines using exactly the
+   * same wrap conditions as drawRichLines. Callers that chunk content by page
+   * height (FAQs, Destination Expert) must feed it pre-wrapped rows: a single
+   * source paragraph can otherwise be taller than a whole page and can never
+   * be split by the chunker, overflowing into the footer.
+   */
+  const wrapRichLinesToWidth = (
+    lines: PdfRichTextLine[],
+    width: number,
+    size: number,
+    lineFactor = 1.42,
+  ): PdfRichTextLine[] => {
+    const lineHeight = size * lineFactor;
+    const rows: PdfRichTextLine[] = [];
+    let row: PdfRichTextLine = [];
+    let xx = 0;
+    const flushRow = () => {
+      if (row.length) rows.push(row);
+      row = [];
+      xx = 0;
+    };
+    for (const line of lines) {
+      for (const run of line) {
+        for (const part of splitPdfEmojiSequences(run.text)) {
+          if (colorEmojiPng(part)) {
+            if (xx + lineHeight > width && xx > 0) flushRow();
+            row.push({ text: part, bold: false });
+            xx += lineHeight;
+            continue;
+          }
+          const printablePart = containsPdfEmoji(part) ? pdfEmojiFallback(part) : part;
+          doc.font(run.bold ? 'Bold' : 'Body').fontSize(size);
+          for (const word of printablePart.split(/(\s+)/).filter(Boolean)) {
+            const wordWidth = doc.widthOfString(word);
+            const isSpace = /^\s+$/.test(word);
+            if (!isSpace && xx > 0 && xx + wordWidth > width) flushRow();
+            if (isSpace && xx === 0) continue;
+            const previous = row.at(-1);
+            if (previous && previous.bold === run.bold) previous.text += word;
+            else row.push({ text: word, bold: run.bold });
+            xx += wordWidth;
+          }
+        }
+      }
+      flushRow();
+    }
+    return rows;
   };
 
   // Cover ------------------------------------------------------------------
@@ -2025,6 +2075,187 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         }
       }
     }
+  }
+
+  // Destination Expert -----------------------------------------------------
+  const pdfExpert = input.destinationExpert;
+  if (pdfExpert?.fullName) {
+    addContentPage('Destination Expert');
+    const hasPhoto = Boolean(input.images?.expertProfile);
+    const imageW = 120;
+    const imageH = 150;
+    const infoX = M + (hasPhoto ? imageW + 28 : 26);
+    const infoW = CONTENT_W - infoX - M + 20;
+    const introSize = 10;
+    const introFactor = 1.4;
+
+    const contactParts: Array<{ label: string; value: string; href: string }> = [];
+    const waDigits = pdfExpert.whatsappNumber?.replace(/\D/g, '');
+    const callDigits = pdfExpert.callNumber?.replace(/[^+\d]/g, '');
+    if (pdfExpert.showWhatsapp !== false && waDigits)
+      contactParts.push({
+        label: 'WhatsApp',
+        value: pdfExpert.whatsappNumber || waDigits,
+        href: `https://wa.me/${waDigits}`,
+      });
+    if (pdfExpert.showCall !== false && callDigits)
+      contactParts.push({
+        label: 'Call',
+        value: pdfExpert.callNumber || callDigits,
+        href: `tel:${callDigits}`,
+      });
+    if (pdfExpert.showEmail !== false && pdfExpert.email)
+      contactParts.push({
+        label: 'Email',
+        value: pdfExpert.email,
+        href: `mailto:${pdfExpert.email}`,
+      });
+
+    const nameH = 24;
+    const headingH = pdfExpert.heading ? 18 : 0;
+    const contactH = contactParts.length ? contactParts.length * 16 + 4 : 0;
+    const padTop = 26;
+    const padBottom = 24;
+
+    // Split the introduction into page-safe chunks: the first chunk must fit
+    // inside the card together with photo/name/heading/contacts, continuation
+    // chunks flow as plain text on follow-up pages. Lines are pre-wrapped so a
+    // lone oversized paragraph is always splittable and nothing can ever be
+    // drawn below BODY_BOTTOM.
+    const introLines = wrapRichLinesToWidth(
+      htmlToRichTextLines(pdfExpert.customIntroduction || pdfExpert.bio),
+      infoW,
+      introSize,
+      introFactor,
+    );
+    const fixedFirstH = Math.max(
+      padTop + nameH + headingH + contactH + 10,
+      hasPhoto ? imageH + 40 : 0,
+    );
+    const firstBudget = Math.max(60, BODY_BOTTOM - y - fixedFirstH - padBottom);
+    const nextBudget = Math.max(60, BODY_BOTTOM - 133 - 12);
+    const introChunks: ReturnType<typeof htmlToRichTextLines>[] = [];
+    {
+      let current: ReturnType<typeof htmlToRichTextLines> = [];
+      let currentHeight = 0;
+      let budget = firstBudget;
+      for (const line of introLines) {
+        const lineH = measureRichHeight([line], infoW, introSize, introFactor);
+        if (current.length && currentHeight + lineH > budget) {
+          introChunks.push(current);
+          current = [];
+          currentHeight = 0;
+          budget = nextBudget;
+        }
+        current.push(line);
+        currentHeight += lineH;
+      }
+      if (current.length) introChunks.push(current);
+    }
+
+    const deTop = y;
+    const firstChunk = introChunks.shift() ?? [];
+    const firstChunkH = firstChunk.length
+      ? measureRichHeight(firstChunk, infoW, introSize, introFactor)
+      : 0;
+    const cardH =
+      Math.max(hasPhoto ? imageH + 40 : 0, padTop + nameH + headingH + firstChunkH + contactH + 10) +
+      padBottom;
+    rounded(M, deTop, CONTENT_W, cardH, '#ffffff', LINE, 14);
+    if (hasPhoto) {
+      drawImage(input.images?.expertProfile, M + 22, deTop + 20, imageW, imageH, 'cover', 12);
+    }
+    let yy = deTop + padTop;
+    doc.font('Bold').fontSize(18).fillColor(NAVY);
+    doc.text(pdfExpert.fullName.toUpperCase(), infoX, yy, {
+      width: infoW,
+      lineBreak: false,
+    });
+    yy += nameH;
+    if (pdfExpert.heading) {
+      doc.font('Bold').fontSize(12).fillColor(GOLD);
+      doc.text(pdfExpert.heading, infoX, yy, { width: infoW, lineBreak: false });
+      yy += headingH;
+    }
+    if (firstChunk.length) {
+      yy = drawRichLines(firstChunk, infoX, yy, infoW, introSize, INK, introFactor) + 6;
+    }
+    for (const part of contactParts) {
+      doc.font('Bold').fontSize(9.5).fillColor(NAVY);
+      doc.text(`${part.label}: `, infoX, yy, { width: 62, lineBreak: false });
+      doc.font('Body').fontSize(9.5).fillColor(TEAL);
+      doc.text(part.value, infoX + 62, yy, {
+        width: infoW - 62,
+        lineBreak: false,
+        link: part.href,
+      });
+      yy += 16;
+    }
+    doc.fillColor(INK);
+    y = deTop + cardH + 20;
+
+    // Continuation pages for a very long introduction — plain paragraphs under
+    // the same section heading, never inside a half-drawn card.
+    while (introChunks.length) {
+      addContentPage('Destination Expert');
+      const chunk = introChunks.shift()!;
+      y = drawRichLines(chunk, M + 26, y, CONTENT_W - 52, introSize, INK, introFactor) + 12;
+      doc.fillColor(INK);
+    }
+  }
+
+  // Frequently Asked Questions ---------------------------------------------
+  const pdfFaqs = normalizeFaqs((input.version as unknown as { faqs?: unknown }).faqs);
+  if (pdfFaqs.length) {
+    addContentPage('Frequently Asked Questions');
+    const faqSize = 9.5;
+    const faqFactor = 1.38;
+    const faqTextW = CONTENT_W - 64;
+    const faqChunks = (
+      lines: ReturnType<typeof htmlToRichTextLines>,
+      maxHeight: number,
+    ): ReturnType<typeof htmlToRichTextLines>[] => {
+      const chunks: ReturnType<typeof htmlToRichTextLines>[] = [];
+      let current: ReturnType<typeof htmlToRichTextLines> = [];
+      let currentHeight = 0;
+      for (const line of lines) {
+        const lineH = measureRichHeight([line], faqTextW, faqSize, faqFactor);
+        if (current.length && currentHeight + lineH > maxHeight) {
+          chunks.push(current);
+          current = [];
+          currentHeight = 0;
+        }
+        current.push(line);
+        currentHeight += lineH;
+      }
+      if (current.length) chunks.push(current);
+      return chunks;
+    };
+
+    pdfFaqs.forEach((faq, index) => {
+      const questionText = `${index + 1}. ${faq.question}`;
+      const questionH = 20;
+      // Pre-wrap answers into single-row lines first: a lone oversized
+      // paragraph must be splittable across pages, never drawn unsplit.
+      const answerLines = wrapRichLinesToWidth(
+        htmlToRichTextLines(faq.answer),
+        faqTextW,
+        faqSize,
+        faqFactor,
+      );
+      const remaining = faqChunks(answerLines, BODY_BOTTOM - y - questionH - 24);
+      remaining.forEach((chunk, chunkIndex) => {
+        const chunkH = measureRichHeight(chunk, faqTextW, faqSize, faqFactor);
+        if (BODY_BOTTOM - y < questionH + chunkH + 20) addContentPage('Frequently Asked Questions');
+        if (chunkIndex === 0) {
+          doc.font('Bold').fontSize(12).fillColor(NAVY);
+          doc.text(questionText, M + 32, y, { width: faqTextW, lineBreak: false });
+          y += questionH;
+        }
+        y = drawRichLines(chunk, M + 32, y, faqTextW, faqSize, INK, faqFactor) + 12;
+      });
+      y += 8;
+    });
   }
 
   // Thank-you page ---------------------------------------------------------

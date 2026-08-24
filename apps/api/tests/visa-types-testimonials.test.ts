@@ -331,3 +331,82 @@ describe('Phase 21 testimonials master', () => {
     );
   });
 });
+
+describe('Phase 22 FAQ master', () => {
+  async function createFaq(client: Client, overrides: Record<string, unknown> = {}) {
+    return client.post('/api/masters/faqs', {
+      question: 'Is airport transfer included?',
+      answer: 'Yes, a private transfer is included for all travellers.',
+      destinations: ['Singapore', 'Bali'],
+      status: 'ACTIVE',
+      ...overrides,
+    });
+  }
+
+  it('creates, lists, searches, updates and archives FAQs; hides archived from read-only', async () => {
+    const client = await owner();
+    const created = await createFaq(client);
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({
+      question: 'Is airport transfer included?',
+      answer: 'Yes, a private transfer is included for all travellers.',
+      destinations: ['Singapore', 'Bali'],
+      status: 'ACTIVE',
+    });
+    expect(created.body.data).not.toHaveProperty('companyId');
+
+    // No destinations → applies to every destination.
+    await createFaq(client, {
+      question: 'Is visa assistance provided?',
+      answer: 'Yes.',
+      destinations: [],
+    });
+    expect(created.body.data.destinations).toEqual(['Singapore', 'Bali']);
+
+    const list = await client.get(
+      '/api/masters/faqs?page=1&pageSize=10&search=visa&status=ACTIVE',
+    );
+    expect(list.body.data.pagination).toMatchObject({ total: 1 });
+    expect(list.body.data.data[0]).toMatchObject({ question: 'Is visa assistance provided?' });
+
+    // Destination filter matches any attached destination.
+    const bali = await client.get('/api/masters/faqs?destination=Bali&pageSize=10');
+    expect(bali.body.data.data.some((f: { question: string }) => f.question.includes('airport'))).toBe(true);
+
+    const updated = await client.patch(`/api/masters/faqs/${created.body.data.id}`, {
+      answer: 'Updated: transfer included in the package price.',
+      destinations: ['Singapore', 'Phuket'],
+    });
+    expect(updated.body.data.answer).toContain('Updated');
+    expect(updated.body.data.destinations).toEqual(['Singapore', 'Phuket']);
+
+    expect((await client.delete(`/api/masters/faqs/${created.body.data.id}`)).status).toBe(200);
+    expect(
+      await db.faq.count({ where: { id: created.body.data.id, status: 'ARCHIVED' } }),
+    ).toBe(1);
+
+    const actions = (await db.activityLog.findMany()).map((log) => log.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['FAQ_CREATED', 'FAQ_UPDATED', 'FAQ_ARCHIVED']),
+    );
+  });
+
+  it('validates required fields, enforces permissions, and isolates tenants', async () => {
+    const client = await owner();
+    expect((await createFaq(client, { question: '' })).status).toBe(400);
+    expect((await createFaq(client, { answer: '' })).status).toBe(400);
+
+    const viewer = await roleClient('owner@vt.test', 'View Only', 'viewer-faq@vt.test');
+    expect(
+      (await viewer.post('/api/masters/faqs', { question: 'X', answer: 'Y' })).status,
+    ).toBe(403);
+
+    const faq = await createFaq(client);
+    await client.delete(`/api/masters/faqs/${faq.body.data.id}`);
+    const viewerList = await viewer.get('/api/masters/faqs?status=ARCHIVED');
+    expect(viewerList.body.data.data).toHaveLength(0);
+
+    const other = await owner('iso-faq@vt.test', 'Iso Faq');
+    expect((await other.get(`/api/masters/faqs/${faq.body.data.id}`)).status).toBe(404);
+  });
+});

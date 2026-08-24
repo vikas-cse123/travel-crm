@@ -20,6 +20,8 @@ import type {
   TestimonialInput,
   TestimonialUpdateInput,
   TestimonialImageUploadInput,
+  FaqInput,
+  FaqUpdateInput,
   CityInput,
   CityUpdateInput,
   CountryReference,
@@ -1218,6 +1220,67 @@ export async function deleteTestimonialImage(id: string, imageId?: string) {
 }
 export const reorderTestimonialImages = (id: string, imageIds: string[]) =>
   apiClient.patch<Testimonial>(`/masters/testimonials/${id}/images/order`, { imageIds });
+
+// ---------------------------------------------------------------------------
+// FAQs
+// ---------------------------------------------------------------------------
+
+export interface Faq extends MasterVisibilityMeta {
+  id: string;
+  question: string;
+  answer: string;
+  destinations: string[] | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; fullName: string };
+  updatedBy?: { id: string; fullName: string } | null;
+}
+
+const faqKeys = {
+  all: ['masters', 'faqs'] as const,
+  one: (id: string) => ['masters', 'faqs', id] as const,
+};
+export function useFaqs(params = new URLSearchParams()) {
+  const query = masterListQuery(params);
+  return useQuery({
+    queryKey: [...faqKeys.all, query],
+    queryFn: ({ signal }) =>
+      apiClient.get<Page<Faq>>(`/masters/faqs${query ? `?${query}` : ''}`, signal),
+  });
+}
+export function useFaq(id?: string) {
+  return useQuery({
+    queryKey: faqKeys.one(id ?? ''),
+    queryFn: ({ signal }) => apiClient.get<Faq>(`/masters/faqs/${id}`, signal),
+    enabled: Boolean(id),
+  });
+}
+const invalidateFaq = (client: ReturnType<typeof useQueryClient>, id?: string) => {
+  void client.invalidateQueries({ queryKey: faqKeys.all });
+  if (id) void client.invalidateQueries({ queryKey: faqKeys.one(id) });
+};
+export function useCreateFaq() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: FaqInput) => apiClient.post<Faq>('/masters/faqs', input),
+    onSuccess: () => invalidateFaq(client),
+  });
+}
+export function useUpdateFaq(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: FaqUpdateInput) => apiClient.patch<Faq>(`/masters/faqs/${id}`, input),
+    onSuccess: () => invalidateFaq(client, id),
+  });
+}
+export function useArchiveFaq() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<Faq>(`/masters/faqs/${id}`),
+    onSuccess: (_, id) => invalidateFaq(client, id),
+  });
+}
 
 export type MasterImageQueryScope =
   'destinations' | 'hotels' | 'cruises' | 'vehicles' | 'sightseeing' | 'testimonials';

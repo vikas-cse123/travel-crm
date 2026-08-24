@@ -10,6 +10,7 @@ import { sightseeingService } from './sightseeing.service.js';
 import { addOnServicesService } from './add-on-services.service.js';
 import { visaTypesService } from './visa-types.service.js';
 import { testimonialsService } from './testimonials.service.js';
+import { faqsService } from './faqs.service.js';
 
 const auth = (req: Request) => {
   if (!req.auth) throw new UnauthorizedError();
@@ -787,4 +788,27 @@ export const testimonialsController = {
         context(req),
       ),
     ),
+};
+
+export const faqsController = {
+  list: async (req: Request, res: Response) =>
+    sendSuccess(res, await faqsService.list(auth(req), req.query)),
+  details: async (req: Request, res: Response) =>
+    sendSuccess(res, await faqsService.details(auth(req), req.params.faqId!)),
+  create: async (req: Request, res: Response) =>
+    sendSuccess(res, await faqsService.create(auth(req), req.body, context(req)), 'FAQ created.', 201),
+  update: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await faqsService.update(auth(req), req.params.faqId!, req.body, context(req)),
+      'FAQ updated.',
+    ),
+  status: async (req: Request, res: Response) =>
+    sendSuccess(
+      res,
+      await faqsService.status(auth(req), req.params.faqId!, req.body.status, context(req)),
+      'FAQ status updated.',
+    ),
+  archive: async (req: Request, res: Response) =>
+    sendSuccess(res, await faqsService.archive(auth(req), req.params.faqId!, context(req)), 'FAQ archived.'),
 };

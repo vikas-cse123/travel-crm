@@ -420,6 +420,26 @@ export const testimonialImageUploadSchema = z.object({
   fileSize: z.coerce.number().int().positive(),
 });
 
+// ---------------------------------------------------------------------------
+// FAQs
+// ---------------------------------------------------------------------------
+
+const faqBaseSchema = z.object({
+  question: z.string().trim().min(1, 'Question is required.').max(500),
+  answer: z.string().trim().min(1, 'Answer is required.').max(5000),
+  destinations: z
+    .array(z.string().trim().min(1).max(200))
+    .max(50, 'At most 50 destinations can be attached.')
+    .nullable()
+    .optional(),
+  status: z.enum(MASTER_STATUSES).default('ACTIVE'),
+});
+
+export const faqInputSchema = faqBaseSchema;
+export const faqUpdateSchema = faqBaseSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
+
 export const destinationCityAddSchema = z.object({ cityId: z.string().uuid() });
 export const destinationCityReorderSchema = z.object({
   cityIds: z.array(z.string().uuid()).min(1).max(100),
@@ -462,3 +482,5 @@ export type VisaTypeUpdateInput = z.infer<typeof visaTypeUpdateSchema>;
 export type TestimonialInput = z.infer<typeof testimonialInputSchema>;
 export type TestimonialUpdateInput = z.infer<typeof testimonialUpdateSchema>;
 export type TestimonialImageUploadInput = z.infer<typeof testimonialImageUploadSchema>;
+export type FaqInput = z.infer<typeof faqInputSchema>;
+export type FaqUpdateInput = z.infer<typeof faqUpdateSchema>;

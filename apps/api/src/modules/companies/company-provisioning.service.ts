@@ -164,3 +164,44 @@ export async function provisionCompanyDefaults(
 
   return { roleIds, templateIds, ownerRoleId };
 }
+
+/**
+ * Reconcile an existing company's role grants against the current defaults.
+ *
+ * New permissions (e.g. a brand-new master module) ship in `DEFAULT_ROLES` but
+ * an already-registered company never re-runs `provisionCompanyDefaults`. This
+ * lightweight upsert brings the Owner and every default role up to date so the
+ * new capability appears without a re-seed. It only touches role grants — the
+ * permission catalogue rows are ensured separately via `ensurePermissionCatalog`.
+ */
+export async function reconcileRolePermissionsForCompany(
+  companyId: string,
+  client: DbClient = prisma,
+): Promise<void> {
+  const permissions = await client.permission.findMany({
+    select: { id: true, key: true, isAvailable: true },
+  });
+  const permissionIdByKey = new Map(permissions.map((p) => [p.key, p.id]));
+  const availableKeys = permissions.filter((p) => p.isAvailable).map((p) => p.key);
+  if (permissionIdByKey.size === 0) return;
+
+  const roles = await client.role.findMany({
+    where: { companyId },
+    select: { id: true, name: true },
+  });
+
+  for (const definition of DEFAULT_ROLES) {
+    const role = roles.find((row) => row.name === definition.name);
+    if (!role) continue;
+    const keys = definition.permissionKeys === null ? availableKeys : definition.permissionKeys;
+    for (const key of keys) {
+      const permissionId = permissionIdByKey.get(key);
+      if (!permissionId) continue;
+      await client.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId } },
+        update: {},
+        create: { roleId: role.id, permissionId },
+      });
+    }
+  }
+}

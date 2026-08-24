@@ -331,6 +331,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
         permission: PERMISSIONS.MASTER_ADD_ON_SERVICES_VIEW,
         section: NAV_SECTION.MASTERS,
       },
+      {
+        label: 'Destination Experts',
+        to: '/masters/destination-experts',
+        icon: UserRound,
+        available: true,
+        permission: PERMISSIONS.QUOTATIONS_VIEW,
+        section: NAV_SECTION.MASTERS,
+      },
+      {
+        label: 'FAQs',
+        to: '/masters/faqs',
+        icon: FileText,
+        available: true,
+        permission: PERMISSIONS.MASTER_FAQS_VIEW,
+        section: NAV_SECTION.MASTERS,
+      },
       ...(SHOW_VISA_TYPES_MASTER_NAVIGATION
         ? [
             {

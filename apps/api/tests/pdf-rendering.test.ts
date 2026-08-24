@@ -22,6 +22,7 @@ import {
   pdfActivityImageOrCover,
   pdfDayAllowsDestinationFallback,
   renderQuotationPdf,
+  type QuotationPdfDestinationExpert,
 } from '../src/modules/quotations/pdf.service.js';
 import { renderStylishQuotationPdf } from '../src/modules/quotations/stylish-pdf.service.js';
 import { renderBookingConfirmationPdf } from '../src/modules/bookings/booking-pdf.service.js';
@@ -55,7 +56,11 @@ const pageMediaBoxes = (buffer: Buffer): Array<{ width: number; height: number }
 };
 
 /** Word bounding boxes via poppler's pdftotext -bbox (y measured from the top). */
-function wordBoxes(buffer: Buffer): Array<{ text: string; yBottomFromTop: number }> {
+function wordBoxes(buffer: Buffer): Array<{
+  text: string;
+  xMin: number;
+  yBottomFromTop: number;
+}> {
   const bbox = execFileSync('pdftotext', ['-bbox', '-', '-'], {
     input: buffer,
     maxBuffer: 32 * 1024 * 1024,
@@ -64,7 +69,7 @@ function wordBoxes(buffer: Buffer): Array<{ text: string; yBottomFromTop: number
     ...bbox.matchAll(
       /<word[^>]*xMin="([\d.]+)"[^>]*yMin="([\d.]+)"[^>]*xMax="([\d.]+)"[^>]*yMax="([\d.]+)"[^>]*>(.*?)<\/word>/g,
     ),
-  ].map((m) => ({ text: m[5] ?? '', yBottomFromTop: Number(m[4]) }));
+  ].map((m) => ({ text: m[5] ?? '', xMin: Number(m[1]), yBottomFromTop: Number(m[4]) }));
 }
 
 function pageWordBoxes(buffer: Buffer): Array<{
@@ -735,6 +740,12 @@ const baseVersionOverlap = () => ({
 /** 1x1 PNG used to prove images (hero/logo) are embedded without crashing. */
 const PNG_1PX = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/** Distinct 1x1 red PNG so the expert photo is never byte-deduped with the cover. */
+const PNG_1PX_RED = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
   'base64',
 );
 
@@ -2739,5 +2750,327 @@ describe('PDF rendering with long content', () => {
     const imageCount = (raw.match(/\/Subtype\s*\/Image/g) ?? []).length;
     // Three distinct activity images are embedded (no reuse of one image).
     expect(imageCount).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// =============================================================================
+// Destination Expert + Frequently Asked Questions in BOTH quotation PDF styles
+// (same server-resolved data the public weblink uses; sections must render in
+// weblink order — Expert → FAQs → Thank You — and never overlap the footer).
+// =============================================================================
+
+const expertFixture: QuotationPdfDestinationExpert = {
+  fullName: 'Tisha Menon',
+  heading: 'Your Malaysia Destination Expert',
+  customIntroduction:
+    '<p>From planning your itinerary to ensuring a smooth travel experience, I am here to help you make the most of your Malaysia trip.</p>',
+  whatsappNumber: '+919820012345',
+  callNumber: '+919820054321',
+  email: 'tisha@example.test',
+  jobTitle: 'Senior Travel Consultant',
+  bio: null,
+  specialization: 'Malaysia & Singapore',
+  showWhatsapp: true,
+  showCall: true,
+  showEmail: true,
+};
+
+const faqFixture = [
+  {
+    question: 'Is this package suitable for families with children?',
+    answer: '<p>Yes, the itinerary can be planned according to your family preferences.</p>',
+  },
+  {
+    question: 'Can we choose our preferred hotel?',
+    answer: '<p>Absolutely, hotel upgrades are available on request.</p>',
+  },
+];
+
+type ExpertPdfOverrides = {
+  destinationExpert?: typeof expertFixture | null;
+  includeExpertKey?: boolean;
+  faqs?: Array<{ question: string; answer: string }> | null;
+  includeFaqsKey?: boolean;
+  expertProfile?: Buffer;
+};
+
+/** Minimal input with only the fields under test; mirrors an old snapshot. */
+function expertTestInput(overrides: ExpertPdfOverrides = {}) {
+  const version: Record<string, unknown> = { ...baseVersionOverlap() };
+  if (overrides.includeFaqsKey !== false && overrides.faqs !== undefined)
+    version.faqs = overrides.faqs;
+  const input: Record<string, unknown> = {
+    company: footerEmptyCompanyForOverlap(),
+    quotation: quotationOverlap(),
+    version,
+    images: { cover: PNG_1PX },
+  };
+  if (overrides.expertProfile) {
+    (input.images as Record<string, unknown>).expertProfile = overrides.expertProfile;
+  }
+  if (overrides.destinationExpert !== undefined || overrides.includeExpertKey) {
+    input.destinationExpert = overrides.destinationExpert ?? null;
+  }
+  return input as unknown as Parameters<typeof renderStylishQuotationPdf>[0];
+}
+
+describe('Destination Expert and FAQs in both PDF styles', () => {
+  it('renders Destination Expert and FAQs in order before Thank You in both styles', async () => {
+    const input = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: faqFixture,
+    });
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered);
+      // Expert section content.
+      expect(text).toContain('TISHA');
+      expect(text.toLowerCase()).toContain('your malaysia destination expert');
+      expect(text).toContain('ensuring a smooth travel experience');
+      expect(text).toContain('Malaysia trip.');
+      // Contact rows with clickable values.
+      expect(text).toContain('+919820012345');
+      expect(text).toContain('+919820054321');
+      expect(text).toContain('tisha@example.test');
+      // FAQ section content, numbered, in order.
+      expect(text.toLowerCase()).toContain('frequently asked questions');
+      expect(text).toContain('Is this package suitable for families with children?');
+      expect(text).toContain('planned according to your family preferences');
+      expect(text).toContain('Can we choose our preferred hotel?');
+      expect(text).toContain('hotel upgrades are available on request');
+      // Answers are rendered as clean text, never as raw HTML.
+      expect(text).not.toContain('<p>');
+      expect(text).not.toContain('<li>');
+      const lower = text.toLowerCase();
+      const expertAt = lower.indexOf('your malaysia destination expert');
+      const faqAt = lower.indexOf('frequently asked questions');
+      const q1At = text.indexOf('Is this package suitable for families');
+      const q2At = text.indexOf('Can we choose our preferred hotel?');
+      const thankAt = text.search(/thank\s+you/i);
+      expect(expertAt).toBeGreaterThanOrEqual(0);
+      expect(faqAt).toBeGreaterThan(expertAt);
+      expect(q1At).toBeGreaterThan(faqAt);
+      expect(q2At).toBeGreaterThan(q1At);
+      // Thank You remains the final intended page.
+      const pages = pageCount(rendered);
+      expect(pages).toBeGreaterThan(1);
+      expect(pdfTextPage(rendered, pages)).toMatch(/THANK\s+YOU/i);
+      expect(thankAt).toBeGreaterThan(q2At);
+    }
+  });
+
+  it('embeds the expert profile photo in both styles', async () => {
+    const input = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: null,
+      expertProfile: PNG_1PX_RED,
+    });
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const imageObjects = rendered.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? [];
+      // Cover image plus the resolved expert profile photo.
+      expect(imageObjects.length).toBeGreaterThanOrEqual(2);
+      expect(pdfText(rendered)).toContain('TISHA');
+    }
+  });
+
+  it('omits the expert image cleanly when no photo was resolved (no placeholder box)', async () => {
+    const withoutPhoto = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: null,
+    });
+    const withPhoto = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: null,
+      expertProfile: PNG_1PX_RED,
+    });
+    for (const [style, rendered, photoRendered] of [
+      ['classic', await renderQuotationPdf(withoutPhoto), await renderQuotationPdf(withPhoto)],
+      [
+        'stylish',
+        await renderStylishQuotationPdf(withoutPhoto),
+        await renderStylishQuotationPdf(withPhoto),
+      ],
+    ] as const) {
+      const countImages = (buffer: Buffer) =>
+        (buffer.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length;
+      // Adding the resolved profile photo embeds exactly one more image; the
+      // no-photo render must not invent a placeholder image box.
+      expect(countImages(photoRendered)).toBe(countImages(rendered) + 1);
+      const text = pdfText(rendered);
+      expect(text).toContain('TISHA');
+      if (style === 'classic') {
+        // Without a photo the classic style must not reserve a photo column:
+        // the intro's first word starts at the page's left margin.
+        const introWord = wordBoxes(rendered).find((word) => word.text === 'From');
+        expect(introWord).toBeDefined();
+        expect(introWord!.xMin).toBeLessThan(50);
+      }
+    }
+  });
+
+  it('hides expert contact rows whose values are empty or toggled off', async () => {
+    const input = expertTestInput({
+      destinationExpert: {
+        ...expertFixture,
+        whatsappNumber: null,
+        callNumber: null,
+        email: null,
+        showWhatsapp: false,
+        showCall: false,
+        showEmail: false,
+      },
+      includeExpertKey: true,
+      faqs: null,
+    });
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered);
+      expect(text).toContain('TISHA');
+      expect(text).not.toContain('9820012345');
+      expect(text).not.toContain('9820054321');
+      expect(text).not.toContain('tisha@example.test');
+    }
+  });
+
+  it('hides the whole FAQ section when there are no FAQs', async () => {
+    const input = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: [],
+    });
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered).toLowerCase();
+      expect(text).not.toContain('frequently asked questions');
+      expect(text).toContain('tisha');
+      // Invalid FAQ rows (empty question/answer) are dropped too.
+    }
+    const invalidInput = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: [
+        { question: '', answer: 'orphan answer' },
+        { question: 'Orphan question', answer: '' },
+      ],
+    });
+    for (const rendered of [
+      await renderQuotationPdf(invalidInput),
+      await renderStylishQuotationPdf(invalidInput),
+    ]) {
+      const text = pdfText(rendered);
+      expect(text.toLowerCase()).not.toContain('frequently asked questions');
+      expect(text).not.toContain('orphan answer');
+      expect(text).not.toContain('Orphan question');
+    }
+  });
+
+  it('keeps long FAQ answers fully rendered, paginated and out of the footer zone', async () => {
+    const sentence =
+      'Refund conditions remain documented for every traveller and every unused service. ';
+    const longAnswer = `<p>${Array.from(
+      { length: 45 },
+      (_, i) => `FAQDETAIL${String(i + 1).padStart(2, '0')} ${sentence}`,
+    ).join('')}</p>`;
+    const input = expertTestInput({
+      destinationExpert: expertFixture,
+      includeExpertKey: true,
+      faqs: [
+        ...faqFixture,
+        { question: 'What is the cancellation policy?', answer: longAnswer },
+      ],
+    });
+    for (const [style, rendered] of [
+      ['classic', await renderQuotationPdf(input)],
+      ['stylish', await renderStylishQuotationPdf(input)],
+    ] as const) {
+      const text = pdfText(rendered);
+      // Every marker survives pagination — nothing is clipped or dropped.
+      for (let i = 1; i <= 45; i += 1) {
+        expect(text).toContain(`FAQDETAIL${String(i).padStart(2, '0')}`);
+      }
+      expect(pageCount(rendered)).toBeGreaterThan(3);
+      // No FAQ body word may enter the reserved footer area of any page.
+      const footerTop =
+        style === 'classic'
+          ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT
+          : 756; // stylish BODY_BOTTOM
+      const offender = wordBoxes(rendered).find(
+        (word) =>
+          word.text.startsWith('FAQDETAIL') &&
+          word.yBottomFromTop > footerTop &&
+          !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
+      );
+      expect(offender).toBeUndefined();
+    }
+  });
+
+  it('keeps a very long expert introduction paginated and out of the footer zone', async () => {
+    const sentence =
+      'I personally double-check every booking detail, transfer timing and hotel allocation. ';
+    const longIntro = `<p>${Array.from(
+      { length: 90 },
+      (_, i) => `EXPERTDETAIL${String(i + 1).padStart(2, '0')} ${sentence}`,
+    ).join('')}</p>`;
+    const input = expertTestInput({
+      destinationExpert: { ...expertFixture, customIntroduction: longIntro },
+      includeExpertKey: true,
+      faqs: faqFixture,
+    });
+    for (const [style, rendered] of [
+      ['classic', await renderQuotationPdf(input)],
+      ['stylish', await renderStylishQuotationPdf(input)],
+    ] as const) {
+      const text = pdfText(rendered);
+      for (let i = 1; i <= 90; i += 1) {
+        expect(text).toContain(`EXPERTDETAIL${String(i).padStart(2, '0')}`);
+      }
+      const footerTop =
+        style === 'classic'
+          ? PDF_PAGE_HEIGHT - PDF_BOTTOM_MARGIN - PDF_FOOTER_HEIGHT
+          : 756; // stylish BODY_BOTTOM
+      const offender = wordBoxes(rendered).find(
+        (word) =>
+          word.text.startsWith('EXPERTDETAIL') &&
+          word.yBottomFromTop > footerTop &&
+          !/^(Page|\d+\/\d+)$/.test(word.text.trim()),
+      );
+      expect(offender).toBeUndefined();
+      // Thank You still closes the document.
+      expect(pdfTextPage(rendered, pageCount(rendered))).toMatch(/THANK\s+YOU/i);
+    }
+  });
+
+  it('renders older snapshots without expert/FAQ data without junk or extra pages', async () => {
+    // Neither key present at all — exactly what pre-feature snapshots look like.
+    const input = expertTestInput({});
+    for (const rendered of [
+      await renderQuotationPdf(input),
+      await renderStylishQuotationPdf(input),
+    ]) {
+      const text = pdfText(rendered);
+      expect(isPdf(rendered)).toBe(true);
+      expect(text.toLowerCase()).not.toContain('destination expert');
+      expect(text.toLowerCase()).not.toContain('frequently asked questions');
+      expect(text).not.toContain('undefined');
+      expect(text).not.toContain('null');
+      // No trailing blank page: the last physical page carries the Thank You.
+      const pages = pageWordBoxes(rendered);
+      expect(pages.length).toBe(pageCount(rendered));
+      expect(pdfTextPage(rendered, pages.length)).toMatch(/THANK\s+YOU/i);
+      expect(pages[pages.length - 1]!.words.length).toBeGreaterThan(0);
+    }
   });
 });
