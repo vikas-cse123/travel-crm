@@ -433,6 +433,132 @@ export interface HotelSearchResponse {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Hotel property details — engine=google_hotels_property
+// ---------------------------------------------------------------------------
+
+/**
+ * Query schema for GET /api/search/hotels/property.
+ *
+ * Mirrors SearchApi's official google_hotels_property parameters: the
+ * `property_token` comes from a google_hotels search result and the stay
+ * context (dates/guests/currency/locale) is re-sent so offers match the
+ * requested dates and occupancy.
+ */
+export const hotelPropertyQuerySchema = z
+  .object({
+    property_token: z.string().trim().min(1, 'A property_token is required.').max(500),
+    check_in_date: searchDate,
+    check_out_date: searchDate,
+    /** Provider maximum for hotels is 6 guests including children. */
+    adults: z.coerce.number().int().min(1).max(6).default(2),
+    /** Comma-separated child ages 1–17, e.g. "2,5". Optional. */
+    children_ages: z
+      .string()
+      .trim()
+      .regex(/^\d{1,2}(,\d{1,2})*$/, 'children_ages must be comma-separated ages between 1 and 17.')
+      .refine(
+        (value) => value.split(',').every((age) => Number(age) >= 1 && Number(age) <= 17),
+        { message: 'Child ages must be between 1 and 17.' },
+      )
+      .optional(),
+    currency: z.string().trim().length(3).toUpperCase().default('INR'),
+    /**
+     * NO default on purpose: the property engine accepts only some Google
+     * Travel locales (`en-US`/`en-GB` pass; `en`, `en-IN` are rejected with
+     * 400 "Unsupported value … in hl parameter"). Omitting `hl` lets the
+     * provider apply its own locale while still honoring `currency`/`gl`.
+     * If a caller sends an unsupported value the backend retries once without it.
+     */
+    hl: z.string().trim().min(2).max(10).optional(),
+    gl: z.string().trim().min(2).max(5).default('in'),
+    free_cancellation: z.enum(['true', 'false']).optional(),
+  })
+  .refine((data) => data.check_out_date > data.check_in_date, {
+    path: ['check_out_date'],
+    message: 'Check-out date must be after the check-in date.',
+  });
+
+export type HotelPropertyQuery = z.infer<typeof hotelPropertyQuerySchema>;
+
+/** One bookable room inside an offer's `rooms` array (official field names). */
+export interface SearchApiRoomOffer {
+  name?: string;
+  link?: string;
+  num_guests?: number;
+  price_per_night?: SearchApiPrice;
+  total_price?: SearchApiPrice;
+  /** Human-readable room summary the provider sometimes returns. */
+  description?: string;
+  /** e.g. [{ count: 1, type: 'double' }] */
+  beds?: Array<{ count?: number; type?: string }>;
+  /** Room-level amenities ONLY when the provider returns them for this room. */
+  amenities?: string[];
+  has_free_cancellation?: boolean;
+  free_cancellation_until?: { date?: string; time?: string };
+}
+
+/**
+ * One supplier offer on a property (`featured_offers[]` / `all_offers[]`
+ * entries of the google_hotels_property response).
+ */
+export interface SearchApiPropertyOffer {
+  source?: string;
+  tracking_link?: string;
+  link?: string;
+  logo?: string;
+  is_official?: boolean;
+  remarks?: string[];
+  num_guests?: number;
+  price_per_night?: SearchApiPrice;
+  total_price?: SearchApiPrice;
+  has_free_cancellation?: boolean;
+  free_cancellation_until?: { date?: string; time?: string };
+  rooms?: SearchApiRoomOffer[];
+}
+
+/** The `property` object returned by engine=google_hotels_property. */
+export interface SearchApiHotelPropertyDetails {
+  type?: string;
+  property_token?: string;
+  data_id?: string;
+  name?: string;
+  link?: string;
+  description?: string;
+  address?: string;
+  phone?: string;
+  phone_link?: string;
+  gps_coordinates?: { latitude?: number; longitude?: number };
+  country?: string;
+  check_in_time?: string;
+  check_out_time?: string;
+  price_per_night?: SearchApiPrice;
+  total_price?: SearchApiPrice;
+  nearby_places?: SearchApiNearbyPlace[];
+  hotel_class?: string;
+  extracted_hotel_class?: number;
+  images?: SearchApiImage[];
+  rating?: number;
+  reviews?: number;
+  amenities?: string[];
+  excluded_amenities?: string[];
+  essential_info?: string[];
+  location_rating?: number;
+  featured_offers?: SearchApiPropertyOffer[];
+  all_offers?: SearchApiPropertyOffer[];
+}
+
+/** Raw response body returned by SearchApi for engine=google_hotels_property. */
+export interface HotelPropertyResponse {
+  property?: SearchApiHotelPropertyDetails;
+  search_metadata?: Record<string, unknown>;
+  search_parameters?: Record<string, unknown>;
+  people_also_viewed?: SearchApiHotelProperty[];
+  vacation_rentals_nearby?: SearchApiHotelProperty[];
+  top_things_to_know?: Array<{ title?: string; link?: string; review?: Record<string, unknown> }>;
+  error?: string;
+}
+
 /** Generic metadata wrapper the API returns for any live search. */
 export interface SearchApiMetadata {
   id?: string;
@@ -608,6 +734,33 @@ export interface FlightBookmarkSnapshot {
   passengerAssistanceUrl?: string | null;
 }
 
+/**
+ * The room/offer a user explicitly selected from a property's room list
+ * (Google Hotels Property API). Stored inside the bookmark snapshot so the
+ * quotation renders entirely from the DB — never requires another SearchAPI
+ * call. Every field is optional: offers omit fields they do not carry.
+ */
+export interface HotelRoomSelection {
+  roomName?: string | null;
+  /** Supplier / source, e.g. "Hotels.com" or the hotel's official site. */
+  supplier?: string | null;
+  supplierLogo?: string | null;
+  isOfficial?: boolean;
+  /** Booking / offer link when the provider returned one. */
+  offerLink?: string | null;
+  guests?: number | null;
+  pricePerNight?: number | null;
+  totalPrice?: number | null;
+  pricePerNightBeforeTaxes?: number | null;
+  totalPriceBeforeTaxes?: number | null;
+  freeCancellation?: boolean;
+  freeCancellationUntil?: { date?: string; time?: string } | null;
+  /** Room-level details preserved from the Property API snapshot. */
+  roomDescription?: string | null;
+  beds?: Array<{ count?: number; type?: string }> | null;
+  roomAmenities?: string[] | null;
+}
+
 /** Normalized display snapshot for a hotel bookmark. */
 export interface HotelBookmarkSnapshot {
   name: string;
@@ -638,6 +791,13 @@ export interface HotelBookmarkSnapshot {
   reviewsBreakdown?: SearchApiReviewBreakdown[];
   coordinates?: { latitude: number; longitude: number } | null;
   providerLink?: string | null;
+  address?: string | null;
+  /** Hotel master id this property was attached to (room bookmarks only). */
+  hotelId?: string | null;
+  /** Room-type master id created under `hotelId` (room bookmarks only). */
+  roomTypeId?: string | null;
+  /** Present only when the bookmark was saved from a specific room offer. */
+  selectedRoom?: HotelRoomSelection | null;
 }
 
 /** The full snapshot stored on a bookmark: normalized + original provider data. */

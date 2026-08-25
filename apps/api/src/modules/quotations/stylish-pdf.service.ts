@@ -2350,21 +2350,70 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     sectionDrawers[id]?.();
   }
 
-  // Price Breakdown — section-wise pricing (only when mode is SECTION_WISE)
+  // Price Breakdown — professional premium pricing (By Section / By Traveler)
   {
+    const pricingHeading =
+      (input.version as { pricingHeading?: string }).pricingHeading || 'Price Breakdown';
+    const pricingSubheading =
+      (input.version as { pricingSubheading?: string | null }).pricingSubheading || null;
+    const pricingOrder = Array.isArray(
+      (input.version as { pricingDisplayOrder?: unknown }).pricingDisplayOrder,
+    )
+      ? ((input.version as { pricingDisplayOrder?: unknown }).pricingDisplayOrder as string[])
+      : null;
+    const orderedSections = pricingOrder
+      ? [...pricing.sections].sort((a, b) => {
+          const ia = pricingOrder.indexOf(a.id);
+          const ib = pricingOrder.indexOf(b.id);
+          return (ia < 0 ? pricingOrder.length : ia) - (ib < 0 ? pricingOrder.length : ib);
+        })
+      : pricing.sections;
+    addContentPage(pricingHeading);
+    if (pricingSubheading) {
+      doc.font('Body').fontSize(9).fillColor(GOLD).text(pricingSubheading, M + 21, y, { width: CONTENT_W - 42 });
+      y += 15;
+    }
+    const amountW = 150;
+    const labelX = M + 21;
+    const amountX = M + CONTENT_W - 21 - amountW;
     if (pricing.pricingMode === 'SECTION_WISE') {
-      addContentPage('Section-wise Pricing');
-      const breakdownSections = pricing.sections.filter((s) => s.amount > 0);
-      for (const section of breakdownSections) {
-        const text = `${section.label}: ${money(section.amount, pricing.currency)}`;
-        if (y + 18 > bodyBottom()) addContentPage('Section-wise Pricing');
-        doc.font('Body').fontSize(10).fillColor(INK).text(text, M + 21, y, { width: CONTENT_W - 42 });
-        y += 14;
+      for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+        doc.font('Body').fontSize(10).fillColor(INK).text(section.label, labelX, y, { width: CONTENT_W - 42 - amountW });
+        doc.font('Bold').fontSize(10).fillColor(INK).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+        y += 16;
       }
-      const totalText = `Grand Total: ${money(pricing.sectionTotal, pricing.currency)}`;
-      if (y + 20 > bodyBottom()) addContentPage('Section-wise Pricing');
-      doc.font('Bold').fontSize(12).fillColor(NAVY).text(totalText, M + 21, y, { width: CONTENT_W - 42 });
-      y += 18;
+      if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(pricing.sectionTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+      y += 22;
+    } else {
+      const rows = (
+        [
+          ['Adults', Number(input.quotation.adults ?? 0), Number(input.version.perAdultPrice ?? 0)],
+          ['Children With Bed', Number(input.quotation.childrenWithBed ?? 0), Number(input.version.perChildWithBedPrice ?? 0)],
+          ['Children Without Bed', Number(input.quotation.childrenWithoutBed ?? 0), Number(input.version.perChildWithoutBedPrice ?? 0)],
+          ['Infants', Number(input.quotation.infants ?? 0), Number(input.version.perInfantPrice ?? 0)],
+        ] as const
+      ).filter(([, count, price]) => count > 0 && price > 0);
+      for (const [label, count, price] of rows) {
+        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+        doc.font('Body').fontSize(10).fillColor(INK).text(
+          `${label} — ${count} traveler${count === 1 ? '' : 's'} × ${money(price, pricing.currency)}`,
+          labelX, y, { width: CONTENT_W - 42 - amountW },
+        );
+        doc.font('Bold').fontSize(10).fillColor(INK).text(money(price * count, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+        y += 16;
+      }
+      const travelers = Number(input.quotation.adults ?? 0) + Number(input.quotation.childrenWithBed ?? 0) + Number(input.quotation.childrenWithoutBed ?? 0) + Number(input.quotation.infants ?? 0);
+      if (y + 22 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Body').fontSize(10).fillColor(INK).text(`Total Travelers: ${travelers}`, labelX, y, { width: CONTENT_W - 42 - amountW });
+      y += 14;
+      if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
+      const packageTotal = Number(input.version.finalAmount ?? 0) > 0 ? Number(input.version.finalAmount ?? 0) : pricing.packageTotal;
+      doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(packageTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+      y += 22;
     }
   }
 

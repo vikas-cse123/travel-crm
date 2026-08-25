@@ -401,7 +401,10 @@ const defaults: QuotationVersionInput = {
   travelStartDate: null,
   travelEndDate: null,
   currency: 'INR',
-  pricingMode: 'TOTAL',
+  pricingMode: 'PER_PERSON',
+  pricingHeading: 'Price Breakdown',
+  pricingSubheading: null,
+  pricingDisplayOrder: undefined,
   markupMode: 'NONE',
   markupValue: 0,
   taxRate: 0,
@@ -1060,6 +1063,19 @@ function PersistInitialQuotationSnapshot({
   return null;
 }
 
+
+/** Canonical pricing-category order and their customer-facing labels. */
+const PRICING_SECTION_LABELS: Record<string, string> = {
+  flight: 'Flights',
+  hotel: 'Hotels',
+  cruise: 'Cruise',
+  vehicle: 'Transportation',
+  sightseeing: 'Sightseeing',
+  addon: 'Add-ons',
+  visa: 'Visa',
+};
+const DEFAULT_PRICING_ORDER = Object.keys(PRICING_SECTION_LABELS);
+
 export function QuotationBuilderPage() {
   const { quotationId = '', versionId = '' } = useParams();
   const navigate = useNavigate();
@@ -1698,6 +1714,12 @@ export function QuotationBuilderPage() {
       travelEndDate: version.travelEndDate ? new Date(version.travelEndDate) : null,
       currency: version.currency,
       pricingMode: normalizePricingMode(version.pricingMode) as QuotationVersionInput['pricingMode'],
+      pricingHeading: version.pricingHeading ?? 'Price Breakdown',
+      pricingSubheading: version.pricingSubheading ?? null,
+      pricingDisplayOrder:
+        Array.isArray((version as { pricingDisplayOrder?: unknown }).pricingDisplayOrder)
+          ? ((version as { pricingDisplayOrder?: unknown }).pricingDisplayOrder as string[])
+          : undefined,
       markupMode: version.markupMode as QuotationVersionInput['markupMode'],
       markupValue: Number(version.markupValue),
       taxRate: Number(version.taxRate),
@@ -4878,16 +4900,120 @@ export function QuotationBuilderPage() {
           <div className="space-y-5">
             <section className="overflow-hidden rounded-xl border">
               <div className="bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-3 font-semibold text-white">
-                Package Pricing
+                Pricing
               </div>
               <div className="space-y-5 p-5">
+                <fieldset>
+                  <legend className="text-sm font-semibold text-slate-800">Pricing Method</legend>
+                  <div className="mt-2 flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        value="SECTION_WISE"
+                        {...form.register('pricingMode')}
+                        className="h-4 w-4 text-brand-700"
+                      />
+                      By Section
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        value="PER_PERSON"
+                        {...form.register('pricingMode')}
+                        className="h-4 w-4 text-brand-700"
+                      />
+                      By Traveler
+                    </label>
+                  </div>
+                </fieldset>
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
-                  Pricing Mode
-                  <select aria-label="Pricing mode" {...form.register('pricingMode')} className={`${field} mt-1`}>
-                    <option value="TOTAL">Total Pricing</option>
-                    <option value="SECTION_WISE">Section-wise Pricing</option>
-                  </select>
+                  Pricing Heading
+                  <input
+                    aria-label="Pricing heading"
+                    placeholder="Price Breakdown"
+                    {...form.register('pricingHeading')}
+                    className={`${field} mt-1`}
+                  />
                 </label>
+                <label className="block max-w-sm text-sm font-semibold text-slate-800">
+                  Pricing Subheading
+                  <input
+                    aria-label="Pricing subheading"
+                    placeholder="Optional"
+                    {...form.register('pricingSubheading')}
+                    className={`${field} mt-1`}
+                  />
+                </label>
+                <div className="max-w-md">
+                  <p className="text-sm font-semibold text-slate-800">Pricing Display Order</p>
+                  <p className="text-xs text-slate-500">
+                    The order used on the customer Weblink and PDF.
+                  </p>
+                  <ol className="mt-2 space-y-1">
+                    {(form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER).map(
+                      (id: string, index: number, arr: string[]) => {
+                      const label = PRICING_SECTION_LABELS[id] ?? id;
+                      return (
+                        <li
+                          key={id}
+                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
+                        >
+                          <span className="font-medium text-slate-700">{label}</span>
+                          <span className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label={`Move ${label} up`}
+                              disabled={index === 0}
+                              onClick={() => {
+                                const next = (
+                                  form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
+                                ).slice() as string[];
+                                const j = index - 1;
+                                if (j < 0 || j >= next.length) return;
+                                const removed = next.splice(index, 1)[0]!;
+                                next.splice(j, 0, removed);
+                                form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
+                              }}
+                              className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Move ${label} down`}
+                              disabled={index === arr.length - 1}
+                              onClick={() => {
+                                const next = (
+                                  form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
+                                ).slice() as string[];
+                                const j = index + 1;
+                                if (j < 0 || j >= next.length) return;
+                                const removed = next.splice(index, 1)[0]!;
+                                next.splice(j, 0, removed);
+                                form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
+                              }}
+                              className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                            >
+                              ↓
+                            </button>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      form.setValue('pricingDisplayOrder', DEFAULT_PRICING_ORDER, { shouldDirty: true })
+                    }
+                    className="mt-2 text-xs font-medium text-brand-700 hover:underline"
+                  >
+                    Reset order
+                  </button>
+                </div>
+                <p className="max-w-sm text-xs text-slate-500">
+                  The heading and pricing method will be used on the customer Weblink and PDF.
+                </p>
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
                   Currency <span className="text-red-500">*</span>
                   <select
@@ -5164,8 +5290,13 @@ export function QuotationBuilderPage() {
             const isSectionWise = pricing.pricingMode === 'SECTION_WISE';
             const destExpertEnabled =
               (watchedExpertConfig as { enabled?: boolean } | null)?.enabled === true;
+            const order = form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER;
             const sections: Array<{ id: string; label: string; amount: number }> = [
-              ...pricing.sections,
+              ...[...pricing.sections].sort((a, b) => {
+                const ia = order.indexOf(a.id);
+                const ib = order.indexOf(b.id);
+                return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib);
+              }),
               ...(destExpertEnabled
                 ? [{ id: 'destinationExpert', label: 'Destination Expert', amount: 0 }]
                 : []),
@@ -5185,31 +5316,72 @@ export function QuotationBuilderPage() {
                   <div className="bg-gradient-to-r from-brand-700 to-blue-600 px-5 py-3 font-semibold text-white">
                     Pricing Breakdown
                     <span className="ml-2 text-sm font-normal text-white/80">
-                      {isSectionWise ? 'Section-wise' : 'Total'} pricing
+                      {isSectionWise ? 'By Section' : 'By Traveler'}
                     </span>
                   </div>
                   <div className="p-5">
-                    <div className="overflow-hidden rounded-xl border bg-card">
-                      <div className="divide-y">
-                        {sections.map((section) => (
-                          <div
-                            key={section.id}
-                            className="flex items-center justify-between px-4 py-2.5 text-sm"
-                          >
-                            <span className="font-medium text-slate-700">{section.label}</span>
-                            <span className="text-slate-900">
-                              {section.id === 'destinationExpert' && section.amount === 0
-                                ? '—'
-                                : formatMoney(section.amount)}
-                            </span>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {form.watch('pricingHeading') || 'Price Breakdown'}
+                    </p>
+                    {form.watch('pricingSubheading') ? (
+                      <p className="mt-0.5 text-sm text-slate-500">{form.watch('pricingSubheading')}</p>
+                    ) : null}
+                    {isSectionWise ? (
+                      <div className="overflow-hidden rounded-xl border bg-card">
+                        <div className="divide-y">
+                          {sections.map((section) => (
+                            <div
+                              key={section.id}
+                              className="flex items-center justify-between px-4 py-2.5 text-sm"
+                            >
+                              <span className="font-medium text-slate-700">{section.label}</span>
+                              <span className="text-slate-900">
+                                {section.id === 'destinationExpert' && section.amount === 0
+                                  ? '—'
+                                  : formatMoney(section.amount)}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
+                            <span>Grand Total</span>
+                            <span>{formatMoney(grandTotal)}</span>
                           </div>
-                        ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 rounded-xl border bg-card p-4 text-sm">
+                        <p className="font-semibold text-slate-900">Per-Person Pricing</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">Number of Travelers</span>
+                          <span className="font-semibold text-slate-900">
+                            {pax.adults + pax.cwb + pax.cwob + pax.infants}
+                          </span>
+                        </div>
+                        {(
+                          [
+                            ['Adult', pax.adults, perPax.adult],
+                            ['Child with Bed', pax.cwb, perPax.cwb],
+                            ['Child without Bed', pax.cwob, perPax.cwob],
+                            ['Infant', pax.infants, perPax.infant],
+                          ] as const
+                        )
+                          .filter(([, count, price]) => count > 0 && Number(price) > 0)
+                          .map(([label, count, price]) => (
+                            <div key={label} className="flex items-center justify-between">
+                              <span className="text-slate-600">
+                                {label} ({count})
+                              </span>
+                              <span className="font-medium text-slate-900">
+                                {formatMoney(Number(price))}
+                              </span>
+                            </div>
+                          ))}
                         <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
-                          <span>Grand Total</span>
+                          <span>Total Package Price</span>
                           <span>{formatMoney(grandTotal)}</span>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </section>
               </div>
@@ -5470,7 +5642,7 @@ export function QuotationBuilderPage() {
                         const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
                         const enabled = e.target.checked;
                         const currentUserId = user?.id ?? null;
-                        let next: Record<string, unknown> = {
+                        const next: Record<string, unknown> = {
                           enabled,
                           expertUserId: currentUserId,
                           heading: (cur as Record<string, unknown> | null)?.heading ?? null,

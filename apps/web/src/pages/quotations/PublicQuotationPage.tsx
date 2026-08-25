@@ -2155,13 +2155,20 @@ export function PublicQuotationPage() {
               {taxNoteText && (
                 <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
               )}
-              {pricing.pricingMode !== 'SECTION_WISE' && perPaxLines.length > 0 && (
+              {pricing.pricingMode !== 'SECTION_WISE' && (
                 <div className="mt-3 space-y-1 text-center text-sm text-white/90">
-                  {perPaxLines.map(([count, singular, plural, price]) => (
-                    <p key={plural}>
-                      {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
-                    </p>
-                  ))}
+                  {perPaxLines.length > 0 ? (
+                    <>
+                      <p className="text-xs font-medium uppercase tracking-wide text-white/70">
+                        Price Per Person
+                      </p>
+                      {perPaxLines.map(([count, singular, plural, price]) => (
+                        <p key={plural}>
+                          {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
+                        </p>
+                      ))}
+                    </>
+                  ) : null}
                 </div>
               )}
               {company.phone && (
@@ -2175,25 +2182,79 @@ export function PublicQuotationPage() {
             </div>
           </section>
 
-          {pricing.pricingMode === 'SECTION_WISE' && (
-            <section className="rounded-xl border bg-card p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-800">Section-wise Price Breakdown</h2>
-              <div className="mt-4 space-y-3">
-                {pricing.sections
-                  .filter((s) => s.amount > 0)
-                  .map((s) => (
-                    <div key={s.id} className="flex justify-between text-sm">
-                      <span className="text-slate-600">{s.label}</span>
-                      <span className="font-medium text-slate-800">{fmt(s.amount)}</span>
+          {(() => {
+            const pricingHeading = v.pricingHeading || 'Price Breakdown';
+            const pricingSubheading = v.pricingSubheading?.trim() || null;
+            const pricingOrder = Array.isArray(
+              (v as { pricingDisplayOrder?: unknown }).pricingDisplayOrder,
+            )
+              ? ((v as { pricingDisplayOrder?: unknown }).pricingDisplayOrder as string[])
+              : null;
+            const orderedSections = pricingOrder
+              ? [...pricing.sections].sort((a, b) => {
+                  const ia = pricingOrder.indexOf(a.id);
+                  const ib = pricingOrder.indexOf(b.id);
+                  return (ia < 0 ? pricingOrder.length : ia) - (ib < 0 ? pricingOrder.length : ib);
+                })
+              : pricing.sections;
+            const travelersCount =
+              Number(q.adults ?? 0) +
+              Number(q.childrenWithBed ?? 0) +
+              Number(q.childrenWithoutBed ?? 0) +
+              Number(q.infants ?? 0);
+            return pricing.pricingMode === 'SECTION_WISE' ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-slate-900">{pricingHeading}</h2>
+                {pricingSubheading ? (
+                  <p className="mt-1 text-sm text-slate-500">{pricingSubheading}</p>
+                ) : null}
+                <div className="mt-5 space-y-3">
+                  {orderedSections
+                    .filter((s) => s.amount > 0)
+                    .map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-4 text-sm">
+                        <span className="font-medium text-slate-700">{s.label}</span>
+                        <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
+                      </div>
+                    ))}
+                  <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
+                    <span>Total Package Price</span>
+                    <span>{fmt(displayTotal)}</span>
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-slate-900">{pricingHeading}</h2>
+                {pricingSubheading ? (
+                  <p className="mt-1 text-sm text-slate-500">{pricingSubheading}</p>
+                ) : null}
+                <div className="mt-5 space-y-3">
+                  {perPaxLines.map(([count, , plural, price]) => (
+                    <div key={plural} className="flex items-center justify-between gap-4 text-sm">
+                      <div>
+                        <p className="font-medium text-slate-800">{plural}</p>
+                        <p className="text-xs text-slate-500">
+                          {count} traveler{Number(count) === 1 ? '' : 's'} × {fmt(Number(price ?? 0))}
+                        </p>
+                      </div>
+                      <span className="font-semibold text-slate-900">
+                        {fmt(Number(price ?? 0) * Number(count))}
+                      </span>
                     </div>
                   ))}
-                <div className="flex justify-between border-t pt-3 text-sm font-bold">
-                  <span>Grand Total</span>
-                  <span>{fmt(pricing.sectionTotal)}</span>
+                  <div className="flex items-center justify-between border-t pt-3 text-sm text-slate-600">
+                    <span>Total Travelers</span>
+                    <span className="font-semibold">{travelersCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
+                    <span>Total Package Price</span>
+                    <span>{fmt(displayTotal)}</span>
+                  </div>
                 </div>
-              </div>
-            </section>
-          )}
+              </section>
+            );
+          })()}
 
           {/* Secure Your Booking Now — only with a real initial amount and link. */}
           {showSecureBooking && validPaymentLink && (

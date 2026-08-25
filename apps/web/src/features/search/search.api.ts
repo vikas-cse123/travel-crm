@@ -4,6 +4,7 @@ import type {
   CreateBookmarkInput,
   FlightSearchResponse,
   HotelAutocompleteResponse,
+  HotelPropertyResponse,
   HotelSearchResponse,
   LiveSearchBookmark,
   LiveSearchBookmarkType,
@@ -35,6 +36,7 @@ export const searchKeys = {
   hotels: (params: unknown) => ['search', 'hotels', params] as const,
   hotelPage: (params: unknown, page: number) => ['search', 'hotels', params, 'page', page] as const,
   hotelAutocomplete: (q: string) => ['search', 'hotels', 'autocomplete', q] as const,
+  hotelProperty: (params: unknown) => ['search', 'hotels', 'property', params] as const,
   keys: ['search', 'keys'] as const,
   usageSummary: (range: string) => ['search', 'usage', 'summary', range] as const,
   usageUser: (userId: string, range: string) =>
@@ -241,6 +243,45 @@ export function useHotelSearchPage(params: HotelSearchParams, page: number) {
         signal,
       ),
     enabled: enabled && Boolean(params.next_page_token),
+    staleTime: SEARCH_STALE_MS,
+    gcTime: SEARCH_GC_MS,
+    retry: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+/** Room/offer lookup context for one hotel property. */
+export interface HotelPropertyParams {
+  property_token: string;
+  check_in_date: string;
+  check_out_date: string;
+  adults?: number;
+  children_ages?: string;
+  currency?: string;
+  hl?: string;
+  gl?: string;
+  free_cancellation?: string;
+}
+
+/**
+ * Room/offer details for a single property (google_hotels_property).
+ *
+ * Keyed by the exact parameters, so opening the drawer again for the same
+ * hotel + stay is served from cache and never burns another provider call.
+ * Paid provider data: never auto-retry or refetch on mount/focus.
+ */
+export function useHotelProperty(params: HotelPropertyParams) {
+  const enabled = Boolean(params.property_token && params.check_in_date && params.check_out_date);
+  return useQuery({
+    queryKey: searchKeys.hotelProperty(params),
+    queryFn: ({ signal }) =>
+      apiClient.get<HotelPropertyResponse>(
+        `/search/hotels/property?${toQuery(params as unknown as Record<string, unknown>)}`,
+        signal,
+      ),
+    enabled,
     staleTime: SEARCH_STALE_MS,
     gcTime: SEARCH_GC_MS,
     retry: false,

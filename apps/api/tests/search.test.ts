@@ -379,6 +379,287 @@ describe('GET /api/search', () => {
   });
 });
 
+describe('GET /api/search/hotels/property', () => {
+  /** Official google_hotels_property response shape (offers + nested rooms). */
+  const propertyFixture = {
+    property: {
+      type: 'hotel',
+      property_token: 'token-1',
+      data_id: '0xabc:0xdef',
+      name: 'Mandarin Oriental, Miami',
+      address: '500 Brickell Key Dr, Miami, FL 33131',
+      check_in_time: '3:00 PM',
+      check_out_time: '11:00 AM',
+      rating: 4.7,
+      reviews: 3031,
+      price_per_night: { price: '$532', extracted_price: 532 },
+      total_price: { price: '$3,724', extracted_price: 3724 },
+      featured_offers: [
+        {
+          source: 'Hotels.com',
+          tracking_link: 'https://www.google.com/aclk?sa=l',
+          logo: 'https://logo/hotels.png',
+          remarks: ['Save with Member Prices'],
+          num_guests: 2,
+          price_per_night: {
+            price: '$680',
+            extracted_price: 680,
+            price_before_taxes: '$602',
+            extracted_price_before_taxes: 602,
+          },
+          total_price: {
+            price: '$4,763',
+            extracted_price: 4763,
+            price_before_taxes: '$4,215',
+            extracted_price_before_taxes: 4215,
+          },
+          has_free_cancellation: true,
+          free_cancellation_until: { date: 'Apr 9', time: '6:00 PM' },
+          rooms: [
+            {
+              name: 'Skyline View, Deluxe Room, 1 King Bed, View',
+              link: 'https://book.example/hotels-com-deluxe',
+              num_guests: 2,
+              price_per_night: {
+                price: '$680',
+                extracted_price: 680,
+                price_before_taxes: '$602',
+                extracted_price_before_taxes: 602,
+              },
+              total_price: { price: '$4,763', extracted_price: 4763 },
+            },
+            {
+              name: 'Bay View Suite',
+              num_guests: 3,
+            },
+          ],
+        },
+      ],
+      all_offers: [
+        {
+          source: 'Mandarinoriental.com',
+          link: 'https://book.example/official',
+          is_official: true,
+          num_guests: 2,
+          price_per_night: { price: '$551', extracted_price: 551 },
+          total_price: { price: '$3,859', extracted_price: 3859 },
+          has_free_cancellation: true,
+          free_cancellation_until: { date: 'Apr 8' },
+        },
+        // An offer carrying only its source — every other field missing.
+        { source: 'MinimalOTA' },
+      ],
+    },
+  };
+
+  it('rejects a request without a property_token', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects a stay whose check-out precedes check-in', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-10&check_out_date=2026-09-05',
+    );
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects malformed children_ages', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05&children_ages=2,35',
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('proxies the Property API request and returns the response verbatim', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(propertyFixture), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05&adults=2&children_ages=2,5&currency=INR',
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    // The provider body passes through untouched — offers and rooms intact.
+    const property = response.body.data.property;
+    expect(property.name).toBe('Mandarin Oriental, Miami');
+    expect(property.address).toBe('500 Brickell Key Dr, Miami, FL 33131');
+    expect(property.featured_offers[0].source).toBe('Hotels.com');
+    expect(property.featured_offers[0].free_cancellation_until).toEqual({
+      date: 'Apr 9',
+      time: '6:00 PM',
+    });
+    expect(property.featured_offers[0].rooms[0].name).toBe(
+      'Skyline View, Deluxe Room, 1 King Bed, View',
+    );
+    expect(property.featured_offers[0].rooms[0].total_price.extracted_price).toBe(4763);
+    expect(property.all_offers[0].is_official).toBe(true);
+    // Missing optional fields stay missing — never fabricated.
+    expect(property.all_offers[1]).toEqual({ source: 'MinimalOTA' });
+
+    const calledUrl = fetchMock.mock.calls[0]?.[0] as URL;
+    expect(calledUrl.href).toContain('engine=google_hotels_property');
+    expect(calledUrl.href).toContain('property_token=token-1');
+    expect(calledUrl.href).toContain('check_in_date=2026-09-01');
+    expect(calledUrl.href).toContain('check_out_date=2026-09-05');
+    expect(calledUrl.href).toContain('adults=2');
+    expect(calledUrl.href).toContain('children_ages=2%2C5');
+    expect(calledUrl.href).toContain('currency=INR');
+    expect(calledUrl.href).toContain('gl=in');
+    // The property engine rejects several Google Travel locales (e.g. `en`,
+    // `en-IN`). No locale is injected by default — the provider applies its
+    // own, still honoring currency/gl.
+    expect(calledUrl.searchParams.get('hl')).toBeNull();
+    fetchMock.mockRestore();
+  });
+
+  it('retries without hl when the property engine rejects the requested locale', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unsupported value `en-IN` in hl parameter." }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(propertyFixture), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05&hl=en-IN&currency=INR',
+    );
+    // The retry succeeds and returns the provider body untouched.
+    expect(response.status).toBe(200);
+    expect(response.body.data.property.name).toBe('Mandarin Oriental, Miami');
+
+    // Exactly two provider calls: the rejected one carried hl, the retry did not.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const rejectedUrl = fetchMock.mock.calls[0]?.[0] as URL;
+    const retriedUrl = fetchMock.mock.calls[1]?.[0] as URL;
+    expect(rejectedUrl.searchParams.get('hl')).toBe('en-IN');
+    expect(retriedUrl.searchParams.get('hl')).toBeNull();
+    expect(retriedUrl.searchParams.get('currency')).toBe('INR');
+    expect(retriedUrl.searchParams.get('gl')).toBe('in');
+    fetchMock.mockRestore();
+  });
+
+  it('answers 400 with a clear message when SearchApi rejects the property_token', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Invalid property_token' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=bogus&check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    // A rejected token is a request problem (400), not a provider outage.
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(response.body.error.message).toContain('Hotel room information is unavailable');
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    [401, 'Invalid API key'],
+    [403, 'Access denied'],
+  ] as const)('maps provider %i to the key error path', async (status, message) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: message }), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    // Auth problems rotate keys; with only the server fallback present the
+    // user still sees a single clear failure.
+    expect(response.status).toBe(503);
+    vi.restoreAllMocks();
+  });
+
+  it('maps provider 429 to the quota error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'You have used all of the searches' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    expect(response.status).toBe(503);
+    expect(response.body.error.message).toContain('quota exhausted');
+    vi.restoreAllMocks();
+  });
+
+  it('passes an empty successful body through so the UI can show its empty state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=token-1&check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.data.property).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
+  it('returns 503 when the provider fails for a property lookup', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Invalid property_token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const client = createAuthClient(app);
+    await owner(client);
+    const response = await client.get(
+      '/api/search/hotels/property?property_token=bogus-token&check_in_date=2026-09-01&check_out_date=2026-09-05',
+    );
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe('SERVICE_UNAVAILABLE');
+    vi.restoreAllMocks();
+  });
+});
+
 describe('GET /api/search/hotels/autocomplete', () => {
   it('requires authentication', async () => {
     const client = createAuthClient(app);
@@ -1616,5 +1897,233 @@ describe('Bookmarks', () => {
     const lookup = await userB.get(`/api/search/bookmarks/by-code/${code}`);
     expect(lookup.status).toBe(200);
     expect(lookup.body.data.snapshot.hotel.name).toBe('Taj Exotica Goa');
+  });
+});
+
+describe('SearchApi room bookmark → Hotel master attachment', () => {
+  async function companyIds(): Promise<{ userId: string; companyId: string }> {
+    const user = await db.user.findFirstOrThrow({
+      where: { normalizedEmail: 'search@test.in' },
+      select: { id: true, companyId: true },
+    });
+    return { userId: user.id, companyId: user.companyId };
+  }
+
+  async function seedCityDest(ids: { userId: string; companyId: string }) {
+    const city = await db.city.create({
+      data: {
+        companyId: ids.companyId,
+        countryCode: 'IN',
+        countryName: 'India',
+        name: 'Goa',
+        normalizedName: 'goa',
+        status: 'ACTIVE',
+        createdById: ids.userId,
+      },
+    });
+    const destination = await db.destination.create({
+      data: {
+        companyId: ids.companyId,
+        countryCode: 'IN',
+        countryName: 'India',
+        name: 'Goa',
+        normalizedName: 'goa',
+        destinationType: 'DOMESTIC',
+        status: 'ACTIVE',
+        createdById: ids.userId,
+      },
+    });
+    await db.destinationCity.create({
+      data: { companyId: ids.companyId, destinationId: destination.id, cityId: city.id, sequence: 0 },
+    });
+    return { cityId: city.id, destinationId: destination.id };
+  }
+
+  async function seedHotel(
+    ids: { userId: string; companyId: string },
+    name: string,
+    normalizedName: string,
+    cityId: string,
+    destinationId: string,
+  ) {
+    return db.hotel.create({
+      data: {
+        companyId: ids.companyId,
+        destinationId,
+        cityId,
+        name,
+        normalizedName,
+        status: 'ACTIVE',
+        createdById: ids.userId,
+        isDefaultForCity: false,
+        sortOrder: 0,
+        currency: 'INR',
+      },
+    });
+  }
+
+  const roomPayload = (hotelName: string, roomName: string, supplier = 'Booking.com', token = 'token-x') => ({
+    type: 'HOTEL',
+    searchParams: {
+      destination: 'Goa',
+      check_in_date: '2026-09-10',
+      check_out_date: '2026-09-12',
+      adults: 2,
+      currency: 'INR',
+    },
+    snapshot: {
+      hotel: {
+        name: hotelName,
+        propertyToken: token,
+        city: 'Goa',
+        country: 'IN',
+        stars: 3,
+        address: 'Beach Rd, Goa',
+        description: 'A beachside hotel.',
+        images: [{ thumbnail: 'https://img/a.jpg', original: 'https://img/a-orig.jpg' }],
+        selectedRoom: {
+          roomName,
+          supplier,
+          guests: 2,
+          pricePerNight: 680,
+          totalPrice: 4763,
+          freeCancellation: true,
+          freeCancellationUntil: { date: 'Sep 9', time: '6:00 PM' },
+          roomDescription: '1 double bed · Breakfast included',
+          beds: [{ count: 1, type: 'double' }],
+        },
+      },
+    },
+  });
+
+  it('reuses an existing Hotel and adds the room under it', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const ids = await companyIds();
+    const { cityId, destinationId } = await seedCityDest(ids);
+    const existing = await seedHotel(ids, 'Moustache Goa Luxuria', 'moustache goa luxuria', cityId, destinationId);
+
+    const response = await client.post('/api/search/bookmarks', roomPayload('Moustache Goa Luxuria', 'Budget Double Room'));
+    expect(response.status).toBe(200);
+    expect(response.body.data.bookmark.snapshot.hotel.hotelId).toBe(existing.id);
+    expect(response.body.data.bookmark.snapshot.hotel.roomTypeId).toBeTruthy();
+
+    // No duplicate hotel; the room was added under the existing hotel.
+    expect(await db.hotel.count({ where: { companyId: ids.companyId } })).toBe(1);
+    const room = await db.hotelRoomType.findFirstOrThrow({
+      where: { companyId: ids.companyId, hotelId: existing.id },
+    });
+    expect(room.name).toBe('Budget Double Room');
+    expect(room.bedType).toBe('double');
+    expect(room.maxOccupancy).toBe(2);
+  });
+
+  it('creates a missing Hotel and its room', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const ids = await companyIds();
+    await seedCityDest(ids);
+
+    const response = await client.post('/api/search/bookmarks', roomPayload('Brand New Resort Goa', 'Deluxe Room'));
+    expect(response.status).toBe(200);
+    const snapshot = response.body.data.bookmark.snapshot.hotel;
+    expect(snapshot.hotelId).toBeTruthy();
+    expect(snapshot.roomTypeId).toBeTruthy();
+
+    const hotel = await db.hotel.findFirstOrThrow({
+      where: { companyId: ids.companyId, normalizedName: 'brand new resort goa' },
+    });
+    expect(hotel.name).toBe('Brand New Resort Goa');
+    expect(hotel.starCategory).toBe(3);
+    expect(hotel.address).toBe('Beach Rd, Goa');
+    expect(hotel.externalCode).toBe('token-x');
+    expect(await db.hotelRoomType.count({ where: { hotelId: hotel.id } })).toBe(1);
+  });
+
+  it('adds a second room to the same Hotel without duplicating it', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const ids = await companyIds();
+    const { cityId, destinationId } = await seedCityDest(ids);
+    await seedHotel(ids, 'goSTOPS Amritsar Golden Temple', 'gostops amritsar golden temple', cityId, destinationId);
+
+    await client.post('/api/search/bookmarks', roomPayload('goSTOPS Amritsar, Golden Temple', 'Deluxe Private AC Room'));
+    const second = await client.post('/api/search/bookmarks', roomPayload('goSTOPS Amritsar, Golden Temple', 'Premium Private AC Room'));
+
+    expect(second.status).toBe(200);
+    expect(await db.hotel.count({ where: { companyId: ids.companyId } })).toBe(1);
+    const hotel = await db.hotel.findFirstOrThrow({ where: { companyId: ids.companyId } });
+    const rooms = await db.hotelRoomType.findMany({ where: { hotelId: hotel.id } });
+    expect(rooms.map((room) => room.name).sort()).toEqual([
+      'Deluxe Private AC Room',
+      'Premium Private AC Room',
+    ]);
+  });
+
+  it('does not duplicate the same room on repeat bookmarks', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const ids = await companyIds();
+    const { cityId, destinationId } = await seedCityDest(ids);
+    await seedHotel(ids, 'Moustache Goa Luxuria', 'moustache goa luxuria', cityId, destinationId);
+
+    const first = await client.post('/api/search/bookmarks', roomPayload('Moustache Goa Luxuria', 'Budget Double Room'));
+    const second = await client.post('/api/search/bookmarks', roomPayload('Moustache Goa Luxuria', 'Budget Double Room'));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await db.hotel.count({ where: { companyId: ids.companyId } })).toBe(1);
+    expect(await db.hotelRoomType.count()).toBe(1);
+    expect(second.body.data.bookmark.snapshot.hotel.roomTypeId).toBe(
+      first.body.data.bookmark.snapshot.hotel.roomTypeId,
+    );
+  });
+
+  it('creates ONE hotel with SIX room types for six rooms of the same hotel', async () => {
+    const client = createAuthClient(app);
+    await owner(client);
+    const ids = await companyIds();
+    await seedCityDest(ids);
+
+    const roomNames = [
+      'Basic 8 Bed Mixed Dorm',
+      'Standard 12 Bed Mixed Dorm',
+      'Deluxe Room',
+      'Premium Room',
+      'Economy Room',
+      'Suite Room',
+    ];
+    const hotelIds: string[] = [];
+    const roomTypeIds: string[] = [];
+    for (const roomName of roomNames) {
+      const response = await client.post(
+        '/api/search/bookmarks',
+        roomPayload('Bestow Capsule Hostel', roomName, 'Booking.com', 'stable-token'),
+      );
+      expect(response.status).toBe(200);
+      const snapshot = response.body.data.bookmark.snapshot.hotel;
+      expect(snapshot.hotelId).toBeTruthy();
+      expect(snapshot.roomTypeId).toBeTruthy();
+      hotelIds.push(snapshot.hotelId as string);
+      roomTypeIds.push(snapshot.roomTypeId as string);
+    }
+
+    // Exactly ONE hotel with SIX distinct Room Types under it.
+    expect(new Set(hotelIds).size).toBe(1);
+    expect(new Set(roomTypeIds).size).toBe(6);
+    expect(await db.hotel.count({ where: { companyId: ids.companyId } })).toBe(1);
+    const hotel = await db.hotel.findFirstOrThrow({ where: { companyId: ids.companyId } });
+    expect(hotel.externalCode).toBe('stable-token');
+    expect(await db.hotelRoomType.count({ where: { hotelId: hotel.id } })).toBe(6);
+
+    // Bookmarking the same room again: no new Hotel, no new Room Type.
+    const repeat = await client.post(
+      '/api/search/bookmarks',
+      roomPayload('Bestow Capsule Hostel', 'Deluxe Room', 'Booking.com', 'stable-token'),
+    );
+    expect(repeat.status).toBe(200);
+    expect(await db.hotel.count({ where: { companyId: ids.companyId } })).toBe(1);
+    expect(await db.hotelRoomType.count({ where: { hotelId: hotel.id } })).toBe(6);
+    expect(repeat.body.data.bookmark.snapshot.hotel.hotelId).toBe(hotel.id);
   });
 });

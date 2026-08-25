@@ -49,6 +49,15 @@ export const searchController = {
     );
   },
 
+  /** Room/offer details for one hotel property (google_hotels_property). */
+  async hotelsProperty(req: Request, res: Response) {
+    sendSuccess(
+      res,
+      await searchService.hotelsProperty(auth(req), req.query as never),
+      'Hotel room offers loaded.',
+    );
+  },
+
   /** The current user's saved SearchAPI keys (masked previews only). */
   async listKeys(req: Request, res: Response) {
     const actor = auth(req);

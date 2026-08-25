@@ -4,6 +4,7 @@ import {
   createBookmarkSchema,
   flightSearchQuerySchema,
   hotelAutocompleteQuerySchema,
+  hotelPropertyQuerySchema,
   hotelSearchQuerySchema,
   searchUsageRangeSchema,
   updateSearchApiKeySchema,
@@ -28,6 +29,12 @@ router.get(
   asyncHandler(c.flights),
 );
 router.get('/hotels', validateRequest({ query: hotelSearchQuerySchema }), asyncHandler(c.hotels));
+// Room/offer details for one property (uses the property_token from a search result).
+router.get(
+  '/hotels/property',
+  validateRequest({ query: hotelPropertyQuerySchema }),
+  asyncHandler(c.hotelsProperty),
+);
 
 // Per-user SearchAPI key management (multiple keys; isolated under /search/keys).
 router.get('/keys', asyncHandler(c.listKeys));

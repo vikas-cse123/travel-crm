@@ -3545,6 +3545,12 @@ model QuotationVersion {
   marginAmount                 Decimal                @default(0) @db.Decimal(14, 2)
   marginPercentage             Decimal                @default(0) @db.Decimal(8, 4)
   pricingMode                  PricingMode            @default(ITEMIZED)
+  /// Customer-facing pricing heading ("Price Breakdown" by default).
+  pricingHeading              String                 @default("Price Breakdown") @db.VarChar(120)
+  /// Optional customer-facing pricing subheading; empty means hidden.
+  pricingSubheading           String?                @db.VarChar(200)
+  /// Ordered pricing category ids for the section-wise presentation.
+  pricingDisplayOrder         Json?                  @db.Json
   // Reference "Summary & Pricing" — per-passenger package pricing.
   perAdultPrice                Decimal                @default(0) @db.Decimal(14, 2)
   perChildWithBedPrice         Decimal                @default(0) @db.Decimal(14, 2)

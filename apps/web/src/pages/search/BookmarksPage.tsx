@@ -481,6 +481,289 @@ function FlightBookmarkDetails({ flight }: { flight: FlightBookmarkSnapshot }) {
   );
 }
 
+/** Collapsed "API Response" dropdown revealing the complete saved raw JSON. */
+function ApiResponseDropdown({ bookmark }: { bookmark: LiveSearchBookmark }) {
+  return (
+    <details className="mt-3 rounded-lg border border-border bg-card p-2">
+      <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
+        API Response ▼
+      </summary>
+      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">
+        {JSON.stringify(bookmark.snapshot, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+/** Normalized text used only as a safe grouping fallback (case + whitespace). */
+function normalizeGroupText(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Stable grouping key: hotelId → provider identifier → normalized name+city. */
+function hotelBookmarkGroupKey(bookmark: LiveSearchBookmark): string {
+  const hotel = bookmark.snapshot.hotel;
+  if (!hotel) return `bookmark:${bookmark.id}`;
+  if (hotel.hotelId) return `hotel:${hotel.hotelId}`;
+  if (hotel.propertyToken ?? hotel.dataId) return `provider:${hotel.propertyToken ?? hotel.dataId}`;
+  return `name:${normalizeGroupText(hotel.name)}:${normalizeGroupText(hotel.city)}`;
+}
+
+/** Build the ordered render items, grouping hotel bookmarks by hotel. */
+function buildGroupedBookmarks(list: LiveSearchBookmark[]) {
+  const groups = new Map<string, LiveSearchBookmark[]>();
+  const items: Array<
+    | { key: string; kind: 'flight'; bookmark: LiveSearchBookmark }
+    | { key: string; kind: 'hotel'; group: LiveSearchBookmark[] }
+  > = [];
+  for (const bookmark of list) {
+    if (bookmark.type === 'HOTEL') {
+      const key = hotelBookmarkGroupKey(bookmark);
+      let group = groups.get(key);
+      if (!group) {
+        group = [];
+        groups.set(key, group);
+        items.push({ key, kind: 'hotel', group });
+      }
+      group.push(bookmark);
+    } else {
+      items.push({ key: bookmark.id, kind: 'flight', bookmark });
+    }
+  }
+  return items;
+}
+
+/** One bookmarked room inside a grouped hotel card, retaining its own data. */
+function HotelRoomBookmarkRow({ bookmark }: { bookmark: LiveSearchBookmark }) {
+  const hotel = bookmark.snapshot.hotel;
+  const room = hotel?.selectedRoom;
+  return (
+    <div className="pr-24">
+      <p className="text-sm font-semibold text-foreground">{room?.roomName ?? 'Room'}</p>
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {room?.supplier ? <span>Supplier: {room.supplier}</span> : null}
+        {room?.pricePerNight ? <span>Per night: {room.pricePerNight}</span> : null}
+        {room?.totalPrice ? <span>Total: {room.totalPrice}</span> : null}
+        {room?.freeCancellation ? <span className="text-emerald-600">Free cancellation</span> : null}
+        {room?.offerLink ? (
+          <a
+            href={room.offerLink}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-primary hover:underline"
+          >
+            Booking link <ArrowRight className="h-3 w-3" aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+      <SavedTimestamp createdAt={bookmark.createdAt} className="mt-2" />
+      <ApiResponseDropdown bookmark={bookmark} />
+      <CompleteApiDetails bookmark={bookmark} />
+    </div>
+  );
+}
+
+/** One hotel rendered once, with every bookmarked room grouped underneath. */
+function HotelBookmarkGroup({
+  group,
+  onRemove,
+}: {
+  group: LiveSearchBookmark[];
+  onRemove: (id: string) => void;
+}) {
+  const first = group[0]!;
+  const hotel = first.snapshot.hotel;
+  if (!hotel) return null;
+  return (
+    <Card>
+      <div className="grid md:grid-cols-[220px_1fr]">
+        <BookmarkImages images={hotel.images} />
+        <div className="flex flex-col p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold text-foreground">{hotel.name}</h3>
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                {hotel.rating ? (
+                  <span className="flex items-center gap-1">
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    <span className="font-medium text-foreground">{hotel.rating}</span>
+                    {hotel.reviews ? (
+                      <span className="text-muted-foreground/80">({hotel.reviews.toLocaleString()})</span>
+                    ) : null}
+                  </span>
+                ) : null}
+                {hotel.city ? (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3 w-3" aria-hidden="true" />
+                    {hotel.city}
+                    {hotel.country ? `, ${hotel.country}` : ''}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {hotel.description ? (
+            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{hotel.description}</p>
+          ) : null}
+          <div className="mt-3 space-y-2">
+            {group.map((bookmark) => (
+              <div key={bookmark.id} className="relative rounded-lg border border-border p-3">
+                <HotelRoomBookmarkRow bookmark={bookmark} />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute right-3 top-3 z-10"
+                  onClick={() => onRemove(bookmark.id)}
+                >
+                  <Bookmark className="h-4 w-4" aria-hidden="true" />
+                  Remove bookmark
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Readable label for a snake_case API key, e.g. "price_before_taxes" → "Price before taxes". */
+function apiLabel(key: string): string {
+  const spaced = key.replace(/[_-]+/g, ' ').trim();
+  if (!spaced) return key;
+  const labeled = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return labeled.replace(/\b(api|id|url|gps|otp|pdf|inr|usd|gst|vat)\b/gi, (m) => m.toUpperCase());
+}
+
+function apiIsUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function apiIsImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(url) || /(gstatic|ggpht|scontent)/i.test(url);
+}
+
+/** Friendly heading for known response sections; falls back to the label. */
+function apiSectionTitle(key: string): string {
+  const map: Record<string, string> = {
+    response: 'Property API Response',
+    property: 'Property Information',
+    detail: 'Property Information',
+    nearby_places: 'Nearby Places',
+    images: 'Images',
+    featured_offers: 'Offers',
+    all_offers: 'All Offers',
+    review_results: 'Review Results',
+    reviews_breakdown: 'Review Breakdown',
+    reviews_histogram: 'Reviews Histogram',
+    search_metadata: 'Search Metadata',
+    search_parameters: 'Search Parameters',
+    people_also_viewed: 'Nearby / Recommended Hotels',
+    vacation_rentals_nearby: 'Vacation Rentals Nearby',
+    top_things_to_know: 'Top Things To Know',
+    price_per_night: 'Price Per Night',
+    total_price: 'Total Price',
+    gps_coordinates: 'GPS Coordinates',
+    free_cancellation_until: 'Free Cancellation Until',
+  };
+  return map[key] ?? apiLabel(key);
+}
+
+function ApiPrimitiveValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span className="italic text-muted-foreground">Not provided</span>;
+  }
+  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
+  const text = String(value);
+  if (apiIsUrl(value)) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        {apiIsImageUrl(value) ? (
+          <img src={value} alt="" className="h-6 w-6 rounded object-cover" loading="lazy" />
+        ) : null}
+        <a href={value} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+          Open ↗
+        </a>
+      </span>
+    );
+  }
+  return <span className="break-words">{text}</span>;
+}
+
+/** Recursively render every field of the stored API response as readable UI. */
+function RecursiveApiFields({ data, depth = 0 }: { data: unknown; depth?: number }) {
+  if (data === null || data === undefined) return <ApiPrimitiveValue value={data} />;
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <span className="text-sm text-muted-foreground">—</span>;
+    return (
+      <div className="space-y-2">
+        {data.map((item, index) => {
+          const name =
+            item !== null &&
+            typeof item === 'object' &&
+            typeof (item as Record<string, unknown>).name === 'string'
+              ? String((item as Record<string, unknown>).name)
+              : null;
+          return (
+            <div key={index} className="rounded-lg border border-border bg-muted/30 p-2">
+              <p className="mb-1 text-sm font-semibold text-foreground">{name ?? `Item ${index + 1}`}</p>
+              {typeof item === 'object' && item !== null ? (
+                <RecursiveApiFields data={item} depth={depth + 1} />
+              ) : (
+                <ApiPrimitiveValue value={item} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  if (typeof data === 'object') {
+    return (
+      <dl className="space-y-1.5">
+        {Object.entries(data as Record<string, unknown>).map(([key, value]) => {
+          if (value !== null && typeof value === 'object') {
+            return (
+              <div key={key} className="rounded-lg border border-border bg-card p-2">
+                <p className="text-sm font-semibold text-foreground">{apiSectionTitle(key)}</p>
+                <div className="mt-1">
+                  <RecursiveApiFields data={value} depth={depth + 1} />
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={key} className="flex items-baseline justify-between gap-3 py-0.5">
+              <dt className="text-sm text-muted-foreground">{apiSectionTitle(key)}</dt>
+              <dd className="text-right">
+                <ApiPrimitiveValue value={value} />
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    );
+  }
+  return <ApiPrimitiveValue value={data} />;
+}
+
+/** Dedicated, always-visible "Complete API Details" section for a saved hotel. */
+function CompleteApiDetails({ bookmark }: { bookmark: LiveSearchBookmark }) {
+  const raw = bookmark.snapshot.raw as { response?: unknown } | null | undefined;
+  const data = raw?.response ?? raw ?? null;
+  if (data === null || data === undefined) return null;
+  return (
+    <section aria-label="Complete API Details" className="mt-4 rounded-xl border border-border bg-card p-4">
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+        Complete API Details
+      </h4>
+      <div className="mt-3">
+        <RecursiveApiFields data={data} />
+      </div>
+    </section>
+  );
+}
+
 /** A hotel bookmark card rendered entirely from the saved snapshot. */
 function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -592,6 +875,8 @@ function HotelBookmarkCard({ bookmark }: { bookmark: LiveSearchBookmark }) {
             </div>
           </div>
           <SavedTimestamp createdAt={bookmark.createdAt} className="mt-2" />
+          <ApiResponseDropdown bookmark={bookmark} />
+      <CompleteApiDetails bookmark={bookmark} />
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-4">
@@ -959,25 +1244,43 @@ export function BookmarksPage() {
         <Alert tone="error">We couldn&apos;t load bookmarks. Please try again.</Alert>
       ) : list.length ? (
         <div className="space-y-3">
-          {list.map((bookmark) => (
-            <div key={bookmark.id} className="relative">
-              {bookmark.type === 'FLIGHT' ? (
-                <FlightBookmarkCard bookmark={bookmark} />
-              ) : (
-                <HotelBookmarkCard bookmark={bookmark} />
-              )}
-              <Button
-                size="sm"
-                variant="secondary"
-                className="absolute right-3 top-3 z-10"
-                isLoading={remove.isPending}
-                onClick={() => remove.mutate(bookmark.id)}
-              >
-                <Bookmark className="h-4 w-4" aria-hidden="true" />
-                Remove bookmark
-              </Button>
-            </div>
-          ))}
+          {buildGroupedBookmarks(list).map((item) =>
+            item.kind === 'flight' ? (
+              <div key={item.key} className="relative">
+                <FlightBookmarkCard bookmark={item.bookmark} />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute right-3 top-3 z-10"
+                  isLoading={remove.isPending}
+                  onClick={() => remove.mutate(item.bookmark.id)}
+                >
+                  <Bookmark className="h-4 w-4" aria-hidden="true" />
+                  Remove bookmark
+                </Button>
+              </div>
+            ) : item.group.length === 1 ? (
+              <div key={item.key} className="relative">
+                <HotelBookmarkCard bookmark={item.group[0]!} />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute right-3 top-3 z-10"
+                  isLoading={remove.isPending}
+                  onClick={() => remove.mutate(item.group[0]!.id)}
+                >
+                  <Bookmark className="h-4 w-4" aria-hidden="true" />
+                  Remove bookmark
+                </Button>
+              </div>
+            ) : (
+              <HotelBookmarkGroup
+                key={item.key}
+                group={item.group}
+                onRemove={(id) => remove.mutate(id)}
+              />
+            ),
+          )}
         </div>
       ) : searchActive ? (
         <EmptyState

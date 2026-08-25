@@ -1,0 +1,1672 @@
+{
+  "search_metadata": {
+    "id": "search_G6ZMRV4jp7tlB8YGgk2X071E",
+    "status": "Success",
+    "created_at": "2026-08-25T15:11:50Z",
+    "request_time_taken": 2.39,
+    "parsing_time_taken": 0.01,
+    "total_time_taken": 2.4,
+    "request_url": "https://www.google.com/travel/search?qs=CAEyJ0Noa0k5Nmk2a0pPaHFPeVZBUm9NTDJjdk1USm9iSHA2TkhZNUVBRTgNSAA",
+    "html_url": "https://www.searchapi.io/api/v1/searches/search_G6ZMRV4jp7tlB8YGgk2X071E.html",
+    "json_url": "https://www.searchapi.io/api/v1/searches/search_G6ZMRV4jp7tlB8YGgk2X071E"
+  },
+  "search_parameters": {
+    "engine": "google_hotels_property",
+    "check_in_date": "2026-09-10",
+    "check_out_date": "2026-09-12",
+    "currency": "INR",
+    "hl": "en-US",
+    "gl": "IN",
+    "adults": 2,
+    "property_token": "ChkI96i6kJOhqOyVARoML2cvMTJobHp6NHY5EAE"
+  },
+  "property": {
+    "type": "hotel",
+    "property_token": "ChkI96i6kJOhqOyVARoML2cvMTJobHp6NHY5EAE",
+    "data_id": "0x3bbfebd8468c46e9:0x95d8a109320e9477",
+    "name": "Moustache Goa Luxuria",
+    "link": "https://moustachescapes.com/stay/backpacking-hostels/moustache-goa-luxuria/",
+    "description": "Set within tropical gardens, this relaxed resort is 2 km from both Chapora Beach and the 16th-century Chapora Fort, and 8 km from bustling Mapusa Friday Market. Featuring free Wi-Fi and bright decor, the unfussy rooms include TVs, minifridges, and tea and coffeemaking facilities. Upgraded rooms add minibars, flat-screen TVs and patios, and some have private gardens. Suites provide living areas, while upgraded suites add 4-poster beds. There's a rooftop bar/restaurant that serves international cuisine and cocktails, as well as an outdoor pool with a kids' area and a hot tub. Breakfast is available for a surcharge.",
+    "address": "Plot No 399/7N Zorin Village, Chapora, near St Anthony Hospital, Vagator, Anjuna, Goa 403509",
+    "phone": "089291 00705",
+    "phone_link": "tel:08929100705",
+    "gps_coordinates": {
+      "latitude": 15.6029383,
+      "longitude": 73.7498425
+    },
+    "country": "IN",
+    "check_in_time": "1:30 PM",
+    "check_out_time": "11:00 AM",
+    "price_per_night": {
+      "price_before_taxes": "₹1,373",
+      "extracted_price_before_taxes": 1373
+    },
+    "total_price": {
+      "price_before_taxes": "₹2,746",
+      "extracted_price_before_taxes": 2746
+    },
+    "nearby_places": [
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfe98f11ab0199:0xd777cc02c2ccffa1",
+        "name": "Anjuna Beach",
+        "link": "https://www.google.com/search?q=Anjuna+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tZP1zcsyS4wTjPP0VLMTrbSz8lPTizJzM-DM6wSS0qKEpNBzGIAQ4QfdzQAAAA#fpstate=trskp&trifp=kpq%253DAnjuna%252BBeach%2526skpm%253D/g/1tkp3f7l%2526t%253Dd",
+        "rating": 4.4,
+        "reviews": 21340,
+        "description": "Popular tourist beach providing activities such as parasailing, jet ski & banana boat rentals.",
+        "gps_coordinates": {
+          "latitude": 15.5733497,
+          "longitude": 73.74097809999999
+        },
+        "thumbnail": "https://encrypted-tbn2.gstatic.com/images?q=tbn:ANd9GcRwHrRKuBb4H8cJRG-qdZ2fRk0gxHK1mayXqqjXQdvczNOzxn9S",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "15 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfe9c66255a1e7:0x370be2005b85a107",
+        "name": "Chapora Fort",
+        "link": "https://www.google.com/search?q=Chapora+Fort&stick=H4sIAAAAAAAAAONgFmJQ4tLP1TcwKjIoKo_XUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgDy-XpEMwAAAA#fpstate=trskp&trifp=kpq%253DChapora%252BFort%2526skpm%253D/m/02r0rw_%2526t%253Dd",
+        "rating": 4.2,
+        "reviews": 26008,
+        "description": "Ruined centuries-old fortress on a headland, a popular vantage point for sunsets over the sea.",
+        "gps_coordinates": {
+          "latitude": 15.6046375,
+          "longitude": 73.7369631
+        },
+        "thumbnail": "https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcQjbMSfObUAB0QPexqZiuLzGfoU-97cx1Un4Pak4dp9-HqdqcF2",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "9 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "43 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfea0148f4ed2b:0xcb592fad5d257d17",
+        "name": "Calangute Beach",
+        "link": "https://www.google.com/search?q=Calangute+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tZP1zcsScuuyjMv1lLMTrbSz8lPTizJzM-DM6wSS0qKEpNBzGIAlh5c4zQAAAA#fpstate=trskp&trifp=kpq%253DCalangute%252BBeach%2526skpm%253D/g/1tfkzn7s%2526t%253Dd",
+        "rating": 4.4,
+        "reviews": 30333,
+        "description": "Big, popular beach with water sports, such as boating, water skiing & parasailing, plus food stalls.",
+        "gps_coordinates": {
+          "latitude": 15.549441,
+          "longitude": 73.7534857
+        },
+        "thumbnail": "https://encrypted-tbn2.gstatic.com/images?q=tbn:ANd9GcSTpZhd9_Ws06viHkfuzHaBmsiehBKrIg9w4YuIuMaz-KIqsWu-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "24 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 20 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfea1cd8a1deff:0xba7066c0ee35c1e0",
+        "name": "Baga Beach",
+        "link": "https://www.google.com/search?q=Baga+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tVP1zc0TDY1TklKTy7SUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgCC1z3-NgAAAA#fpstate=trskp&trifp=kpq%253DBaga%252BBeach%2526skpm%253D/g/11c53dbgcr%2526t%253Dd",
+        "rating": 4.4,
+        "reviews": 41358,
+        "description": "Busy beach & recreation area with water sports, eateries, bars, nightspots & a festive atmosphere.",
+        "gps_coordinates": {
+          "latitude": 15.5552787,
+          "longitude": 73.7517307
+        },
+        "thumbnail": "http://t0.gstatic.com/images?q=tbn:ANd9GcS5ElfZFxcla77TgPi8gY32MpXgYOHgft3ugktN0U_7iAOz97q8V25gSg",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "21 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 28 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfeec5b47272c7:0xb6157c2d9e7a5497",
+        "name": "Ashvem Beach",
+        "link": "https://www.google.com/search?q=Ashvem+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tZP1zcsSTE1NyxM01LMTrbSz8lPTizJzM-DM6wSS0qKEpNBzGIA6sa8KjQAAAA#fpstate=trskp&trifp=kpq%253DAshvem%252BBeach%2526skpm%253D/g/1td571qf%2526t%253Dd",
+        "rating": 4.6,
+        "reviews": 2736,
+        "description": "Swimming & sunbathing along a stretch of coastline with fine sand, hotels & restaurants.",
+        "gps_coordinates": {
+          "latitude": 15.6437966,
+          "longitude": 73.71740249999999
+        },
+        "thumbnail": "http://t0.gstatic.com/images?q=tbn:ANd9GcR_VojcJc8l97w_SzbWZhGXI_PGo9DV8msDWsbkg0QJjXXwfDUG5ku0Eg",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "29 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 34 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfe912d4858f15:0xbbe5c0aaad4f57c9",
+        "name": "Anjuna Flea Market",
+        "link": "https://www.google.com/search?q=Anjuna+Flea+Market&stick=H4sIAAAAAAAAAONgFmJQ4tVP1zc0LCqoyig0NMnWUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgDHioK8NgAAAA#fpstate=trskp&trifp=kpq%253DAnjuna%252BFlea%252BMarket%2526skpm%253D/g/11rpzhq14k%2526t%253Dd",
+        "rating": 4,
+        "reviews": 2101,
+        "gps_coordinates": {
+          "latitude": 15.5720689,
+          "longitude": 73.7419735
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwepEuFn9VfIRAXrVxw2o3jcHz-m8CpwplqHUr4BXAJuyLTMZN3kqeoVFZuOttXsymHL-wm6dIXOhokjwu5bOGZ9-gmHjAYo02Rnkp5UF2L2Fh56YGUOG9RpnfvRKC_g-2qvy0JA=w160-h213-k-no",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "14 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfc175c68cbd6b:0xa3837630b3697b1c",
+        "name": "Fort Aguada",
+        "link": "https://www.google.com/search?q=Fort+Aguada&stick=H4sIAAAAAAAAAONgFmJQ4tTP1TewNDEwLtRSzE620s_JT04syczPgzOsEktKihKTQcxiAMAJi3IyAAAA#fpstate=trskp&trifp=kpq%253DFort%252BAguada%2526skpm%253D/m/09403q%2526t%253Dd",
+        "rating": 4.2,
+        "reviews": 109348,
+        "description": "1612 Portuguese fortress offering ocean views & an abandoned lighthouse erected in 1864.",
+        "gps_coordinates": {
+          "latitude": 15.4922519,
+          "longitude": 73.77374619999999
+        },
+        "thumbnail": "https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcTlTZXhI8WI37jzCNSwf7x1ZPJ_Wk3HqacJTKlGYTrYEXaFIP5x",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "43 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfc13c227bd1bf:0xfa2f8c6c1efa4aef",
+        "name": "Candolim Beach",
+        "link": "https://www.google.com/search?q=Candolim+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tVP1zc0TCsqrswzyy7SUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgA0ZSkFNgAAAA#fpstate=trskp&trifp=kpq%253DCandolim%252BBeach%2526skpm%253D/g/11frsyn6kr%2526t%253Dd",
+        "rating": 4.5,
+        "reviews": 46103,
+        "description": "Sunset views & parasailing on a sandy shore with shacks for beer & seafood, plus a nearby market.",
+        "gps_coordinates": {
+          "latitude": 15.5179749,
+          "longitude": 73.76261219999999
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwepUQensP9hV4_d4bm6Z0dmCnKNzS9HxIjPIyemZcWoiB26E8EWTJBg0uUh87aZJpijr63gJMHJ1wlDjBklOGMxx9kTJ3DFgZZPwBTu2M7hOFh1dWL93CC99uXxtjs-064D7avJkUw=w180-h120-k-no",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "33 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "2 hr 8 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfee52ef136653:0xdd79ca2621f10716",
+        "name": "Arambol Beach",
+        "link": "https://www.google.com/search?q=Arambol+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tVP1zc0TDY1tjTNLavQUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgB6pB7fNgAAAA#fpstate=trskp&trifp=kpq%253DArambol%252BBeach%2526skpm%253D/g/11c5395mvx%2526t%253Dd",
+        "rating": 4.6,
+        "reviews": 13478,
+        "description": "Popular beach providing golden sands & mild waves, plus eateries, snack stands & visitor facilities.",
+        "gps_coordinates": {
+          "latitude": 15.6846886,
+          "longitude": 73.70328359999999
+        },
+        "thumbnail": "http://t2.gstatic.com/images?q=tbn:ANd9GcQ5TrUQ5GZI7VN-HH9neCpaYCn_9UzQF-0hA-Q3xNsPweN9ktSMPEIY8Q",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "40 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 42 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfe966852b51d3:0x1f8e1563d0d34c9c",
+        "name": "Chapora Beach",
+        "link": "https://www.google.com/search?q=Chapora+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tLP1TcwKizLMjTQUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgBXHM4_MwAAAA#fpstate=trskp&trifp=kpq%253DChapora%252BBeach%2526skpm%253D/m/02qvj10%2526t%253Dd",
+        "rating": 4.1,
+        "reviews": 565,
+        "description": "Tranquil, white-sand beach with coconut palms & adjacent shops selling handicrafts.",
+        "gps_coordinates": {
+          "latitude": 15.606325,
+          "longitude": 73.7402468
+        },
+        "thumbnail": "http://t2.gstatic.com/images?q=tbn:ANd9GcSylxPoAj4TgIVJtfLwnOZtOy1LpPNZEhA8oMBOv7iYXV8gCTSTgMR7Mg",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "8 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "38 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfc19e42aa939f:0xae0fab172a7880ed",
+        "name": "Sinquerim Beach",
+        "link": "https://www.google.com/search?q=Sinquerim+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tFP1zc0MjOML0gzTNJSzE620s_JT04syczPgzOsEktKihKTQcxiAACZ-6E1AAAA#fpstate=trskp&trifp=kpq%253DSinquerim%252BBeach%2526skpm%253D/g/1261_pf1b%2526t%253Dd",
+        "rating": 4.5,
+        "reviews": 22248,
+        "description": "Picturesque swimming & water-sports destination convenient to resorts & close to historic fort.",
+        "gps_coordinates": {
+          "latitude": 15.4991464,
+          "longitude": 73.76746659999999
+        },
+        "thumbnail": "http://t2.gstatic.com/images?q=tbn:ANd9GcQXzkBjH9mru9x2N_Gv_ytSKyU6RX7KD86Co2dKrDTwSuDjg0N6FlaM4Q",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "39 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfeae6a993c713:0x498aeb574a55d27d",
+        "name": "Mapusa Municipal Market",
+        "link": "https://www.google.com/search?q=Mapusa+Municipal+Market&stick=H4sIAAAAAAAAAONgFmJQ4tLP1TcwyUqKT0rRUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgAme1IGMwAAAA#fpstate=trskp&trifp=kpq%253DMapusa%252BMunicipal%252BMarket%2526skpm%253D/m/04jb_bd%2526t%253Dd",
+        "rating": 3.9,
+        "reviews": 23414,
+        "description": "Bustling, colorful bazaar with stalls selling fresh produce, housewares, clothing & more.",
+        "gps_coordinates": {
+          "latitude": 15.5883763,
+          "longitude": 73.8127861
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweq4GpCS4bFs6Kc1IAlQGsr4XgB2i49E4b17cTrCq6YPCsvvuYpG4qBQFfURitfLbAP3GARi7iFsFKhGrCg-rkilSSDOQCvVNzFyWCr8-KVwflQ4t7jYvvRqvQ7S71AO-VOzrbHvSw=w160-h120-k-no",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "22 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "31 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfe97736d32cbb:0xaefd8da5591e26d",
+        "name": "Ozran Beach",
+        "link": "https://www.google.com/search?q=Ozran+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tZP1zcsySpJL8zI1VLMTrbSz8lPTizJzM-DM6wSS0qKEpNBzGIA61oCvDQAAAA#fpstate=trskp&trifp=kpq%253DOzran%252BBeach%2526skpm%253D/g/1tjtgqhm%2526t%253Dd",
+        "rating": 4.5,
+        "reviews": 2313,
+        "description": "Framed by green hills & rock formations, this scenic beach has chairs, palapas & a relaxed vibe.",
+        "gps_coordinates": {
+          "latitude": 15.593719,
+          "longitude": 73.7344677
+        },
+        "thumbnail": "http://t0.gstatic.com/images?q=tbn:ANd9GcR6V6ZFHijDWouoYD6P89zFmNNSycBmHQYtEtmnUWNUJ379e8-mnfYSyQ",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "10 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfeee85d4085d1:0xee6c10d759574ec0",
+        "name": "Mandrem Beach",
+        "link": "https://www.google.com/search?q=Mandrem+Beach&stick=H4sIAAAAAAAAAONgFmJQ4tVP1zc0TE8vMTU0MCrWUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgAjaQqWNgAAAA#fpstate=trskp&trifp=kpq%253DMandrem%252BBeach%2526skpm%253D/g/11ggt5102s%2526t%253Dd",
+        "rating": 4.6,
+        "reviews": 7308,
+        "description": "Relaxed, secluded beach accessed by small wooden bridge, with lounge chairs & covered cafes.",
+        "gps_coordinates": {
+          "latitude": 15.6696522,
+          "longitude": 73.7095472
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoU7cPJrSfQjMCldj2YNMttbVNAf6S7WsPqfpu1ZjXdDQcrUXsjGxltErPQNYp7r6FEDsa3QARSdcoYoYa0lzeoP-ZoDqzTRtamEuccVa1pkHqdlwcaY2s1m-bZ4_tFMFYlJzfa=w180-h120-k-no",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "33 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 29 min"
+          }
+        ]
+      },
+      {
+        "category": "Point of interest",
+        "data_id": "0x3bbfc08f5a999df7:0xa398409825f4822e",
+        "name": "Our Lady of the Immaculate Conception Church",
+        "link": "https://www.google.com/search?q=Our+Lady+of+the+Immaculate+Conception+Church&stick=H4sIAAAAAAAAAONgFmJQ4tLP1TcwTTKqLM_WUsxOttLPyU9OLMnMz4MzrBJLSooSk0HMYgA5FhHiMwAAAA#fpstate=trskp&trifp=kpq%253DOur%252BLady%252Bof%252Bthe%252BImmaculate%252BConception%252BChurch%2526skpm%253D/m/05b2ywk%2526t%253Dd",
+        "rating": 4.4,
+        "reviews": 27809,
+        "description": "Completed in 1609, this Baroque-style Catholic church with a grand facade sits atop a small hill.",
+        "gps_coordinates": {
+          "latitude": 15.4985659,
+          "longitude": 73.8294025
+        },
+        "thumbnail": "https://encrypted-tbn2.gstatic.com/images?q=tbn:ANd9GcQza8ozFWI536BPytMw-8KBVV2R0P6jsrPKGy6PD-AaEzN5ZCvB",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "47 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "1 hr 5 min"
+          }
+        ]
+      },
+      {
+        "category": "Bus and Coach Station",
+        "data_id": "0x3bbfebda37577e05:0x102dd6bffd12f90",
+        "name": "Badem Piplakade",
+        "gps_coordinates": {
+          "latitude": 15.6039257,
+          "longitude": 73.7546768
+        },
+        "transportations": [
+          {
+            "type": "Walking",
+            "duration": "10 min"
+          }
+        ]
+      },
+      {
+        "category": "Airport",
+        "data_id": "0x3bbfc7fa8c0cf84d:0xb7d429222d347557",
+        "name": "Goa Dabolim International Airport",
+        "gps_coordinates": {
+          "latitude": 15.3808333,
+          "longitude": 73.8313889
+        },
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "1 hr 21 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "2 hr 37 min"
+          }
+        ]
+      },
+      {
+        "category": "Airport",
+        "data_id": "0x3bbf8d4ebff4c7bb:0x1b82a0d04cf6def6",
+        "name": "Manohar International Airport (GOX) - Goa",
+        "gps_coordinates": {
+          "latitude": 15.7313889,
+          "longitude": 73.8677778
+        },
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "45 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "2 hr 12 min"
+          }
+        ]
+      },
+      {
+        "category": "Airport",
+        "data_id": "0x3bbf5dbffcb8619b:0x1aa2c489ae02078e",
+        "name": "Belagavi Airport",
+        "gps_coordinates": {
+          "latitude": 15.8586111,
+          "longitude": 74.6177778
+        },
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "3 hr 27 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "5 hr 56 min"
+          }
+        ]
+      },
+      {
+        "category": "Restaurant",
+        "data_id": "0x3bbfeb4da8c52d19:0xe6b3a4f97d7bea14",
+        "name": "Klay's Cocktail Bar and Restaurant",
+        "rating": 4.8,
+        "reviews": 782,
+        "gps_coordinates": {
+          "latitude": 15.5955446,
+          "longitude": 73.75084869999999
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoB1BOUkRMEt_piC0y0Z9h20DYrBfTP134iHOw0KjK9wfImbvbBRfpOBCZPSV3Q-8N5lqBhQ2SERFWJY6kL9YZBwkUlqZe8AZ_DQ35PL0Hi9vTcfqctZskf2WjzPX2VzdXBj0PA=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "3 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "14 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "29 min"
+          }
+        ]
+      },
+      {
+        "category": "Continental restaurant",
+        "data_id": "0x3bbfeb0010c5407d:0x6cde3d397ef4cac6",
+        "name": "The Sanctuary Bar and Kitchen Goa",
+        "rating": 4.6,
+        "reviews": 691,
+        "gps_coordinates": {
+          "latitude": 15.5939973,
+          "longitude": 73.7532978
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwerotjs6L6gMtJ6qybJ8Jol74HgnW4NRVElfbARAEQEyO45BWuZxUAf40MEID8Ur3ObUdPKWD02x6Hx8WnZevc4VODEdY3r0Kb7RYUpVKE2VZiFkzDlxlb-t1rFvbe0T49xn9rgRdrZcE_Q=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "4 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "17 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "30 min"
+          }
+        ]
+      },
+      {
+        "category": "Continental restaurant",
+        "data_id": "0x3bbfeb156caeb8f7:0x2b30dc4af6e2caf9",
+        "name": "The Great Mango Tree",
+        "rating": 4.7,
+        "reviews": 291,
+        "gps_coordinates": {
+          "latitude": 15.5971676,
+          "longitude": 73.7486914
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoNQrQnt7Ipd5Co4_3loquhpboLluu0fOcVWUbdk-SULED9S9SpOaE49d_Bkyw4RnTnPcYP4bOl6AoEDktLE1EdJ_5LcQq3bX4wtCN9glSlUkPmGvUXmHAHJvBtEr5pHiIQniHQ1mYMtp9l=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "3 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "11 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "28 min"
+          }
+        ]
+      },
+      {
+        "category": "Restaurant",
+        "data_id": "0x3bbfe9df3007ba8d:0x252b190f42d0dda4",
+        "name": "Ozran",
+        "rating": 4.6,
+        "reviews": 103,
+        "gps_coordinates": {
+          "latitude": 15.602918,
+          "longitude": 73.7498227
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoFYJYQkgaLDe04szOQT3dckOIrpoI8NOPgbSLaCRMvbpHuuYgKB-W_ftuv_WafcJR_BJ_jLwiHlUwWVMsJ7mlJI49llBwSgHPuecD7qsBZhjWRpznX_obteAOfz8Jfs_EkPrg=k-no-",
+        "transportations": [
+          {
+            "type": "Public Transport",
+            "duration": "20 min"
+          }
+        ]
+      },
+      {
+        "category": "Restaurant",
+        "data_id": "0x3bbfeb0e8218e0cd:0xe42dcabd8688d6aa",
+        "name": "Maka Zai Goan Restaurant & Feni Cocktails",
+        "rating": 4.8,
+        "reviews": 3729,
+        "gps_coordinates": {
+          "latitude": 15.5926798,
+          "longitude": 73.759635
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoNlBQehol7Bo8Il4XEGY4xIgNcE5utr5nXkdylqN7OkGYtNZmkBc6onyX-hBEufnhIMwvIBKcmmjAQCfwmg92M0MzdkJY5IpNu2mx-Hdx7BTmcrL8GU7J0QzPoivUYi6zTAX0=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "6 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "25 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "27 min"
+          }
+        ]
+      },
+      {
+        "category": "Restaurant",
+        "data_id": "0x3bbfeb9756999f4b:0xdc32359be73167bd",
+        "name": "AKR Local Bar & Restaurant",
+        "rating": 4.9,
+        "reviews": 109,
+        "gps_coordinates": {
+          "latitude": 15.5962077,
+          "longitude": 73.7512042
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwerv7q73D0Axq3I9z7VLgXHDzJ_hsFkjmBOCYOuTh_FI213pO0nIAUbsk9k33485mUfMiSpHc9zkrIVm3U8w_Bd4e7cgcECcWHGhVpo2GpPLqmXZlUeCJbPhUi2fq9-pYFs2vz7FOhrrSr4C=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "3 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "12 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "27 min"
+          }
+        ]
+      },
+      {
+        "category": "Seafood restaurant",
+        "data_id": "0x3bbfe93720f4035f:0xf57b12e58dfa5b10",
+        "name": "Charlie's Restaurant and Bar - The seafood cove, Vagator, Goa",
+        "rating": 4.5,
+        "reviews": 1248,
+        "gps_coordinates": {
+          "latitude": 15.5994977,
+          "longitude": 73.7384232
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweqZeG-3a5IJE04ExEzaex10mK0FNX1GIXeb16xL3dxkkkyThgtuUlUfZzQPu8kogvDR68ZQ4cuX_krWWYc5xmTxC2Cv38sIMz9NJFjNjJ_ovRMJC4ssEEsf9kf_MhSU8KurTwMu7A=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "6 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "27 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "42 min"
+          }
+        ]
+      },
+      {
+        "category": "Steak house",
+        "data_id": "0x3bbfe9648baaf19f:0x5467bba3801a4fff",
+        "name": "Oppa's Restaurant",
+        "rating": 4.7,
+        "reviews": 439,
+        "gps_coordinates": {
+          "latitude": 15.603134,
+          "longitude": 73.7406166
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAweoogg1ZZBrLe4vbVvugZ-K4-a8grkrZWOJsfw7Na8ABF_HhiPWLL08xblkc-3GrZ16DdGlqPMLLAB6WovUvmX_0IspIyrSfY60pjTDa49Fuaz737Lju0YbJCyflGH6_OSEOi8w=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "6 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "25 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "37 min"
+          }
+        ]
+      },
+      {
+        "category": "Seafood restaurant",
+        "data_id": "0x3bbfe98187d3dba5:0xc0e5955b9098b0db",
+        "name": "Anand Sea Food bar & restaurant anjuna",
+        "rating": 4.2,
+        "reviews": 9361,
+        "gps_coordinates": {
+          "latitude": 15.5957968,
+          "longitude": 73.7607927
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwepUUrWcnQ2RQIFHrmhmvPaVfdPcCP56KK1Ax00HcN3OHfPZP65Q5nunp0Ud20UOOwgtfApSoNCmVadIsEn6wVf0ORPphKgtZT78cSEKnPxBv0nFSYgEunLhRZ0XX9vcCAFMWtKx=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "6 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "21 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "25 min"
+          }
+        ]
+      },
+      {
+        "category": "North Indian restaurant",
+        "data_id": "0x3bbfe97c97435e05:0x1b24acfcf312dc9d",
+        "name": "AJ's Kitchen Bar & Restaurant",
+        "rating": 4,
+        "reviews": 1620,
+        "gps_coordinates": {
+          "latitude": 15.5990144,
+          "longitude": 73.7423104
+        },
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwep-h3LK_Bg2Qe_HaLmA6C3muDyNCdhbBUUo7qiIXLaUUmkNuo-yM5sq_cgVf6x8OfB63VRn51JDyZQoDTvYmA5QNxDj3u60un7tK_TtdIKaIrSFB_-KX4Qlj4aPybfUSUcXL7EsesgnUpMu=k-no-",
+        "transportations": [
+          {
+            "type": "Taxi",
+            "duration": "6 min"
+          },
+          {
+            "type": "Walking",
+            "duration": "21 min"
+          },
+          {
+            "type": "Public Transport",
+            "duration": "35 min"
+          }
+        ]
+      }
+    ],
+    "hotel_class": "4-star hotel",
+    "extracted_hotel_class": 4,
+    "featured_offers": [
+      {
+        "source": "Goibibo.com",
+        "tracking_link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQBBoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYASABEgLiKPD_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_0TF9VLKqpDr0gWk1Imy3e2bjLB8A&adurl",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/icon_161.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,407",
+          "extracted_price_before_taxes": 1407
+        },
+        "total_price": {
+          "price_before_taxes": "₹2,813",
+          "extracted_price_before_taxes": 2813
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Aug 26",
+          "time": "12:00 PM"
+        }
+      },
+      {
+        "source": "Cleartrip.com",
+        "tracking_link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQARoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYAiABEgKo5_D_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_3VGOhQZso93Ur1Cc-ZYIeuRK0uLQ&adurl",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/3bb58e59-a840-44a4-b4f6-6cb2c2b9c871.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,373",
+          "extracted_price_before_taxes": 1373
+        },
+        "total_price": {
+          "price_before_taxes": "₹2,746",
+          "extracted_price_before_taxes": 2746
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 7",
+          "time": "1:30 PM"
+        }
+      },
+      {
+        "source": "Booking.com",
+        "tracking_link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQBxoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYAyABEgIF8fD_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_3aJmMHJbwY_H1k0JkGECalHsiOtw&adurl",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/icon_184.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,682",
+          "extracted_price_before_taxes": 1682
+        },
+        "total_price": {
+          "price_before_taxes": "₹3,363",
+          "extracted_price_before_taxes": 3363
+        },
+        "rooms": [
+          {
+            "name": "Bed in 18-Bed Mixed Dorm Room",
+            "description": "Breakfast included · Balcony",
+            "link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQCBoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYAyACEgJZD_D_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_2BgZHJzPPJe0ALoCfR7vfmbORx1Q&adurl",
+            "num_guests": 2,
+            "has_breakfast": true,
+            "amenities": [
+              "Balcony"
+            ],
+            "price_per_night": {
+              "price_before_taxes": "₹1,682",
+              "extracted_price_before_taxes": 1682
+            },
+            "total_price": {
+              "price_before_taxes": "₹3,363",
+              "extracted_price_before_taxes": 3363
+            }
+          },
+          {
+            "name": "Budget Double Room",
+            "description": "1 double bed · Breakfast included",
+            "link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQDBoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYAyAGEgJ_i_D_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_3a6ala_ZLs6Q-q4Mk1Kb7_9k6tGA&adurl",
+            "num_guests": 2,
+            "has_breakfast": true,
+            "beds": [
+              {
+                "count": 1,
+                "type": "double"
+              }
+            ],
+            "price_per_night": {
+              "price_before_taxes": "₹4,719",
+              "extracted_price_before_taxes": 4719
+            },
+            "total_price": {
+              "price_before_taxes": "₹9,438",
+              "extracted_price_before_taxes": 9438
+            }
+          },
+          {
+            "name": "Deluxe Double Room with Shower",
+            "description": "1 double bed · Breakfast included",
+            "link": "https://www.google.com/aclk?sa=l&ai=DChsSEwj33fWtiLyWAxUVlUsFHUAwL90YACICCAEQDhoCc2Y&co=1&gclid=EAIaIQobChMI9931rYi8lgMVFZVLBR1AMC_dEAoYAyAIEgKycPD_BwE&cid=CAASugHkaD1DPTPxdMrZ2XVeQg_D2ASEcw3ilQK0htnUr9ulIrtFwN8cmJgdFVKlujpQ1OdRzZpVK7Cmci46e8fx-Wo0tw1foDoQ-q6vY_3m0JCDg5eAYsXzRfi_Yk2Iu5T5Sx0C9VcHKx9k_BQmaslkf3iusbBqx2NNXq3G9b4cm2rwiMdiXxmO9PicBOy8qUtMjZUW8Z1yOGziQFxlzShEMInW4MMn9hgh3qA0AI1cdTIsqJWCPrKhoUCL8HA&sig=AOD64_1tALbHNZtj3w_S6awZvI6IAVdKgA&adurl",
+            "num_guests": 3,
+            "has_breakfast": true,
+            "beds": [
+              {
+                "count": 1,
+                "type": "double"
+              }
+            ],
+            "price_per_night": {
+              "price_before_taxes": "₹6,726",
+              "extracted_price_before_taxes": 6726
+            },
+            "total_price": {
+              "price_before_taxes": "₹13,453",
+              "extracted_price_before_taxes": 13453
+            }
+          }
+        ]
+      }
+    ],
+    "all_offers": [
+      {
+        "source": "Moustache Goa Luxuria",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OsyA9vnETkifpyQ9ZB_GGYRT4H61lW7i0UAat9S00nGPTAby1PcvovvsyBbKBJPUBIjeoa1mXZUtG0FaigbW3CiDq6KugNR7wWruwH1XQeGnaxBPqUjfsaTMbuietQL6-YMt9pEwtbz5Wvh1SJDmYqHe3DZ0LXOe54ogI7Ct9jgZHc8EXVboiahM&pcurl=https://moustachescapes.com/?HotelId%3D29173%26checkin%3D2026-09-10%26nonights%3D2&s=AD1XQnlMwrK_Q25n2vNixU_cdDzv&ap=1",
+        "link": "https://moustachescapes.com/?HotelId=29173&checkin=2026-09-10&nonights=2",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/11288011166981582446.png",
+        "is_official": true,
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,855",
+          "extracted_price_before_taxes": 4855
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,710",
+          "extracted_price_before_taxes": 9710
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 10"
+        }
+      },
+      {
+        "source": "Cleartrip.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OszfyYSAzvNbokWzhk6GmmXwznVe2RbMQ0hk9xLG1ve9XMFdLZ6ZNLnhEmYbDc-LFpsdPusRy1xIpmKA_kc6uM-MXJd1WuM8_Oe9_Jk-BWOMR1r8pisXS-iBPOzHnT-UzqXnR2Lq09hfPw0OVL6QIcwQvKlwSFJub9lTTrhswOpTOtAPi0uCqxBnng6gVmbT0kY&pcurl=https://www.cleartrip.com/hotels/results?hotelId%3D3943330%26chk_in%3D10/09/2026%26chk_out%3D12/09/2026%26utm_source%3DGoogleHPA%26utm_campaign%3D3943330%26utm_medium%3D%26utm_content%3DGoogleHPA%26adults%3D2%26childs%3D0%26num_rooms%3D1%26adults1%3D2%26children1%3D0%26xtm_source%3Dgoogle%26xtm_content%3D%26xtm_medium%3D%26xs%3DGoogleHPA%26xm%3Dhc-v2-1562831241%26ca1%3D9&s=AD1XQnmqjk4_gzSUdYhzE-7rW2QW&ap=1",
+        "link": "https://www.cleartrip.com/hotels/results?hotelId=3943330&chk_in=10/09/2026&chk_out=12/09/2026&utm_source=GoogleHPA&utm_campaign=3943330&utm_medium=&utm_content=GoogleHPA&adults=2&childs=0&num_rooms=1&adults1=2&children1=0&xtm_source=google&xtm_content=&xtm_medium=&xs=GoogleHPA&xm=hc-v2-1562831241&ca1=9",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/3bb58e59-a840-44a4-b4f6-6cb2c2b9c871.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,373",
+          "extracted_price_before_taxes": 1373
+        },
+        "total_price": {
+          "price_before_taxes": "₹2,746",
+          "extracted_price_before_taxes": 2746
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 7",
+          "time": "1:30 PM"
+        }
+      },
+      {
+        "source": "Goibibo.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OsxdpyfsI3FIpk38RwPy0VT61sGBp1qqFZE8f5oGpzApoUrLpdWRBxfswn-b62Uqjd5f-H0GacZI2ez5Hea9P6nF_LIQMSiOTkt5BdqD41pvnb_sBRSWWZDnYTpryBd7bgovOezXCfc2ZrhIrbuVZ2x7-Z_xlUEV0ex4FEQVqHm5_m2NJN8&pcurl=https://www.goibibo.com/hotels/hotel-listing/?checkin%3D20260910%26checkout%3D20260912%26roomString%3D1-2-0%26lpTest%3DNEW0821%26searchText%3DMoustache%2520Goa%2520Luxuria%2520%257C%2520Private%2520Rooms%2520%2526%2520Dorms%26locusId%3DCTGOI%26locusType%3Dcity%26cityCode%3DCTGOI%26cc%3DIN%26_uCurrency%3DINR%26metaPartner%3Dgoogle%26mmtId%3D201008301457553185%26cmp%3DMETA%7Cgoogle%7Ccpc_hpa%7Cgooglehoteldfinder%7CFree%7CHotel_Price_Ads_4578511910485015484%7CMETA%7Caunoexists%7C%26utm_medium%3Dcpc_hpa%26utm_campaign%3DHotel_Price_Ads__4578511910485015484%26vendor%3Dgds%26p%3D2813.00%26c%3DINR%26bookingSource%3DGoogleCPC%26adType%3D0%26mtkeys%3D0440b358-4d8b-4d2a-afab-db5dd4a3a12f_312168_2Thursday&s=AD1XQnmG08kZz7lQq46sQQs6BPLM&ap=1",
+        "link": "https://www.goibibo.com/hotels/hotel-listing/?checkin=20260910&checkout=20260912&roomString=1-2-0&lpTest=NEW0821&searchText=Moustache%20Goa%20Luxuria%20%7C%20Private%20Rooms%20%26%20Dorms&locusId=CTGOI&locusType=city&cityCode=CTGOI&cc=IN&_uCurrency=INR&metaPartner=google&mmtId=201008301457553185&cmp=META|google|cpc_hpa|googlehoteldfinder|Free|Hotel_Price_Ads_4578511910485015484|META|aunoexists|&utm_medium=cpc_hpa&utm_campaign=Hotel_Price_Ads__4578511910485015484&vendor=gds&p=2813.00&c=INR&bookingSource=GoogleCPC&adType=0&mtkeys=0440b358-4d8b-4d2a-afab-db5dd4a3a12f_312168_2Thursday",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/icon_161.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,407",
+          "extracted_price_before_taxes": 1407
+        },
+        "total_price": {
+          "price_before_taxes": "₹2,813",
+          "extracted_price_before_taxes": 2813
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Aug 26",
+          "time": "12:00 PM"
+        }
+      },
+      {
+        "source": "Booking.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80Osx6GgfymhO6y3C1uuLu7xVujuvBh-csICKkCWfETfod2EJEN2GcFes71VhEaY1yNuZB_-dtcjlu-MS18H_LEQrjXeoEzSZ0Sz-JfTfCVFv2cwTZymG42kHHC4ds9cVvYYUQ60vFLJJkoWbz1T8bjVOUSsnvyejx2S4DZuAprdPnwTsr8ck8zSG5wcHPuthd-aCBKw&pcurl=https://www.booking.com/searchresults.en.html?dest_id%3D1538358%26highlighted_hotels%3D1538358%26dest_type%3Dhotel%26checkin%3D2026-09-10%26checkout%3D2026-09-12%26group_adults%3D2%26req_adults%3D2%26show_room%3D153835807_93536805_2_0_0%26lang%3Den%26selected_currency%3DINR%26exrt%3D1.00000000%26ext_price_total%3D3363.38%26ext_price_tax%3D160.12%26xfc%3DINR%26hca%3Dm%26group_children%3D0%26req_children%3D0%26%26base_block_id%3D153835807_93536805_0_0_0%26no_rooms%3D2%26ts%3D1787666505%26edgtid%3DmKUyIrEzSzSyViUnQ2SMrg%26efpc%3DFgG2SjNjtEoT%26utm_source%3Dmetagha%26utm_medium%3Dlocaluniversal%26utm_campaign%3DIN%26utm_term%3Dhotel-1538358%26utm_content%3Ddev-desktop_los-2_bw-16_dow-Thursday_defdate-1_room-0_gstadt-2_rateid-public_aud-0_gacid-_mcid-10_ppa-0_clrid-0_ad-0_gstkid-0_checkin-20260910_ppt-Cg%26aid%3D2127559%26label%3Dmetagha-link-LUIN-hotel-1538358_dev-desktop_los-2_bw-16_dow-Thursday_defdate-1_room-0_gstadt-2_rateid-public_aud-0_gacid-_mcid-10_ppa-0_clrid-0_ad-0_gstkid-0_checkin-20260910_ppt-Cg&s=AD1XQnm2KEQZdS2lCp5vVxaHvMol&ap=1",
+        "link": "https://www.booking.com/searchresults.en.html?dest_id=1538358&highlighted_hotels=1538358&dest_type=hotel&checkin=2026-09-10&checkout=2026-09-12&group_adults=2&req_adults=2&show_room=153835807_93536805_2_0_0&lang=en&selected_currency=INR&exrt=1.00000000&ext_price_total=3363.38&ext_price_tax=160.12&xfc=INR&hca=m&group_children=0&req_children=0&&base_block_id=153835807_93536805_0_0_0&no_rooms=2&ts=1787666505&edgtid=mKUyIrEzSzSyViUnQ2SMrg&efpc=FgG2SjNjtEoT&utm_source=metagha&utm_medium=localuniversal&utm_campaign=IN&utm_term=hotel-1538358&utm_content=dev-desktop_los-2_bw-16_dow-Thursday_defdate-1_room-0_gstadt-2_rateid-public_aud-0_gacid-_mcid-10_ppa-0_clrid-0_ad-0_gstkid-0_checkin-20260910_ppt-Cg&aid=2127559&label=metagha-link-LUIN-hotel-1538358_dev-desktop_los-2_bw-16_dow-Thursday_defdate-1_room-0_gstadt-2_rateid-public_aud-0_gacid-_mcid-10_ppa-0_clrid-0_ad-0_gstkid-0_checkin-20260910_ppt-Cg",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/icon_184.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,682",
+          "extracted_price_before_taxes": 1682
+        },
+        "total_price": {
+          "price_before_taxes": "₹3,363",
+          "extracted_price_before_taxes": 3363
+        }
+      },
+      {
+        "source": "Hostelworld",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OsysI0lUNXYcXuvySgQLkNecPX8yOs1ooljn8ZmoiRGn_ugFbNd-VY7tvN2dVMSJd0PgVpgdf9QWRZESdsoZLlFQblZEpyUXB-oaE9VLF0r6bhcgA34h0yMyhTxZ2QWwPP4Tv39yIORWrPd8d5iLW-FhVMNh6XKJjG3MM7vrkrDpLJQdyQuj04kzwQ4&pcurl=https://www.hostelworld.com/pwa/hosteldetails.php/311315?from%3D2026-09-10%26to%3D2026-09-12%26HostelNumber%3D311315%26guests%3D2%26Type%3D0%26aff2%3DIN_x_desktop%26utm_medium%3Dmetasearch%26utm_source%3Dgooglehotelfinder%26utm_content%3Dhpa_10_09_2026_2_localuniversal_311315_IN_desktop_default___2%26utm_campaign%3DIN%26lead_time%3D16%26campaign_id%3D%26hpa_click_type%3Dhotel%26hpa_date_search_type%3Ddefault%26hpa_site_property%3Dlocaluniversal%26hpa_occupancy%3D2%26hpa_d_tax%3D0.00%26hpa_d_total%3D3222.33%26hpa_rateplan_id%3D844720%7C2%26hpa_u_country%3DIN%26hpa_u_currency%3DINR%26hpa_u_lang%3Den%26hpa_u_list_id%3D%26number_of_guests%3D2%26hpa_room_id%3D831715%26hpa_pos%3Den&s=AD1XQnn_LRy8sH0KzwQRWbuWGbNJ&ap=1",
+        "link": "https://www.hostelworld.com/pwa/hosteldetails.php/311315?from=2026-09-10&to=2026-09-12&HostelNumber=311315&guests=2&Type=0&aff2=IN_x_desktop&utm_medium=metasearch&utm_source=googlehotelfinder&utm_content=hpa_10_09_2026_2_localuniversal_311315_IN_desktop_default___2&utm_campaign=IN&lead_time=16&campaign_id=&hpa_click_type=hotel&hpa_date_search_type=default&hpa_site_property=localuniversal&hpa_occupancy=2&hpa_d_tax=0.00&hpa_d_total=3222.33&hpa_rateplan_id=844720|2&hpa_u_country=IN&hpa_u_currency=INR&hpa_u_lang=en&hpa_u_list_id=&number_of_guests=2&hpa_room_id=831715&hpa_pos=en",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/icon_100372930.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹1,611",
+          "extracted_price_before_taxes": 1611
+        },
+        "total_price": {
+          "price_before_taxes": "₹3,222",
+          "extracted_price_before_taxes": 3222
+        }
+      },
+      {
+        "source": "EaseMyTrip.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OsyGiypCSubrCP9T26LvBrdbd1NT04FD9QhbQWEpln2pgyzcEIM2j1jbu480Nobt25jFVtkp0jFI5oJ5gjuDpNp-59-_z7TMnca6guzQQ-Ci6NjnxYl1HfBWS_24dVzNtmrlb8rK1t7lEAut2bhqcUAG_Bb3JFE7Qm0fye7_IKP6CgCaC-5NhealKH3gXwfuvRyEIMajPvf9&pcurl=https://www.easemytrip.com/hotels/metasearch.aspx?hotelID%3DEMTHOTEL-2355974%26checkinDay%3D10%26checkinMonth%3D09%26checkinYear%3D2026%26nights%3D2%26adlts%3D2%26p%3D9857.76%7C524.35%7CINR%26pl%3DIN%7Cdesktop%26curr%3DINR%26clickId%3D%26wlcode%3DGoogleARI%26children%3D0%26roomid%3DSR-24100314459991000%26rateid%3DSR-24100314459991000_43959492&s=AD1XQnmRxBNgaD1q7Z65wrxuX1DN&ap=1",
+        "link": "https://www.easemytrip.com/hotels/metasearch.aspx?hotelID=EMTHOTEL-2355974&checkinDay=10&checkinMonth=09&checkinYear=2026&nights=2&adlts=2&p=9857.76|524.35|INR&pl=IN|desktop&curr=INR&clickId=&wlcode=GoogleARI&children=0&roomid=SR-24100314459991000&rateid=SR-24100314459991000_43959492",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/2133949438380506940.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,929",
+          "extracted_price_before_taxes": 4929
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,858",
+          "extracted_price_before_taxes": 9858
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 7"
+        }
+      },
+      {
+        "source": "Yatra.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OsyX_hVsvWOzyy-uzpavg439k8j0nWKOWu4QhqHYQmmYIARub60g27sbPnC0eJ-UySUAdUUeF4WpWZkBw5vzV0Ns-NqYDc_XRqtfoaBH7QFr7yGtVE2z_DhIEeci0kS2ersGC_hpBR43UJ8jFChTsA12Q6mZ-AmL2eEx7kyqP1WMlyikjgRVvy51QaTzbxIhxv_u7DUbZIMf6gjrpuo5&pcurl=https://hotel.yatra.com/hotel-search/dom/details?tenant%3DGoogle_HPA%26ci%3DGHPA%26htlId%3DTGR-00212755%26city.name%3D%26checkinDate%3D10/09/2026%26checkoutDate%3D12/09/2026%26appType%3DHOTEL%26searchId%3D885bcbae-9e3f-4c89-9bd2-3161541b3088%26roomRequests%5B0%5D.id%3D1%26roomRequests%5B0%5D.noOfAdults%3D2%26roomRequests%5B0%5D.noOfChildren%3D0%26hotelId%3D00212755%26htlSrchRank%3D1%26htlFindMthd%3Dchoose%2520room%26viewType%3Dlist%26chpFare%3D500%26excludeHotelTax%3Dfalse%26utm_content%3DX7UxYwokDmQAAyPQaPUAAAAw&s=AD1XQnn8zW_TW0yLX6RZ9IXPdIO7&ap=1",
+        "link": "https://hotel.yatra.com/hotel-search/dom/details?tenant=Google_HPA&ci=GHPA&htlId=TGR-00212755&city.name=&checkinDate=10/09/2026&checkoutDate=12/09/2026&appType=HOTEL&searchId=885bcbae-9e3f-4c89-9bd2-3161541b3088&roomRequests[0].id=1&roomRequests[0].noOfAdults=2&roomRequests[0].noOfChildren=0&hotelId=00212755&htlSrchRank=1&htlFindMthd=choose%20room&viewType=list&chpFare=500&excludeHotelTax=false&utm_content=X7UxYwokDmQAAyPQaPUAAAAw",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/6c903160-962e-4d41-b00d-33dbb6d2c379.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹5,418",
+          "extracted_price_before_taxes": 5418
+        },
+        "total_price": {
+          "price_before_taxes": "₹10,836",
+          "extracted_price_before_taxes": 10836
+        }
+      },
+      {
+        "source": "ixigo",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OszuCWkxAyPznN0oWl2JitWL7eXrpHWUTVzifv0zdQ17e1HQVsJNvNb3obMPLIdzMe5y6y5hfQX5uuufL2xo4crbi_y80vKtNp0_p_Gz9uQ_R5p9lYpgyDNW5Lrfl9CvgQctIt3jz6Kv1jbOZToY-bbRgPIkec5Fe8qiBx8ji7SVJKVrgQrUqhKT1h93t0Z5&pcurl=https://www.ixigo.com/hotels/51976/details?hotelInfoToken%3Dtrue%7C2022%7C1%26checkinDate%3D10092026%26checkoutDate%3D12092026%26adultCount%3D2%26roomCount%3D1%26childCount%3D0%26cc%3DGOOGLE_NO_CODE%26hName%3DMoustache%2520Goa%2520Luxuria%26locationId%3D34612%26source%3Dgoogle_hotels%26subsource%3Dgoogle_hotels%26masterLocationId%3D55544%26countryId%3D1%26basePrice%3D8315%26tax%3D1124&s=AD1XQnlOTViid7-SLrr5WECI4T89&ap=1",
+        "link": "https://www.ixigo.com/hotels/51976/details?hotelInfoToken=true|2022|1&checkinDate=10092026&checkoutDate=12092026&adultCount=2&roomCount=1&childCount=0&cc=GOOGLE_NO_CODE&hName=Moustache%20Goa%20Luxuria&locationId=34612&source=google_hotels&subsource=google_hotels&masterLocationId=55544&countryId=1&basePrice=8315&tax=1124",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/13579564899087840174.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,720",
+          "extracted_price_before_taxes": 4720
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,439",
+          "extracted_price_before_taxes": 9439
+        }
+      },
+      {
+        "source": "Expedia.co.in",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OswlEZBM7fFaB6f0ASzd4kugq3Gc-pNoWHhpZQnGzsMZOro1USsfBDQBvyQVpvJrWjlK6UckiPSI-SY4ugG7my7aOmxy57_qFeM89u8yoxM1LPdxw7yJfrIaTL8JsTiZby8m3A2RPxz3y1jUzt7CN2qdhG99DMDHiGMCuSOVpZwtZfUoPUxmM0Udm-DUPJx1&pcurl=https://www.expedia.co.in/Hotel-Search?selected%3D71656887%26startDate%3D2026-09-10%26endDate%3D2026-09-12%26MDPCID%3DIN.META.HPA.HOTEL-ORGANIC-desktop.HOTEL%26MDPDTL%3DHTL.71656887.20260910.20260912.DDT.16.CID..AUDID..RRID.bex_in_desktop%26adults%3D2%26children%3D%26mctc%3D10%26ct%3Dhotel%26mpg%3DINR%26mpf%3D9263.50%26mpj%3D441.50%26mpr%3D0.00%26mpl%3DINR%26exp_pg%3Dgoogle%26langid%3Den%26ad%3D2%26tp%3D%26utm_source%3Dgoogle%26utm_medium%3Dcpc%26utm_term%3D71656887%26utm_content%3Dlocaluniversal%26utm_campaign%3DHotelAds%26rateplanid%3D384208941%26mpm%3D24%26mpn%3D315650372%26mpo%3DEC%26mpp%3D0&s=AD1XQnnUoC7eT9pdel0SEuASwIMx&ap=1",
+        "link": "https://www.expedia.co.in/Hotel-Search?selected=71656887&startDate=2026-09-10&endDate=2026-09-12&MDPCID=IN.META.HPA.HOTEL-ORGANIC-desktop.HOTEL&MDPDTL=HTL.71656887.20260910.20260912.DDT.16.CID..AUDID..RRID.bex_in_desktop&adults=2&children=&mctc=10&ct=hotel&mpg=INR&mpf=9263.50&mpj=441.50&mpr=0.00&mpl=INR&exp_pg=google&langid=en&ad=2&tp=&utm_source=google&utm_medium=cpc&utm_term=71656887&utm_content=localuniversal&utm_campaign=HotelAds&rateplanid=384208941&mpm=24&mpn=315650372&mpo=EC&mpp=0",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/ac238c97-1652-4830-8da8-bb8d8883af88.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,632",
+          "extracted_price_before_taxes": 4632
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,264",
+          "extracted_price_before_taxes": 9264
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 8",
+          "time": "6:00 PM"
+        }
+      },
+      {
+        "source": "klook",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OszHHjYsDex5dZCD8g6aZXd109a8OcE42h_9aNvGWY2sodoygtdLjYLeiFibr9a3AJEwfVNmpEG69943lv6TEv-YXL-VDdsiKIhNVGZozPZ2a6Xkjwr3q-sQg56w_14nsLnMp8OCwKTndxsuxhuxW8cTISKMp4rvdOr2YrSSZ8sJJXkvPG5LSAL6AEUQSMM7eBJpM5ol3c_zqW1z7kGrT1OKijspuBG5rqI&pcurl=https://api.klktech.com/v1/meta/hotels/detail/728274/?hotelid%3D728274%26check_in%3D2026-09-10%26check_out%3D2026-09-12%26aid%3D27815%26campaignid%3D%26adult_num%3D2%26lead_time%3D16%26child_num%3D0%26childages%3D%26room_num%3D1%26google_site%3Dlocaluniversal%26length_of_stay%3D2%26partner_currency%3DINR%26click_type%3Dhotel%26click_price_total%3D8858.00%26price_tax%3D439.00%26rate_key%3D1-1-384208941%26user_country%3DIN%26click_currency%3DINR%26_currency%3DINR%26device%3Ddesktop%26partner_hotelid%3D728274%26language%3Den%26audience_list%3D%26verification%3Dfalse%26booking_source%3Dcpc%26isPromoted%3D0%26utm_source%3DMSE%26utm_medium%3DGoogle%26utm_campaign%3D27815%26utm_term%3D728274%26utm_content%3DINR%26isAdClick%3D0%26prid%3DDomestic-Other%26arrival_fees%3D0.000%26mse_trace_id%3DYTQ3ODViZjE6MDowOjI6MDoxOjI1MjoyNTQ6SU4%26price_total%3DINR-8858.190%26price_type%3Ddomestic_desktop%26klc_l1%3DMSE%26klc_l2%3DGoogle%26age%3D%26mse_search_token%3DYTQ3ODViZjE6MDowOjI6MDoxOjI1MjoyNTQ6SU4%26lowest%3Dtrue%26price_fees%3D0.00&s=AD1XQnmkWTQL8JD5Gud8BHVoB6mN&ap=1",
+        "link": "https://api.klktech.com/v1/meta/hotels/detail/728274/?hotelid=728274&check_in=2026-09-10&check_out=2026-09-12&aid=27815&campaignid=&adult_num=2&lead_time=16&child_num=0&childages=&room_num=1&google_site=localuniversal&length_of_stay=2&partner_currency=INR&click_type=hotel&click_price_total=8858.00&price_tax=439.00&rate_key=1-1-384208941&user_country=IN&click_currency=INR&_currency=INR&device=desktop&partner_hotelid=728274&language=en&audience_list=&verification=false&booking_source=cpc&isPromoted=0&utm_source=MSE&utm_medium=Google&utm_campaign=27815&utm_term=728274&utm_content=INR&isAdClick=0&prid=Domestic-Other&arrival_fees=0.000&mse_trace_id=YTQ3ODViZjE6MDowOjI6MDoxOjI1MjoyNTQ6SU4&price_total=INR-8858.190&price_type=domestic_desktop&klc_l1=MSE&klc_l2=Google&age=&mse_search_token=YTQ3ODViZjE6MDowOjI6MDoxOjI1MjoyNTQ6SU4&lowest=true&price_fees=0.00",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/6803444367584656539.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,429",
+          "extracted_price_before_taxes": 4429
+        },
+        "total_price": {
+          "price_before_taxes": "₹8,858",
+          "extracted_price_before_taxes": 8858
+        }
+      },
+      {
+        "source": "Hotels.com",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80OszoghOSEkZyERX8-aOkEMR-hGmw6iRUoTP74adOK_IxEglZ-szrI4zfguqdjuNCTyg-GuOPFvrbrCdqbcb4KXoT0DwTq78cpXxhGUayHZ5AA-OfN2QKv0S8NR5XJD3kVAe5IvdA-BdsDcqzqMvRhAQ93LUslLoQxJtmCy4ZOjkw_8ih8exeKtqDPHx7zwM&pcurl=https://in.hotels.com/Hotel-Search?selected%3D71656887%26startDate%3D2026-09-10%26endDate%3D2026-09-12%26mdpcid%3DHCOM-IN.META.HPA.HOTEL-ORGANIC-desktop.HOTEL%26MDPDTL%3DHTL.71656887.20260910.20260912.DDT.16.CID..AUDID.%26adults%3D2%26children%3D%26mctc%3D10%26mpf%3D9263.50%26mpg%3DINR%26mpl%3DINR%26mpj%3D441.50%26mpr%3D0.00%26rffrid%3Dsem.hcom.IN.156.024.localuniversal.02.desktop-2.kwrd%3DGGMETA.71656887INen-20260910-D-ABW%3D16-camp%3D-aud%3D-N%26rateplanid%3D384208941%26mpm%3D24%26mpn%3D315650372%26mpo%3DEC%26mpp%3D1&s=AD1XQnm4AXDgtRmGOF4bp0EXZw5c&ap=1",
+        "link": "https://in.hotels.com/Hotel-Search?selected=71656887&startDate=2026-09-10&endDate=2026-09-12&mdpcid=HCOM-IN.META.HPA.HOTEL-ORGANIC-desktop.HOTEL&MDPDTL=HTL.71656887.20260910.20260912.DDT.16.CID..AUDID.&adults=2&children=&mctc=10&mpf=9263.50&mpg=INR&mpl=INR&mpj=441.50&mpr=0.00&rffrid=sem.hcom.IN.156.024.localuniversal.02.desktop-2.kwrd=GGMETA.71656887INen-20260910-D-ABW=16-camp=-aud=-N&rateplanid=384208941&mpm=24&mpn=315650372&mpo=EC&mpp=1",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/306127930749010778.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,632",
+          "extracted_price_before_taxes": 4632
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,264",
+          "extracted_price_before_taxes": 9264
+        },
+        "has_free_cancellation": true,
+        "free_cancellation_until": {
+          "date": "Sep 8",
+          "time": "6:00 PM"
+        }
+      },
+      {
+        "source": "HomeToGo",
+        "tracking_link": "https://www.google.com/travel/lodging/clk?pc=AA80Oszh-6WNAhZD62J0PV3EMqRdTzLWJyVoaoVZ0zqaQVkT-tYPNnsyUrS9Sl_1UL_DVM4kyWxN4oeEt4MsJJmzC2I_Nw2V2DQnRVJOU1n7RNujqCsWCacAxYVYacgimmpe-_Fop99grUBOgjQ-c3DlilsmPaOog7xOGO3ncZ500gMpU7J5urRhGfc&pcurl=https://www.hometogo.com/search/54c3c7784990f?arrival%3D2026-09-10%26duration%3D2%26id%3Dz495439131e1de6cf%2540f%2540s%26adults%3D2%26tpp%3Dguluhfq.6a8c964e%26adword%3Dghf/us/z495439131e1de6cf/ct%3Dhs/n-a/n-a/54c3c7784990f%26utm_source%3Dghf%26hl%3Den_IN%26ghf_acc%3Dhtg_ghf%26c%3DINR%26gValidation%3Dfalse%26gSite%3Dlocaluniversal&s=AD1XQnl3rqj-bMZVSjUrdoLdWZ9E&ap=1",
+        "link": "https://www.hometogo.com/search/54c3c7784990f?arrival=2026-09-10&duration=2&id=z495439131e1de6cf%40f%40s&adults=2&tpp=guluhfq.6a8c964e&adword=ghf/us/z495439131e1de6cf/ct=hs/n-a/n-a/54c3c7784990f&utm_source=ghf&hl=en_IN&ghf_acc=htg_ghf&c=INR&gValidation=false&gSite=localuniversal",
+        "logo": "https://www.gstatic.com/travel-hotels/branding/5bde3665-f4fd-4468-b4bf-dee085aaacce.png",
+        "num_guests": 2,
+        "price_per_night": {
+          "price_before_taxes": "₹4,699",
+          "extracted_price_before_taxes": 4699
+        },
+        "total_price": {
+          "price_before_taxes": "₹9,398",
+          "extracted_price_before_taxes": 9398
+        }
+      }
+    ],
+    "images": [
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlfcTOM_fhblW_FlVvD64T9liQ5GjkXi4ZkKW0pNeuhY4GPje23MnkxLFBqOmhAcl4UWmt2MSQwvT7ijp0LTCjEdyc3m4S0HGiqNwQPvsbriq8O0UDjRsywU3uQj-B5-iHRB10=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlfcTOM_fhblW_FlVvD64T9liQ5GjkXi4ZkKW0pNeuhY4GPje23MnkxLFBqOmhAcl4UWmt2MSQwvT7ijp0LTCjEdyc3m4S0HGiqNwQPvsbriq8O0UDjRsywU3uQj-B5-iHRB10=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmFF-gZ7DUOJc7fqiMp-2onyjeFgfaWJGmXhalIe3nBjCNhPp4g6R36muVucuhcaWk3B3rbDnU_0Zy3lrV5ctnfgNQi05LM3SMIkMWnmhDTKU0B-109EFCCbZLtrxT935KY2_3L1A=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmFF-gZ7DUOJc7fqiMp-2onyjeFgfaWJGmXhalIe3nBjCNhPp4g6R36muVucuhcaWk3B3rbDnU_0Zy3lrV5ctnfgNQi05LM3SMIkMWnmhDTKU0B-109EFCCbZLtrxT935KY2_3L1A=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmEAXjxbGGNSXzanj0iuv-_T6FuL52WuJ5EduSijs0k1WxOsBvoUtyW07NZzIc9oSh_CMytPT96zNlGEmsw6ktuPADEzdnVayIfQ7PXqtPGQBDXZvE2ioAdM0cC8verQYPZNlwj=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmEAXjxbGGNSXzanj0iuv-_T6FuL52WuJ5EduSijs0k1WxOsBvoUtyW07NZzIc9oSh_CMytPT96zNlGEmsw6ktuPADEzdnVayIfQ7PXqtPGQBDXZvE2ioAdM0cC8verQYPZNlwj=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWk8o2P2D69M5TUqMkfCUtRFPYfbNni24vEi4M8kQn95bp1edzedRCisYGYidSSoauBJrApER3lhqmb8hh19IfaVQDgdyWOrFlHfOhW0v1rsOraqoEJqMpxvAYDyV4yDyeljJjyp=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWk8o2P2D69M5TUqMkfCUtRFPYfbNni24vEi4M8kQn95bp1edzedRCisYGYidSSoauBJrApER3lhqmb8hh19IfaVQDgdyWOrFlHfOhW0v1rsOraqoEJqMpxvAYDyV4yDyeljJjyp=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWk58_A70K8NG3bb_um61lR6-IE8lxduvlmJVvm5ffsywHG74BpSZ1Ot1eLUadWI5Q0lk5kVYAvtw3FEP0JJvDsprSxT7CImyYJYwBbm2ZwiUnoNjnyjteAgAVCXNcfxLkWNWMmj=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWk58_A70K8NG3bb_um61lR6-IE8lxduvlmJVvm5ffsywHG74BpSZ1Ot1eLUadWI5Q0lk5kVYAvtw3FEP0JJvDsprSxT7CImyYJYwBbm2ZwiUnoNjnyjteAgAVCXNcfxLkWNWMmj=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlTkQxOgm0mo38W3e7Yn0HAnOPbyJQ99E3uchHBHYL-4mzxNocbhx8KhB4xdafMl247TUXDFtfG6h0ggXrimOjD9HbhUCOr84EDyXpIKdp4MzUZyf_dkmsFKSaU0V4rvEVbekid=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlTkQxOgm0mo38W3e7Yn0HAnOPbyJQ99E3uchHBHYL-4mzxNocbhx8KhB4xdafMl247TUXDFtfG6h0ggXrimOjD9HbhUCOr84EDyXpIKdp4MzUZyf_dkmsFKSaU0V4rvEVbekid=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWltDBmt4OMuHQJT_CeW44mg-ypVdxq1PC7Rj3eGyL9EZ17oPeosHBxnb-M--1Mcfzft8-SkC0o-y6Yfa_bmKV7GiqK3JiMOQkAaAqh0QFXqFhesSy7R0ULd2D36MD49s8K2deZFeQ=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWltDBmt4OMuHQJT_CeW44mg-ypVdxq1PC7Rj3eGyL9EZ17oPeosHBxnb-M--1Mcfzft8-SkC0o-y6Yfa_bmKV7GiqK3JiMOQkAaAqh0QFXqFhesSy7R0ULd2D36MD49s8K2deZFeQ=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWl3N-YaiEJeTOMbKivr98etJa4146XRJDxtBZbtefIv2szBToNTm3VzlWAPKS1TDVMcLz6h4boQFPBD9CEjcuWH8bmvpQcn-2-FPri8GstWQmY-DmjJBittVZ4AUKHQ5K2HLu8f=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWl3N-YaiEJeTOMbKivr98etJa4146XRJDxtBZbtefIv2szBToNTm3VzlWAPKS1TDVMcLz6h4boQFPBD9CEjcuWH8bmvpQcn-2-FPri8GstWQmY-DmjJBittVZ4AUKHQ5K2HLu8f=s10000"
+      },
+      {
+        "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWnwskzkoBZHGrn0_Eksy4gYDc_uKBsT1YTQDGOaJajph73f3YGGHrNyr_p238NI3pTqdebLpRT8LkqEMT9NMKiG1OAC0GVFeLrmG0P9ktLzBid1YoOG4rxnoA0bs4IqaRMtjyTD=s287-w287-h192-n-k-no-v1",
+        "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWnwskzkoBZHGrn0_Eksy4gYDc_uKBsT1YTQDGOaJajph73f3YGGHrNyr_p238NI3pTqdebLpRT8LkqEMT9NMKiG1OAC0GVFeLrmG0P9ktLzBid1YoOG4rxnoA0bs4IqaRMtjyTD=s10000"
+      }
+    ],
+    "rating": 4.4,
+    "reviews": 3941,
+    "reviews_histogram": {
+      "1": 257,
+      "2": 93,
+      "3": 241,
+      "4": 751,
+      "5": 2599
+    },
+    "location_rating": 3.4,
+    "proximity_to_things_to_do_rating": 4.1,
+    "proximity_to_transit_rating": 2.8,
+    "airport_access_rating": 3.3,
+    "review_results": {
+      "reviews": [
+        {
+          "username": "Abhishek Srivastava",
+          "text": "\"Rooms, service, location, food , and staff was very good.\""
+        },
+        {
+          "username": "Mansee Gaur",
+          "text": "\"Lovely people,great host, fabulous place, must visit with friends or family.\""
+        },
+        {
+          "username": "Amar Jith",
+          "text": "\"The room i opted for was a budget friendly executive room with a Jaccuzi!\""
+        }
+      ],
+      "on_other_sites": [
+        {
+          "username": "Quest63245756183",
+          "source": "Tripadvisor",
+          "link": "https://www.tripadvisor.com/ShowUserReviews-g2531348-d1942436-r1070883334?m=68573&staydates=2026_09_06_2026_09_07&uguests=1_2_0&supdv=desktop&supuc=IN&supul=en",
+          "date": "3 weeks ago",
+          "reviews": 675,
+          "rating": 4.6,
+          "text": "Front office was very good every staff bipna rishu manya sarfaz and all were nice and helped us in our stay"
+        },
+        {
+          "username": "Trip.com Member",
+          "source": "Trip.com",
+          "link": "https://www.trip.com/hotels/detail?hotelid=78229065&Allianceid=810504&Sid=1394411&utm_medium=cpc&utm_campaign=HPA&utm_source=google#review",
+          "date": "a year ago",
+          "reviews": 44,
+          "rating": 4.4,
+          "text": "It was one of the best stays so far, I was so comfortable with the people since I arrived, the staffs are super friendly it feels like home.They just need to improve the lock systems for the lockers and room, there’s no way to lock the room even if somebody goes outside."
+        }
+      ]
+    },
+    "reviews_breakdown": [
+      {
+        "name": "Service",
+        "description": "Service",
+        "total_mentions": 1014,
+        "positive": 858,
+        "neutral": 16,
+        "negative": 140
+      },
+      {
+        "name": "Fitness",
+        "description": "Fitness",
+        "total_mentions": 356,
+        "positive": 286,
+        "neutral": 19,
+        "negative": 51
+      },
+      {
+        "name": "Property",
+        "description": "Property",
+        "total_mentions": 1016,
+        "positive": 859,
+        "neutral": 36,
+        "negative": 121
+      },
+      {
+        "name": "Pool",
+        "description": "Pool",
+        "total_mentions": 233,
+        "positive": 203,
+        "neutral": 8,
+        "negative": 22
+      },
+      {
+        "name": "Bathroom",
+        "description": "Bathroom and toiletries",
+        "total_mentions": 169,
+        "positive": 47,
+        "neutral": 23,
+        "negative": 99
+      },
+      {
+        "name": "Breakfast",
+        "description": "Breakfast",
+        "total_mentions": 211,
+        "positive": 144,
+        "neutral": 15,
+        "negative": 52
+      },
+      {
+        "name": "Cleanliness",
+        "description": "Cleanliness",
+        "total_mentions": 328,
+        "positive": 223,
+        "neutral": 9,
+        "negative": 96
+      },
+      {
+        "name": "Dining",
+        "description": "Food and Beverage",
+        "total_mentions": 248,
+        "positive": 180,
+        "neutral": 17,
+        "negative": 51
+      },
+      {
+        "name": "Atmosphere",
+        "description": "Atmosphere",
+        "total_mentions": 318,
+        "positive": 308,
+        "neutral": 2,
+        "negative": 8
+      },
+      {
+        "name": "Sleep",
+        "description": "Sleep",
+        "total_mentions": 100,
+        "positive": 42,
+        "neutral": 12,
+        "negative": 46
+      },
+      {
+        "name": "Bar",
+        "description": "Bar or lounge",
+        "total_mentions": 102,
+        "positive": 70,
+        "neutral": 10,
+        "negative": 22
+      },
+      {
+        "name": "Safety",
+        "description": "Safety",
+        "total_mentions": 48,
+        "positive": 24,
+        "neutral": 4,
+        "negative": 20
+      },
+      {
+        "name": "Location",
+        "description": "Location",
+        "total_mentions": 216,
+        "positive": 164,
+        "neutral": 29,
+        "negative": 23
+      },
+      {
+        "name": "Family",
+        "description": "Family friendly",
+        "total_mentions": 88,
+        "positive": 75,
+        "neutral": 3,
+        "negative": 10
+      },
+      {
+        "name": "Restaurant",
+        "description": "Restaurant",
+        "total_mentions": 62,
+        "positive": 36,
+        "neutral": 7,
+        "negative": 19
+      },
+      {
+        "name": "Room",
+        "description": "Room amenities",
+        "total_mentions": 109,
+        "positive": 58,
+        "neutral": 4,
+        "negative": 47
+      },
+      {
+        "name": "Nightlife",
+        "description": "Nightlife",
+        "total_mentions": 44,
+        "positive": 30,
+        "neutral": 6,
+        "negative": 8
+      },
+      {
+        "name": "Couples",
+        "description": "Couple friendly",
+        "total_mentions": 29,
+        "positive": 24,
+        "neutral": 2,
+        "negative": 3
+      },
+      {
+        "name": "Parking",
+        "description": "Parking",
+        "total_mentions": 28,
+        "positive": 10,
+        "neutral": 6,
+        "negative": 12
+      },
+      {
+        "name": "Nature",
+        "description": "Nature and outdoor activities",
+        "total_mentions": 83,
+        "positive": 59,
+        "neutral": 18,
+        "negative": 6
+      },
+      {
+        "name": "Hot Tub",
+        "description": "Hot tub",
+        "total_mentions": 10,
+        "positive": 4,
+        "neutral": 1,
+        "negative": 5
+      },
+      {
+        "name": "Accessibility",
+        "description": "Accessibility",
+        "total_mentions": 18,
+        "positive": 4,
+        "neutral": 1,
+        "negative": 13
+      },
+      {
+        "name": "Kitchen",
+        "description": "Kitchen",
+        "total_mentions": 23,
+        "positive": 4,
+        "neutral": 3,
+        "negative": 16
+      },
+      {
+        "name": "Air Conditioning",
+        "description": "Air conditioning",
+        "total_mentions": 20,
+        "positive": 4,
+        "neutral": 1,
+        "negative": 15
+      },
+      {
+        "name": "Wi-Fi",
+        "description": "Wi-Fi",
+        "total_mentions": 17,
+        "positive": 5,
+        "neutral": 2,
+        "negative": 10
+      },
+      {
+        "name": "Business",
+        "description": "Business",
+        "total_mentions": 15,
+        "positive": 5,
+        "neutral": 4,
+        "negative": 6
+      },
+      {
+        "name": "TV",
+        "description": "Room entertainment",
+        "total_mentions": 11,
+        "positive": 1,
+        "neutral": 0,
+        "negative": 10
+      },
+      {
+        "name": "Transport",
+        "description": "Public transit",
+        "total_mentions": 8,
+        "positive": 6,
+        "neutral": 0,
+        "negative": 2
+      },
+      {
+        "name": "Beach",
+        "description": "Beach",
+        "total_mentions": 6,
+        "positive": 5,
+        "neutral": 0,
+        "negative": 1
+      }
+    ]
+  },
+  "people_also_viewed": [
+    {
+      "type": "hotel",
+      "property_token": "ChkI_JTf3rDI460_Gg0vZy8xMWI2Mzh0aDlqEAE",
+      "data_id": "0x3bbfe9818b96fef3:0x3f5b8e430bd7ca7c",
+      "name": "GT Boutique Resorts",
+      "description": "Free breakfast",
+      "gps_coordinates": {
+        "latitude": 15.58805,
+        "longitude": 73.74560900000002
+      },
+      "distance": "1.7 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹1,680",
+        "extracted_price_before_taxes": 1680
+      },
+      "total_price": {
+        "price_before_taxes": "₹3,360",
+        "extracted_price_before_taxes": 3360
+      },
+      "hotel_class": "3-star hotel",
+      "extracted_hotel_class": 3,
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWnl3ltMSBoso96cf-2cE53uXS_EisbyHBWGThmr7WdfiEw8SEoki80DY0iiXJddRnkLfX8FLoH1mGh-nQzA7jAvLrFxNogHU8psUaMk2ljFg4JDA9bG9jKijeFBNNpThZ7LsNOy=s287-w287-h192-n-k-no-v1",
+          "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWnl3ltMSBoso96cf-2cE53uXS_EisbyHBWGThmr7WdfiEw8SEoki80DY0iiXJddRnkLfX8FLoH1mGh-nQzA7jAvLrFxNogHU8psUaMk2ljFg4JDA9bG9jKijeFBNNpThZ7LsNOy=s10000"
+        }
+      ],
+      "rating": 3.9,
+      "reviews": 2153
+    },
+    {
+      "type": "hotel",
+      "property_token": "ChcI-d_lzuDp0LMWGgsvZy8xdGg2YzhydxAB",
+      "data_id": "0x3bbfe98655555555:0x1667434e09d96ff9",
+      "name": "Poonam Resort",
+      "description": "3-star hotel for ₹541 less",
+      "gps_coordinates": {
+        "latitude": 15.584221,
+        "longitude": 73.73927599999999
+      },
+      "distance": "2.4 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹831",
+        "extracted_price_before_taxes": 831
+      },
+      "total_price": {
+        "price_before_taxes": "₹1,663",
+        "extracted_price_before_taxes": 1663
+      },
+      "hotel_class": "3-star hotel",
+      "extracted_hotel_class": 3,
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkNG7A8fZq9DoBC1jrgrp5XYTTQ3FEKLt6DR8gsLRoiN-df0PHjzs4iY9O9hvxZ-XqzaHhuqiHdPtNyLxUchy6NVus6Yxcz5G15nOTLAIlaDVYoLKg0aFOvaXsReOsKwbSXzi2p=s287-w287-h192-n-k-no-v1",
+          "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkNG7A8fZq9DoBC1jrgrp5XYTTQ3FEKLt6DR8gsLRoiN-df0PHjzs4iY9O9hvxZ-XqzaHhuqiHdPtNyLxUchy6NVus6Yxcz5G15nOTLAIlaDVYoLKg0aFOvaXsReOsKwbSXzi2p=s10000"
+        }
+      ],
+      "rating": 3.7,
+      "reviews": 1119
+    },
+    {
+      "type": "hotel",
+      "property_token": "ChgIw7qb7rjClaoWGgwvZy8xMjR5Y180Z2sQAQ",
+      "data_id": "0x3bbfe94ed37179cf:0x165456138dc6dd43",
+      "name": "Goan Cafe N Resort",
+      "description": "Free breakfast",
+      "gps_coordinates": {
+        "latitude": 15.625474,
+        "longitude": 73.72970099999999
+      },
+      "distance": "3.3 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹1,384",
+        "extracted_price_before_taxes": 1384
+      },
+      "total_price": {
+        "price_before_taxes": "₹2,768",
+        "extracted_price_before_taxes": 2768
+      },
+      "hotel_class": "3-star hotel",
+      "extracted_hotel_class": 3,
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkbAqxjLOnjetgarmEUimB72023_e55GOjgS8dlu88UvvE46OB-9z6Y2GFqUiTrU-qy9m4JttpDMgfwDqszih4yDfWRw-JYzH3g7orRuIw-DBMahca6b5VKu4LaCaX5grKyvMHG=s287-w287-h192-n-k-no-v1",
+          "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkbAqxjLOnjetgarmEUimB72023_e55GOjgS8dlu88UvvE46OB-9z6Y2GFqUiTrU-qy9m4JttpDMgfwDqszih4yDfWRw-JYzH3g7orRuIw-DBMahca6b5VKu4LaCaX5grKyvMHG=s10000"
+        }
+      ],
+      "rating": 4.2,
+      "reviews": 406
+    },
+    {
+      "type": "hotel",
+      "property_token": "ChoIy5LCo4L338HTARoNL2cvMTFnbTZkbTRxZBAB",
+      "data_id": "0x3bbfeb77214b8b35:0xd3837fb82470894b",
+      "name": "Bedrock Boutique Hostel",
+      "description": "3-star hotel for ₹641 less",
+      "gps_coordinates": {
+        "latitude": 15.553556,
+        "longitude": 73.76021899999999
+      },
+      "distance": "5.6 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹732",
+        "extracted_price_before_taxes": 732
+      },
+      "total_price": {
+        "price_before_taxes": "₹1,464",
+        "extracted_price_before_taxes": 1464
+      },
+      "hotel_class": "3-star hotel",
+      "extracted_hotel_class": 3,
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkwFyIiulk1Vspmgv1p9S3-aA5bHq6KSWL5DYgnAJTDF7fS7Zojut_1Hxh6dkbp3k6Hd6A5u89CSgm9cX2TqtTQaRg4mfDOXlaNgMsbQ6pimV31YQbl6JDUd_5EbRQKzWrMBAbUbg=s287-w287-h192-n-k-no-v1",
+          "original": "https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkwFyIiulk1Vspmgv1p9S3-aA5bHq6KSWL5DYgnAJTDF7fS7Zojut_1Hxh6dkbp3k6Hd6A5u89CSgm9cX2TqtTQaRg4mfDOXlaNgMsbQ6pimV31YQbl6JDUd_5EbRQKzWrMBAbUbg=s10000"
+        }
+      ],
+      "rating": 4.2,
+      "reviews": 1214
+    }
+  ],
+  "vacation_rentals_nearby": [
+    {
+      "type": "hotel",
+      "property_token": "CiQIlsyYuoi30c6UARDOkfDY6O_0r2kaDS9nLzExbXNfbXRyMXEQAg",
+      "data_id": "0x0:0x949d45b887462616",
+      "name": "Villa Divino Anjuna Vagator Beach",
+      "gps_coordinates": {
+        "latitude": 15.60319,
+        "longitude": 73.750168
+      },
+      "distance": "0.5 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹14,767",
+        "extracted_price_before_taxes": 14767
+      },
+      "total_price": {
+        "price_before_taxes": "₹44,300",
+        "extracted_price_before_taxes": 44300
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/proxy/Y42tkC-gh2yg1XIu9emR3VgkhdgNR7CwSP0bStA_6geEXOVZOkw2b8ZLiQIWtGYIrGWNeUEHC88LCt1JX5TItyEFKwlsAtVlzeH0iZHZa2D1rUMgO7NUBdMDFttvG9fJ5Lwk0WsAinkJvv14xuWZ-Sh824Nygzc=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/44629626/0/b052f0850dd7688d7967be64e1bab52d.jpg?ce=0"
+        }
+      ],
+      "rating": 5,
+      "reviews": 1,
+      "essential_info": [
+        "Sleeps 8",
+        "2 bedrooms",
+        "3 bathrooms"
+      ]
+    },
+    {
+      "type": "hotel",
+      "property_token": "CiUI5Prn8qeg5Pn3ARCSq4W6xq_kt_8BGg0vZy8xMXpoNHhsbno0EAI",
+      "data_id": "0x0:0xf7f391027e59fd64",
+      "name": "Villa Ezra - 10 mins from Thalassa & Vagator Beach",
+      "gps_coordinates": {
+        "latitude": 15.604346,
+        "longitude": 73.750153
+      },
+      "distance": "0.75 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹25,394",
+        "extracted_price_before_taxes": 25394
+      },
+      "total_price": {
+        "price_before_taxes": "₹1,01,574",
+        "extracted_price_before_taxes": 1
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh5.googleusercontent.com/proxy/fJxXZTrd7I11z5sNJRTfzO-Z26sT1--gvSrfOGyBhVYnk56gcgwDphdRLMCGOXNB5bjYR8IDEBV_e9e7fZzcuZBljn3mfxm8FnxGQzD5rh9SZQezv_cqcxv7IwebNSqtwiKlVirZ6jMOMkbeNOFjH5cxQnEwwn4=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/88136367/0/0af0c64e5659bfbe8cdc1c300a7c5421.jpg?ce=3"
+        }
+      ],
+      "rating": 4.9,
+      "reviews": 13,
+      "essential_info": [
+        "Sleeps 10",
+        "4 bedrooms",
+        "4 bathrooms"
+      ]
+    },
+    {
+      "type": "hotel",
+      "property_token": "CiUI88iGt9G5yYj0ARDQiZfP9MvW4YABGg0vZy8xMXpoNHg3ZGpwEAI",
+      "data_id": "0x0:0xf41125cd16e1a473",
+      "name": "Azure tide 2bhk in Vagator |Pool |5 mins to Beach",
+      "gps_coordinates": {
+        "latitude": 15.600339,
+        "longitude": 73.75119
+      },
+      "distance": "0.75 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹4,370",
+        "extracted_price_before_taxes": 4370
+      },
+      "total_price": {
+        "price_before_taxes": "₹4,370",
+        "extracted_price_before_taxes": 4370
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/proxy/UuQC6Jhjj9qdcRxpGtzJzQ3nKhadcTZRdc8qQEtxNzociGltuOkoYU8W4__ATszruRoE23mcs84fJkDTq_JjG5o4-8eGJ-sh8tkRQ5mwC8vzOMFFJ9JXkSzDgiU9S8kJJZbw1SQoYAzvW4NZk5tXC8hSQqNYWBI=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/81405641/0/1cf53fd4357688492ccec134e117b67c.jpg?ce=3"
+        }
+      ],
+      "essential_info": [
+        "Sleeps 6",
+        "2 bedrooms",
+        "2 bathrooms"
+      ]
+    },
+    {
+      "type": "hotel",
+      "property_token": "CiUI1vPPkvHlrOacARC_-v2fh5f_7JgBGg0vZy8xMXpoNHg4dmQ2EAI",
+      "data_id": "0x0:0x9cccb32f1253f9d6",
+      "name": "StayVista at Moonstone Villa w/ Pool, Rftp Jacuzzi",
+      "gps_coordinates": {
+        "latitude": 15.605882,
+        "longitude": 73.74870299999999
+      },
+      "distance": "0.75 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹55,268",
+        "extracted_price_before_taxes": 55268
+      },
+      "total_price": {
+        "price_before_taxes": "₹55,268",
+        "extracted_price_before_taxes": 55268
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh3.googleusercontent.com/proxy/Snl6JVe2UHKQrwlqVlR93VLiDL5MVAMHSPXw6n91YFr18s8ox9Ek9Ppolx5AZeDOQcP-RQRUrZe_Jl5g9k5yRPW7UfL7xLW0i_xHn016d_jKrDt6y4rdm7ecwDQrIZhLI03s7gyLypoqExQ2d0YVaT8K0AEKhgs=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/80920941/0/06b798687eb308e00064dc334e91ee92.jpg?ce=3"
+        }
+      ],
+      "essential_info": [
+        "Sleeps 14",
+        "5 bedrooms",
+        "5 bathrooms"
+      ]
+    },
+    {
+      "type": "hotel",
+      "property_token": "CiQIpqTfl_XL8cPfARDAuZeWhZuozngaDS9nLzExbnRoaHMyZDQQAg",
+      "data_id": "0x0:0xdf87c65f52f7d226",
+      "name": "Hi5 Stays SEaRENITY 3BHK Lagoon Villa North Goa",
+      "gps_coordinates": {
+        "latitude": 15.605062,
+        "longitude": 73.752853
+      },
+      "distance": "1 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹12,507",
+        "extracted_price_before_taxes": 12507
+      },
+      "total_price": {
+        "price_before_taxes": "₹25,014",
+        "extracted_price_before_taxes": 25014
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh5.googleusercontent.com/proxy/tqWEX7RWefStqBBA8COyICIr4N85wuPB2rUFF9TdJ19vK5pYyxbXcYM3HQHMPgT0Qtvt8cOei6DALaan7QbqZdsVGZYxRIBZPXW6YfIB3YLkIwgDpOq0CzHstyYJnskPN38C24pluMMDkUfHP1_d1fp1cMUFWg=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/85386253/0/b3c3366ce1643347c2b8bfdd5cc7608c.jpg?ce=3"
+        }
+      ],
+      "essential_info": [
+        "Sleeps 8",
+        "3 bedrooms",
+        "3 bathrooms"
+      ]
+    },
+    {
+      "type": "hotel",
+      "property_token": "CiUIo6vaoeGpuqPRARDLssqAy_eQoNABGg0vZy8xMXpkNzF2Z2xzEAI",
+      "data_id": "0x0:0xd146e94e143695a3",
+      "name": "Fable by RÊVE Escapes - Premium 3 BHK Villa Near Vagator Beach",
+      "gps_coordinates": {
+        "latitude": 15.605329,
+        "longitude": 73.753563
+      },
+      "distance": "1 km away",
+      "price_per_night": {
+        "price_before_taxes": "₹28,738",
+        "extracted_price_before_taxes": 28738
+      },
+      "total_price": {
+        "price_before_taxes": "₹57,476",
+        "extracted_price_before_taxes": 57476
+      },
+      "images": [
+        {
+          "thumbnail": "https://lh6.googleusercontent.com/proxy/oXjgvhO63NF5V32OXaSaaJc_yjz9ZdqEvghWccQ_2RbECaXOHo8Ggn-6JwfZ79QZ7NuOh5nbtwHHLj4dwBg0RAKATBLi1HirBFlZhJ5RgqLXtJa2i8kUeKfwS-ws_zKrnSpKE7mayFyn24bFTBft4ZKYQzT3rk4=s287-w287-h192-k-no-v1",
+          "original": "https://pix8.agoda.net/hotelImages/80194979/0/da87d39906a996bfef8b1295d7cb5f43.jpg?ce=2"
+        }
+      ],
+      "essential_info": [
+        "Sleeps 6",
+        "3 bedrooms",
+        "4 bathrooms"
+      ]
+    }
+  ]
+}

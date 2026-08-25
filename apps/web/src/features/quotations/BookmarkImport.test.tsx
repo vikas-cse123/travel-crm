@@ -873,6 +873,112 @@ describe('hotelBookmarkToDetails', () => {
     expect(hotelRow.sellingPrice).toBe(14578);
     expect(hotelDetails.amount).toBe(14578);
   });
+
+  it('maps a selected room/offer into roomType, supplier price and remarks', () => {
+    const { hotelRow, hotelDetails } = hotelBookmarkToDetails(
+      hotelBookmark({
+        snapshot: {
+          hotel: {
+            name: 'Taj Exotica Goa',
+            city: 'Goa',
+            description: 'Luxury beach resort.',
+            pricePerNight: { price: '₹14,578', extracted_price: 14578 },
+            totalPrice: { price: '₹29,156', extracted_price: 29156 },
+            images: [],
+            selectedRoom: {
+              roomName: 'Skyline View, Deluxe Room, 1 King Bed, View',
+              supplier: 'Hotels.com',
+              isOfficial: false,
+              offerLink: 'https://book.example/deluxe',
+              guests: 2,
+              pricePerNight: 680,
+              totalPrice: 4763,
+              freeCancellation: true,
+              freeCancellationUntil: { date: 'Apr 9', time: '6:00 PM' },
+            },
+          },
+        },
+      }),
+    );
+
+    // The room name becomes the row's room type; the supplier total seeds
+    // sellingPrice (existing markup/pricing applies downstream).
+    expect(hotelRow.roomType).toBe('Skyline View, Deluxe Room, 1 King Bed, View');
+    expect(hotelRow.sellingPrice).toBe(4763);
+    expect(hotelDetails.amount).toBe(4763);
+    // Remarks transcribe only fields present in the snapshot.
+    expect(hotelRow.notes).toBe(
+      'Supplier: Hotels.com · 2 guests · Free cancellation until Apr 9, 6:00 PM',
+    );
+  });
+
+  it('uses the room per-night price when a selection has no total', () => {
+    const { hotelRow } = hotelBookmarkToDetails(
+      hotelBookmark({
+        snapshot: {
+          hotel: {
+            name: 'Taj Exotica Goa',
+            city: 'Goa',
+            images: [],
+            selectedRoom: { roomName: 'Bay View Suite', supplier: 'MinimalOTA', pricePerNight: 551 },
+          },
+        },
+      }),
+    );
+    expect(hotelRow.sellingPrice).toBe(551);
+    expect(hotelRow.roomType).toBe('Bay View Suite');
+  });
+
+  it('links the quotation hotel row to the attached Hotel master ids', () => {
+    const { hotelRow } = hotelBookmarkToDetails(
+      hotelBookmark({
+        snapshot: {
+          hotel: {
+            name: 'Moustache Goa Luxuria',
+            city: 'Goa',
+            images: [],
+            hotelId: 'hotel-master-1',
+            roomTypeId: 'room-type-master-1',
+            selectedRoom: {
+              roomName: 'Budget Double Room',
+              supplier: 'Booking.com',
+              totalPrice: 9438,
+            },
+          },
+        },
+      }),
+    );
+    expect(hotelRow.hotelId).toBe('hotel-master-1');
+    expect(hotelRow.hotelRoomTypeId).toBe('room-type-master-1');
+  });
+
+  it('transcribes the room description into the quotation row remarks', () => {
+    const { hotelRow } = hotelBookmarkToDetails(
+      hotelBookmark({
+        snapshot: {
+          hotel: {
+            name: 'Moustache Goa Luxuria',
+            city: 'Goa',
+            images: [],
+            selectedRoom: {
+              roomName: 'Budget Double Room',
+              roomDescription: '1 double bed · Breakfast included',
+              supplier: 'Booking.com',
+              guests: 2,
+              totalPrice: 9438,
+              freeCancellation: true,
+              freeCancellationUntil: { date: 'Sep 7', time: '1:30 PM' },
+            },
+          },
+        },
+      }),
+    );
+    expect(hotelRow.sellingPrice).toBe(9438);
+    expect(hotelRow.roomType).toBe('Budget Double Room');
+    expect(hotelRow.notes).toBe(
+      '1 double bed · Breakfast included · Supplier: Booking.com · 2 guests · Free cancellation until Sep 7, 1:30 PM',
+    );
+  });
 });
 
 describe('BookmarkLoadField', () => {

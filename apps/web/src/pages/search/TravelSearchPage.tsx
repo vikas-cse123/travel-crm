@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
+  BedDouble,
   Bookmark,
   Building2,
   Check,
@@ -19,15 +20,23 @@ import {
   RefreshCw,
   Search,
   Star,
+  Users,
+  X,
 } from 'lucide-react';
 import type {
   FlightSearchResponse,
   SearchApiFlightOption,
   SearchApiFlightSegment,
+  HotelPropertyResponse,
   SearchApiHotelProperty,
+  SearchApiHotelPropertyDetails,
+  SearchApiImage,
   SearchApiLayover,
+  SearchApiNearbyPlace,
   SearchApiPrice,
+  SearchApiPropertyOffer,
   SearchApiReviewBreakdown,
+  SearchApiRoomOffer,
 } from '@interscale/shared';
 import {
   FLIGHT_SORT_OPTIONS,
@@ -55,11 +64,13 @@ import {
   useBookmarks,
   useCreateBookmark,
   useFlightSearch,
+  useHotelProperty,
   useReturnFlightSearch,
   destinationFromParam,
   destinationToParam,
   type FlightSearchParams,
   type HotelDestination,
+  type HotelPropertyParams,
   type HotelSearchParams,
 } from '@/features/search/search.api';
 import { useHotelPagedSearch } from '@/features/search/hotel-pagination';
@@ -265,7 +276,7 @@ function AdvancedFilters({
 }: {
   open: boolean;
   onToggle: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="rounded-lg border border-border">
@@ -2411,6 +2422,1143 @@ function HotelDetails({
   );
 }
 
+/** One renderable room/offer row flattened from the Property API response. */
+interface HotelRoomRow {
+  key: string;
+  /** Room name — only present when the provider returned one for this row. */
+  name?: string | undefined;
+  /** Supplier / source, e.g. "Hotels.com". */
+  source?: string | undefined;
+  logo?: string | undefined;
+  isOfficial?: boolean | undefined;
+  remarks?: string[] | undefined;
+  guests?: number | undefined;
+  perNight?: SearchApiPrice | undefined;
+  total?: SearchApiPrice | undefined;
+  freeCancellation?: boolean | undefined;
+  freeCancellationUntil?: { date?: string; time?: string } | undefined;
+  /** Booking / offer link when the provider returned one. */
+  link?: string | undefined;
+  /** Room-level human-readable summary (e.g. "Breakfast included · Balcony"). */
+  description?: string | undefined;
+  beds?: Array<{ count?: number; type?: string }> | undefined;
+  /** Room-level amenities — ONLY when the provider returned them for this room. */
+  amenities?: string[] | undefined;
+  /** Raw parent offer, preserved so no offer-level field is lost. */
+  offer: SearchApiPropertyOffer;
+  /** Raw nested room when this row came from a room inside an offer. */
+  room?: SearchApiRoomOffer | undefined;
+}
+
+/** Price display for one SearchApi price object, mirroring `resolveHotelPrice`. */
+function priceDisplay(
+  price: SearchApiPrice | undefined,
+  currency: string,
+): { main: string | null; beforeTaxesLine: string | null; fromBeforeTaxes: boolean } {
+  if (!price) return { main: null, beforeTaxesLine: null, fromBeforeTaxes: false };
+  const resolved = resolveHotelPrice(price);
+  let main = resolved.main;
+  if (!main && price.extracted_price !== undefined)
+    main = formatPrice(price.extracted_price, currency);
+  if (!main && price.extracted_price_before_taxes !== undefined)
+    main = formatPrice(price.extracted_price_before_taxes, currency);
+  // A separate "Before taxes" line only exists when BOTH price and
+  // price_before_taxes are returned; otherwise the before-taxes figure IS the
+  // current price and is labelled as such by `fromBeforeTaxes`.
+  const beforeTaxesLine = price.price && price.price_before_taxes ? price.price_before_taxes : null;
+  return { main, beforeTaxesLine, fromBeforeTaxes: resolved.beforeTaxes };
+}
+
+const TOTAL_PRICE_AT = (p: SearchApiPrice | undefined) =>
+  p?.extracted_price ?? p?.extracted_price_before_taxes;
+
+/**
+ * Flatten a google_hotels_property response into per-room rows.
+ *
+ * - Every room keeps its parent offer's supplier/logo/cancellation/prices as
+ *   fallbacks, so no offer-level information is lost when flattening.
+ * - The same room/offer from DIFFERENT suppliers stays separate (selectable).
+ * - Exact duplicates between `featured_offers` and `all_offers` (same supplier
+ *   + same price) are collapsed — including a room-less offer that duplicates
+ *   a room-bearing offer from the same supplier.
+ */
+function flattenPropertyOffers(property: SearchApiHotelPropertyDetails): HotelRoomRow[] {
+  const offers = [...(property.featured_offers ?? []), ...(property.all_offers ?? [])];
+  const coveredByRooms = new Set<string>();
+  for (const offer of offers) {
+    if (offer.rooms?.length) coveredByRooms.add(`${offer.source ?? ''}\u0000${TOTAL_PRICE_AT(offer.total_price) ?? ''}`);
+  }
+
+  const seen = new Set<string>();
+  const rows: HotelRoomRow[] = [];
+  offers.forEach((offer: SearchApiPropertyOffer, offerIndex) => {
+    if (offer.rooms?.length) {
+      offer.rooms.forEach((room, roomIndex) => {
+        const total = room.total_price ?? offer.total_price;
+        const key = `${offer.source ?? ''}\u0000${room.name ?? ''}\u0000${TOTAL_PRICE_AT(total) ?? ''}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          key: `offer-${offerIndex}-room-${roomIndex}`,
+          name: room.name,
+          source: offer.source,
+          logo: offer.logo,
+          isOfficial: offer.is_official,
+          remarks: offer.remarks,
+          guests: room.num_guests ?? offer.num_guests,
+          perNight: room.price_per_night ?? offer.price_per_night,
+          total,
+          freeCancellation: room.has_free_cancellation ?? offer.has_free_cancellation,
+          freeCancellationUntil: room.free_cancellation_until ?? offer.free_cancellation_until,
+          link: room.link ?? offer.tracking_link ?? offer.link,
+          description: room.description,
+          beds: room.beds,
+          amenities: room.amenities,
+          offer,
+          room,
+        });
+      });
+    } else {
+      // Skip a supplier offer that duplicates a room-bearing offer for the
+      // same stay (e.g. the same source repeated in all_offers).
+      const total = offer.total_price;
+      const coveredKey = `${offer.source ?? ''}\u0000${TOTAL_PRICE_AT(total) ?? ''}`;
+      if (coveredByRooms.has(coveredKey)) return;
+      const key = `${offer.source ?? ''}\u0000\u0000${TOTAL_PRICE_AT(total) ?? ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({
+        key: `offer-${offerIndex}`,
+        source: offer.source,
+        logo: offer.logo,
+        isOfficial: offer.is_official,
+        remarks: offer.remarks,
+        guests: offer.num_guests,
+        perNight: offer.price_per_night,
+        total,
+        freeCancellation: offer.has_free_cancellation,
+        freeCancellationUntil: offer.free_cancellation_until,
+        link: offer.tracking_link ?? offer.link,
+        offer,
+      });
+    }
+  });
+  return rows;
+}
+
+/** Pretty label for a field key, e.g. "price_before_taxes" → "Price before taxes". */
+
+/** Readable label for a snake_case API key, e.g. "price_before_taxes" → "Price before taxes". */
+function readableLabel(key: string): string {
+  const spaced = key.replace(/[_-]+/g, ' ').trim();
+  if (!spaced) return key;
+  const labeled = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return labeled.replace(/\b(api|id|url|gps|otp|pdf|inr|usd|gst|vat)\b/gi, (match) =>
+    match.toUpperCase(),
+  );
+}
+
+function isUrlString(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function isImageUrlString(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(url) || /(gstatic|ggpht|scontent)/i.test(url);
+}
+
+/** Render a primitive API value: booleans as Yes/No, URLs as links (images as thumbnails). */
+function ApiValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined)
+    return <span className="italic text-muted-foreground">Not provided</span>;
+  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
+  const text = String(value);
+  if (isUrlString(value)) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        {isImageUrlString(value) ? (
+          <img src={value} alt="" className="h-5 w-5 rounded object-cover" loading="lazy" />
+        ) : null}
+        <a href={value} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+          Open ↗
+        </a>
+      </span>
+    );
+  }
+  return <span className="break-words text-right">{text}</span>;
+}
+
+/**
+ * Data-driven renderer that represents EVERY field of the API object directly
+ * in the normal UI. No whitelist: any field SearchApi adds (known or future)
+ * is rendered automatically.
+ */
+function ApiDataTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
+  if (data === null || data === undefined) return <ApiValue value={data} />;
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <span className="text-muted-foreground">—</span>;
+    return (
+      <ol className="space-y-1.5">
+        {data.map((item, index) => {
+          const heading =
+            item !== null &&
+            typeof item === 'object' &&
+            typeof (item as Record<string, unknown>).name === 'string'
+              ? String((item as Record<string, unknown>).name)
+              : `Item ${index + 1}`;
+          return (
+            <li key={index} className="rounded-md bg-muted/40 p-2">
+              <p className="text-xs font-semibold text-foreground">{heading}</p>
+              {typeof item === 'object' && item !== null ? (
+                <ApiDataTree data={item} depth={depth + 1} />
+              ) : (
+                <ApiValue value={item} />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    );
+  }
+  if (typeof data === 'object') {
+    return (
+      <dl className="space-y-1">
+        {Object.entries(data as Record<string, unknown>).map(([key, value]) => {
+          const label = readableLabel(key);
+          if (value !== null && typeof value === 'object') {
+            return (
+              <div key={key} className="rounded-md bg-muted/30 p-2">
+                <dt className="text-sm font-semibold text-foreground">{label}</dt>
+                <dd className="mt-1">
+                  <ApiDataTree data={value} depth={depth + 1} />
+                </dd>
+              </div>
+            );
+          }
+          return (
+            <div key={key} className="flex items-baseline justify-between gap-3 py-0.5">
+              <dt className="text-sm text-muted-foreground">{label}</dt>
+              <dd className="shrink-0">
+                <ApiValue value={value} />
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    );
+  }
+  return <ApiValue value={data} />;
+}
+
+/** The full offer object minus `rooms` — each room is already its own card. */
+function offerWithoutRooms(offer: SearchApiPropertyOffer): Record<string, unknown> {
+  const { rooms: _rooms, ...rest } = offer;
+  void _rooms;
+  return rest;
+}
+
+/** A single room/offer card in the drawer. */
+
+function RoomOfferCard({
+  row,
+  currency,
+  apiResponse,
+  saved,
+  saving,
+  savedCode,
+  onAddToQuotation,
+}: {
+  row: HotelRoomRow;
+  currency: string;
+  apiResponse: unknown;
+  saved: boolean;
+  saving: boolean;
+  savedCode: string | null;
+  onAddToQuotation: () => void;
+}) {
+  const night = priceDisplay(row.perNight, currency);
+  const stay = priceDisplay(row.total, currency);
+  const hasPrice = Boolean(night.main || stay.main);
+  const untilText =
+    row.freeCancellationUntil?.date
+      ? [row.freeCancellationUntil.date, row.freeCancellationUntil.time]
+          .filter(Boolean)
+          .join(', ')
+      : null;
+
+  return (
+    <article className="rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="break-words text-sm font-semibold text-foreground">
+            {row.name ?? (row.source ? `Offer via ${row.source}` : 'Room offer')}
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {row.source ? (
+              <span className="flex items-center gap-1">
+                {row.logo ? (
+                  <img src={row.logo} alt="" className="h-4 w-4 rounded" loading="lazy" />
+                ) : null}
+                {row.source}
+                {row.isOfficial ? (
+                  <Badge variant="success" className="ml-1">
+                    Official site
+                  </Badge>
+                ) : null}
+              </span>
+            ) : null}
+            {row.guests ? (
+              <span className="flex items-center gap-1">
+                <Users className="h-3 w-3" aria-hidden="true" />
+                {row.guests} guests
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* PRICE — prominent whenever the provider returned any price. */}
+      <section aria-label="Price" className="mt-3 rounded-lg bg-muted/40 p-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Price</p>
+        <div className="mt-1 space-y-0.5">
+          {night.main ? (
+            <p className="text-base font-semibold text-foreground">
+              {night.main} <span className="text-sm font-normal text-muted-foreground">/ night</span>
+              {night.fromBeforeTaxes ? (
+                <span className="ml-1 text-xs font-normal text-muted-foreground">(before taxes)</span>
+              ) : null}
+            </p>
+          ) : null}
+          {stay.main ? (
+            <p className="text-base font-semibold text-foreground">
+              {stay.main} <span className="text-sm font-normal text-muted-foreground">total</span>
+              {stay.fromBeforeTaxes ? (
+                <span className="ml-1 text-xs font-normal text-muted-foreground">(before taxes)</span>
+              ) : null}
+            </p>
+          ) : null}
+          {night.beforeTaxesLine ? (
+            <p className="text-xs text-muted-foreground">Before taxes: {night.beforeTaxesLine}</p>
+          ) : null}
+          {!hasPrice ? <p className="text-sm text-muted-foreground">Price unavailable</p> : null}
+        </div>
+      </section>
+
+      {row.freeCancellation === true ? (
+        <p className="mt-3 flex items-center gap-1 text-sm font-medium text-emerald-600">
+          <Check className="h-4 w-4" aria-hidden="true" />
+          {untilText ? `Free cancellation until ${untilText}` : 'Free cancellation'}
+        </p>
+      ) : row.freeCancellation === false ? (
+        <p className="mt-3 text-sm text-muted-foreground">Non-refundable</p>
+      ) : null}
+
+      {(row.remarks?.length ?? 0) > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {(row.remarks ?? []).map((remark) => (
+            <Chip key={remark}>{remark}</Chip>
+          ))}
+        </div>
+      ) : null}
+
+      {/* The complete Property API response, represented data-driven in the
+          normal UI (no separate API-details viewer). */}
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <section aria-label="Offer details" className="rounded-lg border border-border bg-card p-3">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Offer information
+          </h4>
+          <ApiDataTree data={offerWithoutRooms(row.offer)} />
+        </section>
+        {row.room ? (
+          <section aria-label="Room details" className="rounded-lg border border-border bg-card p-3">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Room information
+            </h4>
+            <ApiDataTree data={row.room} />
+          </section>
+        ) : null}
+      </div>
+
+      <details className="mt-3 rounded-lg border border-border bg-card p-2">
+        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
+          API Response ▼
+        </summary>
+        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">
+          {JSON.stringify(apiResponse, null, 2)}
+        </pre>
+      </details>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+        {saved ? (
+          <p className="text-sm font-medium text-emerald-600">
+            Saved as {savedCode}. Load it in the quotation builder with Hotel Bookmark ID{' '}
+            {savedCode}.
+          </p>
+        ) : (
+          <Button size="sm" isLoading={saving} onClick={onAddToQuotation}>
+            Add to Quotation
+          </Button>
+        )}
+        {row.link ? (
+          <a
+            href={row.link}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            Booking link <ArrowRight className="h-3 w-3" aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Modal drawer with room/offer details for one property, fetched from the
+ * Property API using the card's `property_token` and the current search
+ * context (dates, guests, currency). The query cache means closing and
+ * reopening the same drawer never triggers a second provider call.
+ */
+
+/** Render a provider price object as its display string (price, else before-taxes). */
+function pval(price: unknown): string | null {
+  if (!price || typeof price !== 'object') return null;
+  const p = price as Record<string, unknown>;
+  if (typeof p.price === 'string' && p.price.trim()) return p.price.trim();
+  if (typeof p.price_before_taxes === 'string' && p.price_before_taxes.trim())
+    return `${p.price_before_taxes.trim()} (before taxes)`;
+  return null;
+}
+
+/** Human label for snake_case keys, e.g. "price_insights" → "Price insights". */
+function fieldLabel2(key: string): string {
+  const spaced = key.replace(/[_-]+/g, ' ').trim();
+  if (!spaced) return key;
+  const labeled = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return labeled.replace(/\b(api|id|url|gps|otp|pdf|inr|usd|gst|vat)\b/gi, (m) => m.toUpperCase());
+}
+
+function isUrl2(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function isImageUrl2(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(url) || /(gstatic|ggpht|scontent)/i.test(url);
+}
+
+function PrimitiveValue2({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return <span className="italic text-muted-foreground">Not provided</span>;
+  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
+  const text = String(value);
+  if (isUrl2(value)) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        {isImageUrl2(value) ? <img src={value} alt="" className="h-6 w-6 rounded object-cover" loading="lazy" /> : null}
+        <a href={value} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">Open ↗</a>
+      </span>
+    );
+  }
+  return <span className="break-words">{text}</span>;
+}
+
+/** Generic recursive tree for fields without a specialized UI (future-proof). */
+function GenericTree({ data }: { data: unknown }) {
+  if (data === null || data === undefined) return <PrimitiveValue2 value={data} />;
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <span className="text-sm text-muted-foreground">—</span>;
+    return (
+      <div className="space-y-2">
+        {data.map((item, index) => {
+          const name =
+            item !== null && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string'
+              ? String((item as Record<string, unknown>).name)
+              : null;
+          return (
+            <div key={index} className="rounded-lg border border-border bg-muted/30 p-2">
+              <p className="mb-1 text-sm font-semibold text-foreground">{name ?? `Item ${index + 1}`}</p>
+              {typeof item === 'object' && item !== null ? <GenericTree data={item} /> : <PrimitiveValue2 value={item} />}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  if (typeof data === 'object') {
+    return (
+      <dl className="space-y-1.5">
+        {Object.entries(data as Record<string, unknown>).map(([key, value]) => {
+          if (value !== null && typeof value === 'object') {
+            return (
+              <div key={key} className="rounded-lg border border-border bg-card p-2">
+                <p className="text-sm font-semibold text-foreground">{fieldLabel2(key)}</p>
+                <div className="mt-1"><GenericTree data={value} /></div>
+              </div>
+            );
+          }
+          return (
+            <div key={key} className="flex items-baseline justify-between gap-3 py-0.5">
+              <dt className="text-sm text-muted-foreground">{fieldLabel2(key)}</dt>
+              <dd className="text-right"><PrimitiveValue2 value={value} /></dd>
+            </div>
+          );
+        })}
+      </dl>
+    );
+  }
+  return <PrimitiveValue2 value={data} />;
+}
+
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-4">
+      <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground">{title}</h4>
+      {children}
+    </section>
+  );
+}
+
+function HotelGallery({ images }: { images: SearchApiImage[] | undefined }) {
+  const list = (images ?? []).filter((i) => i.original || i.thumbnail);
+  const [idx, setIdx] = useState(0);
+  if (!list.length) return null;
+  const current = list[Math.min(idx, list.length - 1)]!;
+  const url = current.original || current.thumbnail || null;
+  return (
+    <SectionCard title="Hotel Images">
+      {url ? (
+        <img src={url} alt="Hotel" className="h-56 w-full rounded-lg object-cover" loading="lazy" />
+      ) : null}
+      {list.length > 1 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {list.map((img, i) => {
+            const thumb = img.thumbnail || img.original;
+            return thumb ? (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Image ${i + 1}`}
+                onClick={() => setIdx(i)}
+                className={cn(
+                  'h-12 w-16 overflow-hidden rounded border',
+                  i === Math.min(idx, list.length - 1) ? 'border-brand-600' : 'border-border',
+                )}
+              >
+                <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
+              </button>
+            ) : null;
+          })}
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function NearbyPlacesSection({ places }: { places: SearchApiNearbyPlace[] | undefined }) {
+  if (!places?.length) return null;
+  return (
+    <SectionCard title={`Nearby Places (${places.length})`}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {places.map((place, index) => {
+          const p = place as unknown as Record<string, unknown>;
+          return (
+            <article key={index} className="rounded-lg border border-border p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">{place.name}</p>
+                  {typeof p.category === 'string' ? (
+                    <p className="text-xs text-muted-foreground">{p.category}</p>
+                  ) : null}
+                </div>
+                {typeof p.rating === 'number' ? (
+                  <span className="flex items-center gap-1 text-sm font-medium">
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    {p.rating}
+                    {typeof p.reviews === 'number' ? <span className="text-xs text-muted-foreground">({p.reviews.toLocaleString()})</span> : null}
+                  </span>
+                ) : null}
+              </div>
+              {typeof p.description === 'string' ? (
+                <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>
+              ) : null}
+              {(place.transportations ?? []).length ? (
+                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  {(place.transportations ?? []).map((t, ti) => (
+                    <li key={ti}>{t.type}: {t.duration}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {typeof p.link === 'string' ? (
+                <a href={p.link} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
+                  View on map ↗
+                </a>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </SectionCard>
+  );
+}
+
+function ReviewsSection({ property }: { property: Record<string, unknown> }) {
+  const rating = typeof property.rating === 'number' ? property.rating : null;
+  const reviews = typeof property.reviews === 'number' ? property.reviews : null;
+  const histogram = property.reviews_histogram as Record<string, number> | undefined;
+  const breakdown = property.reviews_breakdown as Array<Record<string, unknown>> | undefined;
+  const reviewResults = property.review_results as { reviews?: unknown[]; on_other_sites?: unknown[] } | undefined;
+  const hasRatings =
+    property.location_rating !== undefined ||
+    property.proximity_to_things_to_do_rating !== undefined ||
+    property.proximity_to_transit_rating !== undefined ||
+    property.airport_access_rating !== undefined;
+
+  const histMax = histogram ? Math.max(0, ...Object.values(histogram)) : 0;
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Ratings & Reviews">
+        {rating !== null ? (
+          <div className="flex items-end gap-3">
+            <span className="text-4xl font-bold text-foreground">{rating}</span>
+            <Stars count={Math.round(rating)} />
+            {reviews !== null ? (
+              <span className="pb-1 text-sm text-muted-foreground">{reviews.toLocaleString()} reviews</span>
+            ) : null}
+          </div>
+        ) : null}
+        {histogram && histMax > 0 ? (
+          <div className="mt-3 space-y-1">
+            {Object.entries(histogram)
+              .sort(([a], [b]) => Number(b) - Number(a))
+              .map(([stars, count]) => (
+                <div key={stars} className="flex items-center gap-2 text-xs">
+                  <span className="w-6 text-muted-foreground">{stars}★</span>
+                  <div className="h-2 flex-1 rounded-full bg-muted">
+                    <div className="h-2 rounded-full bg-amber-400" style={{ width: `${(count / histMax) * 100}%` }} />
+                  </div>
+                  <span className="w-10 text-right text-muted-foreground">{count}</span>
+                </div>
+              ))}
+          </div>
+        ) : null}
+        {hasRatings ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <RatingBar label="Location" value={typeof property.location_rating === 'number' ? property.location_rating : undefined} />
+            <RatingBar label="Things to do" value={typeof property.proximity_to_things_to_do_rating === 'number' ? property.proximity_to_things_to_do_rating : undefined} />
+            <RatingBar label="Transit" value={typeof property.proximity_to_transit_rating === 'number' ? property.proximity_to_transit_rating : undefined} />
+            <RatingBar label="Airport access" value={typeof property.airport_access_rating === 'number' ? property.airport_access_rating : undefined} />
+          </div>
+        ) : null}
+      </SectionCard>
+
+      {(reviewResults?.reviews ?? []).length ? (
+        <SectionCard title={`Reviews (${(reviewResults?.reviews ?? []).length})`}>
+          <div className="space-y-3">
+            {(reviewResults?.reviews ?? []).map((review, index) => {
+              const r = review as Record<string, unknown>;
+              return (
+                <article key={index} className="rounded-lg border border-border p-3">
+                  <p className="text-sm font-semibold text-foreground">{typeof r.username === 'string' ? r.username : 'Guest'}</p>
+                  {typeof r.text === 'string' ? <p className="mt-1 text-sm text-muted-foreground">{r.text}</p> : null}
+                  {typeof r.date === 'string' ? <p className="mt-1 text-xs text-muted-foreground">{r.date}</p> : null}
+                  {typeof r.link === 'string' ? (
+                    <a href={r.link} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-medium text-primary hover:underline">View review ↗</a>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {(reviewResults?.on_other_sites ?? []).length ? (
+        <SectionCard title="Reviews from Other Sites">
+          <div className="space-y-3">
+            {(reviewResults?.on_other_sites ?? []).map((review, index) => {
+              const r = review as Record<string, unknown>;
+              return (
+                <article key={index} className="rounded-lg border border-border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      {typeof r.source === 'string' ? r.source : 'External'}
+                      {typeof r.username === 'string' ? ` · ${r.username}` : ''}
+                    </p>
+                    {typeof r.rating === 'number' ? (
+                      <span className="text-sm font-medium">{r.rating}★</span>
+                    ) : null}
+                  </div>
+                  {typeof r.text === 'string' ? <p className="mt-1 text-sm text-muted-foreground">{r.text}</p> : null}
+                  {typeof r.date === 'string' ? <p className="mt-1 text-xs text-muted-foreground">{r.date}</p> : null}
+                  {typeof r.link === 'string' ? (
+                    <a href={r.link} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-medium text-primary hover:underline">View review ↗</a>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {breakdown?.length ? (
+        <SectionCard title="Review Breakdown">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {breakdown.map((entry, index) => {
+              const name = typeof entry.name === 'string' ? entry.name : `Category ${index + 1}`;
+              const total = typeof entry.total_mentions === 'number' ? entry.total_mentions : 0;
+              const positive = typeof entry.positive === 'number' ? entry.positive : 0;
+              const neutral = typeof entry.neutral === 'number' ? entry.neutral : 0;
+              const negative = typeof entry.negative === 'number' ? entry.negative : 0;
+              const sum = positive + neutral + negative || 1;
+              return (
+                <article key={index} className="rounded-lg border border-border p-3">
+                  <p className="text-sm font-semibold text-foreground">{name}</p>
+                  <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="bg-emerald-500" style={{ width: `${(positive / sum) * 100}%` }} />
+                    <div className="bg-amber-400" style={{ width: `${(neutral / sum) * 100}%` }} />
+                    <div className="bg-red-400" style={{ width: `${(negative / sum) * 100}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {positive} positive · {neutral} neutral · {negative} negative{total ? ` · ${total} mentions` : ''}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </SectionCard>
+      ) : null}
+    </div>
+  );
+}
+
+function RecommendedHotelsSection({ title, items }: { title: string; items: unknown[] | undefined }) {
+  if (!items?.length) return null;
+  return (
+    <SectionCard title={`${title} (${items.length})`}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((item, index) => {
+          const h = item as Record<string, unknown>;
+          const name = typeof h.name === 'string' ? h.name : null;
+          const img = (Array.isArray(h.images) ? (h.images as Array<Record<string, unknown>>) : []).find((i) => i.original || i.thumbnail);
+          const imgUrl = typeof img?.original === 'string' ? img.original : (typeof img?.thumbnail === 'string' ? img.thumbnail : null);
+          const distance = typeof h.distance === 'string' ? h.distance : null;
+          const price = pval(h.price_per_night);
+          const total = pval(h.total_price);
+          return (
+            <article key={index} className="rounded-lg border border-border p-3">
+              <div className="flex gap-3">
+                {imgUrl ? <img src={imgUrl} alt="" className="h-16 w-20 rounded object-cover" loading="lazy" /> : null}
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">{name ?? `Hotel ${index + 1}`}</p>
+                  {typeof h.rating === 'number' ? (
+                    <p className="text-xs text-muted-foreground">★ {h.rating}{typeof h.reviews === 'number' ? ` (${h.reviews.toLocaleString()})` : ''}</p>
+                  ) : null}
+                  {distance ? <p className="text-xs text-muted-foreground">{distance}</p> : null}
+                  {price ? <p className="mt-1 text-sm font-semibold">{price}/night</p> : null}
+                  {total ? <p className="text-xs text-muted-foreground">{total} total</p> : null}
+                  {(Array.isArray(h.essential_info) ? h.essential_info : []).length ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{((h.essential_info as string[]) ?? []).join(' · ')}</p>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </SectionCard>
+  );
+}
+
+/**
+ * Structured, professional render of the COMPLETE Google Hotels Property API
+ * response. Known customer-facing sections get specialized UI; every other
+ * field (current or future) falls through to a generic recursive renderer so
+ * nothing is ever hidden.
+ */
+function PropertyDetailPanel({ response }: { response: HotelPropertyResponse | undefined }) {
+  const property = (response?.property ?? {}) as Record<string, unknown>;
+  if (!Object.keys(property).length) return null;
+
+  const pricePerNight = pval(property.price_per_night);
+  const totalPrice = pval(property.total_price);
+  const insights = property.price_insights as { lowest_price?: string; price_level?: string; typical_price_range?: { low_price?: number; high_price?: number } } | undefined;
+  const deal = typeof property.deal === 'string' ? property.deal : null;
+  const dealDesc = typeof property.deal_description === 'string' ? property.deal_description : null;
+  const address = typeof property.address === 'string' ? property.address : null;
+  const phone = typeof property.phone === 'string' ? property.phone : null;
+  const phoneLink = typeof property.phone_link === 'string' ? property.phone_link : null;
+  const website = typeof property.link === 'string' ? property.link : null;
+  const coords = property.gps_coordinates as { latitude?: number; longitude?: number } | undefined;
+
+  // Fields with a dedicated section — the rest go to Additional API Information.
+  const specialized = new Set([
+    'name', 'type', 'property_token', 'data_id', 'link', 'description', 'address', 'phone',
+    'phone_link', 'gps_coordinates', 'country', 'check_in_time', 'check_out_time',
+    'price_per_night', 'total_price', 'price_insights', 'deal', 'deal_description',
+    'images', 'nearby_places', 'hotel_class', 'extracted_hotel_class', 'rating', 'reviews',
+    'reviews_histogram', 'location_rating', 'proximity_to_things_to_do_rating',
+    'proximity_to_transit_rating', 'airport_access_rating', 'review_results',
+    'reviews_breakdown', 'featured_offers', 'all_offers', 'amenities', 'essential_info',
+  ]);
+  const additional: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(property)) if (!specialized.has(key)) additional[key] = value;
+  const topAdditional: Record<string, unknown> = {};
+  if (response) {
+    for (const [key, value] of Object.entries(response)) {
+      if (!['property', 'search_metadata', 'search_parameters', 'people_also_viewed', 'vacation_rentals_nearby', 'top_things_to_know'].includes(key))
+        topAdditional[key] = value;
+    }
+  }
+  const showAdditional = Object.keys(additional).length > 0 || Object.keys(topAdditional).length > 0;
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Hotel Overview">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-xl font-semibold text-foreground">{typeof property.name === 'string' ? property.name : 'Hotel'}</h3>
+          {typeof property.type === 'string' ? <Badge variant="outline">{property.type}</Badge> : null}
+          {typeof property.extracted_hotel_class === 'number' ? <Stars count={property.extracted_hotel_class} /> : null}
+          {typeof property.hotel_class === 'string' ? <Badge variant="secondary">{property.hotel_class}</Badge> : null}
+          {deal ? <Badge variant="success">{deal}</Badge> : null}
+        </div>
+        {typeof property.description === 'string' ? (
+          <p className="mt-2 text-sm text-muted-foreground">{property.description}</p>
+        ) : null}
+        <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+          {address ? (
+            <div><dt className="text-xs text-muted-foreground">Address</dt><dd className="break-words">{address}</dd></div>
+          ) : null}
+          {phone ? (
+            <div>
+              <dt className="text-xs text-muted-foreground">Phone</dt>
+              <dd>{phoneLink ? <a href={phoneLink} className="text-primary hover:underline">{phone} → Call</a> : phone}</dd>
+            </div>
+          ) : null}
+          {website ? (
+            <div><dt className="text-xs text-muted-foreground">Website</dt><dd><a href={website} target="_blank" rel="noreferrer" className="text-primary hover:underline">Visit website ↗</a></dd></div>
+          ) : null}
+          {typeof property.country === 'string' ? (
+            <div><dt className="text-xs text-muted-foreground">Country</dt><dd>{property.country}</dd></div>
+          ) : null}
+          {typeof property.check_in_time === 'string' ? (
+            <div><dt className="text-xs text-muted-foreground">Check-in</dt><dd>{property.check_in_time}</dd></div>
+          ) : null}
+          {typeof property.check_out_time === 'string' ? (
+            <div><dt className="text-xs text-muted-foreground">Check-out</dt><dd>{property.check_out_time}</dd></div>
+          ) : null}
+          {coords?.latitude !== undefined && coords?.longitude !== undefined ? (
+            <div><dt className="text-xs text-muted-foreground">GPS Coordinates</dt><dd>{coords.latitude}, {coords.longitude}</dd></div>
+          ) : null}
+        </dl>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {pricePerNight ? (
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">Price per night</p>
+              <p className="text-lg font-semibold text-foreground">{pricePerNight}</p>
+            </div>
+          ) : null}
+          {totalPrice ? (
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">Total price</p>
+              <p className="text-lg font-semibold text-foreground">{totalPrice}</p>
+            </div>
+          ) : null}
+        </div>
+        {insights ? (
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <p className="text-sm font-semibold text-foreground">Price insights</p>
+            <div className="mt-1 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+              {typeof insights.lowest_price === 'string' ? (
+                <div><dt className="text-xs text-muted-foreground">Lowest price</dt><dd>{insights.lowest_price}</dd></div>
+              ) : null}
+              {typeof insights.price_level === 'string' ? (
+                <div><dt className="text-xs text-muted-foreground">Price level</dt><dd>{insights.price_level}</dd></div>
+              ) : null}
+              {insights.typical_price_range?.low_price !== undefined && insights.typical_price_range.high_price !== undefined ? (
+                <div><dt className="text-xs text-muted-foreground">Typical range</dt><dd>{formatPrice(insights.typical_price_range.low_price, SEARCH_DEFAULT_CURRENCY)} – {formatPrice(insights.typical_price_range.high_price, SEARCH_DEFAULT_CURRENCY)}</dd></div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {dealDesc ? (
+          <p className="mt-2 text-sm text-muted-foreground">{dealDesc}</p>
+        ) : null}
+      </SectionCard>
+
+      <HotelGallery images={property.images as SearchApiImage[] | undefined} />
+      <NearbyPlacesSection places={property.nearby_places as SearchApiNearbyPlace[] | undefined} />
+      <ReviewsSection property={property} />
+      <RecommendedHotelsSection title="Nearby & Recommended Hotels" items={response?.people_also_viewed as unknown[] | undefined} />
+      <RecommendedHotelsSection title="Vacation Rentals Nearby" items={response?.vacation_rentals_nearby as unknown[] | undefined} />
+      {(response?.top_things_to_know as unknown[] | undefined)?.length ? (
+        <SectionCard title="Top Things To Know">
+          <GenericTree data={response?.top_things_to_know} />
+        </SectionCard>
+      ) : null}
+
+      <details className="rounded-xl border border-border bg-card p-4">
+        <summary className="cursor-pointer select-none text-sm font-semibold text-foreground">Search Information</summary>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          {response?.search_metadata ? (
+            <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search Metadata</p><GenericTree data={response.search_metadata} /></div>
+          ) : null}
+          {response?.search_parameters ? (
+            <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search Parameters</p><GenericTree data={response.search_parameters} /></div>
+          ) : null}
+        </div>
+      </details>
+
+      {showAdditional ? (
+        <SectionCard title="Additional API Information">
+          <GenericTree data={{ ...additional, ...topAdditional }} />
+        </SectionCard>
+      ) : null}
+    </div>
+  );
+}
+
+function HotelRoomsDrawer({
+  property,
+  searchParams,
+  onClose,
+}: {
+  property: SearchApiHotelProperty;
+  searchParams: Record<string, unknown>;
+  onClose: () => void;
+}) {
+  const params = useMemo<HotelPropertyParams>(() => {
+    const next: HotelPropertyParams = {
+      property_token: property.property_token ?? '',
+      check_in_date: typeof searchParams.check_in_date === 'string' ? searchParams.check_in_date : '',
+      check_out_date:
+        typeof searchParams.check_out_date === 'string' ? searchParams.check_out_date : '',
+    };
+    if (typeof searchParams.adults === 'number') next.adults = searchParams.adults;
+    // Children ages are only sent on searches that carry them.
+    if (typeof searchParams.children_ages === 'string' && searchParams.children_ages.trim())
+      next.children_ages = searchParams.children_ages;
+    if (typeof searchParams.currency === 'string') next.currency = searchParams.currency;
+    if (typeof searchParams.hl === 'string') next.hl = searchParams.hl;
+    if (typeof searchParams.gl === 'string') next.gl = searchParams.gl;
+    return next;
+  }, [property.property_token, searchParams]);
+
+  const query = useHotelProperty(params);
+  const create = useCreateBookmark();
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [savedCode, setSavedCode] = useState<string | null>(null);
+
+  const detail = query.data?.property;
+  const rows = useMemo(() => (detail ? flattenPropertyOffers(detail) : []), [detail]);
+  const currency =
+    typeof searchParams.currency === 'string' ? searchParams.currency : SEARCH_DEFAULT_CURRENCY;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const addToQuotation = (row: HotelRoomRow) => {
+    if (create.isPending) return;
+    create.mutate(
+      {
+        type: 'HOTEL',
+        searchParams,
+        snapshot: {
+          hotel: {
+            name: property.name ?? 'Property',
+            ...(property.type ? { propertyType: property.type } : {}),
+            ...(property.property_token ? { propertyToken: property.property_token } : {}),
+            ...(property.data_id ? { dataId: property.data_id } : {}),
+            ...(property.images?.length ? { images: property.images.slice(0, 6) } : {}),
+            ...(property.city ? { city: property.city } : {}),
+            ...(property.country ? { country: property.country } : {}),
+            ...(property.extracted_hotel_class ? { stars: property.extracted_hotel_class } : {}),
+            ...(property.rating !== undefined ? { rating: property.rating } : {}),
+            ...(property.reviews !== undefined ? { reviews: property.reviews } : {}),
+            ...(property.description ? { description: property.description } : {}),
+            ...(property.amenities?.length ? { amenities: property.amenities } : {}),
+            ...(property.price_per_night ? { pricePerNight: property.price_per_night } : {}),
+            ...(property.total_price ? { totalPrice: property.total_price } : {}),
+            ...(property.check_in_time ? { checkInTime: property.check_in_time } : {}),
+            ...(property.check_out_time ? { checkOutTime: property.check_out_time } : {}),
+            ...(property.link ? { providerLink: property.link } : {}),
+            ...(detail?.address ? { address: detail.address } : {}),
+            ...(detail?.gps_coordinates?.latitude !== undefined &&
+            detail?.gps_coordinates?.longitude !== undefined
+              ? {
+                  coordinates: {
+                    latitude: detail.gps_coordinates.latitude,
+                    longitude: detail.gps_coordinates.longitude,
+                  },
+                }
+              : {}),
+            selectedRoom: {
+              roomName: row.name ?? null,
+              supplier: row.source ?? null,
+              supplierLogo: row.logo ?? null,
+              isOfficial: Boolean(row.isOfficial),
+              offerLink: row.link ?? null,
+              guests: row.guests ?? null,
+              pricePerNight: row.perNight?.extracted_price ?? null,
+              totalPrice: row.total?.extracted_price ?? null,
+              pricePerNightBeforeTaxes: row.perNight?.extracted_price_before_taxes ?? null,
+              totalPriceBeforeTaxes: row.total?.extracted_price_before_taxes ?? null,
+              freeCancellation: Boolean(row.freeCancellation),
+              freeCancellationUntil: row.freeCancellationUntil ?? null,
+              roomDescription: row.description ?? null,
+              beds: row.beds ?? null,
+              roomAmenities: row.amenities ?? null,
+            },
+          },
+          raw: {
+            response: query.data ?? null,
+            property,
+            detail: detail ?? null,
+            offer: row.offer,
+            room: row.room ?? null,
+          },
+        },
+      },
+      {
+        onSuccess: (result) => {
+          setSavedKey(row.key);
+          setSavedCode(result.bookmark.bookmarkCode);
+        },
+      },
+    );
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Rooms and offers at ${property.name ?? 'property'}`}
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-card shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {/* Hotel-level information stays separate from the room list below. */}
+        <div className="flex items-start justify-between gap-3 border-b border-border p-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-lg font-semibold text-foreground">
+                {property.name ?? 'Property'}
+              </h2>
+              <Stars count={property.extracted_hotel_class} />
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {detail?.address ? (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" aria-hidden="true" />
+                  {detail.address}
+                </span>
+              ) : null}
+              {property.rating ? (
+                <span className="flex items-center gap-1">
+                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" aria-hidden="true" />
+                  {property.rating}
+                  {property.reviews ? ` (${property.reviews.toLocaleString('en-IN')})` : ''}
+                </span>
+              ) : null}
+              {property.check_in_time ? (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" aria-hidden="true" />Check-in {property.check_in_time}
+                </span>
+              ) : null}
+              {property.check_out_time ? (
+                <span className="flex items-center gap-1">
+                  <Moon className="h-3 w-3" aria-hidden="true" />
+                  Check-out {property.check_out_time}
+                </span>
+              ) : null}
+              <span className="flex items-center gap-1">
+                <Users className="h-3 w-3" aria-hidden="true" />
+                {params.adults ?? 2} guest{(params.adults ?? 2) > 1 ? 's' : ''} ·{' '}
+                {formatDateRange(params.check_in_date, params.check_out_date)}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Close rooms and offers"
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {query.isPending ? (
+            <div className="space-y-3">
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Loading rooms and offers…
+              </p>
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : query.isError ? (
+            <div className="space-y-3">
+              <Alert tone="error">
+                {query.error instanceof Error && query.error.message
+                  ? query.error.message
+                  : "We couldn't load rooms and offers. Please try again."}
+              </Alert>
+              <Button
+                size="sm"
+                variant="secondary"
+                isLoading={query.isFetching}
+                onClick={() => void query.refetch()}
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                Retry
+              </Button>
+            </div>
+          ) : !detail ? (
+            <Alert tone="error">This property could not be found. Please search again.</Alert>
+          ) : rows.length === 0 ? (
+            <EmptyState
+              icon={BedDouble}
+              title="No rooms or offers returned"
+              description="This property has no bookable offers for these dates and guests."
+            />
+          ) : (
+            <>
+              <PropertyDetailPanel response={query.data} />
+              {create.isError ? (
+                <Alert tone="error">
+                  {create.error instanceof Error && create.error.message
+                    ? create.error.message
+                    : 'Could not save this room to a quotation.'}
+                </Alert>
+              ) : null}
+              {rows.map((row) => (
+                <RoomOfferCard
+                  key={row.key}
+                  row={row}
+                  currency={currency}
+                  apiResponse={query.data ?? null}
+                  saved={savedKey === row.key}
+                  saving={create.isPending}
+                  savedCode={savedCode}
+                  onAddToQuotation={() => addToQuotation(row)}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Compact hotel search-result card: image left, key facts + price right. */
 function HotelPropertyCard({
   property,
@@ -2420,6 +3568,7 @@ function HotelPropertyCard({
   searchParams?: Record<string, unknown>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [roomsOpen, setRoomsOpen] = useState(false);
   const amenities = property.amenities ?? [];
   const primaryAmenities = amenities.slice(0, 6);
   const extraCount = Math.max(0, amenities.length - primaryAmenities.length);
@@ -2516,11 +3665,28 @@ function HotelPropertyCard({
               >
                 {detailsOpen ? 'View less' : 'View details'}
               </button>
+              {property.property_token ? (
+                <button
+                  type="button"
+                  onClick={() => setRoomsOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-muted"
+                >
+                  <BedDouble className="h-3.5 w-3.5" aria-hidden="true" />
+                  View Rooms &amp; Offers
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
       {detailsOpen ? <HotelDetails property={property} searchParams={searchParams} /> : null}
+      {roomsOpen && property.property_token ? (
+        <HotelRoomsDrawer
+          property={property}
+          searchParams={searchParams ?? {}}
+          onClose={() => setRoomsOpen(false)}
+        />
+      ) : null}
     </Card>
   );
 }

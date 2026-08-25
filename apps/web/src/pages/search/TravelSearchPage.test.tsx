@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient } from '@tanstack/react-query';
 import { flightFingerprint, type SearchApiFlightOption } from '@interscale/shared';
@@ -3023,5 +3023,425 @@ describe('Hotel search request behaviour', () => {
     });
     expect(hotelSearchCalls(calls)).toBe(2);
     expect(calls.some((u) => u.includes('searchapi.io'))).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // Rooms & Offers drawer (Google Hotels Property API)
+  // -----------------------------------------------------------------------
+
+  /** Official google_hotels_property response used by the drawer tests. */
+  const propertyApiResponse = {
+    property: {
+      type: 'hotel',
+      property_token: 'token-1',
+      name: 'Taj Exotica Goa',
+      address: '500 Beach Rd, Goa',
+      check_in_time: '3:00 PM',
+      check_out_time: '11:00 AM',
+      rating: 4.7,
+      reviews: 3031,
+      price_per_night: { price: '₹532', extracted_price: 532 },
+      total_price: { price: '₹3,724', extracted_price: 3724 },
+      featured_offers: [
+        {
+          source: 'Hotels.com',
+          tracking_link: 'https://www.google.com/aclk?sa=l',
+          logo: 'https://logo/hotels.png',
+          remarks: ['Save with Member Prices'],
+          num_guests: 2,
+          price_per_night: {
+            price: '₹680',
+            extracted_price: 680,
+            price_before_taxes: '₹602',
+            extracted_price_before_taxes: 602,
+          },
+          total_price: {
+            price: '₹4,763',
+            extracted_price: 4763,
+            price_before_taxes: '₹4,215',
+            extracted_price_before_taxes: 4215,
+          },
+          has_free_cancellation: true,
+          free_cancellation_until: { date: 'Apr 9', time: '6:00 PM' },
+          rooms: [
+            {
+              name: 'Skyline View, Deluxe Room, 1 King Bed, View',
+              link: 'https://book.example/deluxe',
+              num_guests: 2,
+              price_per_night: { price: '₹680', extracted_price: 680 },
+              total_price: { price: '₹4,763', extracted_price: 4763 },
+            },
+          ],
+        },
+      ],
+      all_offers: [
+        {
+          source: 'Mandarinoriental.com',
+          link: 'https://book.example/official',
+          is_official: true,
+          num_guests: 2,
+          price_per_night: {
+            price: '₹551',
+            extracted_price: 551,
+            price_before_taxes: '₹488',
+            extracted_price_before_taxes: 488,
+          },
+          total_price: { price: '₹3,859', extracted_price: 3859 },
+          has_free_cancellation: true,
+          free_cancellation_until: { date: 'Apr 8' },
+        },
+        // Only the source is present — every optional field missing.
+        { source: 'MinimalOTA' },
+      ],
+    },
+  };
+
+  const propertyError = () => ({
+    ok: false,
+    status: 503,
+    statusText: 'Service Unavailable',
+    json: async () => ({
+      success: false,
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'SearchAPI quota exhausted.' },
+    }),
+  });
+
+  /** Fetch mock routing hotel-search vs property requests, tracking every call. */
+  function stubDrawerFetch(
+    calls: string[],
+    propertyResponse: ReturnType<typeof success> | ReturnType<typeof propertyError>,
+    onBookmarkPost?: (body: unknown) => void,
+  ) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        calls.push(url);
+        if (url.includes('/search/hotels/property')) return propertyResponse;
+        if (url.includes('/search/bookmarks') && options?.method === 'POST') {
+          onBookmarkPost?.(JSON.parse(String(options.body)));
+          return success({ bookmark: { bookmarkCode: 'HTL-000123' }, created: true });
+        }
+        if (url.includes('/search/hotels?')) return success(hotelResponse(3));
+        return { ok: true, status: 200, json: async () => ({ success: true, data: {} }) };
+      }),
+    );
+  }
+
+  async function searchAndOpenDrawer(
+    user: ReturnType<typeof userEvent.setup>,
+  ): Promise<HTMLElement> {
+    await runHotelSearch(user, 'Goa');
+    await user.click(screen.getAllByRole('button', { name: /View Rooms & Offers/i })[0]!);
+    return screen.findByRole('dialog');
+  }
+
+  it('requests room offers with the property_token and search context, then lists every offer field', async () => {
+    const calls: string[] = [];
+    stubDrawerFetch(calls, success(propertyApiResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+
+    // Exactly ONE provider request, carrying token + stay context.
+    const propertyCalls = calls.filter((url) => url.includes('/search/hotels/property'));
+    expect(propertyCalls).toHaveLength(1);
+    // The token is the clicked card's own property_token.
+    const requestedToken = decodeURIComponent(
+      propertyCalls[0]!.match(/property_token=([^&]+)/)![1]!,
+    );
+    expect(requestedToken).toMatch(/^token-/);
+    expect(propertyCalls[0]).toContain('check_in_date=2026-09-10');
+    expect(propertyCalls[0]).toContain('check_out_date=2026-09-12');
+    expect(propertyCalls[0]).toContain('currency=INR');
+    expect(propertyCalls[0]).toContain('adults=2');
+
+    // Hotel-level information (from the card + fetched details) renders
+    // separately from the room rows below.
+    expect(within(dialog).getByText('Hotel 0')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('500 Beach Rd, Goa').length).toBeGreaterThan(0);
+    expect(within(dialog).getByText('Check-in 2:00 PM')).toBeInTheDocument();
+
+    // Featured offer flattened into its nested room rows.
+    const deluxeRow = within(dialog)
+      .getAllByText('Skyline View, Deluxe Room, 1 King Bed, View')[0]!
+      .closest('article')!;
+    expect(within(deluxeRow).getAllByText('Hotels.com').length).toBeGreaterThan(0);
+    expect(within(deluxeRow).getByText('2 guests')).toBeInTheDocument();
+    // Prominent per-night + total prices from the returned price objects.
+    expect(within(deluxeRow).getAllByText(/₹680/, { selector: 'p' }).length).toBeGreaterThan(0);
+    expect(within(deluxeRow).getByText(/₹4,763/, { selector: 'p' })).toBeInTheDocument();
+    // The room entry itself carries no before-taxes fields — none invented.
+    expect(within(deluxeRow).getAllByText(/before taxes/i).length).toBeGreaterThan(0);
+    expect(
+      within(deluxeRow).getByText('Free cancellation until Apr 9, 6:00 PM'),
+    ).toBeInTheDocument();
+    expect(within(deluxeRow).getAllByText('Save with Member Prices').length).toBeGreaterThan(0);
+
+    // All-offers entries without a nested room list still render, with the
+    // supplier name and the OFFICIAL site badge kept separate.
+    const officialRow = within(dialog)
+      .getAllByText('Offer via Mandarinoriental.com')[0]!
+      .closest('article')!;
+    expect(within(officialRow).getAllByText('Mandarinoriental.com').length).toBeGreaterThan(0);
+    expect(within(officialRow).getByText('Official site')).toBeInTheDocument();
+    expect(within(officialRow).getByText(/₹551/, { selector: 'p' })).toBeInTheDocument();
+    expect(within(officialRow).getByText(/₹3,859/, { selector: 'p' })).toBeInTheDocument();
+    // Before-tax price shown when the provider returned it.
+    expect(within(officialRow).getByText(/Before taxes: ₹488/, { selector: 'p' })).toBeInTheDocument();
+    expect(within(officialRow).getByText('Free cancellation until Apr 8')).toBeInTheDocument();
+
+    // Booking links come straight from the response fields.
+    expect(within(dialog).getAllByRole('link', { name: 'Booking link' }).length).toBeGreaterThan(0);
+  });
+
+  it('renders offers with missing optional fields without inventing values', async () => {
+    const calls: string[] = [];
+    const minimalResponse = {
+      property: {
+        property_token: 'token-1',
+        name: 'Bare Property',
+        featured_offers: [{ source: 'MinimalOTA' }],
+      },
+    };
+    stubDrawerFetch(calls, success(minimalResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+    expect(calls.some((url) => url.includes('/search/hotels/property'))).toBe(true);
+
+    const row = within(dialog).getAllByText('Offer via MinimalOTA')[0]!.closest('article')!;
+    // No price fields were returned: show "Price unavailable", never hide the row.
+    expect(within(row).getByText('Price unavailable')).toBeInTheDocument();
+    expect(within(row).queryByText(/guests/)).toBeNull();
+    expect(within(row).queryByText(/before taxes/)).toBeNull();
+    expect(within(row).queryByText(/Free cancellation/)).toBeNull();
+    expect(within(row).queryByRole('link', { name: 'Booking link' })).toBeNull();
+  });
+
+  it('shows the before-taxes-only price shape the real API returns and marks non-refundable offers', async () => {
+    // Mirrors the live google_hotels_property response for Moustache Goa:
+    // prices arrive as price_before_taxes only (no `price` field), and some
+    // suppliers explicitly mark the stay non-refundable.
+    const realShapedResponse = {
+      property: {
+        property_token: 'token-1',
+        name: 'Moustache Goa Luxuria',
+        featured_offers: [
+          {
+            source: 'Cleartrip.com',
+            num_guests: 2,
+            price_per_night: {
+              price_before_taxes: '₹1,373',
+              extracted_price_before_taxes: 1373,
+            },
+            total_price: {
+              price_before_taxes: '₹2,746',
+              extracted_price_before_taxes: 2746,
+            },
+            has_free_cancellation: true,
+            free_cancellation_until: { date: 'Sep 7', time: '1:30 PM' },
+          },
+          {
+            source: 'EaseMyTrip.com',
+            num_guests: 2,
+            price_per_night: {
+              price_before_taxes: '₹4,929',
+              extracted_price_before_taxes: 4929,
+            },
+            total_price: {
+              price_before_taxes: '₹9,858',
+              extracted_price_before_taxes: 9858,
+            },
+            has_free_cancellation: false,
+          },
+        ],
+      },
+    };
+    const calls: string[] = [];
+    stubDrawerFetch(calls, success(realShapedResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+
+    const clearTripRow = within(dialog)
+      .getAllByText('Offer via Cleartrip.com')[0]!
+      .closest('article')!;
+    // The before-taxes figures ARE the returned price — shown with a tag so
+    // agents know taxes are excluded.
+    expect(within(clearTripRow).getByText(/₹1,373/, { selector: 'p' })).toBeInTheDocument();
+    expect(within(clearTripRow).getAllByText('(before taxes)').length).toBeGreaterThan(0);
+    expect(within(clearTripRow).getByText(/₹2,746/, { selector: 'p' })).toBeInTheDocument();
+    expect(within(clearTripRow).getByText('Free cancellation until Sep 7, 1:30 PM')).toBeInTheDocument();
+
+    const nonRefundableRow = within(dialog)
+      .getAllByText('Offer via EaseMyTrip.com')[0]!
+      .closest('article')!;
+    expect(within(nonRefundableRow).getByText('Non-refundable')).toBeInTheDocument();
+  });
+
+
+  it('keeps a clean summary card with no API-details viewer', async () => {
+    const calls: string[] = [];
+    stubDrawerFetch(calls, success(propertyApiResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+
+    const deluxeRow = within(dialog)
+      .getAllByText('Skyline View, Deluxe Room, 1 King Bed, View')[0]!
+      .closest('article')!;
+    // The useful summary stays: supplier, guests, price, cancellation.
+    expect(within(deluxeRow).getAllByText('Hotels.com').length).toBeGreaterThan(0);
+    expect(within(deluxeRow).getByText('2 guests')).toBeInTheDocument();
+    expect(within(deluxeRow).getAllByText(/₹680/, { selector: 'p' }).length).toBeGreaterThan(0);
+    expect(
+      within(deluxeRow).getByText('Free cancellation until Apr 9, 6:00 PM'),
+    ).toBeInTheDocument();
+    expect(within(deluxeRow).getByRole('button', { name: 'Add to Quotation' })).toBeInTheDocument();
+
+    // The removed API-details viewer must not be present.
+    expect(within(dialog).queryByText('All API details')).toBeNull();
+    expect(within(dialog).queryByText('Raw JSON')).toBeNull();
+    expect(within(dialog).queryByLabelText('Search API fields')).toBeNull();
+    expect(within(dialog).queryByText('Expand all')).toBeNull();
+    expect(within(dialog).queryByText('Collapse all')).toBeNull();
+  });
+
+  it('renders unknown/future API fields directly in the normal card (data-driven)', async () => {
+    const calls: string[] = [];
+    const futureResponse = {
+      property: {
+        property_token: 'token-1',
+        name: 'Hotel Ajanta',
+        featured_offers: [
+          {
+            source: 'Ajanta Official',
+            num_guests: 2,
+            price_per_night: { price: '₹1,200', extracted_price: 1200 },
+            total_price: { price: '₹2,400', extracted_price: 2400 },
+            has_free_cancellation: true,
+            free_cancellation_until: { date: 'Aug 26', time: '11:59 PM' },
+            tracking_link: 'https://book.example/ajanta?utm_campaign=hotel',
+            rooms: [
+              {
+                name: 'Deluxe Double Room',
+                description: 'Free cancellation until Aug 26 · Breakfast included',
+                link: 'https://book.example/ajanta/room',
+                num_guests: 2,
+                price_per_night: { price: '₹1,200', extracted_price: 1200 },
+                total_price: { price: '₹2,400', extracted_price: 2400 },
+                // A field the frontend has never seen before. It must appear
+                // automatically in the normal room card — no manual mapping.
+                future_api_field: 'test value',
+                room_size: 320,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    stubDrawerFetch(calls, success(futureResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+
+    const row = within(dialog).getAllByText('Deluxe Double Room')[0]!.closest('article')!;
+    // The normal UI (no separate viewer) shows the unknown fields.
+    expect(within(row).getByText('Future API field')).toBeInTheDocument();
+    expect(within(row).getByText('test value')).toBeInTheDocument();
+    expect(within(row).getByText('Room size')).toBeInTheDocument();
+    expect(within(row).getByText('320')).toBeInTheDocument();
+    // No API-details viewer.
+    expect(within(row).queryByText('All API details')).toBeNull();
+    expect(within(row).queryByText('Raw JSON')).toBeNull();
+    expect(within(row).queryByLabelText('Search API fields')).toBeNull();
+  });
+
+  it('shows an empty state when the property returns no rooms or offers', async () => {
+    const calls: string[] = [];
+    const emptyResponse = { property: { property_token: 'token-1', name: 'Quiet Property' } };
+    stubDrawerFetch(calls, success(emptyResponse));
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+    expect(await within(dialog).findByText('No rooms or offers returned')).toBeInTheDocument();
+  });
+
+  it('surfaces provider/API failures inside the drawer and Retry actually retries', async () => {
+    const calls: string[] = [];
+    let propertyCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        calls.push(url);
+        if (url.includes('/search/hotels/property')) {
+          propertyCalls += 1;
+          // First attempt fails; the explicit Retry hits a healthy provider.
+          return propertyCalls === 1 ? propertyError() : success(propertyApiResponse);
+        }
+        if (url.includes('/search/hotels?')) return success(hotelResponse(3));
+        return { ok: true, status: 200, json: async () => ({ success: true, data: {} }) };
+      }),
+    );
+    const { user } = renderPage();
+    await runHotelSearch(user, 'Goa');
+    await user.click(screen.getAllByRole('button', { name: /View Rooms & Offers/i })[0]!);
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('SearchAPI quota exhausted.')).toBeInTheDocument();
+
+    // Retry re-runs the SAME request identity.
+    await user.click(await within(dialog).findByRole('button', { name: 'Retry' }));
+    expect(
+      (await within(dialog).findAllByText('Skyline View, Deluxe Room, 1 King Bed, View')).length,
+    ).toBeGreaterThan(0);
+    expect(propertyCalls).toBe(2);
+  });
+
+  it('Add to Quotation stores hotel + room + supplier + prices as one snapshot without another SearchAPI call', async () => {
+    const calls: string[] = [];
+    let bookmarkBody: Record<string, unknown> | undefined;
+    stubDrawerFetch(calls, success(propertyApiResponse), (body) => {
+      bookmarkBody = body as Record<string, unknown>;
+    });
+    const { user } = renderPage();
+    const dialog = await searchAndOpenDrawer(user);
+
+    await user.click(within(dialog).getAllByRole('button', { name: 'Add to Quotation' })[0]!);
+    expect(await within(dialog).findByText(/Saved as HTL-000123/, { selector: 'p' })).toBeInTheDocument();
+
+    // The bookmark stores the full selection snapshot (DB-only afterwards).
+    expect(bookmarkBody?.type).toBe('HOTEL');
+    const searchParams = bookmarkBody?.searchParams as Record<string, unknown>;
+    expect(searchParams.check_in_date).toBe('2026-09-10');
+    expect(searchParams.check_out_date).toBe('2026-09-12');
+    const snapshotHotel = (bookmarkBody?.snapshot as Record<string, unknown>).hotel as Record<
+      string,
+      unknown
+    >;
+    // Hotel identity comes from the clicked card; room data from the response.
+    expect(snapshotHotel.name).toBe('Hotel 0');
+    const requestedToken = decodeURIComponent(
+      calls
+        .find((u) => u.includes('/search/hotels/property'))!
+        .match(/property_token=([^&]+)/)![1]!,
+    );
+    expect(snapshotHotel.propertyToken).toBe(requestedToken);
+    const selectedRoom = snapshotHotel.selectedRoom as Record<string, unknown>;
+    expect(selectedRoom.roomName).toBe('Skyline View, Deluxe Room, 1 King Bed, View');
+    expect(selectedRoom.supplier).toBe('Hotels.com');
+    expect(selectedRoom.totalPrice).toBe(4763);
+    expect(selectedRoom.guests).toBe(2);
+    expect(selectedRoom.freeCancellation).toBe(true);
+    expect(selectedRoom.offerLink).toBe('https://book.example/deluxe');
+    // Extra room-level fields are preserved (null when the API returned none).
+    expect(selectedRoom.roomDescription).toBeNull();
+    expect(selectedRoom.beds).toBeNull();
+    expect(selectedRoom.roomAmenities).toBeNull();
+
+    // Selecting a room must NEVER trigger another Property API request…
+    const propertyCallsDuringSave = calls.filter((u) => u.includes('/search/hotels/property'));
+    expect(propertyCallsDuringSave).toHaveLength(1);
+
+    // …and closing/reopening the drawer serves from cache with zero new calls.
+    await user.click(await within(dialog).findByRole('button', { name: 'Close rooms and offers' }));
+    await user.click(screen.getAllByRole('button', { name: /View Rooms & Offers/i })[0]!);
+    await screen.findByRole('dialog');
+    expect(calls.filter((u) => u.includes('/search/hotels/property'))).toHaveLength(1);
   });
 });

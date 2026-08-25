@@ -748,4 +748,130 @@ describe('BookmarksPage', () => {
       expect(screen.getByText(first)).toBeInTheDocument();
     });
   });
+
+
+  it('groups multiple bookmarked rooms of the same hotel under one hotel', async () => {
+    const room = (id: string, code: string, roomTypeId: string, roomName: string, supplier: string, total: number) => ({
+      ...hotelBookmark,
+      id,
+      bookmarkCode: code,
+      snapshot: {
+        ...hotelBookmark.snapshot,
+        hotel: {
+          ...hotelBookmark.snapshot.hotel,
+          hotelId: 'hotel-group-1',
+          roomTypeId,
+          selectedRoom: {
+            roomName,
+            supplier,
+            pricePerNight: Math.round(total / 7),
+            totalPrice: total,
+            freeCancellation: true,
+            offerLink: 'https://book.example/' + id,
+          },
+        },
+      },
+    });
+    const groupedRooms = [
+      room('g1', 'HTL-000201', 'rt-1', 'Basic 8 Bed Mixed Dorm', 'Booking.com', 4763),
+      room('g2', 'HTL-000202', 'rt-2', 'Standard 12 Bed Mixed Dorm', 'Agoda', 5040),
+      room('g3', 'HTL-000203', 'rt-3', 'Deluxe Room', 'Expedia', 6300),
+    ];
+    const calls: string[] = [];
+    stubBookmarkFetch(groupedRooms, calls);
+    renderPage();
+    const hotelName = hotelBookmark.snapshot.hotel!.name!;
+    // The hotel appears EXACTLY ONCE, with all rooms grouped underneath.
+    const names = await screen.findAllByText(hotelName);
+    expect(names).toHaveLength(1);
+    expect(screen.getByText('Basic 8 Bed Mixed Dorm')).toBeInTheDocument();
+    expect(screen.getByText('Standard 12 Bed Mixed Dorm')).toBeInTheDocument();
+    expect(screen.getByText('Deluxe Room')).toBeInTheDocument();
+    // Each grouped room keeps its own supplier + API Response dropdown + total.
+    expect(screen.getByText('Supplier: Booking.com')).toBeInTheDocument();
+    expect(screen.getByText('Supplier: Agoda')).toBeInTheDocument();
+    expect(screen.getAllByText('API Response ▼').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText('Total: 4763').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Total: 5040').length).toBeGreaterThan(0);
+  });
+
+  it('renders the complete stored API response as readable Complete API Details', async () => {
+    const saved = {
+      ...hotelBookmark,
+      id: 'complete-1',
+      bookmarkCode: 'HTL-000301',
+      snapshot: {
+        ...hotelBookmark.snapshot,
+        raw: {
+          response: {
+            search_metadata: { id: 'search_abc', status: 'Success' },
+            search_parameters: { engine: 'google_hotels_property', property_token: 'tok-1' },
+            property: {
+              name: 'Hotel Golden Deluxe',
+              property_token: 'tok-1',
+              data_id: '0x1:0x2',
+              link: 'https://golden.example',
+              address: '123 Main St, Goa',
+              phone: '+91 90000 00000',
+              phone_link: 'tel:+919000000000',
+              gps_coordinates: { latitude: 15.29, longitude: 73.96 },
+              country: 'IN',
+              check_in_time: '2:00 PM',
+              check_out_time: '11:00 AM',
+              price_per_night: { price_before_taxes: '₹4,500', extracted_price_before_taxes: 4500 },
+              total_price: { price_before_taxes: '₹9,000', extracted_price_before_taxes: 9000 },
+              hotel_class: '4-star hotel',
+              rating: 4.3,
+              reviews: 1200,
+              reviews_histogram: { '1': 40, '5': 800 },
+              location_rating: 4.0,
+              nearby_places: [
+                {
+                  name: 'Beach',
+                  category: 'Point of interest',
+                  rating: 4.5,
+                  transportations: [{ type: 'Taxi', duration: '10 min' }],
+                },
+              ],
+              images: [
+                { thumbnail: 'https://img.example.com/t.jpg', original: 'https://img.example.com/o.jpg' },
+              ],
+              featured_offers: [
+                {
+                  source: 'Booking.com',
+                  num_guests: 2,
+                  price_per_night: { price: '₹4,500', extracted_price: 4500 },
+                  rooms: [{ name: 'Deluxe Room' }],
+                },
+              ],
+              // A field the renderer has never seen — must appear automatically.
+              future_api_field: { nested_future: 'test value' },
+            },
+            people_also_viewed: [{ name: 'Other Hotel' }],
+          },
+        },
+      },
+    };
+    const calls: string[] = [];
+    stubBookmarkFetch([saved], calls);
+    renderPage();
+    await screen.findByText('Complete API Details');
+    expect(screen.getAllByText('Hotel Golden Deluxe').length).toBeGreaterThan(0);
+    // Readable sections from the stored response.
+    expect(screen.getByText('Search Metadata')).toBeInTheDocument();
+    expect(screen.getByText('Search Parameters')).toBeInTheDocument();
+    expect(screen.getByText('Property Information')).toBeInTheDocument();
+    expect(screen.getByText('Nearby Places')).toBeInTheDocument();
+    expect(screen.getByText('Nearby / Recommended Hotels')).toBeInTheDocument();
+    // Nested data is not omitted: prices, ratings, reviews histogram, offers.
+    expect(screen.getAllByText('Price Per Night').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('₹4,500').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Location rating').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Reviews Histogram').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Offers').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Deluxe Room').length).toBeGreaterThan(0);
+    // Unknown nested field renders automatically (data-driven).
+    expect(screen.getAllByText('Future API field').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('test value').length).toBeGreaterThan(0);
+  });
 });

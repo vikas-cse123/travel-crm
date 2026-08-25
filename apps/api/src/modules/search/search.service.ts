@@ -5,6 +5,7 @@ import type { AuthContext } from '../../middleware/authenticate.js';
 import type {
   FlightSearchQuery,
   HotelAutocompleteQuery,
+  HotelPropertyQuery,
   HotelSearchQuery,
   SearchApiUsageStatus,
   SearchApiUsageType,
@@ -29,6 +30,7 @@ import { recordSearchApiUsage } from './search-usage.service.js';
 const ENGINE_FLIGHTS = 'google_flights';
 const ENGINE_HOTELS = 'google_hotels';
 const ENGINE_HOTELS_AUTOCOMPLETE = 'google_hotels_autocomplete';
+const ENGINE_HOTELS_PROPERTY = 'google_hotels_property';
 
 /**
  * Development/test-only count of outgoing SearchAPI requests, broken down by
@@ -85,14 +87,25 @@ export class SearchApiInvalidKeyError extends ServiceUnavailableError {
   }
 }
 
-/** Any other provider failure. Surfaced as before — no rotation. */
+/**
+ * Any other provider failure. Surfaced as before — no rotation.
+ *
+ * Carries the upstream HTTP status and provider error text (never the API
+ * key) so domain code and server logs can distinguish e.g. a rejected
+ * parameter from a provider outage without exposing secrets to the browser.
+ */
 export class SearchApiProviderError extends ServiceUnavailableError {
   readonly category: SearchApiFailureCategory = 'PROVIDER_ERROR';
+  readonly upstreamStatus: number | undefined;
+  readonly upstreamError: string | undefined;
   constructor(
     message = 'The live search provider could not complete the request. Please try again.',
+    upstream?: { status: number; error: string },
   ) {
     super(message);
     this.name = 'SearchApiProviderError';
+    this.upstreamStatus = upstream?.status;
+    this.upstreamError = upstream?.error;
   }
 }
 
@@ -166,6 +179,26 @@ async function callSearchApi(
     );
   }
 
+  if (!isProduction && params.engine === ENGINE_HOTELS_PROPERTY) {
+    // Sanitized outgoing property (rooms/offers) parameters for development
+    // diagnosis. The API key is never logged.
+    logger.info(
+      {
+        engine: params.engine,
+        property_token: url.searchParams.get('property_token'),
+        check_in_date: url.searchParams.get('check_in_date'),
+        check_out_date: url.searchParams.get('check_out_date'),
+        adults: url.searchParams.get('adults') ?? 'ABSENT',
+        children_ages: url.searchParams.get('children_ages') ?? 'ABSENT',
+        currency: url.searchParams.get('currency') ?? 'ABSENT',
+        hl: url.searchParams.get('hl') ?? 'ABSENT',
+        gl: url.searchParams.get('gl') ?? 'ABSENT',
+        devOnly: true,
+      },
+      'Hotel property outgoing parameters',
+    );
+  }
+
   const startedAt = Date.now();
   let response: Response;
   try {
@@ -207,7 +240,10 @@ async function callSearchApi(
     if (response.status === 401 || response.status === 403) {
       throw new SearchApiInvalidKeyError();
     }
-    throw new SearchApiProviderError();
+    throw new SearchApiProviderError(undefined, {
+      status: response.status,
+      error: providerError,
+    });
   }
 
   const body = (await response.json()) as Record<string, unknown>;
@@ -223,7 +259,7 @@ async function callSearchApi(
         'SearchAPI monthly quota exhausted. Add a new SearchAPI key or wait for the next cycle.',
       );
     }
-    throw new SearchApiProviderError();
+    throw new SearchApiProviderError(undefined, { status: 200, error: message });
   }
 
   return body;
@@ -469,6 +505,29 @@ function autocompleteParams(
   };
 }
 
+/**
+ * Build the SearchApi parameter map for a property (room/offers) lookup.
+ * The `property_token` comes from a google_hotels search result; the stay
+ * context is re-sent so the provider returns offers for the same dates and
+ * occupancy the user searched with.
+ */
+function hotelPropertyParams(
+  query: HotelPropertyQuery,
+): Record<string, string | number | undefined> {
+  return {
+    engine: ENGINE_HOTELS_PROPERTY,
+    property_token: query.property_token,
+    check_in_date: query.check_in_date,
+    check_out_date: query.check_out_date,
+    adults: query.adults,
+    children_ages: query.children_ages,
+    currency: query.currency,
+    hl: query.hl,
+    gl: query.gl,
+    free_cancellation: query.free_cancellation,
+  };
+}
+
 export const searchService = {
   flights(auth: AuthContext, query: FlightSearchQuery): Promise<unknown> {
     return executeProviderSearch(auth, 'FLIGHT', ENGINE_FLIGHTS, flightParams, query);
@@ -494,6 +553,60 @@ export const searchService = {
       autocompleteParams,
       query,
     );
+  },
+
+  /**
+   * Room/offer details for one hotel property (google_hotels_property). The
+   * raw provider body is returned untouched so the client can render every
+   * field the provider sent (offers, rooms, free-cancellation windows, …).
+   *
+   * Locale quirk (verified against the live provider): the property engine
+   * accepts only some Google Travel `hl` values — `en-US`/`en-GB`/`hi` pass
+   * while `en`, `en-IN`, `hi-IN` are rejected with HTTP 400 "Unsupported value
+   * … in hl parameter". The short codes the rest of Live Search uses (`hl=en`)
+   * therefore fail here. When that exact rejection happens the request is
+   * retried ONCE without `hl`: the provider's own defaults still honor the
+   * requested `currency` and `gl`, so prices and country context are preserved.
+   */
+  async hotelsProperty(auth: AuthContext, query: HotelPropertyQuery): Promise<unknown> {
+    try {
+      return await executeProviderSearch(
+        auth,
+        'HOTEL',
+        ENGINE_HOTELS_PROPERTY,
+        hotelPropertyParams,
+        query,
+      );
+    } catch (error) {
+      if (!(error instanceof SearchApiProviderError)) throw error;
+      const upstream = error.upstreamError ?? '';
+      if (/in hl parameter/i.test(upstream)) {
+        logger.warn(
+          { engine: ENGINE_HOTELS_PROPERTY, rejectedHl: query.hl ?? null, devOnly: !isProduction },
+          'SearchApi property engine rejected hl; retrying without it',
+        );
+        const { hl: _rejectedLocale, ...withoutLocale } = hotelPropertyParams(query);
+        void _rejectedLocale;
+        return await executeProviderSearch(
+          auth,
+          'HOTEL',
+          ENGINE_HOTELS_PROPERTY,
+          () => withoutLocale,
+          query,
+        );
+      }
+      // A rejected property_token / bad stay detail is a request problem, not
+      // an outage: answer with a specific 400 while server logs retain the
+      // upstream reason (never the API key).
+      if (error.upstreamStatus === 400) {
+        if (/property_token/i.test(upstream))
+          throw new ValidationError('Hotel room information is unavailable for this property.');
+        throw new ValidationError(
+          'Rooms & offers could not be loaded for these stay details.',
+        );
+      }
+      throw error;
+    }
   },
 
   /**

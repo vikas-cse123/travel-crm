@@ -2671,8 +2671,8 @@ describe('Phase 8 quotation pages', () => {
     );
     await screen.findByText('Goa proposal');
     // 1. Final package price is still shown.
-    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
-    expect(screen.getByText(/₹10,000/)).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/₹10,000/).length).toBeGreaterThan(0);
     // 2. The traveller price breakdown still shows.
     expect(screen.getByText(/2 Adults × ₹5,000/)).toBeInTheDocument();
     // 3. The optional add-ons summary text is gone.
@@ -3093,7 +3093,7 @@ describe('Phase 8 quotation pages', () => {
     expect(packageTitle.textContent).toBe('Bali Package for Riya Kapoor');
 
     // Summary and price cards still sit below the hero.
-    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
   });
 
   it('renders the summary and price cards in normal flow below the hero image', async () => {
@@ -3157,7 +3157,7 @@ describe('Phase 8 quotation pages', () => {
     // 2 & 3. The information card and the total-price card are both outside the
     // hero container (which clips its overflow).
     expect(header.contains(cardsSection)).toBe(false);
-    const priceCard = screen.getByText('Total Package Price').closest('div.bg-emerald-600');
+    const priceCard = screen.getByText('Total Package Price', { selector: 'p' }).closest('div.bg-emerald-600');
     expect(priceCard).not.toBeNull();
     expect(header.contains(priceCard!)).toBe(false);
 
@@ -3183,7 +3183,7 @@ describe('Phase 8 quotation pages', () => {
     expect(screen.getByText('Travel Date')).toBeInTheDocument();
     expect(screen.getByText('Duration')).toBeInTheDocument();
     expect(screen.getByText('Travelers')).toBeInTheDocument();
-    expect(screen.getByText(/₹16,066/)).toBeInTheDocument();
+    expect(screen.getAllByText(/₹16,066/).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: /Pay Now/ })).toHaveAttribute(
       'href',
       'https://pay.example.test/secure',
@@ -15216,9 +15216,9 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     expect(screen.queryByText('Add-on Services Total')).not.toBeInTheDocument();
     expect(screen.queryByText('Not added to final total')).not.toBeInTheDocument();
 
-    // The Summary & Pricing tab's breakdown agrees with the same resolver.
-    await openTab('Summary & Pricing');
-    expect(screen.getByText('Section-wise Price Breakdown')).toBeInTheDocument();
+    // The Pricing Breakdown tab agrees with the same resolver.
+    await openTab('Pricing Breakdown');
+    expect(screen.getByText('Price Breakdown')).toBeInTheDocument();
     expect(screen.getByText('Grand Total')).toBeInTheDocument();
     expect(screen.getAllByText('₹26,790.00').length).toBeGreaterThan(0);
   });
@@ -15289,7 +15289,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
   it('renders the total, exact tax note and plural traveller breakdown', async () => {
     renderPublic(publicPayload());
     await screen.findByText('Singapore Package');
-    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/30,000/).length).toBeGreaterThan(0);
     expect(screen.getByText('Inclusive of all taxes, excluding TCS')).toBeInTheDocument();
     expect(screen.getByText(/2 Adults ×/)).toBeInTheDocument();
@@ -15520,7 +15520,7 @@ describe('Public weblink — section-wise pricing breakdown', () => {
     // Flights 20000 + Hotels (15000+25000) + Cruise 8000 + Visa (3000+500+90+200=3790).
     expect(screen.getAllByText('₹71,790').length).toBeGreaterThan(0);
 
-    expect(screen.getByRole('heading', { name: 'Section-wise Price Breakdown' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Price Breakdown' })).toBeInTheDocument();
     for (const label of ['Flights', 'Hotels', 'Cruise', 'Visa']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
@@ -15528,7 +15528,7 @@ describe('Public weblink — section-wise pricing breakdown', () => {
     expect(screen.getByText('₹40,000')).toBeInTheDocument();
     expect(screen.getByText('₹8,000')).toBeInTheDocument();
     expect(screen.getByText('₹3,790')).toBeInTheDocument();
-    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
 
     // No per-passenger lines leak into a section-wise quotation.
     expect(screen.queryByText(/Adult ×/)).not.toBeInTheDocument();
@@ -15562,7 +15562,7 @@ describe('Public weblink — section-wise pricing breakdown', () => {
       }),
     );
     await screen.findByText('Singapore Package');
-    expect(screen.getByText('Total Package Price')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
     // 2 adults × 15000.
     expect(screen.getAllByText('₹30,000').length).toBeGreaterThan(0);
     expect(screen.queryByRole('heading', { name: 'Section-wise Price Breakdown' })).not.toBeInTheDocument();
@@ -15666,7 +15666,7 @@ describe('Pricing Breakdown — section amounts, multi-hotel sum and grand total
     expect(screen.getByText(/54,131/)).toBeInTheDocument();
   });
 
-  it('hides the section-wise allocation block in total pricing mode', async () => {
+  it('hides section-wise rows and shows per-person pricing in per-person mode', async () => {
     vi.stubGlobal(
       'fetch',
       masterFetch(breakdownQuotation({ pricingMode: 'TOTAL' })),
@@ -15675,9 +15675,10 @@ describe('Pricing Breakdown — section amounts, multi-hotel sum and grand total
     await openTab('Pricing Breakdown');
 
     expect(screen.queryByText('Section-wise Allocation')).not.toBeInTheDocument();
-    // Actual section totals are still shown.
-    expect(screen.getByText('Hotels')).toBeInTheDocument();
-    expect(screen.getByText(/46,131/)).toBeInTheDocument();
+    // In per-person mode the section rows are replaced by the per-person block.
+    expect(screen.queryByText('Hotels')).not.toBeInTheDocument();
+    expect(screen.getByText('Number of Travelers')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
   });
 });
 

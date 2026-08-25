@@ -7,20 +7,25 @@ import {
 } from '@interscale/shared';
 
 describe('PricingMode', () => {
-  it('Total Pricing mode', () => {
-    expect(normalizePricingMode('TOTAL')).toBe('TOTAL');
-    expect(normalizePricingMode('total')).toBe('TOTAL');
+  it('Per-Person Pricing mode', () => {
+    expect(normalizePricingMode('PER_PERSON')).toBe('PER_PERSON');
+    expect(normalizePricingMode('per_person')).toBe('PER_PERSON');
+  });
+  it('Legacy TOTAL / ITEMIZED values map to Per-Person Pricing', () => {
+    expect(normalizePricingMode('TOTAL')).toBe('PER_PERSON');
+    expect(normalizePricingMode('total')).toBe('PER_PERSON');
+    expect(normalizePricingMode('PACKAGE_TOTAL')).toBe('PER_PERSON');
+    expect(normalizePricingMode('ITEMIZED')).toBe('PER_PERSON');
   });
   it('Section-wise Pricing mode', () => {
     expect(normalizePricingMode('SECTION_WISE')).toBe('SECTION_WISE');
     expect(normalizePricingMode('section_wise')).toBe('SECTION_WISE');
   });
-  it('Existing quotations without pricing mode continue working', () => {
-    expect(normalizePricingMode(undefined)).toBe('TOTAL');
-    expect(normalizePricingMode(null)).toBe('TOTAL');
-    expect(normalizePricingMode('')).toBe('TOTAL');
-    expect(normalizePricingMode('ITEMIZED')).toBe('TOTAL');
-    expect(normalizePricingMode('PER_PERSON')).toBe('TOTAL');
+  it('Existing quotations without pricing mode continue working (Per-Person default)', () => {
+    expect(normalizePricingMode(undefined)).toBe('PER_PERSON');
+    expect(normalizePricingMode(null)).toBe('PER_PERSON');
+    expect(normalizePricingMode('')).toBe('PER_PERSON');
+    expect(normalizePricingMode('ITEMIZED')).toBe('PER_PERSON');
   });
 });
 
@@ -157,12 +162,21 @@ describe('Section breakdown', () => {
 });
 
 describe('Weblink and PDF pricing mode', () => {
-  it('Total Pricing hides section prices (resolver)', () => {
+  it('Per-Person Pricing hides section prices (resolver)', () => {
+    const pricing = resolveQuotationPricing({
+      version: { pricingMode: 'PER_PERSON', finalAmount: 100000, flightDetails: { amount: 20000 }, hotelDetails: { amount: 35000 }, services: [], sightseeingDetails: { days: [] } },
+      quotation: { adults: 1, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 },
+    });
+    expect(pricing.pricingMode).toBe('PER_PERSON');
+    // Package total remains the authoritative number in per-person mode.
+    expect(pricing.packageTotal).toBe(100000);
+  });
+  it('Legacy TOTAL version renders as Per-Person (backward compatible)', () => {
     const pricing = resolveQuotationPricing({
       version: { pricingMode: 'TOTAL', finalAmount: 100000, flightDetails: { amount: 20000 }, hotelDetails: { amount: 35000 }, services: [], sightseeingDetails: { days: [] } },
       quotation: { adults: 1, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 },
     });
-    expect(pricing.pricingMode).toBe('TOTAL');
+    expect(pricing.pricingMode).toBe('PER_PERSON');
   });
   it('Section-wise displays section prices', () => {
     const pricing = resolveQuotationPricing({

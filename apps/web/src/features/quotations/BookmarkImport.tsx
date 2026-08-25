@@ -342,7 +342,14 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
 
   const totalPrice = hotel?.totalPrice?.extracted_price;
   const perNight = hotel?.pricePerNight?.extracted_price;
-  const savedPrice = typeof totalPrice === 'number' ? totalPrice : (perNight ?? 0);
+  // A saved room selection is the authoritative price basis: its total (or
+  // per-night) supplier price seeds the quotation row, and the CRM's existing
+  // markup/pricing logic applies on top of it.
+  const savedPrice = hotel?.selectedRoom
+    ? (hotel.selectedRoom.totalPrice ??
+      hotel.selectedRoom.pricePerNight ??
+      (typeof totalPrice === 'number' ? totalPrice : (perNight ?? 0)))
+    : (typeof totalPrice === 'number' ? totalPrice : (perNight ?? 0));
 
   const images = normalizeHotelImages(hotel?.images).map((image) => ({
     url: image.url,
@@ -350,15 +357,32 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
     alt: hotel?.name ?? null,
   }));
 
+  // Room-level remark lines, transcribed from the Property API snapshot only.
+  const room = hotel?.selectedRoom;
+  const remarks: string[] = [];
+  if (room?.roomDescription) remarks.push(room.roomDescription);
+  if (room?.supplier)
+    remarks.push(`Supplier: ${room.supplier}${room.isOfficial ? ' (official site)' : ''}`);
+  if (room?.guests) remarks.push(`${room.guests} guests`);
+  if (room?.freeCancellation) {
+    const until = [room.freeCancellationUntil?.date, room.freeCancellationUntil?.time]
+      .filter(Boolean)
+      .join(', ');
+    remarks.push(until ? `Free cancellation until ${until}` : 'Free cancellation');
+  }
+  if (!room && hotel?.description) remarks.push(hotel.description);
+
   return {
     hotelRow: {
       city: hotel?.city ?? '',
       hotelName: hotel?.name ?? '',
       category: hotel?.stars ? `${hotel.stars} Star` : null,
-      roomType: null,
+      roomType: room?.roomName ?? null,
       mealPlan: null,
-      hotelId: null,
-      hotelRoomTypeId: null,
+      // Room bookmarks are attached to a Hotel master on save: link the
+      // quotation hotel row to that master so edits update the same hotel.
+      hotelId: hotel?.hotelId ?? null,
+      hotelRoomTypeId: hotel?.roomTypeId ?? null,
       hotelMealPlanId: null,
       rooms,
       nights,
@@ -371,7 +395,7 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       internalCost: 0,
       sellingPrice: savedPrice,
       selected: true,
-      notes: hotel?.description ?? null,
+      notes: remarks.length ? remarks.join(' · ') : null,
       sequence: 1,
       // Store per-stay images instead of section-level images
       images: images.length ? images : [],

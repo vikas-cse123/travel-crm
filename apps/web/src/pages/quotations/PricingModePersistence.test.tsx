@@ -129,16 +129,14 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     auth.permissions = new Set(['quotations.view', 'quotations.update', 'quotations.view_costing']);
   });
 
-  it('persists SECTION_WISE when selected in the dropdown', async () => {
-    const fetchMock = masterFetch(quotationDetail('TOTAL'));
+  it('persists SECTION_WISE when selected (By Section)', async () => {
+    const fetchMock = masterFetch(quotationDetail('PER_PERSON'));
     vi.stubGlobal('fetch', fetchMock);
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
     await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
-    await userEvent.selectOptions(screen.getByLabelText('Pricing mode'), 'SECTION_WISE');
-
-    await waitFor(() => expect(screen.getByText('Section-wise Price Breakdown')).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText('By Section'));
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
     await waitFor(() =>
@@ -147,6 +145,24 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
     const body = JSON.parse(String(patch![1]!.body));
     expect(body.pricingMode).toBe('SECTION_WISE');
+  });
+
+  it('persists PER_PERSON when selected (By Traveler)', async () => {
+    const fetchMock = masterFetch(quotationDetail('SECTION_WISE'));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilder();
+    await screen.findByRole('heading', { name: 'Quotation builder' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
+    await userEvent.click(screen.getByLabelText('By Traveler'));
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    );
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.pricingMode).toBe('PER_PERSON');
   });
 
   it('does not let a background data refresh revert a just-selected SECTION_WISE mode', async () => {
@@ -179,8 +195,6 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
       if (url.includes('/masters/')) {
         mastersCalls += 1;
         if (mastersCalls <= 1) return response(routes['/masters/hotels']);
-        // Every later master request (refetch of a master query) is gated so it
-        // lands AFTER the user has selected SECTION_WISE.
         await gate;
         return response({ success: true, data: [], pagination: { total: 0 } });
       }
@@ -191,13 +205,9 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
     await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
-    await userEvent.selectOptions(screen.getByLabelText('Pricing mode'), 'SECTION_WISE');
-    await waitFor(() => expect(screen.getByText('Section-wise Price Breakdown')).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText('By Section'));
 
-    // Background master data now lands → reset effect re-runs with saved values.
     release();
-
-    // Wait for the form to (potentially) reset back to the saved TOTAL mode.
     await waitFor(() => expect(mastersCalls).toBeGreaterThan(1));
     await new Promise((resolve) => setTimeout(resolve, 300));
 
@@ -207,7 +217,58 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     );
     const patches = fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH');
     const lastBody = JSON.parse(String(patches[patches.length - 1]![1]!.body));
-    // If the reset effect clobbered the selection, this is 'TOTAL' — the bug.
+    // If the reset effect clobbered the selection, this is 'PER_PERSON' — the bug.
     expect(lastBody.pricingMode).toBe('SECTION_WISE');
+  });
+
+  it('shows both pricing-method labels, the default heading, and a per-person breakdown', async () => {
+    const fetchMock = masterFetch(quotationDetail('TOTAL'));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilder();
+    await screen.findByRole('heading', { name: 'Quotation builder' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
+    // The two professional method labels render as radios.
+    expect(screen.getByLabelText('By Section')).toBeInTheDocument();
+    expect(screen.getByLabelText('By Traveler')).toBeInTheDocument();
+    // A legacy TOTAL quotation loads as By Traveler (backward compatible).
+    expect(screen.getByLabelText('By Traveler')).toBeChecked();
+    // Custom heading field with the default value.
+    expect(screen.getByLabelText('Pricing heading')).toHaveValue('Price Breakdown');
+    expect(screen.getByLabelText('Pricing subheading')).toBeInTheDocument();
+    expect(
+      screen.getByText('The heading and pricing method will be used on the customer Weblink and PDF.'),
+    ).toBeInTheDocument();
+
+    // The per-person breakdown shows travelers and the package total.
+    await userEvent.click(await screen.findByRole('button', { name: 'Pricing Breakdown' }));
+    expect(await screen.findByText('Number of Travelers')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
+  });
+
+  it('persists the custom heading, subheading and display order', async () => {
+    const fetchMock = masterFetch(quotationDetail('PER_PERSON'));
+    vi.stubGlobal('fetch', fetchMock);
+    renderBuilder();
+    await screen.findByRole('heading', { name: 'Quotation builder' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
+    await userEvent.clear(screen.getByLabelText('Pricing heading'));
+    await userEvent.type(screen.getByLabelText('Pricing heading'), 'Your Trip Cost');
+    await userEvent.type(screen.getByLabelText('Pricing subheading'), 'Complete package cost');
+    // Move the first category down so the order is non-default.
+    await userEvent.click(screen.getByRole('button', { name: 'Move Flights down' }));
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    );
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    const body = JSON.parse(String(patch![1]!.body));
+    expect(body.pricingHeading).toBe('Your Trip Cost');
+    expect(body.pricingSubheading).toBe('Complete package cost');
+    expect(body.pricingDisplayOrder).toEqual([
+      'hotel', 'flight', 'cruise', 'vehicle', 'sightseeing', 'addon', 'visa',
+    ]);
   });
 });

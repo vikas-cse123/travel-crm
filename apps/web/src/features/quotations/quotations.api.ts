@@ -299,6 +299,9 @@ export interface QuotationVersion {
   notes: string | null;
   internalNotes?: string | null;
   status: string;
+  pricingHeading: string;
+  pricingSubheading: string | null;
+  pricingDisplayOrder: string[] | null;
   finalizedAt: string | null;
   createdAt: string;
   createdBy: PersonRef;

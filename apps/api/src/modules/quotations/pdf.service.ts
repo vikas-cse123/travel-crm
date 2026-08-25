@@ -1547,7 +1547,7 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         .font('Bold')
         .fontSize(9.5)
         .text(
-          pricing.pricingMode === 'SECTION_WISE' ? 'TOTAL PRICE' : 'TOTAL COST',
+          pricing.pricingMode === 'SECTION_WISE' ? 'TOTAL PRICE' : 'PACKAGE TOTAL',
           rightX + 22,
           ry + 18,
           {
@@ -2753,33 +2753,93 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
 
   // ==========================================================================
-  // PRICE BREAKDOWN — section-wise pricing (only when mode is SECTION_WISE)
+  // PRICE BREAKDOWN — professional pricing card (By Section / By Traveler)
   // ==========================================================================
   {
-    if (pricing.pricingMode === 'SECTION_WISE') {
-      planner.pageBreak();
-      planner.add(sectionHeaderBlock('Section-wise Pricing'));
-      const breakdownSections = pricing.sections.filter((s) => s.amount > 0);
-      for (const section of breakdownSections) {
-        const line = `${section.label}: ${money(section.amount)}`;
-        const h = hOf(line, 10.5, CONTENT_W, 'Body') + 4;
-        planner.add({
-          height: h,
-          render: (y0) => {
-            doc.font('Body').fontSize(10.5).fillColor(DARK).text(line, M, y0, { width: CONTENT_W });
-            return y0 + h;
-          },
-        });
-      }
-      const totalLine = `Grand Total: ${money(pricing.sectionTotal)}`;
-      const totalH = hOf(totalLine, 12, CONTENT_W, 'Bold') + 6;
+    const pricingHeading = (v as { pricingHeading?: string }).pricingHeading || 'Price Breakdown';
+    const pricingSubheading =
+      (v as { pricingSubheading?: string | null }).pricingSubheading || null;
+    const pricingOrder = Array.isArray(
+      (v as { pricingDisplayOrder?: unknown }).pricingDisplayOrder,
+    )
+      ? ((v as { pricingDisplayOrder?: unknown }).pricingDisplayOrder as string[])
+      : null;
+    const orderedSections = pricingOrder
+      ? [...pricing.sections].sort((a, b) => {
+          const ia = pricingOrder.indexOf(a.id);
+          const ib = pricingOrder.indexOf(b.id);
+          return (ia < 0 ? pricingOrder.length : ia) - (ib < 0 ? pricingOrder.length : ib);
+        })
+      : pricing.sections;
+
+    planner.pageBreak();
+    planner.add(sectionHeaderBlock(pricingHeading));
+    if (pricingSubheading) {
+      const h = hOf(pricingSubheading, 10, CONTENT_W, 'Body') + 4;
       planner.add({
-        height: totalH,
-        render: (y0) => {
-          doc.font('Bold').fontSize(12).fillColor(DARK).text(totalLine, M, y0, { width: CONTENT_W });
-          return y0 + totalH;
+        height: h,
+        render: (y0: number) => {
+          doc.font('Body').fontSize(10).fillColor(MUTED).text(pricingSubheading, M, y0, {
+            width: CONTENT_W,
+          });
+          return y0 + h;
         },
       });
+    }
+    const pricingRow = (label: string, value: string, bold = false) => {
+      const h =
+        Math.max(
+          hOf(label, 10.5, CONTENT_W * 0.6, bold ? 'Bold' : 'Body'),
+          hOf(value, 10.5, CONTENT_W * 0.4, 'Bold'),
+        ) + 6;
+      return {
+        height: h,
+        render: (y0: number) => {
+          doc
+            .font(bold ? 'Bold' : 'Body')
+            .fontSize(10.5)
+            .fillColor(DARK)
+            .text(label, M, y0, { width: CONTENT_W * 0.6 });
+          doc.font('Bold').fillColor(DARK).text(value, M, y0, { width: CONTENT_W, align: 'right' });
+          return y0 + h;
+        },
+      };
+    };
+    if (pricing.pricingMode === 'SECTION_WISE') {
+      for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+        planner.add(pricingRow(section.label, money(section.amount)));
+      }
+      planner.add(pricingRow('Total Package Price', money(pricing.sectionTotal), true));
+    } else {
+      const rows = (
+        [
+          ['Adults', q.adults, v.perAdultPrice],
+          ['Children With Bed', q.childrenWithBed, v.perChildWithBedPrice],
+          ['Children Without Bed', q.childrenWithoutBed, v.perChildWithoutBedPrice],
+          ['Infants', q.infants, v.perInfantPrice],
+        ] as const
+      ).filter(([, count, price]) => Number(count) > 0 && num(price) > 0);
+      const travelers =
+        Number(q.adults ?? 0) +
+        Number(q.childrenWithBed ?? 0) +
+        Number(q.childrenWithoutBed ?? 0) +
+        Number(q.infants ?? 0);
+      for (const [label, count, price] of rows) {
+        planner.add(
+          pricingRow(
+            `${label} — ${count} traveler${Number(count) === 1 ? '' : 's'} × ${money(num(price))}`,
+            money(num(price) * Number(count)),
+          ),
+        );
+      }
+      if (travelers > 0) planner.add(pricingRow('Total Travelers', String(travelers)));
+      const packageTotal =
+        Number(v.finalAmount ?? 0) > 0
+          ? num(v.finalAmount)
+          : pricing.packageTotal > 0
+            ? pricing.packageTotal
+            : num(v.finalAmount);
+      planner.add(pricingRow('Total Package Price', money(packageTotal), true));
     }
   }
 

@@ -19,7 +19,7 @@ export const PRICING_MODES = [
   'PACKAGE_TOTAL',
   'ITEMIZED',
 ] as const;
-export const QUOTATION_PRICING_MODES = ['TOTAL', 'SECTION_WISE'] as const;
+export const QUOTATION_PRICING_MODES = ['SECTION_WISE', 'PER_PERSON'] as const;
 export type QuotationPricingMode = (typeof QUOTATION_PRICING_MODES)[number];
 export const MARKUP_MODES = ['NONE', 'FIXED', 'PERCENTAGE'] as const;
 
@@ -745,7 +745,11 @@ export const quotationVersionInputSchema = z
       .trim()
       .length(3)
       .transform((v) => v.toUpperCase()),
-    pricingMode: z.enum(PRICING_MODES).default('TOTAL'),
+    pricingMode: z.enum(PRICING_MODES).default('PER_PERSON'),
+    // Customer-facing pricing presentation.
+    pricingHeading: optionalText(120).default('Price Breakdown'),
+    pricingSubheading: optionalText(200),
+    pricingDisplayOrder: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     markupMode: z.enum(MARKUP_MODES).default('NONE'),
     markupValue: money.default(0),
     taxRate: money.max(100).default(0),
@@ -1257,14 +1261,12 @@ export type QuotationSendInput = z.infer<typeof quotationSendSchema>;
 // Pricing resolver — single source of truth for Total vs Section-wise pricing
 // ---------------------------------------------------------------------------
 
-export type PricingMode = 'TOTAL' | 'SECTION_WISE';
+export type PricingMode = 'SECTION_WISE' | 'PER_PERSON';
 
 export function normalizePricingMode(value: unknown): PricingMode {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
   if (normalized === 'SECTION_WISE' || normalized === 'SECTION-WISE' || normalized === 'SECTIONWISE') return 'SECTION_WISE';
-  if (normalized === 'TOTAL' || normalized === 'PACKAGE_TOTAL' || normalized === 'PER_PERSON') return 'TOTAL';
-  if (normalized === 'ITEMIZED') return 'TOTAL';
-  return 'TOTAL';
+  return 'PER_PERSON';
 }
 
 export interface SectionPrice {

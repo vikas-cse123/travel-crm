@@ -910,6 +910,19 @@ function versionCreateData(
       travelEndDate: normalized.travelEndDate ?? null,
       currency: normalized.currency,
       pricingMode: normalized.pricingMode,
+      // Customer-facing pricing presentation (heading/subheading/order).
+      pricingHeading:
+        (typeof input.pricingHeading === 'string' && input.pricingHeading.trim()
+          ? input.pricingHeading
+          : (normalized.pricingHeading ?? 'Price Breakdown')).slice(0, 120),
+      pricingSubheading:
+        typeof input.pricingSubheading === 'string' && input.pricingSubheading.trim()
+          ? input.pricingSubheading.slice(0, 200)
+          : null,
+      pricingDisplayOrder:
+        Array.isArray(input.pricingDisplayOrder) && input.pricingDisplayOrder.length
+          ? (input.pricingDisplayOrder.slice(0, 20) as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
       markupMode: normalized.markupMode,
       markupValue: normalized.markupValue,
       taxRate: normalized.taxRate,
@@ -1019,6 +1032,13 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
     travelEndDate: source.travelEndDate,
     currency: source.currency,
     pricingMode: source.pricingMode,
+    pricingHeading: source.pricingHeading,
+    pricingSubheading: source.pricingSubheading,
+    pricingDisplayOrder: Array.isArray(
+      (source as unknown as { pricingDisplayOrder?: unknown }).pricingDisplayOrder,
+    )
+      ? ((source as unknown as { pricingDisplayOrder?: unknown }).pricingDisplayOrder as string[])
+      : undefined,
     markupMode: source.markupMode,
     markupValue: source.markupValue.toNumber(),
     taxRate: source.taxRate.toNumber(),
@@ -1685,7 +1705,9 @@ function loadDefaultExpertAvatar(kind: 'male' | 'female'): Buffer | null {
       resolve(currentDir, `../../assets/destination-expert/${fileName}`),
       resolve(currentDir, `../../../assets/destination-expert/${fileName}`),
     ];
-  } catch {}
+  } catch {
+    // No default expert avatar configured for this kind — fall through.
+  }
   const candidates = [
     ...fileDirCandidates,
     resolve(process.cwd(), `apps/web/public/destination-expert/${fileName}`),
@@ -1703,7 +1725,9 @@ function loadDefaultExpertAvatar(kind: 'male' | 'female'): Buffer | null {
       defaultExpertAvatarCache.set(kind, buf);
       return buf;
     }
-  } catch {}
+  } catch {
+    // Unreadable cache file — treat as no cached avatar.
+  }
   return null;
 }
 
@@ -1963,6 +1987,9 @@ export const quotationsService = {
         travelEndDate: input.travelEndDate ?? lead.travelEndDate,
         currency: input.currency ?? template.baseCurrency,
         pricingMode: 'ITEMIZED',
+        pricingHeading: 'Price Breakdown',
+        pricingSubheading: null,
+        pricingDisplayOrder: undefined,
         markupMode: 'NONE',
         markupValue: 0,
         taxRate: 0,
@@ -2073,6 +2100,13 @@ export const quotationsService = {
         lead.travelEndDate,
       currency: input.version?.currency ?? input.currency ?? source?.currency ?? lead.currency,
       pricingMode: input.version?.pricingMode ?? source?.pricingMode ?? 'ITEMIZED',
+      pricingHeading: input.version?.pricingHeading ?? source?.pricingHeading ?? 'Price Breakdown',
+      pricingSubheading:
+        input.version?.pricingSubheading ?? source?.pricingSubheading ?? null,
+      pricingDisplayOrder:
+        input.version?.pricingDisplayOrder ??
+        source?.pricingDisplayOrder ??
+        undefined,
       markupMode: input.version?.markupMode ?? source?.markupMode ?? 'NONE',
       markupValue: input.version?.markupValue ?? source?.markupValue ?? 0,
       taxRate: input.version?.taxRate ?? source?.taxRate ?? 0,
