@@ -48,25 +48,34 @@ function PricingPanel({
   const updateRoom = useUpdateRoomType(hotelId);
   const updateMeal = useUpdateMealPlan(hotelId);
   const [price, setPrice] = useState(item.sellingPrice == null ? '' : String(item.sellingPrice));
+  const [extraBed, setExtraBed] = useState((item as { extraBedPrice?: number | null }).extraBedPrice == null ? '' : String((item as { extraBedPrice?: number | null }).extraBedPrice));
+  const [childWithoutBed, setChildWithoutBed] = useState((item as { childWithoutBedPrice?: number | null }).childWithoutBedPrice == null ? '' : String((item as { childWithoutBedPrice?: number | null }).childWithoutBedPrice));
   const [currency, setCurrency] = useState(item.currency || 'INR');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     setPrice(item.sellingPrice == null ? '' : String(item.sellingPrice));
+    setExtraBed((item as { extraBedPrice?: number | null }).extraBedPrice == null ? '' : String((item as { extraBedPrice?: number | null }).extraBedPrice));
+    setChildWithoutBed((item as { childWithoutBedPrice?: number | null }).childWithoutBedPrice == null ? '' : String((item as { childWithoutBedPrice?: number | null }).childWithoutBedPrice));
     setCurrency(item.currency || 'INR');
-  }, [item.sellingPrice, item.currency]);
+  }, [item.sellingPrice, item.currency, item]);
 
   const saveBase = async () => {
     setSaving(true);
     setError('');
     try {
-      const input = {
+      const input: Record<string, unknown> = {
         sellingPrice: price.trim() === '' ? null : Number(price),
         currency: currency || 'INR',
       };
-      if (kind === 'room') await updateRoom.mutateAsync({ id: item.id, input });
-      else await updateMeal.mutateAsync({ id: item.id, input });
+      if (kind === 'room') {
+        input.extraBedPrice = extraBed.trim() === '' ? null : Number(extraBed);
+        input.childWithoutBedPrice = childWithoutBed.trim() === '' ? null : Number(childWithoutBed);
+        await updateRoom.mutateAsync({ id: item.id, input: input as never });
+      } else {
+        await updateMeal.mutateAsync({ id: item.id, input: input as never });
+      }
     } catch (mutationError) {
       setError(mutationError instanceof Error ? mutationError.message : 'Could not save.');
     } finally {
@@ -102,6 +111,32 @@ function PricingPanel({
           </Button>
         )}
       </div>
+      {kind === 'room' && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input
+            className={fieldClass}
+            type="number"
+            min={0}
+            step={0.01}
+            placeholder="Extra bed price"
+            disabled={!canUpdate}
+            value={extraBed}
+            onChange={(event) => setExtraBed(event.target.value)}
+            aria-label="Room type extra bed base price"
+          />
+          <input
+            className={fieldClass}
+            type="number"
+            min={0}
+            step={0.01}
+            placeholder="Child without bed price"
+            disabled={!canUpdate}
+            value={childWithoutBed}
+            onChange={(event) => setChildWithoutBed(event.target.value)}
+            aria-label="Room type child without bed base price"
+          />
+        </div>
+      )}
       <p className="text-xs text-slate-500">Used when no monthly or seasonal rate applies.</p>
       {error && <p className="text-xs font-medium text-red-600">{error}</p>}
       <HotelRatesEditor
@@ -127,6 +162,8 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
   const [name, setName] = useState('');
   const [extra, setExtra] = useState(''); // bed type (room) or meal type key
   const [draftPrice, setDraftPrice] = useState('');
+  const [draftExtraBed, setDraftExtraBed] = useState('');
+  const [draftChildWithoutBed, setDraftChildWithoutBed] = useState('');
   const [draftCurrency, setDraftCurrency] = useState('INR');
   const [draftMonths, setDraftMonths] = useState<MonthRateDraft[]>([]);
   const [draftSeasons, setDraftSeasons] = useState<SeasonRateDraft[]>([]);
@@ -140,6 +177,8 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
     setName('');
     setExtra('');
     setDraftPrice('');
+    setDraftExtraBed('');
+    setDraftChildWithoutBed('');
     setDraftCurrency('INR');
     setDraftMonths([]);
     setDraftSeasons([]);
@@ -162,6 +201,8 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
           status: 'ACTIVE',
           currency: draftCurrency || 'INR',
           ...(draftPrice.trim() ? { sellingPrice: Number(draftPrice) } : {}),
+          ...(draftExtraBed.trim() ? { extraBedPrice: Number(draftExtraBed) } : {}),
+          ...(draftChildWithoutBed.trim() ? { childWithoutBedPrice: Number(draftChildWithoutBed) } : {}),
         });
         createdId = result.roomTypes.find((room) => !existingIds.has(room.id))?.id;
       } else {
@@ -177,25 +218,37 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
       if (createdId) {
         for (const month of draftMonths) {
           if (!month.month) continue;
-          const payload = {
+          const payload: Record<string, unknown> = {
             month: Number(month.month),
             price: month.price.trim() === '' ? null : Number(month.price),
             currency: month.currency || 'INR',
           };
-          if (kind === 'room') await createRoomTypeMonthPrice(hotel.id, createdId, payload);
-          else await createMealPlanMonthPrice(hotel.id, createdId, payload);
+          if (kind === 'room') {
+            (payload as Record<string, unknown>).extraBedPrice =
+              (month.extraBedPrice ?? '').trim() === '' ? null : Number(month.extraBedPrice);
+            (payload as Record<string, unknown>).childWithoutBedPrice =
+              (month.childWithoutBedPrice ?? '').trim() === '' ? null : Number(month.childWithoutBedPrice);
+          }
+          if (kind === 'room') await createRoomTypeMonthPrice(hotel.id, createdId, payload as never);
+          else await createMealPlanMonthPrice(hotel.id, createdId, payload as never);
         }
         for (const season of draftSeasons) {
           if (!season.name.trim() || !season.startDate || !season.endDate) continue;
-          const payload = {
+          const payload: Record<string, unknown> = {
             name: season.name.trim(),
             startDate: new Date(`${season.startDate}T00:00:00.000Z`),
             endDate: new Date(`${season.endDate}T00:00:00.000Z`),
             price: season.price.trim() === '' ? null : Number(season.price),
             currency: season.currency || 'INR',
           };
-          if (kind === 'room') await createRoomTypeSeason(hotel.id, createdId, payload);
-          else await createMealPlanSeason(hotel.id, createdId, payload);
+          if (kind === 'room') {
+            (payload as Record<string, unknown>).extraBedPrice =
+              (season.extraBedPrice ?? '').trim() === '' ? null : Number(season.extraBedPrice);
+            (payload as Record<string, unknown>).childWithoutBedPrice =
+              (season.childWithoutBedPrice ?? '').trim() === '' ? null : Number(season.childWithoutBedPrice);
+          }
+          if (kind === 'room') await createRoomTypeSeason(hotel.id, createdId, payload as never);
+          else await createMealPlanSeason(hotel.id, createdId, payload as never);
         }
       }
       reset();
@@ -358,6 +411,30 @@ export function HotelPlansEditor({ kind, hotel, mealTypes = [], headerClass }: P
                   aria-label={`${title} base currency`}
                 />
               </div>
+              {kind === 'room' && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <input
+                    className={fieldClass}
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    placeholder="Extra bed price"
+                    value={draftExtraBed}
+                    onChange={(event) => setDraftExtraBed(event.target.value)}
+                    aria-label="Room type extra bed base price"
+                  />
+                  <input
+                    className={fieldClass}
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    placeholder="Child without bed price"
+                    value={draftChildWithoutBed}
+                    onChange={(event) => setDraftChildWithoutBed(event.target.value)}
+                    aria-label="Room type child without bed base price"
+                  />
+                </div>
+              )}
               <p className="mt-1 text-xs text-slate-500">
                 Used when no monthly or seasonal rate applies.
               </p>

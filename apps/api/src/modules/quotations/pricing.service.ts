@@ -5,8 +5,15 @@ const roundMoney = (value: Prisma.Decimal) =>
   value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
 export interface PriceableHotel {
-  internalCost?: number | string | null;
-  sellingPrice?: number | string | null;
+  internalCost?: number | string | null | undefined;
+  sellingPrice?: number | string | null | undefined;
+  baseRoomPrice?: number | string | null | undefined;
+  extraBedQuantity?: number | null | undefined;
+  extraBedPrice?: number | string | null | undefined;
+  childWithoutBedQuantity?: number | null | undefined;
+  childWithoutBedPrice?: number | string | null | undefined;
+  rooms?: number | null | undefined;
+  nights?: number | null | undefined;
 }
 export interface PriceableService {
   quantity?: number | string | null;
@@ -41,11 +48,23 @@ export function calculatePricing(input: {
     infants?: number | null | undefined;
   };
 }) {
+  // Hotel selling: if snapshot contains resolved breakdown (baseRoomPrice), compute per-night breakdown; else fallback to sellingPrice (backward compat).
   const hotelCost = (input.hotels ?? []).reduce((sum, row) => sum.plus(D(row.internalCost)), D(0));
-  const hotelSelling = (input.hotels ?? []).reduce(
-    (sum, row) => sum.plus(D(row.sellingPrice)),
-    D(0),
-  );
+  const hotelSelling = (input.hotels ?? []).reduce((sum, row) => {
+    const hasBreakdown = row.baseRoomPrice != null || row.extraBedPrice != null || row.childWithoutBedPrice != null;
+    if (hasBreakdown) {
+      const nights = Number(row.nights ?? 1);
+      const rooms = Number(row.rooms ?? 1);
+      const base = D(row.baseRoomPrice).mul(rooms).mul(nights);
+      const extra = D(row.extraBedPrice).mul(row.extraBedQuantity ?? 0).mul(nights);
+      const child = D(row.childWithoutBedPrice).mul(row.childWithoutBedQuantity ?? 0).mul(nights);
+      const line = roundMoney(base.plus(extra).plus(child));
+      // If breakdown yields 0 but sellingPrice is explicitly set, prefer sellingPrice (manual override).
+      if (line.isZero() && row.sellingPrice != null) return sum.plus(D(row.sellingPrice));
+      return sum.plus(line);
+    }
+    return sum.plus(D(row.sellingPrice));
+  }, D(0));
   const serviceLines = (input.services ?? []).map((row) => {
     const quantity = D(row.quantity ?? 1);
     return {

@@ -160,6 +160,8 @@ export const hotelRoomTypeInputSchema = z.object({
   viewType: optionalText(80),
   baseCost: optionalMoney,
   sellingPrice: optionalMoney,
+  extraBedPrice: optionalMoney,
+  childWithoutBedPrice: optionalMoney,
   currency: currency.default('INR'),
   taxPercentage: z.coerce.number().min(0).max(100).nullable().optional(),
   internalNotes: optionalText(2000),
@@ -193,6 +195,8 @@ const roomTypeSeasonBaseSchema = z.object({
   startDate: optionalDate,
   endDate: optionalDate,
   price: optionalMoney,
+  extraBedPrice: optionalMoney,
+  childWithoutBedPrice: optionalMoney,
   currency: currency.default('INR'),
 });
 
@@ -235,13 +239,21 @@ const monthPrice = z.object({
   currency: currency.default('INR'),
 });
 
+const roomTypeMonthPrice = z.object({
+  month: z.coerce.number().int('Select a month.').min(1, 'Select a month.').max(12, 'Select a month.'),
+  price: optionalMoney,
+  extraBedPrice: optionalMoney,
+  childWithoutBedPrice: optionalMoney,
+  currency: currency.default('INR'),
+});
+
 export const hotelMonthPriceInputSchema = monthPrice;
 export const hotelMonthPriceUpdateSchema = monthPrice
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 
-export const hotelRoomTypeMonthPriceInputSchema = monthPrice;
-export const hotelRoomTypeMonthPriceUpdateSchema = monthPrice
+export const hotelRoomTypeMonthPriceInputSchema = roomTypeMonthPrice;
+export const hotelRoomTypeMonthPriceUpdateSchema = roomTypeMonthPrice
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'At least one field is required.');
 

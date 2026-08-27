@@ -98,6 +98,7 @@ import { TestimonialsPage } from '@/pages/masters/TestimonialsPage';
 import { TestimonialDetailsPage } from '@/pages/masters/TestimonialDetailsPage';
 import { TestimonialFormPage } from '@/pages/masters/TestimonialFormPage';
 import { HiddenGlobalRecordsPage } from '@/pages/masters/HiddenGlobalRecordsPage';
+import { MastersImportPage } from '@/pages/masters/MastersImportPage';
 import { TravelSearchPage } from '@/pages/search/TravelSearchPage';
 import { BookmarksPage } from '@/pages/search/BookmarksPage';
 
@@ -566,6 +567,14 @@ export function AppRoutes() {
             element={
               <PermissionRoute permission={PERMISSIONS.MASTERS_VIEW}>
                 <HiddenGlobalRecordsPage />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/masters/import"
+            element={
+              <PermissionRoute permission={PERMISSIONS.MASTERS_VIEW}>
+                <MastersImportPage />
               </PermissionRoute>
             }
           />

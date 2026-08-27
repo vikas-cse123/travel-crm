@@ -79,8 +79,8 @@ function audit(
   };
 }
 
-const num = (value: Prisma.Decimal | null): number | null =>
-  value === null ? null : value.toNumber();
+const num = (value: Prisma.Decimal | null | undefined): number | null =>
+  value == null ? null : (value as Prisma.Decimal).toNumber();
 const blankToNull = (value: string | null | undefined): string | null => value?.trim() || null;
 const PRESIGN_TTL = env.MASTER_MEDIA_PRESIGNED_URL_EXPIRY_SECONDS;
 
@@ -133,6 +133,8 @@ function presentSeason(row: Record<string, unknown>) {
     startDate: dateOnly(row.startDate as Date),
     endDate: dateOnly(row.endDate as Date),
     price: num(row.price as Prisma.Decimal | null),
+    extraBedPrice: num(row.extraBedPrice as Prisma.Decimal | null),
+    childWithoutBedPrice: num(row.childWithoutBedPrice as Prisma.Decimal | null),
   };
 }
 
@@ -140,29 +142,59 @@ function presentMonthPrice(row: Record<string, unknown>) {
   return {
     ...row,
     price: num(row.price as Prisma.Decimal | null),
+    extraBedPrice: num(row.extraBedPrice as Prisma.Decimal | null),
+    childWithoutBedPrice: num(row.childWithoutBedPrice as Prisma.Decimal | null),
   };
 }
 
 function presentRoomType(row: Record<string, unknown>, canViewCosting: boolean) {
   const { companyId, seasons, monthPrices, ...safe } = row;
   void companyId;
+  const mappedSeasons = Array.isArray(seasons)
+    ? seasons.map((s) => presentSeason(s as Record<string, unknown>))
+    : undefined;
+  const mappedMonthPrices = Array.isArray(monthPrices)
+    ? monthPrices.map((m) => presentMonthPrice(m as Record<string, unknown>))
+    : undefined;
+  if (canViewCosting) {
+    return {
+      ...safe,
+      baseCost: num(safe.baseCost as Prisma.Decimal | null),
+      sellingPrice: num(safe.sellingPrice as Prisma.Decimal | null),
+      extraBedPrice: num(safe.extraBedPrice as Prisma.Decimal | null),
+      childWithoutBedPrice: num(safe.childWithoutBedPrice as Prisma.Decimal | null),
+      taxPercentage: num(safe.taxPercentage as Prisma.Decimal | null),
+      ...(mappedSeasons ? { seasons: mappedSeasons } : {}),
+      ...(mappedMonthPrices ? { monthPrices: mappedMonthPrices } : {}),
+    };
+  }
+  // Strip base costing and extra-bed / child-without-bed (costing) from seasons/months.
+  const stripExtraCosting = (entry: Record<string, unknown>) => {
+    const { extraBedPrice, childWithoutBedPrice, ...rest } = entry as Record<string, unknown> & {
+      extraBedPrice?: unknown;
+      childWithoutBedPrice?: unknown;
+    };
+    void extraBedPrice;
+    void childWithoutBedPrice;
+    return rest;
+  };
   const base = {
     ...safe,
-    baseCost: num(safe.baseCost as Prisma.Decimal | null),
-    sellingPrice: num(safe.sellingPrice as Prisma.Decimal | null),
-    taxPercentage: num(safe.taxPercentage as Prisma.Decimal | null),
-    ...(Array.isArray(seasons)
-      ? { seasons: seasons.map((s) => presentSeason(s as Record<string, unknown>)) }
-      : {}),
-    ...(Array.isArray(monthPrices)
-      ? { monthPrices: monthPrices.map((m) => presentMonthPrice(m as Record<string, unknown>)) }
-      : {}),
+    ...(mappedSeasons ? { seasons: mappedSeasons.map(stripExtraCosting) } : {}),
+    ...(mappedMonthPrices ? { monthPrices: mappedMonthPrices.map(stripExtraCosting) } : {}),
   };
-  if (canViewCosting) return base;
-  const { baseCost, sellingPrice, taxPercentage, ...redacted } = base;
+  const { baseCost, sellingPrice, taxPercentage, extraBedPrice, childWithoutBedPrice, ...redacted } = base as Record<string, unknown> & {
+    baseCost?: unknown;
+    sellingPrice?: unknown;
+    taxPercentage?: unknown;
+    extraBedPrice?: unknown;
+    childWithoutBedPrice?: unknown;
+  };
   void baseCost;
   void sellingPrice;
   void taxPercentage;
+  void extraBedPrice;
+  void childWithoutBedPrice;
   return redacted;
 }
 
@@ -786,6 +818,7 @@ export const hotelsService = {
       select: { id: true },
     });
     if (!roomType) throw new NotFoundError('Room type not found.');
+    const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     await prisma.$transaction(async (tx) => {
       await assertNoRoomTypeSeasonOverlap(
         tx,
@@ -803,6 +836,12 @@ export const hotelsService = {
           startDate: input.startDate,
           endDate: input.endDate,
           price: input.price ?? null,
+          ...(canManageCosting
+            ? {
+                extraBedPrice: input.extraBedPrice ?? null,
+                childWithoutBedPrice: input.childWithoutBedPrice ?? null,
+              }
+            : {}),
           currency: input.currency ?? 'INR',
         },
       });
@@ -839,6 +878,7 @@ export const hotelsService = {
     if (!existing) throw new NotFoundError('Season not found.');
     const startDate = input.startDate ?? existing.startDate;
     const endDate = input.endDate ?? existing.endDate;
+    const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     await prisma.$transaction(async (tx) => {
       await assertNoRoomTypeSeasonOverlap(
         tx,
@@ -855,6 +895,12 @@ export const hotelsService = {
           ...(input.startDate !== undefined ? { startDate } : {}),
           ...(input.endDate !== undefined ? { endDate } : {}),
           ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+          ...(canManageCosting && input.extraBedPrice !== undefined
+            ? { extraBedPrice: input.extraBedPrice ?? null }
+            : {}),
+          ...(canManageCosting && input.childWithoutBedPrice !== undefined
+            ? { childWithoutBedPrice: input.childWithoutBedPrice ?? null }
+            : {}),
           ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
         },
       });
@@ -917,6 +963,7 @@ export const hotelsService = {
       select: { id: true },
     });
     if (!roomType) throw new NotFoundError('Room type not found.');
+    const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     try {
       await prisma.$transaction(async (tx) => {
         const created = await tx.hotelRoomTypeMonthPrice.create({
@@ -926,6 +973,12 @@ export const hotelsService = {
             hotelRoomTypeId: roomType.id,
             month: input.month,
             price: input.price ?? null,
+            ...(canManageCosting
+              ? {
+                  extraBedPrice: input.extraBedPrice ?? null,
+                  childWithoutBedPrice: input.childWithoutBedPrice ?? null,
+                }
+              : {}),
             currency: input.currency ?? 'INR',
           },
         });
@@ -963,6 +1016,7 @@ export const hotelsService = {
       select: { id: true },
     });
     if (!existing) throw new NotFoundError('Month price not found.');
+    const canManageCosting = await has(auth, PERMISSIONS.MASTER_HOTELS_MANAGE_COSTING);
     try {
       await prisma.$transaction(async (tx) => {
         await tx.hotelRoomTypeMonthPrice.update({
@@ -970,6 +1024,12 @@ export const hotelsService = {
           data: {
             ...(input.month !== undefined ? { month: input.month } : {}),
             ...(input.price !== undefined ? { price: input.price ?? null } : {}),
+            ...(canManageCosting && input.extraBedPrice !== undefined
+              ? { extraBedPrice: input.extraBedPrice ?? null }
+              : {}),
+            ...(canManageCosting && input.childWithoutBedPrice !== undefined
+              ? { childWithoutBedPrice: input.childWithoutBedPrice ?? null }
+              : {}),
             ...(input.currency !== undefined ? { currency: input.currency ?? 'INR' } : {}),
           },
         });
@@ -1637,6 +1697,8 @@ function roomTypeWriteData(
     ? {
         ...(key('baseCost') ? { baseCost: input.baseCost ?? null } : {}),
         ...(key('sellingPrice') ? { sellingPrice: input.sellingPrice ?? null } : {}),
+        ...(key('extraBedPrice') ? { extraBedPrice: input.extraBedPrice ?? null } : {}),
+        ...(key('childWithoutBedPrice') ? { childWithoutBedPrice: input.childWithoutBedPrice ?? null } : {}),
         ...(key('taxPercentage') ? { taxPercentage: input.taxPercentage ?? null } : {}),
         ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
       }

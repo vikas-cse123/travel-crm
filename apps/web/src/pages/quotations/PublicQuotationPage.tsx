@@ -1896,18 +1896,6 @@ export function PublicQuotationPage() {
     .filter(Boolean)
     .join(', ');
 
-  // Traveller-mix breakdown lines. CWB/CWOB keep their exact labels; Adult and
-  // Infant switch to singular for a count of one. Zero-count / zero-price rows
-  // are dropped so the card never shows noise.
-  const perPaxLines = (
-    [
-      [q.adults, 'Adult', 'Adults', v.perAdultPrice],
-      [q.childrenWithBed, 'CWB', 'CWB', v.perChildWithBedPrice],
-      [q.childrenWithoutBed, 'CWOB', 'CWOB', v.perChildWithoutBedPrice],
-      [q.infants, 'Infant', 'Infants', v.perInfantPrice],
-    ] as const
-  ).filter(([count, , , price]) => Number(count) > 0 && Number(price ?? 0) > 0);
-
   const packageTotal =
     Number(v.perAdultPrice ?? 0) * q.adults +
     Number(v.perChildWithBedPrice ?? 0) * q.childrenWithBed +
@@ -2155,22 +2143,6 @@ export function PublicQuotationPage() {
               {taxNoteText && (
                 <p className="mt-1 text-center text-xs italic text-white/80">{taxNoteText}</p>
               )}
-              {pricing.pricingMode !== 'SECTION_WISE' && (
-                <div className="mt-3 space-y-1 text-center text-sm text-white/90">
-                  {perPaxLines.length > 0 ? (
-                    <>
-                      <p className="text-xs font-medium uppercase tracking-wide text-white/70">
-                        Price Per Person
-                      </p>
-                      {perPaxLines.map(([count, singular, plural, price]) => (
-                        <p key={plural}>
-                          {count} {Number(count) === 1 ? singular : plural} × {fmt(Number(price ?? 0))}
-                        </p>
-                      ))}
-                    </>
-                  ) : null}
-                </div>
-              )}
               {company.phone && (
                 <a
                   href={`tel:${company.phone}`}
@@ -2183,6 +2155,9 @@ export function PublicQuotationPage() {
           </section>
 
           {(() => {
+            // Price Breakdown renders only for By Section pricing. When By
+            // Traveler is selected the section is omitted from the Weblink.
+            if (pricing.pricingMode !== 'SECTION_WISE') return null;
             const pricingHeading = v.pricingHeading || 'Price Breakdown';
             const pricingSubheading = v.pricingSubheading?.trim() || null;
             const pricingOrder = Array.isArray(
@@ -2197,12 +2172,7 @@ export function PublicQuotationPage() {
                   return (ia < 0 ? pricingOrder.length : ia) - (ib < 0 ? pricingOrder.length : ib);
                 })
               : pricing.sections;
-            const travelersCount =
-              Number(q.adults ?? 0) +
-              Number(q.childrenWithBed ?? 0) +
-              Number(q.childrenWithoutBed ?? 0) +
-              Number(q.infants ?? 0);
-            return pricing.pricingMode === 'SECTION_WISE' ? (
+            return (
               <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-xl font-bold text-slate-900">{pricingHeading}</h2>
                 {pricingSubheading ? (
@@ -2217,36 +2187,6 @@ export function PublicQuotationPage() {
                         <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
                       </div>
                     ))}
-                  <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
-                    <span>Total Package Price</span>
-                    <span>{fmt(displayTotal)}</span>
-                  </div>
-                </div>
-              </section>
-            ) : (
-              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-slate-900">{pricingHeading}</h2>
-                {pricingSubheading ? (
-                  <p className="mt-1 text-sm text-slate-500">{pricingSubheading}</p>
-                ) : null}
-                <div className="mt-5 space-y-3">
-                  {perPaxLines.map(([count, , plural, price]) => (
-                    <div key={plural} className="flex items-center justify-between gap-4 text-sm">
-                      <div>
-                        <p className="font-medium text-slate-800">{plural}</p>
-                        <p className="text-xs text-slate-500">
-                          {count} traveler{Number(count) === 1 ? '' : 's'} × {fmt(Number(price ?? 0))}
-                        </p>
-                      </div>
-                      <span className="font-semibold text-slate-900">
-                        {fmt(Number(price ?? 0) * Number(count))}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between border-t pt-3 text-sm text-slate-600">
-                    <span>Total Travelers</span>
-                    <span className="font-semibold">{travelersCount}</span>
-                  </div>
                   <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
                     <span>Total Package Price</span>
                     <span>{fmt(displayTotal)}</span>

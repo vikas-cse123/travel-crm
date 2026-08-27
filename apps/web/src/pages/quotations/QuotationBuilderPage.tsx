@@ -629,6 +629,12 @@ const emptyHotel = (
   showCheckOutTime: false,
   internalCost: 0,
   sellingPrice: 0,
+  baseRoomPrice: null,
+  extraBedQuantity: null,
+  extraBedPrice: null,
+  childWithoutBedQuantity: null,
+  childWithoutBedPrice: null,
+  pricingSource: null,
   selected,
   notes: null,
   sequence,
@@ -3302,6 +3308,55 @@ export function QuotationBuilderPage() {
                     />
                   </label>
                 </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="text-sm font-semibold text-slate-800">
+                    Extra Bed Quantity
+                    <input
+                      aria-label="Hotel extra bed quantity"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      {...form.register(`hotels.${index}.extraBedQuantity`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
+                      className={`${field} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-slate-800">
+                    Child Without Bed Quantity
+                    <input
+                      aria-label="Hotel child without bed quantity"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      {...form.register(`hotels.${index}.childWithoutBedQuantity`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
+                      className={`${field} mt-1`}
+                    />
+                  </label>
+                </div>
+
+                {hotel && (hotel.baseRoomPrice != null || hotel.extraBedPrice != null || hotel.childWithoutBedPrice != null) && (
+                  <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+                    <h5 className="font-semibold text-slate-800">Accommodation Breakdown</h5>
+                    <ul className="mt-2 space-y-1 text-slate-600">
+                      <li>
+                        Base Room: {hotel.baseRoomPrice != null ? `${hotel.baseRoomPrice} × ${hotel.nights ?? displayNights} nights${hotel.rooms ? ` × ${hotel.rooms} rooms` : ''}` : '—'}
+                      </li>
+                      <li>
+                        Extra Bed: {hotel.extraBedPrice != null ? `${hotel.extraBedPrice} × ${hotel.extraBedQuantity ?? 0} × ${hotel.nights ?? displayNights} nights` : '—'}
+                      </li>
+                      <li>
+                        Child Without Bed: {hotel.childWithoutBedPrice != null ? `${hotel.childWithoutBedPrice} × ${hotel.childWithoutBedQuantity ?? 0} × ${hotel.nights ?? displayNights} nights` : '—'}
+                      </li>
+                      {hotel.pricingSource && <li className="text-xs text-slate-500">Pricing: {hotel.pricingSource} {hotel.baseRoomPrice != null ? `(${hotel.baseRoomPrice})` : ''}</li>}
+                    </ul>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-sm font-semibold text-slate-800">

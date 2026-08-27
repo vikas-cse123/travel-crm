@@ -185,6 +185,12 @@ export function HotelFormPage() {
         ...(draft.price.trim()
           ? { sellingPrice: numberOrNull(draft.price) }
           : {}),
+        ...(draft.extraBedPrice.trim()
+          ? { extraBedPrice: numberOrNull(draft.extraBedPrice) }
+          : {}),
+        ...(draft.childWithoutBedPrice.trim()
+          ? { childWithoutBedPrice: numberOrNull(draft.childWithoutBedPrice) }
+          : {}),
       });
       const created = saved.roomTypes.find((room) => !knownRoomIds.has(room.id));
       if (!created) continue;
@@ -194,8 +200,10 @@ export function HotelFormPage() {
         await createRoomTypeMonthPrice(id, created.id, {
           month: Number(month.month),
           price: month.price.trim() === '' ? null : Number(month.price),
+          extraBedPrice: (month.extraBedPrice ?? '').trim() === '' ? null : Number(month.extraBedPrice),
+          childWithoutBedPrice: (month.childWithoutBedPrice ?? '').trim() === '' ? null : Number(month.childWithoutBedPrice),
           currency: month.currency || 'INR',
-        });
+        } as never);
       }
       for (const season of draft.seasonRates) {
         if (!season.name.trim() || !season.startDate || !season.endDate) continue;
@@ -204,8 +212,10 @@ export function HotelFormPage() {
           startDate: new Date(`${season.startDate}T00:00:00.000Z`),
           endDate: new Date(`${season.endDate}T00:00:00.000Z`),
           price: season.price.trim() === '' ? null : Number(season.price),
+          extraBedPrice: (season.extraBedPrice ?? '').trim() === '' ? null : Number(season.extraBedPrice),
+          childWithoutBedPrice: (season.childWithoutBedPrice ?? '').trim() === '' ? null : Number(season.childWithoutBedPrice),
           currency: season.currency || 'INR',
-        });
+        } as never);
       }
     }
     const knownMealIds = new Set<string>();

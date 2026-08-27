@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Archive, Bus, Eye, EyeOff, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Archive, Bus, Eye, EyeOff, Pencil, Plus, RotateCcw, Search, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveVehicle,
@@ -26,6 +27,7 @@ const vehicleImageUrlCache = new Map<string, { fingerprint: string; url: string 
 
 export function VehiclesPage() {
   const [params, setParams] = useSearchParams();
+  const [importOpen, setImportOpen] = useState(false);
   const vehicles = useVehicles(params);
   // Free-text field, so the dropdown is built from values actually in use.
   const types = useVehicleTypes();
@@ -125,14 +127,20 @@ export function VehiclesPage() {
         current="Vehicles"
         action={
           canCreate ? (
-            <Link to="/masters/vehicles/new">
-              <Button>
-                <Plus className="h-4 w-4" /> Add New Vehicle
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/vehicles/new">
+                <Button>
+                  <Plus className="h-4 w-4" /> Add New Vehicle
+                </Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} initialMasterType="VEHICLE" onSuccess={() => vehicles.refetch()} />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_200px_160px]">
           <label className="relative">

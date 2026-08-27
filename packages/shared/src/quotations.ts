@@ -282,6 +282,19 @@ export const quotationHotelSchema = z
     showCheckOutTime: z.boolean().nullable().optional(),
     internalCost: optionalMoney,
     sellingPrice: optionalMoney,
+    // Snapshot of resolved master pricing (per-night, nullable for backward compat). Stored as snapshot, never live-queried from weblink/PDF/booking.
+    baseRoomPrice: optionalMoney,
+    extraBedQuantity: z.preprocess(
+      (value) => (value === '' || value === null || value === undefined ? null : value),
+      z.coerce.number().int().min(0).max(100).nullable().optional(),
+    ),
+    extraBedPrice: optionalMoney,
+    childWithoutBedQuantity: z.preprocess(
+      (value) => (value === '' || value === null || value === undefined ? null : value),
+      z.coerce.number().int().min(0).max(100).nullable().optional(),
+    ),
+    childWithoutBedPrice: optionalMoney,
+    pricingSource: optionalText(20),
     selected: z.boolean().default(true),
     notes: optionalText(2000),
     sequence,
@@ -441,6 +454,59 @@ export function joinNonEmpty(parts: Array<string | null | undefined>, separator 
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter((part) => part.length > 0)
     .join(separator);
+}
+
+/**
+ * Snapshot pricing helpers for hotel extra-bed / child-without-bed.
+ * All stored as snapshot (per-night) values, never live-queried in PDF/Weblink.
+ */
+export type HotelExtraPricing = {
+  baseRoomPrice?: number | null;
+  extraBedQuantity?: number | null;
+  extraBedPrice?: number | null;
+  childWithoutBedQuantity?: number | null;
+  childWithoutBedPrice?: number | null;
+  rooms?: number | null;
+  nights?: number | null;
+};
+
+export function calculateHotelStayTotal(pricing: HotelExtraPricing): {
+  baseTotal: number;
+  extraBedTotal: number;
+  childWithoutBedTotal: number;
+  accommodationTotal: number;
+} {
+  const nights = pricing.nights ?? 0;
+  const rooms = pricing.rooms ?? 1;
+  const base = pricing.baseRoomPrice ?? 0;
+  const ebQty = pricing.extraBedQuantity ?? 0;
+  const ebPrice = pricing.extraBedPrice ?? 0;
+  const cwQty = pricing.childWithoutBedQuantity ?? 0;
+  const cwPrice = pricing.childWithoutBedPrice ?? 0;
+  if (!nights || nights <= 0) {
+    const extraBedTotal = ebQty * ebPrice;
+    const childWithoutBedTotal = cwQty * cwPrice;
+    const baseTotal = base * rooms;
+    return { baseTotal, extraBedTotal, childWithoutBedTotal, accommodationTotal: baseTotal + extraBedTotal + childWithoutBedTotal };
+  }
+  const baseTotal = base * rooms * nights;
+  const extraBedTotal = ebQty * ebPrice * nights;
+  const childWithoutBedTotal = cwQty * cwPrice * nights;
+  return { baseTotal, extraBedTotal, childWithoutBedTotal, accommodationTotal: baseTotal + extraBedTotal + childWithoutBedTotal };
+}
+
+export function validateHotelOccupancy(
+  occupancy: { maxAdults?: number | null; maxChildren?: number | null; maxOccupancy?: number | null },
+  pax: { extraBedQuantity?: number | null; childWithoutBedQuantity?: number | null; rooms?: number | null },
+): string | null {
+  const max = occupancy.maxOccupancy;
+  if (max == null) return null;
+  const totalExtra = (pax.extraBedQuantity ?? 0) + (pax.childWithoutBedQuantity ?? 0);
+  // Occupancy is per room; if multiple rooms, allow scaling. Simple check: total extra per stay should not exceed max * rooms in naive sense.
+  // We only warn when single room and total extra clearly exceeds max.
+  const rooms = pax.rooms ?? 1;
+  if (totalExtra > max * rooms) return `Extra occupants (${totalExtra}) exceed room max occupancy (${max}${rooms > 1 ? ` × ${rooms}` : ''}).`;
+  return null;
 }
 
 /** Reference "Flight" tab — one segment (leg/connection) of a journey. */
@@ -1419,8 +1485,33 @@ export function resolveQuotationPricing(input: {
       ? Math.round(
           hotelRows.reduce<number>((sum, row) => {
             if (!row || typeof row !== 'object') return sum;
-            const r = row as { selected?: unknown; sellingPrice?: unknown };
+            const r = row as {
+              selected?: unknown;
+              sellingPrice?: unknown;
+              baseRoomPrice?: unknown;
+              extraBedPrice?: unknown;
+              extraBedQuantity?: unknown;
+              childWithoutBedPrice?: unknown;
+              childWithoutBedQuantity?: unknown;
+              rooms?: unknown;
+              nights?: unknown;
+            };
             if (r.selected === false) return sum;
+            const hasBreakdown = r.baseRoomPrice != null || r.extraBedPrice != null || r.childWithoutBedPrice != null;
+            if (hasBreakdown) {
+              const nights = Math.max(0, Math.floor(toNumber(r.nights ?? 1)));
+              const rooms = Math.max(1, Math.floor(toNumber(r.rooms ?? 1)));
+              const base = toNumber(r.baseRoomPrice);
+              const ebQty = Math.max(0, Math.floor(toNumber(r.extraBedQuantity)));
+              const ebPrice = toNumber(r.extraBedPrice);
+              const cwQty = Math.max(0, Math.floor(toNumber(r.childWithoutBedQuantity)));
+              const cwPrice = toNumber(r.childWithoutBedPrice);
+              const nightsFactor = nights > 0 ? nights : 1;
+              const line = base * rooms * nightsFactor + ebPrice * ebQty * nightsFactor + cwPrice * cwQty * nightsFactor;
+              const rounded = Math.round(line * 100) / 100;
+              if (rounded === 0 && r.sellingPrice != null) return sum + toNumber(r.sellingPrice);
+              return sum + rounded;
+            }
             return sum + toNumber(r.sellingPrice);
           }, 0) * 100,
         ) / 100

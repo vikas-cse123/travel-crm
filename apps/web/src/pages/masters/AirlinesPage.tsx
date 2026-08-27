@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Archive, Eye, EyeOff, Pencil, Plane, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, Pencil, Plane, Plus, Search, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   airlineLogoUrl,
@@ -22,6 +23,7 @@ const airlineLogoUrlCache = new Map<string, string>();
 
 export function AirlinesPage() {
   const [params, setParams] = useSearchParams();
+  const [importOpen, setImportOpen] = useState(false);
   const airlines = useAirlines(params);
   const archive = useArchiveAirline();
   const hideMaster = useHideGlobalMaster();
@@ -108,14 +110,20 @@ export function AirlinesPage() {
         current="Airlines"
         action={
           canCreate ? (
-            <Link to="/masters/airlines/new">
-              <Button>
-                <Plus className="h-4 w-4" /> Add New Airline
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/airlines/new">
+                <Button>
+                  <Plus className="h-4 w-4" /> Add New Airline
+                </Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} initialMasterType="AIRLINE" onSuccess={() => airlines.refetch()} />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="border-b p-4">
           <label className="relative block">

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Archive, Eye, EyeOff, Pencil, Plus, RotateCcw, Search, Ship } from 'lucide-react';
+import { Archive, Eye, EyeOff, Pencil, Plus, RotateCcw, Search, Ship, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   cruiseImageUrl,
@@ -34,6 +35,7 @@ function priceRangeLabel(range?: { min: number; max: number } | null): string {
 
 export function CruisesPage() {
   const [params, setParams] = useSearchParams();
+  const [importOpen, setImportOpen] = useState(false);
   const cruises = useCruises(params);
   const archive = useArchiveCruise();
   const restore = useRestoreCruise();
@@ -143,14 +145,20 @@ export function CruisesPage() {
         current="Cruises"
         action={
           canCreate ? (
-            <Link to="/masters/cruises/new">
-              <Button>
-                <Plus className="h-4 w-4" /> Add New Cruise
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/cruises/new">
+                <Button>
+                  <Plus className="h-4 w-4" /> Add New Cruise
+                </Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} initialMasterType="CRUISE" onSuccess={() => cruises.refetch()} />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_160px]">
           <label className="relative block">

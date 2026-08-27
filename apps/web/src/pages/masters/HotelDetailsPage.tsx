@@ -51,18 +51,84 @@ const MONTH_NAMES = [
 function RateList({
   months,
   seasons,
+  showExtras = false,
 }: {
-  months: Array<{ month: number; price: number | null; currency: string }> | undefined;
+  months: Array<{
+    month: number;
+    price: number | null;
+    extraBedPrice?: number | null;
+    childWithoutBedPrice?: number | null;
+    currency: string;
+  }> | undefined;
   seasons: Array<{
     name: string;
     startDate: string;
     endDate: string;
     price: number | null;
+    extraBedPrice?: number | null;
+    childWithoutBedPrice?: number | null;
     currency: string;
   }> | undefined;
+  showExtras?: boolean;
 }) {
   if (!months?.length && !seasons?.length)
     return <p className="text-sm text-slate-500">No monthly or seasonal rates configured.</p>;
+  if (showExtras) {
+    return (
+      <div className="mt-2 space-y-3 text-sm">
+        {(months ?? []).length > 0 && (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full min-w-[520px] text-left text-xs">
+              <thead>
+                <tr className="border-b bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pl-3 pr-2 font-medium">Month</th>
+                  <th className="py-2 pr-2 font-medium">Room</th>
+                  <th className="py-2 pr-2 font-medium">Extra Bed</th>
+                  <th className="py-2 pr-2 font-medium">Child Without Bed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y text-sm">
+                {(months ?? []).map((month) => (
+                  <tr key={`m-${month.month}`}>
+                    <td className="py-2 pl-3 pr-2 font-medium">{MONTH_NAMES[month.month - 1]}</td>
+                    <td className="py-2 pr-2">{plainMoney(month.price, month.currency)}</td>
+                    <td className="py-2 pr-2">{plainMoney(month.extraBedPrice ?? null, month.currency)}</td>
+                    <td className="py-2 pr-2">{plainMoney(month.childWithoutBedPrice ?? null, month.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {(seasons ?? []).length > 0 && (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full min-w-[640px] text-left text-xs">
+              <thead>
+                <tr className="border-b bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pl-3 pr-2 font-medium">Season</th>
+                  <th className="py-2 pr-2 font-medium">Dates</th>
+                  <th className="py-2 pr-2 font-medium">Room</th>
+                  <th className="py-2 pr-2 font-medium">Extra Bed</th>
+                  <th className="py-2 pr-2 font-medium">Child Without Bed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y text-sm">
+                {(seasons ?? []).map((season) => (
+                  <tr key={`s-${season.name}-${season.startDate}`}>
+                    <td className="py-2 pl-3 pr-2 font-medium">{season.name}</td>
+                    <td className="py-2 pr-2 text-xs text-slate-500">{season.startDate.slice(0, 10)} → {season.endDate.slice(0, 10)}</td>
+                    <td className="py-2 pr-2">{plainMoney(season.price, season.currency)}</td>
+                    <td className="py-2 pr-2">{plainMoney(season.extraBedPrice ?? null, season.currency)}</td>
+                    <td className="py-2 pr-2">{plainMoney(season.childWithoutBedPrice ?? null, season.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <ul className="space-y-2 text-sm">
       {(months ?? []).map((month) => (
@@ -231,9 +297,20 @@ export function HotelDetailsPage() {
                       {[room.bedType, room.maxOccupancy ? `Sleeps ${room.maxOccupancy}` : null]
                         .filter(Boolean)
                         .join(' · ') || '—'}
-                      {canViewCosting && <> · {plainMoney(room.sellingPrice, room.currency)}</>}
+                      {canViewCosting && (
+                        <>
+                          {' · '}
+                          {plainMoney(room.sellingPrice, room.currency)}
+                          {room.extraBedPrice != null && (
+                            <> · Extra bed: {plainMoney(room.extraBedPrice, room.currency)}</>
+                          )}
+                          {room.childWithoutBedPrice != null && (
+                            <> · Child (no bed): {plainMoney(room.childWithoutBedPrice, room.currency)}</>
+                          )}
+                        </>
+                      )}
                     </p>
-                    {canViewCosting && <RateList months={room.monthPrices} seasons={room.seasons} />}
+                    {canViewCosting && <RateList months={room.monthPrices} seasons={room.seasons} showExtras />}
                   </div>
                 ))
               ) : (

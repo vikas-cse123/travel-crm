@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import { Prisma, type MasterStatus } from '@prisma/client';
 import {
-  type AIRLINE_LOGO_MIME_TYPES,
   MASTER_TYPE,
   PERMISSIONS,
   countryNameForCode,
@@ -13,6 +12,7 @@ import {
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
 import type { AuthContext } from '../../middleware/authenticate.js';
+import { sniffImageMimeType } from './master-media.js';
 import { airlineLogoObjectKey, storageService } from '../../services/storage/storage.service.js';
 import { normalizeCustomerName } from '../../utils/normalize.js';
 import {
@@ -40,26 +40,6 @@ const airlineInclude = { createdBy: { select: userSelect } } as const;
 /** Hard ceiling when fetching a remote logo; oversized bodies are rejected. */
 const LOGO_IMPORT_TIMEOUT_MS = 10_000;
 const LOGO_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
-
-type AirlineLogoMimeType = (typeof AIRLINE_LOGO_MIME_TYPES)[number];
-
-/** Sniff the image type from its magic bytes (the reliable signal, not headers). */
-function sniffImageMimeType(bytes: Buffer): AirlineLogoMimeType | null {
-  if (
-    bytes.length >= 8 &&
-    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-  )
-    return 'image/png';
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
-    return 'image/jpeg';
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
-    bytes.subarray(8, 12).toString('ascii') === 'WEBP'
-  )
-    return 'image/webp';
-  return null;
-}
 
 function audit(
   auth: AuthContext,

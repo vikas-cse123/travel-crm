@@ -39,6 +39,7 @@ import {
 import { templateInclude } from '../quotation-templates/quotation-templates.service.js';
 import { calculatePricing } from './pricing.service.js';
 import { validateMasterRefs, type RetainedMasterRefs } from './master-refs.service.js';
+import { resolveHotelRoomPricing } from './hotel-pricing-resolver.js';
 import { renderQuotationPdf, type QuotationPdfInput } from './pdf.service.js';
 import { renderStylishQuotationPdf } from './stylish-pdf.service.js';
 import {
@@ -626,17 +627,23 @@ async function presentVersion(version: FullVersion, canViewCosting: boolean, cus
     itinerary: version.itinerary.map(strip),
     hotels: await Promise.all(
       version.hotels.map(async (row) => {
-        const { internalCost, hotelId, hotelRoomTypeId, hotelMealPlanId, ...hotel } = strip(row);
+        const { internalCost, hotelId, hotelRoomTypeId, hotelMealPlanId, baseRoomPrice, extraBedPrice, childWithoutBedPrice, ...hotel } = strip(
+          row as unknown as typeof row & { baseRoomPrice: unknown; extraBedPrice: unknown; childWithoutBedPrice: unknown },
+        );
         return {
           ...hotel,
-          images: await presentQuotationImages(hotel.images),
-          imageSnapshotPresent: Array.isArray(hotel.images),
-          sellingPrice: decimal(hotel.sellingPrice),
+          images: await presentQuotationImages((hotel as unknown as { images: unknown }).images),
+          imageSnapshotPresent: Array.isArray((hotel as unknown as { images: unknown }).images),
+          sellingPrice: decimal((hotel as any).sellingPrice),
+          baseRoomPrice: baseRoomPrice == null ? null : decimal(baseRoomPrice as any),
+          extraBedPrice: extraBedPrice == null ? null : decimal(extraBedPrice as any),
+          childWithoutBedPrice:
+            childWithoutBedPrice == null ? null : decimal(childWithoutBedPrice as any),
           // Master ids are an internal editing aid. Customer-facing output
           // (public link, PDF, email) is snapshot-only, so they are omitted
           // there rather than nulled.
           ...(customerSafe ? {} : { hotelId, hotelRoomTypeId, hotelMealPlanId }),
-          ...(canViewCosting && !customerSafe ? { internalCost: decimal(internalCost) } : {}),
+          ...(canViewCosting && !customerSafe ? { internalCost: decimal(internalCost as any) } : {}),
         };
       }),
     ),
@@ -715,6 +722,12 @@ function normalizeVersionInput(input: QuotationVersionInput, allowCosting: boole
       ...hotel,
       internalCost: allowCosting ? (hotel.internalCost ?? 0) : 0,
       sellingPrice: hotel.sellingPrice ?? 0,
+      baseRoomPrice: hotel.baseRoomPrice ?? null,
+      extraBedQuantity: hotel.extraBedQuantity ?? null,
+      extraBedPrice: hotel.extraBedPrice ?? null,
+      childWithoutBedQuantity: hotel.childWithoutBedQuantity ?? null,
+      childWithoutBedPrice: hotel.childWithoutBedPrice ?? null,
+      pricingSource: hotel.pricingSource ?? null,
     })),
     services: input.services.map((service) => ({
       ...service,
@@ -722,6 +735,34 @@ function normalizeVersionInput(input: QuotationVersionInput, allowCosting: boole
       sellingPrice: service.sellingPrice ?? 0,
     })),
   };
+}
+
+async function enrichHotelPricingSnapshots(
+  _tx: Prisma.TransactionClient,
+  imageOwnerCompanyIds: string[],
+  input: QuotationVersionInput,
+): Promise<QuotationVersionInput> {
+  // Snapshot enrichment: if a hotel row links to a room type and has a check-in date but no resolved pricing, fill from master.
+  // Manual overrides (client-provided baseRoomPrice != null) are preserved.
+  const enrichedHotels = await Promise.all(
+    input.hotels.map(async (hotel) => {
+      if (!hotel.hotelRoomTypeId || !hotel.checkInDate) return hotel;
+      const needsResolution =
+        hotel.baseRoomPrice == null && hotel.extraBedPrice == null && hotel.childWithoutBedPrice == null;
+      // If any pricing snapshot already set (manual), keep it.
+      if (!needsResolution && hotel.baseRoomPrice != null) return hotel;
+      const resolved = await resolveHotelRoomPricing(imageOwnerCompanyIds, hotel.hotelRoomTypeId, hotel.checkInDate);
+      if (!resolved) return hotel;
+      return {
+        ...hotel,
+        baseRoomPrice: hotel.baseRoomPrice ?? resolved.baseRoomPrice,
+        extraBedPrice: hotel.extraBedPrice ?? resolved.extraBedPrice,
+        childWithoutBedPrice: hotel.childWithoutBedPrice ?? resolved.childWithoutBedPrice,
+        pricingSource: hotel.pricingSource ?? resolved.pricingSource,
+      };
+    }),
+  );
+  return { ...input, hotels: enrichedHotels };
 }
 
 type ImageMasterDb = Pick<Prisma.TransactionClient, 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addOnService'>;
@@ -1104,6 +1145,9 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         updatedAt: _updatedAt,
         internalCost,
         sellingPrice,
+        baseRoomPrice,
+        extraBedPrice,
+        childWithoutBedPrice,
         showCheckInTime,
         showCheckOutTime,
         images: rawImages,
@@ -1114,6 +1158,10 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
         internalCost: internalCost.toNumber(),
         sellingPrice: sellingPrice.toNumber(),
+        baseRoomPrice: baseRoomPrice == null ? null : (baseRoomPrice as unknown as { toNumber: () => number }).toNumber(),
+        extraBedPrice: extraBedPrice == null ? null : (extraBedPrice as unknown as { toNumber: () => number }).toNumber(),
+        childWithoutBedPrice:
+          childWithoutBedPrice == null ? null : (childWithoutBedPrice as unknown as { toNumber: () => number }).toNumber(),
         // Legacy rows store NULL in the Json column; normalize to [] so the
         // snapshot stays valid for every copy/revision path.
         images: (Array.isArray(rawImages) ? rawImages : []) as Array<{
@@ -1809,8 +1857,13 @@ async function createVersion(
     access.imageOwnerCompanyIds,
     input,
   );
+  const pricingEnrichedInput = await enrichHotelPricingSnapshots(
+    tx,
+    access.imageOwnerCompanyIds,
+    hydratedInput,
+  );
 
-  const data = versionCreateData(hydratedInput, auth.companyId, allowCosting, pax);
+  const data = versionCreateData(pricingEnrichedInput, auth.companyId, allowCosting, pax);
   const version = await tx.quotationVersion.create({
     data: {
       companyId: auth.companyId,
@@ -1986,7 +2039,7 @@ export const quotationsService = {
         travelStartDate: input.travelStartDate ?? lead.travelStartDate,
         travelEndDate: input.travelEndDate ?? lead.travelEndDate,
         currency: input.currency ?? template.baseCurrency,
-        pricingMode: 'ITEMIZED',
+        pricingMode: 'PER_PERSON',
         pricingHeading: 'Price Breakdown',
         pricingSubheading: null,
         pricingDisplayOrder: undefined,
@@ -2015,6 +2068,9 @@ export const quotationsService = {
             updatedAt: _updatedAt,
             internalCost,
             sellingPrice,
+            baseRoomPrice,
+            extraBedPrice,
+            childWithoutBedPrice,
             showCheckInTime,
             showCheckOutTime,
             ...row
@@ -2024,6 +2080,9 @@ export const quotationsService = {
             ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
             internalCost: internalCost?.toNumber(),
             sellingPrice: sellingPrice?.toNumber(),
+            baseRoomPrice: (baseRoomPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
+            extraBedPrice: (extraBedPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
+            childWithoutBedPrice: (childWithoutBedPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
             // Template hotel options have no images column; keep the shared
             // hotel schema shape valid on apply.
             images: [],
@@ -2099,7 +2158,7 @@ export const quotationsService = {
         source?.travelEndDate ??
         lead.travelEndDate,
       currency: input.version?.currency ?? input.currency ?? source?.currency ?? lead.currency,
-      pricingMode: input.version?.pricingMode ?? source?.pricingMode ?? 'ITEMIZED',
+      pricingMode: input.version?.pricingMode ?? source?.pricingMode ?? 'PER_PERSON',
       pricingHeading: input.version?.pricingHeading ?? source?.pricingHeading ?? 'Price Breakdown',
       pricingSubheading:
         input.version?.pricingSubheading ?? source?.pricingSubheading ?? null,

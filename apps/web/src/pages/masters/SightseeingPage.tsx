@@ -16,10 +16,12 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Upload,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { formatTime12Hour } from '@/utils/dateTime';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
@@ -90,6 +92,7 @@ export function SightseeingPage() {
   const canArchive = hasPermission(PERMISSIONS.MASTER_SIGHTSEEING_DELETE);
   const [openDestinations, setOpenDestinations] = useState<Set<string>>(new Set());
   const [restoreTarget, setRestoreTarget] = useState<Sightseeing | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -162,11 +165,16 @@ export function SightseeingPage() {
         <div className="flex items-center justify-between border-b px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>
           {canCreate && (
-            <Link to="/masters/sightseeing/new">
-              <Button size="sm">
-                <Plus className="h-4 w-4" /> Add New Sightseeing
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/sightseeing/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> Add New Sightseeing
+                </Button>
+              </Link>
+            </div>
           )}
         </div>
         <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_220px_220px_160px]">
@@ -550,6 +558,13 @@ export function SightseeingPage() {
           </div>
         </div>
       )}
+
+      <ExcelImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        initialMasterType="SIGHTSEEING"
+        onSuccess={() => rows.refetch()}
+      />
     </div>
   );
 }

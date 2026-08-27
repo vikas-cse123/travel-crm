@@ -1,7 +1,9 @@
-import { Archive, Eye, EyeOff, PackagePlus, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, PackagePlus, Pencil, Plus, RotateCcw, Search, Upload } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useAddOnServices,
@@ -29,6 +31,7 @@ function money(amount: number, currency: string): string {
 
 export function AddOnServicesPage() {
   const [params, setParams] = useSearchParams();
+  const [importOpen, setImportOpen] = useState(false);
   const services = useAddOnServices(params);
   const archive = useArchiveAddOnService();
   const restore = useRestoreAddOnService();
@@ -61,14 +64,20 @@ export function AddOnServicesPage() {
         current="Add-On Services"
         action={
           canCreate ? (
-            <Link to="/masters/add-on-services/new">
-              <Button>
-                <Plus className="h-4 w-4" /> Add New Service
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/add-on-services/new">
+                <Button>
+                  <Plus className="h-4 w-4" /> Add New Service
+                </Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} initialMasterType="ADD_ON_SERVICE" onSuccess={() => services.refetch()} />
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_160px]">

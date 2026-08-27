@@ -1682,6 +1682,8 @@ model HotelRoomType {
   viewType      String?      @db.VarChar(80)
   baseCost      Decimal?     @db.Decimal(14, 2)
   sellingPrice  Decimal?     @db.Decimal(14, 2)
+  extraBedPrice Decimal?     @db.Decimal(14, 2)
+  childWithoutBedPrice Decimal? @db.Decimal(14, 2)
   currency      String       @default("INR") @db.VarChar(3)
   taxPercentage Decimal?     @db.Decimal(5, 2)
   internalNotes String?      @db.VarChar(2000)
@@ -1741,17 +1743,19 @@ model HotelMealPlan {
 /// seasonal rate covers the travel date. `price`/`currency` keep the same shape
 /// as other master prices so no conversion is ever performed.
 model HotelRoomTypeSeason {
-  id              String   @id @default(uuid()) @db.Uuid
-  companyId       String   @db.Uuid
-  hotelId         String   @db.Uuid
-  hotelRoomTypeId String   @db.Uuid
-  name            String   @db.VarChar(160)
-  startDate       DateTime @db.Date
-  endDate         DateTime @db.Date
-  price           Decimal? @db.Decimal(14, 2)
-  currency        String   @default("INR") @db.VarChar(3)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @db.Uuid
+  hotelId               String   @db.Uuid
+  hotelRoomTypeId       String   @db.Uuid
+  name                  String   @db.VarChar(160)
+  startDate             DateTime @db.Date
+  endDate               DateTime @db.Date
+  price                 Decimal? @db.Decimal(14, 2)
+  extraBedPrice         Decimal? @db.Decimal(14, 2)
+  childWithoutBedPrice  Decimal? @db.Decimal(14, 2)
+  currency              String   @default("INR") @db.VarChar(3)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
@@ -1814,15 +1818,17 @@ model HotelMonthPrice {
 /// be configured; the room type's base `sellingPrice` applies when no monthly
 /// or seasonal rate covers the travel date.
 model HotelRoomTypeMonthPrice {
-  id              String   @id @default(uuid()) @db.Uuid
-  companyId       String   @db.Uuid
-  hotelId         String   @db.Uuid
-  hotelRoomTypeId String   @db.Uuid
-  month           Int      @db.SmallInt
-  price           Decimal? @db.Decimal(14, 2)
-  currency        String   @default("INR") @db.VarChar(3)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @db.Uuid
+  hotelId               String   @db.Uuid
+  hotelRoomTypeId       String   @db.Uuid
+  month                 Int      @db.SmallInt
+  price                 Decimal? @db.Decimal(14, 2)
+  extraBedPrice         Decimal? @db.Decimal(14, 2)
+  childWithoutBedPrice  Decimal? @db.Decimal(14, 2)
+  currency              String   @default("INR") @db.VarChar(3)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   hotel    Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
@@ -3254,32 +3260,39 @@ model QuotationTemplateItineraryDay {
 }
 
 model QuotationTemplateHotelOption {
-  id               String            @id @default(uuid()) @db.Uuid
-  companyId        String            @db.Uuid
-  templateId       String            @db.Uuid
-  hotelId          String?           @db.Uuid
-  hotelRoomTypeId  String?           @db.Uuid
-  hotelMealPlanId  String?           @db.Uuid
-  city             String            @db.VarChar(120)
-  hotelName        String            @db.VarChar(200)
-  category         String?           @db.VarChar(40)
-  roomType         String?           @db.VarChar(100)
-  mealPlan         String?           @db.VarChar(100)
-  rooms            Int?
-  nights           Int
-  checkInDate      DateTime?         @db.Date
-  checkOutDate     DateTime?         @db.Date
-  checkInTime      String?           @db.VarChar(5)
-  checkOutTime     String?           @db.VarChar(5)
-  showCheckInTime  Boolean?
-  showCheckOutTime Boolean?
-  internalCost     Decimal?          @db.Decimal(14, 2)
-  sellingPrice     Decimal?          @db.Decimal(14, 2)
-  selected         Boolean           @default(true)
-  notes            String?           @db.VarChar(2000)
-  sequence         Int
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                     String            @id @default(uuid()) @db.Uuid
+  companyId              String            @db.Uuid
+  templateId             String            @db.Uuid
+  hotelId                String?           @db.Uuid
+  hotelRoomTypeId        String?           @db.Uuid
+  hotelMealPlanId        String?           @db.Uuid
+  city                   String            @db.VarChar(120)
+  hotelName              String            @db.VarChar(200)
+  category               String?           @db.VarChar(40)
+  roomType               String?           @db.VarChar(100)
+  mealPlan               String?           @db.VarChar(100)
+  rooms                  Int?
+  nights                 Int
+  checkInDate            DateTime?         @db.Date
+  checkOutDate           DateTime?         @db.Date
+  checkInTime            String?           @db.VarChar(5)
+  checkOutTime           String?           @db.VarChar(5)
+  showCheckInTime        Boolean?
+  showCheckOutTime       Boolean?
+  internalCost           Decimal?          @db.Decimal(14, 2)
+  sellingPrice           Decimal?          @db.Decimal(14, 2)
+  // Snapshot of resolved master pricing (per-night, nullable for backward compat).
+  baseRoomPrice          Decimal?          @db.Decimal(14, 2)
+  extraBedQuantity       Int?
+  extraBedPrice          Decimal?          @db.Decimal(14, 2)
+  childWithoutBedQuantity Int?
+  childWithoutBedPrice   Decimal?          @db.Decimal(14, 2)
+  pricingSource          String?           @db.VarChar(20)
+  selected               Boolean           @default(true)
+  notes                  String?           @db.VarChar(2000)
+  sequence               Int
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   template         QuotationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   hotel            Hotel?            @relation(fields: [hotelId], references: [id], onDelete: SetNull)
@@ -3652,34 +3665,41 @@ model QuotationVersionItineraryDay {
 }
 
 model QuotationVersionHotelOption {
-  id                 String           @id @default(uuid()) @db.Uuid
-  companyId          String           @db.Uuid
-  quotationVersionId String           @db.Uuid
-  hotelId            String?          @db.Uuid
-  hotelRoomTypeId    String?          @db.Uuid
-  hotelMealPlanId    String?          @db.Uuid
-  city               String           @db.VarChar(120)
-  hotelName          String           @db.VarChar(200)
-  category           String?          @db.VarChar(40)
-  roomType           String?          @db.VarChar(100)
-  mealPlan           String?          @db.VarChar(100)
-  rooms              Int?
-  nights             Int
-  checkInDate        DateTime?        @db.Date
-  checkOutDate       DateTime?        @db.Date
-  checkInTime        String?          @db.VarChar(5)
-  checkOutTime       String?          @db.VarChar(5)
-  showCheckInTime    Boolean?
-  showCheckOutTime   Boolean?
-  internalCost       Decimal          @default(0) @db.Decimal(14, 2)
-  sellingPrice       Decimal          @default(0) @db.Decimal(14, 2)
-  selected           Boolean          @default(true)
-  notes              String?          @db.VarChar(2000)
-  images             Json?            @db.Json
-  pdfImageUrl        String?          @db.VarChar(1000)
-  sequence           Int
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id                      String           @id @default(uuid()) @db.Uuid
+  companyId               String           @db.Uuid
+  quotationVersionId      String           @db.Uuid
+  hotelId                 String?          @db.Uuid
+  hotelRoomTypeId         String?          @db.Uuid
+  hotelMealPlanId         String?          @db.Uuid
+  city                    String           @db.VarChar(120)
+  hotelName               String           @db.VarChar(200)
+  category                String?           @db.VarChar(40)
+  roomType                String?           @db.VarChar(100)
+  mealPlan                String?           @db.VarChar(100)
+  rooms                   Int?
+  nights                  Int
+  checkInDate             DateTime?        @db.Date
+  checkOutDate            DateTime?        @db.Date
+  checkInTime             String?           @db.VarChar(5)
+  checkOutTime            String?           @db.VarChar(5)
+  showCheckInTime         Boolean?
+  showCheckOutTime        Boolean?
+  internalCost            Decimal          @default(0) @db.Decimal(14, 2)
+  sellingPrice            Decimal          @default(0) @db.Decimal(14, 2)
+  // Snapshot of resolved master pricing (per-night, nullable for backward compat).
+  baseRoomPrice           Decimal?         @db.Decimal(14, 2)
+  extraBedQuantity        Int?
+  extraBedPrice           Decimal?         @db.Decimal(14, 2)
+  childWithoutBedQuantity Int?
+  childWithoutBedPrice    Decimal?         @db.Decimal(14, 2)
+  pricingSource           String?          @db.VarChar(20)
+  selected                Boolean          @default(true)
+  notes                   String?          @db.VarChar(2000)
+  images                  Json?            @db.Json
+  pdfImageUrl             String?          @db.VarChar(1000)
+  sequence                Int
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
   company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   quotationVersion   QuotationVersion @relation(fields: [quotationVersionId], references: [id], onDelete: Cascade)
   hotel              Hotel?           @relation(fields: [hotelId], references: [id], onDelete: SetNull)
@@ -4373,6 +4393,13 @@ model BookingService {
   supplierConfirmationNumber String?                   @db.VarChar(255)
   customerSellingAmount      Decimal                   @default(0) @db.Decimal(14, 2)
   internalCostSnapshot       Decimal                   @default(0) @db.Decimal(14, 2)
+  // Snapshot of hotel extra pricing (mirrors QuotationVersionHotelOption, nullable).
+  baseRoomPrice              Decimal?                  @db.Decimal(14, 2)
+  extraBedQuantity           Int?
+  extraBedPrice              Decimal?                  @db.Decimal(14, 2)
+  childWithoutBedQuantity    Int?
+  childWithoutBedPrice       Decimal?                  @db.Decimal(14, 2)
+  pricingSource              String?                   @db.VarChar(20)
   cancellationCharge         Decimal                   @default(0) @db.Decimal(14, 2)
   refundedAmount             Decimal                   @default(0) @db.Decimal(14, 2)
   paymentDueAt               DateTime?

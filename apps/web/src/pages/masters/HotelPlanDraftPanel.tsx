@@ -11,6 +11,8 @@ export interface PlanDraft {
   name: string;
   description: string;
   price: string;
+  extraBedPrice: string;
+  childWithoutBedPrice: string;
   currency: string;
   monthRates: MonthRateDraft[];
   seasonRates: SeasonRateDraft[];
@@ -20,6 +22,8 @@ export const emptyPlanDraft = (): PlanDraft => ({
   name: '',
   description: '',
   price: '',
+  extraBedPrice: '',
+  childWithoutBedPrice: '',
   currency: 'INR',
   monthRates: [],
   seasonRates: [],
@@ -127,6 +131,30 @@ export function HotelPlanDraftPanel({
                       aria-label={`${itemLabel} ${index + 1} base currency`}
                     />
                   </div>
+                  {kind === 'room' && (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <input
+                        className={fieldClass}
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="Extra bed price"
+                        value={draft.extraBedPrice}
+                        onChange={(event) => update(index, { extraBedPrice: event.target.value })}
+                        aria-label={`${itemLabel} ${index + 1} extra bed base price`}
+                      />
+                      <input
+                        className={fieldClass}
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="Child without bed price"
+                        value={draft.childWithoutBedPrice}
+                        onChange={(event) => update(index, { childWithoutBedPrice: event.target.value })}
+                        aria-label={`${itemLabel} ${index + 1} child without bed base price`}
+                      />
+                    </div>
+                  )}
                   <p className="mt-1 text-xs text-slate-500">
                     Used when no monthly or seasonal rate applies.
                   </p>

@@ -1,8 +1,10 @@
-import { Archive, Eye, EyeOff, MapPin, Pencil, Plus, Search } from 'lucide-react';
+import { Archive, Eye, EyeOff, MapPin, Pencil, Plus, Search, Upload } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import {
   useArchiveCity,
   useCities,
@@ -20,6 +22,7 @@ import {
 
 export function CitiesPage() {
   const [params, setParams] = useSearchParams();
+  const [importOpen, setImportOpen] = useState(false);
   const cities = useCities(params);
   const lookups = useMasterLookups();
   const archive = useArchiveCity();
@@ -50,15 +53,21 @@ export function CitiesPage() {
         current="Cities"
         action={
           canCreate ? (
-            <Link to="/masters/cities/new">
-              <Button>
-                <Plus className="h-4 w-4" />
-                Add New City
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to="/masters/cities/new">
+                <Button>
+                  <Plus className="h-4 w-4" />
+                  Add New City
+                </Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} initialMasterType="CITY" onSuccess={() => cities.refetch()} />
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(0,1fr)_240px_180px]">
           <label className="relative">

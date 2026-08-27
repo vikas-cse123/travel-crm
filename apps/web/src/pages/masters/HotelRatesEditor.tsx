@@ -30,6 +30,8 @@ export interface MonthRateDraft {
   id: string;
   month: string;
   price: string;
+  extraBedPrice?: string;
+  childWithoutBedPrice?: string;
   currency: string;
 }
 
@@ -40,6 +42,8 @@ export interface SeasonRateDraft {
   startDate: string;
   endDate: string;
   price: string;
+  extraBedPrice?: string;
+  childWithoutBedPrice?: string;
   currency: string;
 }
 
@@ -47,6 +51,8 @@ export const emptyMonthRateDraft = (): MonthRateDraft => ({
   id: '',
   month: '',
   price: '',
+  extraBedPrice: '',
+  childWithoutBedPrice: '',
   currency: 'INR',
 });
 
@@ -56,6 +62,8 @@ export const emptySeasonRateDraft = (): SeasonRateDraft => ({
   startDate: '',
   endDate: '',
   price: '',
+  extraBedPrice: '',
+  childWithoutBedPrice: '',
   currency: 'INR',
 });
 
@@ -187,6 +195,8 @@ export function HotelRatesEditor({
       id,
       month: String(row.month),
       price: row.price == null ? '' : String(row.price),
+      extraBedPrice: (row.extraBedPrice as string | number | null | undefined) == null ? '' : String(row.extraBedPrice as string | number),
+      childWithoutBedPrice: (row.childWithoutBedPrice as string | number | null | undefined) == null ? '' : String(row.childWithoutBedPrice as string | number),
       currency: row.currency || 'INR',
     });
   };
@@ -198,6 +208,7 @@ export function HotelRatesEditor({
       Number(row.month) === Number(monthForm.month),
   );
 
+  const isRoom = entityKind === 'room';
   const submitMonth = async () => {
     setMonthError('');
     const month = Number(monthForm.month);
@@ -209,22 +220,40 @@ export function HotelRatesEditor({
       setMonthError('A price for this month already exists.');
       return;
     }
-    const payload = {
+    const payload: Record<string, unknown> = {
       month,
       price: monthForm.price.trim() === '' ? null : Number(monthForm.price),
       currency: monthForm.currency || 'INR',
     };
+    if (isRoom) {
+      payload.extraBedPrice = (monthForm.extraBedPrice ?? '').trim() === '' ? null : Number(monthForm.extraBedPrice);
+      payload.childWithoutBedPrice = (monthForm.childWithoutBedPrice ?? '').trim() === '' ? null : Number(monthForm.childWithoutBedPrice);
+    }
     const next = (current: MonthRateDraft[]): MonthRateDraft[] => {
       if (monthEditingId)
         return current.map((entry) =>
           entry.id === monthEditingId
-            ? { ...entry, month: String(month), price: monthForm.price, currency: monthForm.currency || 'INR' }
+            ? {
+                ...entry,
+                month: String(month),
+                price: monthForm.price,
+                extraBedPrice: monthForm.extraBedPrice ?? '',
+                childWithoutBedPrice: monthForm.childWithoutBedPrice ?? '',
+                currency: monthForm.currency || 'INR',
+              }
             : entry,
         );
       draftSequence += 1;
       return [
         ...current,
-        { id: `draft-${draftSequence}`, month: String(month), price: monthForm.price, currency: monthForm.currency || 'INR' },
+        {
+          id: `draft-${draftSequence}`,
+          month: String(month),
+          price: monthForm.price,
+          extraBedPrice: monthForm.extraBedPrice ?? '',
+          childWithoutBedPrice: monthForm.childWithoutBedPrice ?? '',
+          currency: monthForm.currency || 'INR',
+        },
       ];
     };
     try {
@@ -273,6 +302,8 @@ export function HotelRatesEditor({
       startDate: row.startDate,
       endDate: row.endDate,
       price: row.price == null ? '' : String(row.price),
+      extraBedPrice: (row.extraBedPrice as string | number | null | undefined) == null ? '' : String(row.extraBedPrice as string | number),
+      childWithoutBedPrice: (row.childWithoutBedPrice as string | number | null | undefined) == null ? '' : String(row.childWithoutBedPrice as string | number),
       currency: row.currency || 'INR',
     });
   };
@@ -301,13 +332,17 @@ export function HotelRatesEditor({
       setSeasonError('This date range overlaps another season of this ' + ownerLabel + '.');
       return;
     }
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: seasonForm.name.trim(),
       startDate: new Date(`${seasonForm.startDate}T00:00:00.000Z`),
       endDate: new Date(`${seasonForm.endDate}T00:00:00.000Z`),
       price: seasonForm.price.trim() === '' ? null : Number(seasonForm.price),
       currency: seasonForm.currency || 'INR',
     };
+    if (isRoom) {
+      payload.extraBedPrice = (seasonForm.extraBedPrice ?? '').trim() === '' ? null : Number(seasonForm.extraBedPrice);
+      payload.childWithoutBedPrice = (seasonForm.childWithoutBedPrice ?? '').trim() === '' ? null : Number(seasonForm.childWithoutBedPrice);
+    }
     const next = (current: SeasonRateDraft[]): SeasonRateDraft[] => {
       if (seasonEditingId)
         return current.map((entry) =>
@@ -318,6 +353,8 @@ export function HotelRatesEditor({
                 startDate: seasonForm.startDate,
                 endDate: seasonForm.endDate,
                 price: seasonForm.price,
+                extraBedPrice: seasonForm.extraBedPrice ?? '',
+                childWithoutBedPrice: seasonForm.childWithoutBedPrice ?? '',
                 currency: seasonForm.currency || 'INR',
               }
             : entry,
@@ -331,6 +368,8 @@ export function HotelRatesEditor({
           startDate: seasonForm.startDate,
           endDate: seasonForm.endDate,
           price: seasonForm.price,
+          extraBedPrice: seasonForm.extraBedPrice ?? '',
+          childWithoutBedPrice: seasonForm.childWithoutBedPrice ?? '',
           currency: seasonForm.currency || 'INR',
         },
       ];
@@ -372,11 +411,13 @@ export function HotelRatesEditor({
 
         {monthRows.length ? (
           <div className="mt-2 overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[420px] text-left text-sm">
+            <table className={`w-full text-left text-sm ${isRoom ? 'min-w-[640px]' : 'min-w-[420px]'}`}>
               <thead>
                 <tr className="border-b bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <th className="py-2 pl-3 pr-2 font-medium">Month</th>
-                  <th className="py-2 pr-2 font-medium">Price</th>
+                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room' : 'Price'}</th>
+                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed</th>}
+                  {isRoom && <th className="py-2 pr-2 font-medium">Child Without Bed</th>}
                   <th className="py-2 pr-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -389,6 +430,16 @@ export function HotelRatesEditor({
                     <td className="py-2 pr-2 text-slate-800">
                       {row.currency} {formatRate(row.price)}
                     </td>
+                    {isRoom && (
+                      <td className="py-2 pr-2 text-slate-800">
+                        {row.currency} {formatRate(row.extraBedPrice as string | number | null | undefined)}
+                      </td>
+                    )}
+                    {isRoom && (
+                      <td className="py-2 pr-2 text-slate-800">
+                        {row.currency} {formatRate(row.childWithoutBedPrice as string | number | null | undefined)}
+                      </td>
+                    )}
                     <td className="py-2 pl-2 pr-3">
                       {canManage && (
                         <div className="flex items-center justify-end gap-2">
@@ -423,7 +474,7 @@ export function HotelRatesEditor({
         {monthOpen && (
           <div className="mt-3 space-y-3 rounded-lg border border-dashed p-3">
             {monthError && <p className="text-xs font-medium text-red-600">{monthError}</p>}
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-5' : 'sm:grid-cols-3'}`}>
               <label className="block text-sm font-medium text-slate-700">
                 Month
                 <select
@@ -441,18 +492,48 @@ export function HotelRatesEditor({
                 </select>
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                Price
+                {isRoom ? 'Room' : 'Price'}
                 <input
                   type="number"
                   min={0}
                   step={0.01}
                   className={`${fieldClass} mt-1`}
-                  placeholder="Rate (price)"
+                  placeholder={isRoom ? 'Room price' : 'Rate (price)'}
                   aria-label="Month rate price"
                   value={monthForm.price}
                   onChange={(event) => setMonthForm({ ...monthForm, price: event.target.value })}
                 />
               </label>
+              {isRoom && (
+                <label className="block text-sm font-medium text-slate-700">
+                  Extra Bed
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className={`${fieldClass} mt-1`}
+                    placeholder="Extra Bed"
+                    aria-label="Month extra bed price"
+                    value={monthForm.extraBedPrice ?? ''}
+                    onChange={(event) => setMonthForm({ ...monthForm, extraBedPrice: event.target.value })}
+                  />
+                </label>
+              )}
+              {isRoom && (
+                <label className="block text-sm font-medium text-slate-700">
+                  Child Without Bed
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className={`${fieldClass} mt-1`}
+                    placeholder="Child Without Bed"
+                    aria-label="Month child without bed price"
+                    value={monthForm.childWithoutBedPrice ?? ''}
+                    onChange={(event) => setMonthForm({ ...monthForm, childWithoutBedPrice: event.target.value })}
+                  />
+                </label>
+              )}
               <label className="block text-sm font-medium text-slate-700">
                 Currency
                 <CurrencySelect
@@ -495,13 +576,15 @@ export function HotelRatesEditor({
 
         {seasonRows.length ? (
           <div className="mt-2 overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[560px] text-left text-sm">
+            <table className={`w-full text-left text-sm ${isRoom ? 'min-w-[760px]' : 'min-w-[560px]'}`}>
               <thead>
                 <tr className="border-b bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <th className="py-2 pl-3 pr-2 font-medium">Season</th>
                   <th className="py-2 pr-2 font-medium">From</th>
                   <th className="py-2 pr-2 font-medium">To</th>
-                  <th className="py-2 pr-2 font-medium">Price</th>
+                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room' : 'Price'}</th>
+                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed</th>}
+                  {isRoom && <th className="py-2 pr-2 font-medium">Child Without Bed</th>}
                   <th className="py-2 pr-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -514,6 +597,16 @@ export function HotelRatesEditor({
                     <td className="py-2 pr-2 text-slate-800">
                       {row.currency} {formatRate(row.price)}
                     </td>
+                    {isRoom && (
+                      <td className="py-2 pr-2 text-slate-800">
+                        {row.currency} {formatRate(row.extraBedPrice as string | number | null | undefined)}
+                      </td>
+                    )}
+                    {isRoom && (
+                      <td className="py-2 pr-2 text-slate-800">
+                        {row.currency} {formatRate(row.childWithoutBedPrice as string | number | null | undefined)}
+                      </td>
+                    )}
                     <td className="py-2 pl-2 pr-3">
                       {canManage && (
                         <div className="flex items-center justify-end gap-2">
@@ -580,26 +673,71 @@ export function HotelRatesEditor({
                 />
               </label>
             </div>
-            <label className="block text-sm font-medium text-slate-700">
-              Price
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className={`${fieldClass} mt-0 min-w-0 flex-1`}
-                  placeholder="Season rate (price)"
-                  aria-label="Season rate"
-                  value={seasonForm.price}
-                  onChange={(event) => setSeasonForm({ ...seasonForm, price: event.target.value })}
-                />
+            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-3' : 'sm:grid-cols-1'}`}>
+              <label className="block text-sm font-medium text-slate-700">
+                {isRoom ? 'Room' : 'Price'}
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className={`${fieldClass} mt-0 min-w-0 flex-1`}
+                    placeholder={isRoom ? 'Room price' : 'Season rate (price)'}
+                    aria-label="Season rate"
+                    value={seasonForm.price}
+                    onChange={(event) => setSeasonForm({ ...seasonForm, price: event.target.value })}
+                  />
+                  {!isRoom && (
+                    <CurrencySelect
+                      value={seasonForm.currency}
+                      onChange={(currency) => setSeasonForm({ ...seasonForm, currency })}
+                      aria-label="Season currency"
+                    />
+                  )}
+                </div>
+              </label>
+              {isRoom && (
+                <label className="block text-sm font-medium text-slate-700">
+                  Extra Bed
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className={`${fieldClass} mt-1`}
+                    placeholder="Extra Bed"
+                    aria-label="Season extra bed price"
+                    value={seasonForm.extraBedPrice ?? ''}
+                    onChange={(event) => setSeasonForm({ ...seasonForm, extraBedPrice: event.target.value })}
+                  />
+                </label>
+              )}
+              {isRoom && (
+                <label className="block text-sm font-medium text-slate-700">
+                  Child Without Bed
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className={`${fieldClass} mt-1`}
+                    placeholder="Child Without Bed"
+                    aria-label="Season child without bed price"
+                    value={seasonForm.childWithoutBedPrice ?? ''}
+                    onChange={(event) => setSeasonForm({ ...seasonForm, childWithoutBedPrice: event.target.value })}
+                  />
+                </label>
+              )}
+            </div>
+            {isRoom && (
+              <label className="block text-sm font-medium text-slate-700">
+                Currency
                 <CurrencySelect
                   value={seasonForm.currency}
                   onChange={(currency) => setSeasonForm({ ...seasonForm, currency })}
                   aria-label="Season currency"
                 />
-              </div>
-            </label>
+              </label>
+            )}
+            {!isRoom && null}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={closeSeason} type="button">
                 Cancel

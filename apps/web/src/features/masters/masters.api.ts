@@ -302,6 +302,8 @@ export interface HotelRoomType {
   viewType: string | null;
   baseCost?: number | null;
   sellingPrice?: number | null;
+  extraBedPrice?: number | null;
+  childWithoutBedPrice?: number | null;
   currency: string;
   taxPercentage?: number | null;
   internalNotes: string | null;
@@ -371,6 +373,8 @@ export interface HotelRoomTypeSeason {
   startDate: string;
   endDate: string;
   price: number | null;
+  extraBedPrice?: number | null;
+  childWithoutBedPrice?: number | null;
   currency: string;
   createdAt: string;
   updatedAt: string;
@@ -402,6 +406,8 @@ export interface HotelRoomTypeMonthPrice {
   hotelRoomTypeId: string;
   month: number;
   price: number | null;
+  extraBedPrice?: number | null;
+  childWithoutBedPrice?: number | null;
   currency: string;
   createdAt: string;
   updatedAt: string;

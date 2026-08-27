@@ -24,3 +24,21 @@ export function countryNameForCode(value: string): string | undefined {
   const code = value.trim().toUpperCase();
   return isKnownCountryCode(code) ? displayNames.of(code) : undefined;
 }
+
+const countryNameToCode = new Map<string, string>();
+for (const country of COUNTRIES) {
+  countryNameToCode.set(country.name.toLowerCase(), country.code);
+}
+
+/**
+ * Resolve a human-readable country name (e.g. "India") to its ISO 3166-1
+ * alpha-2 code. Also accepts an explicit two-letter code for convenience.
+ * Uses the same country catalogue as `countryNameForCode`.
+ */
+export function countryCodeForName(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const code = trimmed.toUpperCase();
+  if (isKnownCountryCode(code)) return code;
+  return countryNameToCode.get(trimmed.toLowerCase());
+}

@@ -1565,6 +1565,21 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
         if (mealPlan) {
           hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
         }
+        const extraBedQty = (hotel as unknown as { extraBedQuantity?: number | null }).extraBedQuantity;
+        const extraBedPrice = (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice;
+        if (extraBedQty != null && extraBedPrice != null) {
+          hotelFacts.push(['EXTRA BED', `${extraBedQty} × ${extraBedPrice}`, `${hotel.nights} Nights`]);
+        }
+        const childQty = (hotel as unknown as { childWithoutBedQuantity?: number | null }).childWithoutBedQuantity;
+        const childPrice = (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice;
+        if (childQty != null && childPrice != null) {
+          hotelFacts.push(['CHILD W/O BED', `${childQty} × ${childPrice}`, `${hotel.nights} Nights`]);
+        }
+        const basePrice = (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice;
+        if (basePrice != null && (extraBedQty != null || childQty != null)) {
+          // Show base as fact if extras present, for clarity (optional).
+          hotelFacts.push(['BASE ROOM', `${basePrice}`, `${hotel.nights} Nights`]);
+        }
         hotelFacts.forEach(([label, value, sub], factIndex) => {
           const left = infoX + factIndex * 88;
           rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
@@ -2350,8 +2365,9 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     sectionDrawers[id]?.();
   }
 
-  // Price Breakdown — professional premium pricing (By Section / By Traveler)
-  {
+  // Price Breakdown — professional premium pricing (By Section). Hidden entirely
+  // for By Traveler (per-person) quotations.
+  if (pricing.pricingMode === 'SECTION_WISE') {
     const pricingHeading =
       (input.version as { pricingHeading?: string }).pricingHeading || 'Price Breakdown';
     const pricingSubheading =
@@ -2376,45 +2392,16 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     const amountW = 150;
     const labelX = M + 21;
     const amountX = M + CONTENT_W - 21 - amountW;
-    if (pricing.pricingMode === 'SECTION_WISE') {
-      for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
-        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
-        doc.font('Body').fontSize(10).fillColor(INK).text(section.label, labelX, y, { width: CONTENT_W - 42 - amountW });
-        doc.font('Bold').fontSize(10).fillColor(INK).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
-        y += 16;
-      }
-      if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
-      doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
-      doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(pricing.sectionTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
-      y += 22;
-    } else {
-      const rows = (
-        [
-          ['Adults', Number(input.quotation.adults ?? 0), Number(input.version.perAdultPrice ?? 0)],
-          ['Children With Bed', Number(input.quotation.childrenWithBed ?? 0), Number(input.version.perChildWithBedPrice ?? 0)],
-          ['Children Without Bed', Number(input.quotation.childrenWithoutBed ?? 0), Number(input.version.perChildWithoutBedPrice ?? 0)],
-          ['Infants', Number(input.quotation.infants ?? 0), Number(input.version.perInfantPrice ?? 0)],
-        ] as const
-      ).filter(([, count, price]) => count > 0 && price > 0);
-      for (const [label, count, price] of rows) {
-        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
-        doc.font('Body').fontSize(10).fillColor(INK).text(
-          `${label} — ${count} traveler${count === 1 ? '' : 's'} × ${money(price, pricing.currency)}`,
-          labelX, y, { width: CONTENT_W - 42 - amountW },
-        );
-        doc.font('Bold').fontSize(10).fillColor(INK).text(money(price * count, pricing.currency), amountX, y, { width: amountW, align: 'right' });
-        y += 16;
-      }
-      const travelers = Number(input.quotation.adults ?? 0) + Number(input.quotation.childrenWithBed ?? 0) + Number(input.quotation.childrenWithoutBed ?? 0) + Number(input.quotation.infants ?? 0);
-      if (y + 22 > bodyBottom()) addContentPage(pricingHeading);
-      doc.font('Body').fontSize(10).fillColor(INK).text(`Total Travelers: ${travelers}`, labelX, y, { width: CONTENT_W - 42 - amountW });
-      y += 14;
-      if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
-      const packageTotal = Number(input.version.finalAmount ?? 0) > 0 ? Number(input.version.finalAmount ?? 0) : pricing.packageTotal;
-      doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
-      doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(packageTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
-      y += 22;
+    for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+      if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Body').fontSize(10).fillColor(INK).text(section.label, labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Bold').fontSize(10).fillColor(INK).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+      y += 16;
     }
+    if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
+    doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
+    doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(pricing.sectionTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+    y += 22;
   }
 
   // Thank-you page ---------------------------------------------------------

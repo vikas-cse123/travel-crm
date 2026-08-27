@@ -519,6 +519,9 @@ export const quotationTemplatesService = {
           updatedAt: _updatedAt,
           internalCost,
           sellingPrice,
+          baseRoomPrice,
+          extraBedPrice,
+          childWithoutBedPrice,
           showCheckInTime,
           showCheckOutTime,
           ...row
@@ -528,6 +531,9 @@ export const quotationTemplatesService = {
           ...(showCheckOutTime == null ? {} : { showCheckOutTime }),
           internalCost: internalCost?.toNumber(),
           sellingPrice: sellingPrice?.toNumber(),
+          baseRoomPrice: (baseRoomPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
+          extraBedPrice: (extraBedPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
+          childWithoutBedPrice: (childWithoutBedPrice as unknown as { toNumber?: () => number })?.toNumber?.() ?? null,
           // Template hotel options have no images column; expose an empty list
           // so the snapshot keeps the shared hotel schema shape.
           images: [],

@@ -79,6 +79,7 @@ import {
   faqsController as faqs,
 } from './masters.controller.js';
 import { systemMastersController as systemMasters } from './system-masters.controller.js';
+import { excelImportRoutes } from './excel-import/excel-import.routes.js';
 
 const router = Router();
 const cityId = z.object({ cityId: z.string().uuid() });
@@ -110,6 +111,9 @@ const masterTypeParam = z.object({
 });
 
 router.use(requireAuth, requireVerifiedEmail);
+
+// Excel Import for supported masters (Cities, Airlines, Cruises, Vehicles, Add-on Services)
+router.use('/import', excelImportRoutes);
 
 const hiddenListQuery = z.object({
   masterType: z.enum(GLOBAL_MASTER_TYPES).optional(),

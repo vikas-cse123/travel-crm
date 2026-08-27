@@ -414,6 +414,13 @@ export interface QuotationPdfInput {
       checkOutTime?: string | null;
       showCheckInTime?: boolean;
       showCheckOutTime?: boolean;
+      sellingPrice?: number | null;
+      baseRoomPrice?: number | null;
+      extraBedQuantity?: number | null;
+      extraBedPrice?: number | null;
+      childWithoutBedQuantity?: number | null;
+      childWithoutBedPrice?: number | null;
+      pricingSource?: string | null;
     }>;
     itinerary: Array<{
       dayNumber: number;
@@ -2041,6 +2048,16 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
           hotel.checkOutDate &&
             `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
+          // Snapshot breakdown for extra bed / child without bed (if present).
+          (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice != null &&
+            `Base Room: ${(hotel as unknown as { baseRoomPrice: number }).baseRoomPrice} × ${stayNights} nights${(hotel as unknown as { rooms?: number | null }).rooms ? ` × ${(hotel as unknown as { rooms: number }).rooms} rooms` : ''}`,
+          (hotel as unknown as { extraBedQuantity?: number | null; extraBedPrice?: number | null }).extraBedQuantity != null &&
+            (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice != null &&
+            `Extra Bed: ${(hotel as unknown as { extraBedPrice: number }).extraBedPrice} × ${(hotel as unknown as { extraBedQuantity: number }).extraBedQuantity} × ${stayNights} nights`,
+          (hotel as unknown as { childWithoutBedQuantity?: number | null; childWithoutBedPrice?: number | null }).childWithoutBedQuantity != null &&
+            (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice != null &&
+            `Child Without Bed: ${(hotel as unknown as { childWithoutBedPrice: number }).childWithoutBedPrice} × ${(hotel as unknown as { childWithoutBedQuantity: number }).childWithoutBedQuantity} × ${stayNights} nights`,
+          (hotel as unknown as { sellingPrice?: number | null }).sellingPrice != null && `Total: ${(hotel as unknown as { sellingPrice: number }).sellingPrice}`,
         ].filter(Boolean) as string[];
         doc.font('Body').fontSize(10);
         const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));
@@ -2753,9 +2770,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
   }
 
   // ==========================================================================
-  // PRICE BREAKDOWN — professional pricing card (By Section / By Traveler)
+  // PRICE BREAKDOWN — professional pricing card (By Section). Hidden entirely
+  // for By Traveler (per-person) quotations.
   // ==========================================================================
-  {
+  if (pricing.pricingMode === 'SECTION_WISE') {
     const pricingHeading = (v as { pricingHeading?: string }).pricingHeading || 'Price Breakdown';
     const pricingSubheading =
       (v as { pricingSubheading?: string | null }).pricingSubheading || null;
@@ -2805,42 +2823,10 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         },
       };
     };
-    if (pricing.pricingMode === 'SECTION_WISE') {
-      for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
-        planner.add(pricingRow(section.label, money(section.amount)));
-      }
-      planner.add(pricingRow('Total Package Price', money(pricing.sectionTotal), true));
-    } else {
-      const rows = (
-        [
-          ['Adults', q.adults, v.perAdultPrice],
-          ['Children With Bed', q.childrenWithBed, v.perChildWithBedPrice],
-          ['Children Without Bed', q.childrenWithoutBed, v.perChildWithoutBedPrice],
-          ['Infants', q.infants, v.perInfantPrice],
-        ] as const
-      ).filter(([, count, price]) => Number(count) > 0 && num(price) > 0);
-      const travelers =
-        Number(q.adults ?? 0) +
-        Number(q.childrenWithBed ?? 0) +
-        Number(q.childrenWithoutBed ?? 0) +
-        Number(q.infants ?? 0);
-      for (const [label, count, price] of rows) {
-        planner.add(
-          pricingRow(
-            `${label} — ${count} traveler${Number(count) === 1 ? '' : 's'} × ${money(num(price))}`,
-            money(num(price) * Number(count)),
-          ),
-        );
-      }
-      if (travelers > 0) planner.add(pricingRow('Total Travelers', String(travelers)));
-      const packageTotal =
-        Number(v.finalAmount ?? 0) > 0
-          ? num(v.finalAmount)
-          : pricing.packageTotal > 0
-            ? pricing.packageTotal
-            : num(v.finalAmount);
-      planner.add(pricingRow('Total Package Price', money(packageTotal), true));
+    for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+      planner.add(pricingRow(section.label, money(section.amount)));
     }
+    planner.add(pricingRow('Total Package Price', money(pricing.sectionTotal), true));
   }
 
   // ==========================================================================

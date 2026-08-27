@@ -955,9 +955,16 @@ export const bookingsService = {
           endDate: hotel.checkOutDate,
           customerSellingAmount: hotel.sellingPrice,
           internalCostSnapshot: hotel.internalCost,
+          // Snapshot of resolved hotel pricing (per-night, for future booking pricing).
+          baseRoomPrice: (hotel as unknown as { baseRoomPrice?: unknown }).baseRoomPrice as unknown as Prisma.Decimal.Value ?? null,
+          extraBedQuantity: (hotel as unknown as { extraBedQuantity?: unknown }).extraBedQuantity as unknown as number | null ?? null,
+          extraBedPrice: (hotel as unknown as { extraBedPrice?: unknown }).extraBedPrice as unknown as Prisma.Decimal.Value ?? null,
+          childWithoutBedQuantity: (hotel as unknown as { childWithoutBedQuantity?: unknown }).childWithoutBedQuantity as unknown as number | null ?? null,
+          childWithoutBedPrice: (hotel as unknown as { childWithoutBedPrice?: unknown }).childWithoutBedPrice as unknown as Prisma.Decimal.Value ?? null,
+          pricingSource: (hotel as unknown as { pricingSource?: unknown }).pricingSource as unknown as string | null ?? null,
           notes: hotel.notes,
           sequence: sequence++,
-        });
+        } as unknown as Prisma.BookingServiceCreateManyInput);
       }
       for (const service of version.services) {
         services.push({
