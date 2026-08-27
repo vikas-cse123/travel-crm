@@ -20,6 +20,7 @@ const MASTER_LABELS: Record<SupportedMasterType, string> = {
   ADD_ON_SERVICE: 'Add-on Services',
   DESTINATION: 'Destinations',
   SIGHTSEEING: 'Sightseeing',
+  HOTEL: 'Hotels',
 };
 
 const MASTER_FILE_NAMES: Record<SupportedMasterType, string> = {
@@ -30,6 +31,7 @@ const MASTER_FILE_NAMES: Record<SupportedMasterType, string> = {
   ADD_ON_SERVICE: 'Add-On-Services.xlsx',
   DESTINATION: 'Destinations.xlsx',
   SIGHTSEEING: 'Sightseeing.xlsx',
+  HOTEL: 'Hotels.xlsx',
 };
 
 interface Props {

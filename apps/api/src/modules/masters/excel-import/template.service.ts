@@ -150,6 +150,22 @@ export async function generateTemplate(masterType: SupportedImportType): Promise
     instr.addRow(['Do NOT add a Status column.']);
   }
 
+  if (adapter.masterType === 'HOTEL') {
+    instr.addRow([]);
+    instr.addRow(['Hotels, Room Types & Meal Plans']).eachCell((c) => (c.font = { bold: true }));
+    instr.addRow(['One Excel row = ONE hotel. Do NOT repeat the hotel row for additional rooms, meals, months or seasons.']);
+    instr.addRow(['Multiple values inside a column are separated with " | " (pipe).']);
+    instr.addRow(['Room Types, Base Prices, Extra Bed Prices and Child Without Bed Prices are matched by position, e.g. "Deluxe | Suite | Executive" with "8000 | 12000 | 15000".']);
+    instr.addRow(['Room Monthly Rates use: RoomType:Month:Price:ExtraBed:ChildWithoutBed:Currency — e.g. "Deluxe:May:8500:2000:1000:INR". Month can be a name (Jan–Dec) or a number (1–12).']);
+    instr.addRow(['Room Seasonal Rates use: RoomType:Season:Start:End:Price:ExtraBed:ChildWithoutBed:Currency — e.g. "Deluxe:Summer:01-05-2026:30-06-2026:10000:2500:1200:INR" (DD-MM-YYYY).']);
+    instr.addRow(['Meal Plans, Meal Plan Descriptions, Meal Plan Prices and Meal Plan Currency are matched by position.']);
+    instr.addRow(['Meal Plan Monthly Rates use: MealPlan:Month:Price:Currency — e.g. "Breakfast:May:1200:INR".']);
+    instr.addRow(['Meal Plan Seasonal Rates use: MealPlan:Season:Start:End:Price:Currency — e.g. "Breakfast:Summer:01-05-2026:30-06-2026:1500:INR".']);
+    instr.addRow(['A Monthly/Seasonal rate can only reference a Room Type or Meal Plan declared in the same row.']);
+    instr.addRow(['Required: Hotel Name, Destination, City. All other columns are optional.']);
+    instr.addRow(['Do NOT add an Image/Image URL column.']);
+  }
+
   // Auto filter
   dataSheet.autoFilter = {
     from: { row: 1, column: 1 },
@@ -171,6 +187,7 @@ export function fileNameForType(masterType: SupportedImportType): string {
     ADD_ON_SERVICE: 'Add-On-Services.xlsx',
     DESTINATION: 'Destinations.xlsx',
     SIGHTSEEING: 'Sightseeing.xlsx',
+    HOTEL: 'Hotels.xlsx',
   };
   return map[masterType];
 }

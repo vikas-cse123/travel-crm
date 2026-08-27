@@ -12,6 +12,7 @@ const MASTERS: Array<{ key: SupportedMasterType; label: string; description: str
   { key: 'ADD_ON_SERVICE', label: 'Add-on Services', description: 'Service Name, Description, Price' },
   { key: 'DESTINATION', label: 'Destinations', description: 'Country, Destination Name, Type, Cities' },
   { key: 'SIGHTSEEING', label: 'Sightseeing', description: 'Destination, City, Title, Pricing' },
+  { key: 'HOTEL', label: 'Hotels', description: 'Name, Destination, City, Rooms, Meals, Rates' },
 ];
 
 export function MastersImportPage() {

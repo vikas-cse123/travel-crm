@@ -15,11 +15,13 @@ import {
   Plus,
   Search,
   Star,
+  Upload,
   Utensils,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
+import { ExcelImportDialog } from '@/features/masters/excel-import/ExcelImportDialog';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
   useArchiveHotel,
@@ -51,6 +53,7 @@ export function HotelsPage() {
     return next;
   }, [params]);
   const hotels = useHotels(hotelParams);
+  const [importOpen, setImportOpen] = useState(false);
   const destinations = useDestinations(LARGE);
   const selectedDestination = params.get('destinationId') ?? '';
   const destinationDetail = useDestination(selectedDestination || undefined);
@@ -118,11 +121,16 @@ export function HotelsPage() {
         <div className="flex items-center justify-between border-b px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-700">Filters &amp; Actions</h2>
           {canCreate && (
-            <Link to={addHotelPath()}>
-              <Button size="sm">
-                <Plus className="h-4 w-4" /> Add New Hotel
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
               </Button>
-            </Link>
+              <Link to={addHotelPath()}>
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> Add New Hotel
+                </Button>
+              </Link>
+            </div>
           )}
         </div>
         <div className="grid gap-3 p-5 md:grid-cols-[minmax(0,1.25fr)_240px_240px_240px]">
@@ -258,6 +266,13 @@ export function HotelsPage() {
           <HotelStatisticsPanel statistics={hotels.data.statistics} />
         </>
       )}
+
+      <ExcelImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        initialMasterType="HOTEL"
+        onSuccess={() => hotels.refetch()}
+      />
     </div>
   );
 }

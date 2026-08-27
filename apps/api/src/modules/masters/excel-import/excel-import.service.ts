@@ -183,6 +183,7 @@ const MASTER_LABEL: Record<SupportedImportType, string> = {
   ADD_ON_SERVICE: 'Add-On Service',
   DESTINATION: 'Destination',
   SIGHTSEEING: 'Sightseeing',
+  HOTEL: 'Hotel',
 };
 
 async function buildPreview(

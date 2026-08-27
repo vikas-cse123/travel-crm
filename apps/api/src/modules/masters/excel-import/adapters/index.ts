@@ -6,6 +6,7 @@ import { vehicleAdapter } from './vehicle.adapter.js';
 import { addOnServiceAdapter } from './add-on-service.adapter.js';
 import { destinationAdapter } from './destination.adapter.js';
 import { sightseeingAdapter } from './sightseeing.adapter.js';
+import { hotelAdapter } from './hotel.adapter.js';
 import type { SupportedImportType } from '../excel-import.types.js';
 
 export const adapters: Record<SupportedImportType, ImportAdapter> = {
@@ -16,6 +17,7 @@ export const adapters: Record<SupportedImportType, ImportAdapter> = {
   ADD_ON_SERVICE: addOnServiceAdapter,
   DESTINATION: destinationAdapter,
   SIGHTSEEING: sightseeingAdapter,
+  HOTEL: hotelAdapter,
 };
 
 export function getAdapter(type: string): ImportAdapter {

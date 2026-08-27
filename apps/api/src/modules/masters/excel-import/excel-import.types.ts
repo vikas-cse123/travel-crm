@@ -6,6 +6,7 @@ export const SUPPORTED_IMPORT_TYPES = [
   'ADD_ON_SERVICE',
   'DESTINATION',
   'SIGHTSEEING',
+  'HOTEL',
 ] as const;
 export type SupportedImportType = (typeof SUPPORTED_IMPORT_TYPES)[number];
 

@@ -5,7 +5,8 @@ export type SupportedMasterType =
   | 'VEHICLE'
   | 'ADD_ON_SERVICE'
   | 'DESTINATION'
-  | 'SIGHTSEEING';
+  | 'SIGHTSEEING'
+  | 'HOTEL';
 
 export interface PreviewRow {
   rowNumber: number;
