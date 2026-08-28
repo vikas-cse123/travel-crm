@@ -154,14 +154,15 @@ export async function generateTemplate(masterType: SupportedImportType): Promise
     instr.addRow([]);
     instr.addRow(['Hotels, Room Types & Meal Plans']).eachCell((c) => (c.font = { bold: true }));
     instr.addRow(['One Excel row = ONE hotel. Do NOT repeat the hotel row for additional rooms, meals, months or seasons.']);
-    instr.addRow(['Multiple values inside a column are separated with " | " (pipe).']);
-    instr.addRow(['Room Types, Base Prices, Extra Bed Prices and Child Without Bed Prices are matched by position, e.g. "Deluxe | Suite | Executive" with "8000 | 12000 | 15000".']);
-    instr.addRow(['Room Monthly Rates use: RoomType:Month:Price:ExtraBed:ChildWithoutBed:Currency — e.g. "Deluxe:May:8500:2000:1000:INR". Month can be a name (Jan–Dec) or a number (1–12).']);
-    instr.addRow(['Room Seasonal Rates use: RoomType:Season:Start:End:Price:ExtraBed:ChildWithoutBed:Currency — e.g. "Deluxe:Summer:01-05-2026:30-06-2026:10000:2500:1200:INR" (DD-MM-YYYY).']);
-    instr.addRow(['Meal Plans, Meal Plan Descriptions, Meal Plan Prices and Meal Plan Currency are matched by position.']);
-    instr.addRow(['Meal Plan Monthly Rates use: MealPlan:Month:Price:Currency — e.g. "Breakfast:May:1200:INR".']);
-    instr.addRow(['Meal Plan Seasonal Rates use: MealPlan:Season:Start:End:Price:Currency — e.g. "Breakfast:Summer:01-05-2026:30-06-2026:1500:INR".']);
-    instr.addRow(['A Monthly/Seasonal rate can only reference a Room Type or Meal Plan declared in the same row.']);
+    instr.addRow(['The first 9 columns are the hotel fields (Hotel Name, Destination, City, Address, Star Category, Star Rating, Review Link, Description, Amenities).']);
+    instr.addRow(['Room Types are added in groups of 6 columns: "Room Type N", "Room Type N Description", "Room Type N Base Price", "Room Type N Currency", "Room Type N Extra Bed Price", "Room Type N Child Without Bed Price".']);
+    instr.addRow(['The template shows Room Type 1 and Room Type 2. Add Room Type 3, 4, 5, ... by copying the complete Room Type column group and renumbering it — the importer detects ANY number of groups.']);
+    instr.addRow(['Each Room Type N also has its own Monthly Rate and Seasonal Rate groups as separate columns. The template shows one of each; copy the group and renumber for more rates (e.g. "Room Type 1 Seasonal Rate 2 Season Name").']);
+    instr.addRow(['Room Type N Monthly Rate M Month accepts a month name (Jan–Dec) or a number (1–12).']);
+    instr.addRow(['Seasonal rate dates use DD-MM-YYYY (or YYYY-MM-DD) and the end date must be on or after the start date.']);
+    instr.addRow(['Meal Plans are added in groups of 4 columns: "Meal Plan N", "Meal Plan N Description", "Meal Plan N Base Price", "Meal Plan N Currency", plus their own Monthly Rate and Seasonal Rate groups.']);
+    instr.addRow(['The template shows Meal Plan 1 and Meal Plan 2; add Meal Plan 3, 4, 5, ... the same way by copying the column group.']);
+    instr.addRow(['A completely blank Room Type or Meal Plan group is ignored. A partially filled group is validated and reported in the preview.']);
     instr.addRow(['Required: Hotel Name, Destination, City. All other columns are optional.']);
     instr.addRow(['Do NOT add an Image/Image URL column.']);
   }

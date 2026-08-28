@@ -17,14 +17,37 @@ import type { MastersRequestContext } from '../../../masters/masters.service.js'
 /**
  * Hotel Master Excel import.
  *
- * ONE Excel row = ONE hotel. All Room Types, Meal Plans and their monthly /
- * seasonal rates are supplied as pipe-delimited (`|`) values inside a single
- * column and parsed by position, so a hotel is never duplicated because it has
- * multiple rooms, meals, months or seasons. Room Type and Meal Plan extra
- * pricing match the existing Hotel master (Base, Monthly and Seasonal rates
- * each carry Extra Bed and Child Without Bed for room types).
+ * ONE Excel row = ONE hotel. Room Types and Meal Plans are NOT positional or
+ * pipe-delimited; each Room Type (and Meal Plan) is a complete, self-contained
+ * column group:
+ *
+ *   Room Type N | Room Type N Description | Room Type N Base Price |
+ *   Room Type N Currency | Room Type N Extra Bed Price | Room Type N Child Without Bed Price
+ *
+ * and every Room Type N also owns its Monthly Rate groups and Seasonal Rate
+ * groups as their own columns:
+ *
+ *   Room Type N Monthly Rate M Month | Room Type N Monthly Rate M Room |
+ *   Room Type N Monthly Rate M Extra Bed | Room Type N Monthly Rate M Child Without Bed |
+ *   Room Type N Monthly Rate M Currency
+ *
+ *   Room Type N Seasonal Rate M Season Name | Room Type N Seasonal Rate M Start Date |
+ *   Room Type N Seasonal Rate M End Date | Room Type N Seasonal Rate M Room |
+ *   Room Type N Seasonal Rate M Extra Bed | Room Type N Seasonal Rate M Child Without Bed |
+ *   Room Type N Seasonal Rate M Currency
+ *
+ * The template ships with Room Type 1 and Room Type 2 (each with one Monthly and
+ * one Seasonal rate group) plus Meal Plan 1 and Meal Plan 2 so the pattern is
+ * obvious. Users add Room Type 3, 4, 5, … and Meal Plan 3, 4, 5, … (and more
+ * Monthly/Seasonal rate groups) simply by copying a complete column group and
+ * renumbering it — there is NO hardcoded maximum. The importer discovers every
+ * group present in the uploaded file's headers via `resolveColumns`.
+ *
+ * A Room Type/Meal Plan group that is completely empty is ignored. A group that
+ * is partially filled is validated and reported with a clear per-field error.
  */
-export const hotelColumns: ImportColumnDefinition[] = [
+
+const BASE_HOTEL_COLUMNS: ImportColumnDefinition[] = [
   {
     field: 'name',
     header: 'Hotel Name',
@@ -55,7 +78,7 @@ export const hotelColumns: ImportColumnDefinition[] = [
     aliases: ['address', 'address line'],
     required: false,
     example: 'Baga Beach',
-    description: 'Optional. Free text.',
+    description: 'Optional. Free text (max 1000).',
   },
   {
     field: 'starCategory',
@@ -97,147 +120,498 @@ export const hotelColumns: ImportColumnDefinition[] = [
     example: 'Pool, Spa, Gym',
     description: 'Optional. Free text.',
   },
-  {
-    field: 'roomTypes',
-    header: 'Room Types',
-    aliases: ['room types', 'room type', 'rooms'],
-    required: false,
-    example: 'Deluxe | Suite | Executive',
-    description: 'Optional. Pipe-delimited room type names.',
-  },
-  {
-    field: 'basePrices',
-    header: 'Base Prices',
-    aliases: ['base prices', 'base price', 'room prices'],
-    required: false,
-    example: '8000 | 12000 | 15000',
-    description: 'Optional. Pipe-delimited base room prices, matched to Room Types by position.',
-  },
-  {
-    field: 'extraBedPrices',
-    header: 'Extra Bed Prices',
-    aliases: ['extra bed prices', 'extra bed price', 'extra bed'],
-    required: false,
-    example: '2000 | 3000 | 3500',
-    description: 'Optional. Pipe-delimited extra bed prices, matched to Room Types by position.',
-  },
-  {
-    field: 'childWithoutBedPrices',
-    header: 'Child Without Bed Prices',
-    aliases: ['child without bed prices', 'child without bed price', 'child without bed'],
-    required: false,
-    example: '1000 | 1500 | 1800',
-    description: 'Optional. Pipe-delimited child-without-bed prices, matched to Room Types by position.',
-  },
-  {
-    field: 'currency',
-    header: 'Currency',
-    aliases: ['currency', 'curr'],
-    required: false,
-    example: 'INR',
-    description: 'Optional. Three-letter currency code for all Room Types (default INR).',
-  },
-  {
-    field: 'monthlyRates',
-    header: 'Monthly Rates',
-    aliases: ['monthly rates', 'room monthly rates'],
-    required: false,
-    example: 'Deluxe:May:8500:2000:1000:INR | Deluxe:June:9000:2200:1100:INR',
-    description: 'Optional. Pipe-delimited RoomType:Month:Price:ExtraBed:ChildWithoutBed:Currency.',
-  },
-  {
-    field: 'seasonalRates',
-    header: 'Seasonal Rates',
-    aliases: ['seasonal rates', 'room seasonal rates'],
-    required: false,
-    example: 'Deluxe:Summer:01-05-2026:30-06-2026:10000:2500:1200:INR',
-    description: 'Optional. Pipe-delimited RoomType:Season:Start:End:Price:ExtraBed:ChildWithoutBed:Currency (DD-MM-YYYY).',
-  },
-  {
-    field: 'mealPlans',
-    header: 'Meal Plans',
-    aliases: ['meal plans', 'meal plan', 'meal'],
-    required: false,
-    example: 'Breakfast | Half Board | Full Board',
-    description: 'Optional. Pipe-delimited meal plan names.',
-  },
-  {
-    field: 'mealPlanDescriptions',
-    header: 'Meal Plan Descriptions',
-    aliases: ['meal plan descriptions', 'meal plan description'],
-    required: false,
-    example: 'Breakfast included | Breakfast and dinner included | All major meals included',
-    description: 'Optional. Pipe-delimited descriptions, matched to Meal Plans by position.',
-  },
-  {
-    field: 'mealPlanPrices',
-    header: 'Meal Plan Prices',
-    aliases: ['meal plan prices', 'meal plan price'],
-    required: false,
-    example: '1200 | 2500 | 3500',
-    description: 'Optional. Pipe-delimited prices, matched to Meal Plans by position.',
-  },
-  {
-    field: 'mealPlanCurrency',
-    header: 'Meal Plan Currency',
-    aliases: ['meal plan currency', 'meal currency'],
-    required: false,
-    example: 'INR | INR | INR',
-    description: 'Optional. Pipe-delimited currency codes, matched to Meal Plans by position (default INR).',
-  },
-  {
-    field: 'mealPlanMonthlyRates',
-    header: 'Meal Plan Monthly Rates',
-    aliases: ['meal plan monthly rates', 'meal plan monthly rate'],
-    required: false,
-    example: 'Breakfast:May:1200:INR | Breakfast:June:1400:INR',
-    description: 'Optional. Pipe-delimited MealPlan:Month:Price:Currency.',
-  },
-  {
-    field: 'mealPlanSeasonalRates',
-    header: 'Meal Plan Seasonal Rates',
-    aliases: ['meal plan seasonal rates', 'meal plan seasonal rate'],
-    required: false,
-    example: 'Breakfast:Summer:01-05-2026:30-06-2026:1500:INR',
-    description: 'Optional. Pipe-delimited MealPlan:Season:Start:End:Price:Currency (DD-MM-YYYY).',
-  },
 ];
 
-const hotelImportSchema = z.object({
-  name: z.string().trim().min(2, 'Hotel name is required.').max(200),
-  destination: z.string().trim().min(1, 'Destination is required.'),
-  city: z.string().trim().min(1, 'City is required.'),
-  address: z.string().trim().max(1000).nullable().optional(),
-  starCategory: z.coerce
-    .number()
-    .int('Star Category must be a whole number.')
-    .min(1, 'Star Category must be 1–5.')
-    .max(5, 'Star Category must be 1–5.')
-    .nullable()
-    .optional(),
-  starRating: z.coerce
-    .number()
-    .min(0, 'Star Rating must be 0–5.')
-    .max(5, 'Star Rating must be 0–5.')
-    .nullable()
-    .optional(),
-  reviewLink: z.string().trim().max(500).nullable().optional(),
-  description: z.string().trim().max(50_000).nullable().optional(),
-  amenities: z.string().trim().max(50_000).nullable().optional(),
-  roomTypes: z.string().trim().optional().default(''),
-  basePrices: z.string().trim().optional().default(''),
-  extraBedPrices: z.string().trim().optional().default(''),
-  childWithoutBedPrices: z.string().trim().optional().default(''),
-  currency: z.string().trim().optional().default(''),
-  monthlyRates: z.string().trim().optional().default(''),
-  seasonalRates: z.string().trim().optional().default(''),
-  mealPlans: z.string().trim().optional().default(''),
-  mealPlanDescriptions: z.string().trim().optional().default(''),
-  mealPlanPrices: z.string().trim().optional().default(''),
-  mealPlanCurrency: z.string().trim().optional().default(''),
-  mealPlanMonthlyRates: z.string().trim().optional().default(''),
-  mealPlanSeasonalRates: z.string().trim().optional().default(''),
-});
+/** Example values the template's Room Type 1 / Room Type 2 groups demonstrate. */
+const ROOM_TYPE_EXAMPLES: Record<
+  number,
+  { name: string; description: string; basePrice: string; extraBed: string; child: string }
+> = {
+  1: { name: 'Deluxe', description: 'Spacious sea-view room', basePrice: '8000', extraBed: '2000', child: '1000' },
+  2: { name: 'Suite', description: 'Separate living and bedroom', basePrice: '12000', extraBed: '3000', child: '1500' },
+};
+
+const ROOM_MONTHLY_EXAMPLES: Record<number, { month: string; room: string; extraBed: string; child: string }> = {
+  1: { month: 'May', room: '8500', extraBed: '2000', child: '1000' },
+  2: { month: 'June', room: '13500', extraBed: '3200', child: '1600' },
+};
+
+const ROOM_SEASONAL_EXAMPLES: Record<
+  number,
+  { name: string; start: string; end: string; room: string; extraBed: string; child: string }
+> = {
+  1: { name: 'Summer', start: '01-05-2026', end: '30-06-2026', room: '10000', extraBed: '2500', child: '1200' },
+  2: { name: 'Festive', start: '20-12-2026', end: '05-01-2027', room: '15000', extraBed: '3500', child: '1800' },
+};
+
+const MEAL_PLAN_EXAMPLES: Record<number, { name: string; description: string; basePrice: string }> = {
+  1: { name: 'Breakfast', description: 'Morning buffet', basePrice: '1200' },
+  2: { name: 'Half Board', description: 'Breakfast and dinner', basePrice: '2500' },
+};
+
+const MEAL_MONTHLY_EXAMPLES: Record<number, { month: string; price: string }> = {
+  1: { month: 'May', price: '1200' },
+  2: { month: 'May', price: '2600' },
+};
+
+const MEAL_SEASONAL_EXAMPLES: Record<number, { name: string; start: string; end: string; price: string }> = {
+  1: { name: 'Summer', start: '01-05-2026', end: '30-06-2026', price: '1500' },
+  2: { name: 'Summer', start: '01-05-2026', end: '30-06-2026', price: '2800' },
+};
+
+function roomTypeColumns(n: number): ImportColumnDefinition[] {
+  const ex = ROOM_TYPE_EXAMPLES[n];
+  return [
+    {
+      field: `roomType${n}`,
+      header: `Room Type ${n}`,
+      aliases: [`room type ${n}`, `roomtype ${n}`, `room type ${n} name`],
+      required: false,
+      example: ex?.name ?? '',
+      description: `Optional. Room Type ${n} name. Required only when the group is used.`,
+    },
+    {
+      field: `roomType${n}Description`,
+      header: `Room Type ${n} Description`,
+      aliases: [`room type ${n} description`, `roomtype ${n} description`, `room type ${n} desc`],
+      required: false,
+      example: ex?.description ?? '',
+      description: `Optional. Room Type ${n} description.`,
+    },
+    {
+      field: `roomType${n}BasePrice`,
+      header: `Room Type ${n} Base Price`,
+      aliases: [`room type ${n} base price`, `roomtype ${n} base price`, `room type ${n} base`, `room type ${n} price`],
+      required: false,
+      example: ex?.basePrice ?? '',
+      description: `Optional. Base selling price for Room Type ${n}.`,
+    },
+    {
+      field: `roomType${n}Currency`,
+      header: `Room Type ${n} Currency`,
+      aliases: [`room type ${n} currency`, `roomtype ${n} currency`, `room type ${n} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency code for Room Type ${n} (default INR).`,
+    },
+    {
+      field: `roomType${n}ExtraBedPrice`,
+      header: `Room Type ${n} Extra Bed Price`,
+      aliases: [`room type ${n} extra bed price`, `roomtype ${n} extra bed price`, `room type ${n} extra bed`],
+      required: false,
+      example: ex?.extraBed ?? '',
+      description: `Optional. Extra bed price for Room Type ${n}.`,
+    },
+    {
+      field: `roomType${n}ChildWithoutBedPrice`,
+      header: `Room Type ${n} Child Without Bed Price`,
+      aliases: [
+        `room type ${n} child without bed price`,
+        `roomtype ${n} child without bed price`,
+        `room type ${n} child without bed`,
+      ],
+      required: false,
+      example: ex?.child ?? '',
+      description: `Optional. Child-without-bed price for Room Type ${n}.`,
+    },
+  ];
+}
+
+function roomMonthlyRateColumns(n: number, m: number): ImportColumnDefinition[] {
+  const ex = ROOM_MONTHLY_EXAMPLES[n];
+  const prefix = `Room Type ${n} Monthly Rate ${m}`;
+  return [
+    {
+      field: `roomType${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      aliases: [`${prefix} month`, `room type ${n} monthly rate ${m} month name`],
+      required: false,
+      example: ex?.month ?? '',
+      description: `Optional. Month for ${prefix} (name or 1–12).`,
+    },
+    {
+      field: `roomType${n}Monthly${m}Room`,
+      header: `${prefix} Room`,
+      aliases: [`${prefix} room`, `${prefix} price`, `room type ${n} monthly rate ${m} room price`],
+      required: false,
+      example: ex?.room ?? '',
+      description: `Optional. Room price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Monthly${m}ExtraBed`,
+      header: `${prefix} Extra Bed`,
+      aliases: [`${prefix} extra bed`, `${prefix} extra bed price`],
+      required: false,
+      example: ex?.extraBed ?? '',
+      description: `Optional. Extra bed price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Monthly${m}ChildWithoutBed`,
+      header: `${prefix} Child Without Bed`,
+      aliases: [`${prefix} child without bed`, `${prefix} child without bed price`],
+      required: false,
+      example: ex?.child ?? '',
+      description: `Optional. Child-without-bed price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Monthly${m}Currency`,
+      header: `${prefix} Currency`,
+      aliases: [`${prefix} currency`, `${prefix} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency for ${prefix} (defaults to Room Type ${n} Currency).`,
+    },
+  ];
+}
+
+function roomSeasonalRateColumns(n: number, m: number): ImportColumnDefinition[] {
+  const ex = ROOM_SEASONAL_EXAMPLES[n];
+  const prefix = `Room Type ${n} Seasonal Rate ${m}`;
+  return [
+    {
+      field: `roomType${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      aliases: [`${prefix} season name`, `${prefix} name`],
+      required: false,
+      example: ex?.name ?? '',
+      description: `Optional. Season name for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Season${m}StartDate`,
+      header: `${prefix} Start Date`,
+      aliases: [`${prefix} start date`],
+      required: false,
+      example: ex?.start ?? '',
+      description: `Optional. Start date for ${prefix} (DD-MM-YYYY or YYYY-MM-DD).`,
+    },
+    {
+      field: `roomType${n}Season${m}EndDate`,
+      header: `${prefix} End Date`,
+      aliases: [`${prefix} end date`],
+      required: false,
+      example: ex?.end ?? '',
+      description: `Optional. End date for ${prefix} (DD-MM-YYYY or YYYY-MM-DD).`,
+    },
+    {
+      field: `roomType${n}Season${m}Room`,
+      header: `${prefix} Room`,
+      aliases: [`${prefix} room`, `${prefix} price`],
+      required: false,
+      example: ex?.room ?? '',
+      description: `Optional. Room price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Season${m}ExtraBed`,
+      header: `${prefix} Extra Bed`,
+      aliases: [`${prefix} extra bed`, `${prefix} extra bed price`],
+      required: false,
+      example: ex?.extraBed ?? '',
+      description: `Optional. Extra bed price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Season${m}ChildWithoutBed`,
+      header: `${prefix} Child Without Bed`,
+      aliases: [`${prefix} child without bed`, `${prefix} child without bed price`],
+      required: false,
+      example: ex?.child ?? '',
+      description: `Optional. Child-without-bed price for ${prefix}.`,
+    },
+    {
+      field: `roomType${n}Season${m}Currency`,
+      header: `${prefix} Currency`,
+      aliases: [`${prefix} currency`, `${prefix} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency for ${prefix} (defaults to Room Type ${n} Currency).`,
+    },
+  ];
+}
+
+function mealPlanColumns(n: number): ImportColumnDefinition[] {
+  const ex = MEAL_PLAN_EXAMPLES[n];
+  return [
+    {
+      field: `mealPlan${n}`,
+      header: `Meal Plan ${n}`,
+      aliases: [`meal plan ${n}`, `mealplan ${n}`, `meal plan ${n} name`],
+      required: false,
+      example: ex?.name ?? '',
+      description: `Optional. Meal Plan ${n} name. Required only when the group is used.`,
+    },
+    {
+      field: `mealPlan${n}Description`,
+      header: `Meal Plan ${n} Description`,
+      aliases: [`meal plan ${n} description`, `mealplan ${n} description`, `meal plan ${n} desc`],
+      required: false,
+      example: ex?.description ?? '',
+      description: `Optional. Meal Plan ${n} description.`,
+    },
+    {
+      field: `mealPlan${n}BasePrice`,
+      header: `Meal Plan ${n} Base Price`,
+      aliases: [`meal plan ${n} base price`, `mealplan ${n} base price`, `meal plan ${n} base`, `meal plan ${n} price`],
+      required: false,
+      example: ex?.basePrice ?? '',
+      description: `Optional. Base selling price for Meal Plan ${n}.`,
+    },
+    {
+      field: `mealPlan${n}Currency`,
+      header: `Meal Plan ${n} Currency`,
+      aliases: [`meal plan ${n} currency`, `mealplan ${n} currency`, `meal plan ${n} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency code for Meal Plan ${n} (default INR).`,
+    },
+  ];
+}
+
+function mealMonthlyRateColumns(n: number, m: number): ImportColumnDefinition[] {
+  const ex = MEAL_MONTHLY_EXAMPLES[n];
+  const prefix = `Meal Plan ${n} Monthly Rate ${m}`;
+  return [
+    {
+      field: `mealPlan${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      aliases: [`${prefix} month`],
+      required: false,
+      example: ex?.month ?? '',
+      description: `Optional. Month for ${prefix} (name or 1–12).`,
+    },
+    {
+      field: `mealPlan${n}Monthly${m}Price`,
+      header: `${prefix} Price`,
+      aliases: [`${prefix} price`],
+      required: false,
+      example: ex?.price ?? '',
+      description: `Optional. Price for ${prefix}.`,
+    },
+    {
+      field: `mealPlan${n}Monthly${m}Currency`,
+      header: `${prefix} Currency`,
+      aliases: [`${prefix} currency`, `${prefix} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency for ${prefix} (defaults to Meal Plan ${n} Currency).`,
+    },
+  ];
+}
+
+function mealSeasonalRateColumns(n: number, m: number): ImportColumnDefinition[] {
+  const ex = MEAL_SEASONAL_EXAMPLES[n];
+  const prefix = `Meal Plan ${n} Seasonal Rate ${m}`;
+  return [
+    {
+      field: `mealPlan${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      aliases: [`${prefix} season name`, `${prefix} name`],
+      required: false,
+      example: ex?.name ?? '',
+      description: `Optional. Season name for ${prefix}.`,
+    },
+    {
+      field: `mealPlan${n}Season${m}StartDate`,
+      header: `${prefix} Start Date`,
+      aliases: [`${prefix} start date`],
+      required: false,
+      example: ex?.start ?? '',
+      description: `Optional. Start date for ${prefix} (DD-MM-YYYY or YYYY-MM-DD).`,
+    },
+    {
+      field: `mealPlan${n}Season${m}EndDate`,
+      header: `${prefix} End Date`,
+      aliases: [`${prefix} end date`],
+      required: false,
+      example: ex?.end ?? '',
+      description: `Optional. End date for ${prefix} (DD-MM-YYYY or YYYY-MM-DD).`,
+    },
+    {
+      field: `mealPlan${n}Season${m}Price`,
+      header: `${prefix} Price`,
+      aliases: [`${prefix} price`],
+      required: false,
+      example: ex?.price ?? '',
+      description: `Optional. Price for ${prefix}.`,
+    },
+    {
+      field: `mealPlan${n}Season${m}Currency`,
+      header: `${prefix} Currency`,
+      aliases: [`${prefix} currency`, `${prefix} curr`],
+      required: false,
+      example: 'INR',
+      description: `Optional. Three-letter currency for ${prefix} (defaults to Meal Plan ${n} Currency).`,
+    },
+  ];
+}
+
+/**
+ * Static columns used by the downloadable template: the hotel base fields plus
+ * Room Type 1 & 2 and Meal Plan 1 & 2 groups (each with one Monthly and one
+ * Seasonal rate group) so users see the copy-and-renumber pattern.
+ */
+export const hotelColumns: ImportColumnDefinition[] = [
+  ...BASE_HOTEL_COLUMNS,
+  ...roomTypeColumns(1),
+  ...roomMonthlyRateColumns(1, 1),
+  ...roomSeasonalRateColumns(1, 1),
+  ...roomTypeColumns(2),
+  ...roomMonthlyRateColumns(2, 1),
+  ...roomSeasonalRateColumns(2, 1),
+  ...mealPlanColumns(1),
+  ...mealMonthlyRateColumns(1, 1),
+  ...mealSeasonalRateColumns(1, 1),
+  ...mealPlanColumns(2),
+  ...mealMonthlyRateColumns(2, 1),
+  ...mealSeasonalRateColumns(2, 1),
+];
+
+/** Lowercase, trimmed, single-spaced — robust against stray whitespace. */
+function normalizeHeaderForMatch(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+const ROOM_TYPE_RE = /^room type (\d+)$/;
+const ROOM_TYPE_PART_RE = /^room type (\d+) (description|base price|currency|extra bed price|child without bed price)$/;
+const ROOM_MONTHLY_RE = /^room type (\d+) monthly rate (\d+) (month|room|extra bed|child without bed|currency)$/;
+const ROOM_SEASONAL_RE = /^room type (\d+) seasonal rate (\d+) (season name|start date|end date|room|extra bed|child without bed|currency)$/;
+const MEAL_RE = /^meal plan (\d+)$/;
+const MEAL_PART_RE = /^meal plan (\d+) (description|base price|currency)$/;
+const MEAL_MONTHLY_RE = /^meal plan (\d+) monthly rate (\d+) (month|price|currency)$/;
+const MEAL_SEASONAL_RE = /^meal plan (\d+) seasonal rate (\d+) (season name|start date|end date|price|currency)$/;
+
+interface DetectedGroups {
+  maxRoom: number;
+  maxMeal: number;
+  roomMonthly: Record<number, number>;
+  roomSeasonal: Record<number, number>;
+  mealMonthly: Record<number, number>;
+  mealSeasonal: Record<number, number>;
+}
+
+/**
+ * Discover every Room Type N / Meal Plan N group (and each group's Monthly /
+ * Seasonal rate groups) present in the uploaded file's headers. There is NO
+ * fixed maximum — any positive integer N and M is recognised.
+ */
+function detectGroups(headers: string[]): DetectedGroups {
+  const groups: DetectedGroups = {
+    maxRoom: 0,
+    maxMeal: 0,
+    roomMonthly: {},
+    roomSeasonal: {},
+    mealMonthly: {},
+    mealSeasonal: {},
+  };
+
+  for (const header of headers) {
+    const norm = normalizeHeaderForMatch(header);
+
+    const roomName = ROOM_TYPE_RE.exec(norm);
+    if (roomName) {
+      groups.maxRoom = Math.max(groups.maxRoom, Number(roomName[1]));
+      continue;
+    }
+    const roomPart = ROOM_TYPE_PART_RE.exec(norm);
+    if (roomPart) {
+      groups.maxRoom = Math.max(groups.maxRoom, Number(roomPart[1]));
+      continue;
+    }
+    const roomMonthly = ROOM_MONTHLY_RE.exec(norm);
+    if (roomMonthly) {
+      const n = Number(roomMonthly[1]);
+      groups.maxRoom = Math.max(groups.maxRoom, n);
+      groups.roomMonthly[n] = Math.max(groups.roomMonthly[n] ?? 0, Number(roomMonthly[2]));
+      continue;
+    }
+    const roomSeasonal = ROOM_SEASONAL_RE.exec(norm);
+    if (roomSeasonal) {
+      const n = Number(roomSeasonal[1]);
+      groups.maxRoom = Math.max(groups.maxRoom, n);
+      groups.roomSeasonal[n] = Math.max(groups.roomSeasonal[n] ?? 0, Number(roomSeasonal[2]));
+      continue;
+    }
+
+    const mealName = MEAL_RE.exec(norm);
+    if (mealName) {
+      groups.maxMeal = Math.max(groups.maxMeal, Number(mealName[1]));
+      continue;
+    }
+    const mealPart = MEAL_PART_RE.exec(norm);
+    if (mealPart) {
+      groups.maxMeal = Math.max(groups.maxMeal, Number(mealPart[1]));
+      continue;
+    }
+    const mealMonthly = MEAL_MONTHLY_RE.exec(norm);
+    if (mealMonthly) {
+      const n = Number(mealMonthly[1]);
+      groups.maxMeal = Math.max(groups.maxMeal, n);
+      groups.mealMonthly[n] = Math.max(groups.mealMonthly[n] ?? 0, Number(mealMonthly[2]));
+      continue;
+    }
+    const mealSeasonal = MEAL_SEASONAL_RE.exec(norm);
+    if (mealSeasonal) {
+      const n = Number(mealSeasonal[1]);
+      groups.maxMeal = Math.max(groups.maxMeal, n);
+      groups.mealSeasonal[n] = Math.max(groups.mealSeasonal[n] ?? 0, Number(mealSeasonal[2]));
+    }
+  }
+
+  return groups;
+}
+
+/** Expand the column set to cover every Room Type/Meal Plan group in the file. */
+function resolveHotelColumns(headers: string[]): ImportColumnDefinition[] {
+  const groups = detectGroups(headers);
+  const columns = [...BASE_HOTEL_COLUMNS];
+
+  for (let n = 1; n <= groups.maxRoom; n++) {
+    columns.push(...roomTypeColumns(n));
+    for (let m = 1; m <= (groups.roomMonthly[n] ?? 0); m++) {
+      columns.push(...roomMonthlyRateColumns(n, m));
+    }
+    for (let m = 1; m <= (groups.roomSeasonal[n] ?? 0); m++) {
+      columns.push(...roomSeasonalRateColumns(n, m));
+    }
+  }
+
+  for (let n = 1; n <= groups.maxMeal; n++) {
+    columns.push(...mealPlanColumns(n));
+    for (let m = 1; m <= (groups.mealMonthly[n] ?? 0); m++) {
+      columns.push(...mealMonthlyRateColumns(n, m));
+    }
+    for (let m = 1; m <= (groups.mealSeasonal[n] ?? 0); m++) {
+      columns.push(...mealSeasonalRateColumns(n, m));
+    }
+  }
+
+  return columns;
+}
+
+const hotelImportSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Hotel name is required.').max(200),
+    destination: z.string().trim().min(1, 'Destination is required.'),
+    city: z.string().trim().min(1, 'City is required.'),
+    address: z.string().trim().max(1000).nullable().optional(),
+    starCategory: z.coerce
+      .number()
+      .int('Star Category must be a whole number.')
+      .min(1, 'Star Category must be 1–5.')
+      .max(5, 'Star Category must be 1–5.')
+      .nullable()
+      .optional(),
+    starRating: z.coerce
+      .number()
+      .finite('Star Rating must be 0–5.')
+      .min(0, 'Star Rating must be 0–5.')
+      .max(5, 'Star Rating must be 0–5.')
+      .nullable()
+      .optional(),
+    reviewLink: z.string().trim().max(500).nullable().optional(),
+    description: z.string().trim().max(50_000).nullable().optional(),
+    amenities: z.string().trim().max(50_000).nullable().optional(),
+  })
+  // Room Type / Meal Plan groups are validated per-row in resolveRow.
+  .passthrough();
 
 const MONTH_NAMES: Record<string, number> = {
   january: 1, jan: 1,
@@ -253,16 +627,6 @@ const MONTH_NAMES: Record<string, number> = {
   november: 11, nov: 11,
   december: 12, dec: 12,
 };
-
-/** Split a pipe-delimited column into trimmed, non-empty values. */
-function splitValues(value: unknown): string[] {
-  const raw = String(value ?? '').trim();
-  if (!raw) return [];
-  return raw
-    .split('|')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-}
 
 function parseMonth(value: string): number | null {
   const v = value.trim();
@@ -297,22 +661,9 @@ function parseDate(value: string): Date | null {
   return null;
 }
 
-/** Non-negative number from a token; '' → null; invalid → NaN. */
-function parseMoney(token: string): number | null {
-  const v = token.trim();
-  if (v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : NaN;
-}
-
-function normalizeCurrency(token: string): string | null {
-  const v = token.trim().toUpperCase();
-  if (v === '') return 'INR';
-  return /^[A-Z]{3}$/.test(v) ? v : null;
-}
-
 interface RoomRateDraft {
   name: string;
+  description: string | null;
   sellingPrice: number | null;
   extraBedPrice: number | null;
   childWithoutBedPrice: number | null;
@@ -348,6 +699,436 @@ interface MealPlanDraft {
     price: number | null;
     currency: string;
   }>;
+}
+
+type Problem = ResolveRowResult['problems'][number];
+
+/** Trimmed string value of a field, or '' when absent. */
+function str(input: Record<string, unknown>, field: string): string {
+  const v = input[field];
+  return v == null ? '' : String(v).trim();
+}
+
+/** Highest group index `prefix + N + ...` present in the input's keys. */
+function maxIndex(input: Record<string, unknown>, prefix: string): number {
+  let max = 0;
+  const re = new RegExp(`^${prefix}(\\d+)`);
+  for (const key of Object.keys(input)) {
+    const match = re.exec(key);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return max;
+}
+
+/** Non-negative number; '' → null; anything else invalid reports a problem. */
+function money(problems: Problem[], field: string, header: string, raw: string): number | null {
+  const v = raw.trim();
+  if (v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) {
+    problems.push({ field, header, value: raw, message: `${header} must be a non-negative number.` });
+    return null;
+  }
+  return n;
+}
+
+/** Three-letter currency code, falling back to `fallback` when blank. */
+function resolveCurrency(
+  problems: Problem[],
+  field: string,
+  header: string,
+  raw: string,
+  fallback: string,
+): string {
+  const v = raw.trim().toUpperCase();
+  if (v === '') return fallback;
+  if (/^[A-Z]{3}$/.test(v)) return v;
+  problems.push({ field, header, value: raw, message: `${header} must be a three-letter code.` });
+  return fallback;
+}
+
+function resolveRoomMonthlyRate(
+  input: Record<string, unknown>,
+  n: number,
+  m: number,
+  problems: Problem[],
+  monthRates: RoomRateDraft['monthRates'],
+  defaultCurrency: string,
+): RoomRateDraft['monthRates'][number] | null {
+  const monthStr = str(input, `roomType${n}Monthly${m}Month`);
+  const roomStr = str(input, `roomType${n}Monthly${m}Room`);
+  const extraStr = str(input, `roomType${n}Monthly${m}ExtraBed`);
+  const childStr = str(input, `roomType${n}Monthly${m}ChildWithoutBed`);
+  const curStr = str(input, `roomType${n}Monthly${m}Currency`);
+  const prefix = `Room Type ${n} Monthly Rate ${m}`;
+
+  if ([monthStr, roomStr, extraStr, childStr, curStr].every((s) => s === '')) return null;
+
+  const month = parseMonth(monthStr);
+  if (!month) {
+    problems.push({
+      field: `roomType${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      value: monthStr || null,
+      message: `${prefix} Month "${monthStr}" is invalid (use a name or 1–12).`,
+    });
+  }
+  const price = money(problems, `roomType${n}Monthly${m}Room`, `${prefix} Room`, roomStr);
+  const extra = money(problems, `roomType${n}Monthly${m}ExtraBed`, `${prefix} Extra Bed`, extraStr);
+  const child = money(problems, `roomType${n}Monthly${m}ChildWithoutBed`, `${prefix} Child Without Bed`, childStr);
+  const currency = resolveCurrency(problems, `roomType${n}Monthly${m}Currency`, `${prefix} Currency`, curStr, defaultCurrency);
+
+  if (month && monthRates.some((r) => r.month === month)) {
+    problems.push({
+      field: `roomType${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      value: monthStr,
+      message: `Duplicate monthly rate for Room Type ${n} in month ${month}.`,
+    });
+  }
+
+  return { month: month ?? 0, price, extraBedPrice: extra, childWithoutBedPrice: child, currency };
+}
+
+function resolveRoomSeasonalRate(
+  input: Record<string, unknown>,
+  n: number,
+  m: number,
+  problems: Problem[],
+  seasonRates: RoomRateDraft['seasonRates'],
+  defaultCurrency: string,
+): RoomRateDraft['seasonRates'][number] | null {
+  const nameStr = str(input, `roomType${n}Season${m}Name`);
+  const startStr = str(input, `roomType${n}Season${m}StartDate`);
+  const endStr = str(input, `roomType${n}Season${m}EndDate`);
+  const roomStr = str(input, `roomType${n}Season${m}Room`);
+  const extraStr = str(input, `roomType${n}Season${m}ExtraBed`);
+  const childStr = str(input, `roomType${n}Season${m}ChildWithoutBed`);
+  const curStr = str(input, `roomType${n}Season${m}Currency`);
+  const prefix = `Room Type ${n} Seasonal Rate ${m}`;
+
+  if ([nameStr, startStr, endStr, roomStr, extraStr, childStr, curStr].every((s) => s === '')) return null;
+
+  const startDate = parseDate(startStr);
+  const endDate = parseDate(endStr);
+  if (!startDate || !endDate) {
+    problems.push({
+      field: `roomType${n}Season${m}StartDate`,
+      header: `${prefix} Start Date`,
+      value: `${startStr}–${endStr}`,
+      message: `${prefix} dates must be DD-MM-YYYY (or YYYY-MM-DD).`,
+    });
+  } else if (endDate < startDate) {
+    problems.push({
+      field: `roomType${n}Season${m}EndDate`,
+      header: `${prefix} End Date`,
+      value: `${startStr}–${endStr}`,
+      message: `${prefix} end date is before the start date.`,
+    });
+  }
+  if (nameStr === '') {
+    problems.push({
+      field: `roomType${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: null,
+      message: `${prefix} requires a season name when the rate is used.`,
+    });
+  } else if (nameStr.length > 160) {
+    problems.push({
+      field: `roomType${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: nameStr,
+      message: `${prefix} season name must be 160 characters or fewer.`,
+    });
+  }
+  const price = money(problems, `roomType${n}Season${m}Room`, `${prefix} Room`, roomStr);
+  const extra = money(problems, `roomType${n}Season${m}ExtraBed`, `${prefix} Extra Bed`, extraStr);
+  const child = money(problems, `roomType${n}Season${m}ChildWithoutBed`, `${prefix} Child Without Bed`, childStr);
+  const currency = resolveCurrency(problems, `roomType${n}Season${m}Currency`, `${prefix} Currency`, curStr, defaultCurrency);
+
+  if (startDate && endDate && seasonRates.some((s) => startDate <= s.endDate && endDate >= s.startDate)) {
+    problems.push({
+      field: `roomType${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: nameStr || null,
+      message: `${prefix} overlaps another season of Room Type ${n}.`,
+    });
+  }
+
+  return {
+    name: nameStr || `Season ${m}`,
+    startDate: startDate ?? new Date(0),
+    endDate: endDate ?? new Date(0),
+    price,
+    extraBedPrice: extra,
+    childWithoutBedPrice: child,
+    currency,
+  };
+}
+
+function resolveRoomTypeGroup(
+  input: Record<string, unknown>,
+  n: number,
+  problems: Problem[],
+  seenRoomNames: Set<string>,
+): RoomRateDraft | null {
+  const name = str(input, `roomType${n}`);
+  const description = str(input, `roomType${n}Description`);
+  const basePriceStr = str(input, `roomType${n}BasePrice`);
+  const currencyStr = str(input, `roomType${n}Currency`);
+  const extraBedStr = str(input, `roomType${n}ExtraBedPrice`);
+  const childStr = str(input, `roomType${n}ChildWithoutBedPrice`);
+
+  if (name === '') {
+    problems.push({
+      field: `roomType${n}`,
+      header: `Room Type ${n}`,
+      value: null,
+      message: `Room Type ${n} requires a name when the group is used.`,
+    });
+  } else if (name.length > 160) {
+    problems.push({
+      field: `roomType${n}`,
+      header: `Room Type ${n}`,
+      value: name,
+      message: `Room Type ${n} name must be 160 characters or fewer.`,
+    });
+  } else if (seenRoomNames.has(normalizeCustomerName(name))) {
+    problems.push({
+      field: `roomType${n}`,
+      header: `Room Type ${n}`,
+      value: name,
+      message: `Duplicate room type "${name}" in this hotel row.`,
+    });
+  } else {
+    seenRoomNames.add(normalizeCustomerName(name));
+  }
+  if (description.length > 2000) {
+    problems.push({
+      field: `roomType${n}Description`,
+      header: `Room Type ${n} Description`,
+      value: description,
+      message: `Room Type ${n} Description must be 2000 characters or fewer.`,
+    });
+  }
+
+  const sellingPrice = money(problems, `roomType${n}BasePrice`, `Room Type ${n} Base Price`, basePriceStr);
+  const extraBedPrice = money(problems, `roomType${n}ExtraBedPrice`, `Room Type ${n} Extra Bed Price`, extraBedStr);
+  const childWithoutBedPrice = money(problems, `roomType${n}ChildWithoutBedPrice`, `Room Type ${n} Child Without Bed Price`, childStr);
+  const currency = resolveCurrency(problems, `roomType${n}Currency`, `Room Type ${n} Currency`, currencyStr, 'INR');
+
+  const monthRates: RoomRateDraft['monthRates'] = [];
+  const maxMonthly = maxIndex(input, `roomType${n}Monthly`);
+  for (let m = 1; m <= maxMonthly; m++) {
+    const rate = resolveRoomMonthlyRate(input, n, m, problems, monthRates, currency);
+    if (rate) monthRates.push(rate);
+  }
+
+  const seasonRates: RoomRateDraft['seasonRates'] = [];
+  const maxSeasonal = maxIndex(input, `roomType${n}Season`);
+  for (let m = 1; m <= maxSeasonal; m++) {
+    const rate = resolveRoomSeasonalRate(input, n, m, problems, seasonRates, currency);
+    if (rate) seasonRates.push(rate);
+  }
+
+  const hasBaseContent = [name, description, basePriceStr, currencyStr, extraBedStr, childStr].some(
+    (s) => s !== '',
+  );
+  if (!hasBaseContent && monthRates.length === 0 && seasonRates.length === 0) return null;
+
+  return {
+    name,
+    description: description === '' ? null : description,
+    sellingPrice,
+    extraBedPrice,
+    childWithoutBedPrice,
+    currency,
+    monthRates,
+    seasonRates,
+  };
+}
+
+function resolveMealMonthlyRate(
+  input: Record<string, unknown>,
+  n: number,
+  m: number,
+  problems: Problem[],
+  monthRates: MealPlanDraft['monthRates'],
+  defaultCurrency: string,
+): MealPlanDraft['monthRates'][number] | null {
+  const monthStr = str(input, `mealPlan${n}Monthly${m}Month`);
+  const priceStr = str(input, `mealPlan${n}Monthly${m}Price`);
+  const curStr = str(input, `mealPlan${n}Monthly${m}Currency`);
+  const prefix = `Meal Plan ${n} Monthly Rate ${m}`;
+
+  if ([monthStr, priceStr, curStr].every((s) => s === '')) return null;
+
+  const month = parseMonth(monthStr);
+  if (!month) {
+    problems.push({
+      field: `mealPlan${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      value: monthStr || null,
+      message: `${prefix} Month "${monthStr}" is invalid (use a name or 1–12).`,
+    });
+  }
+  const price = money(problems, `mealPlan${n}Monthly${m}Price`, `${prefix} Price`, priceStr);
+  const currency = resolveCurrency(problems, `mealPlan${n}Monthly${m}Currency`, `${prefix} Currency`, curStr, defaultCurrency);
+
+  if (month && monthRates.some((r) => r.month === month)) {
+    problems.push({
+      field: `mealPlan${n}Monthly${m}Month`,
+      header: `${prefix} Month`,
+      value: monthStr,
+      message: `Duplicate monthly rate for Meal Plan ${n} in month ${month}.`,
+    });
+  }
+
+  return { month: month ?? 0, price, currency };
+}
+
+function resolveMealSeasonalRate(
+  input: Record<string, unknown>,
+  n: number,
+  m: number,
+  problems: Problem[],
+  seasonRates: MealPlanDraft['seasonRates'],
+  defaultCurrency: string,
+): MealPlanDraft['seasonRates'][number] | null {
+  const nameStr = str(input, `mealPlan${n}Season${m}Name`);
+  const startStr = str(input, `mealPlan${n}Season${m}StartDate`);
+  const endStr = str(input, `mealPlan${n}Season${m}EndDate`);
+  const priceStr = str(input, `mealPlan${n}Season${m}Price`);
+  const curStr = str(input, `mealPlan${n}Season${m}Currency`);
+  const prefix = `Meal Plan ${n} Seasonal Rate ${m}`;
+
+  if ([nameStr, startStr, endStr, priceStr, curStr].every((s) => s === '')) return null;
+
+  const startDate = parseDate(startStr);
+  const endDate = parseDate(endStr);
+  if (!startDate || !endDate) {
+    problems.push({
+      field: `mealPlan${n}Season${m}StartDate`,
+      header: `${prefix} Start Date`,
+      value: `${startStr}–${endStr}`,
+      message: `${prefix} dates must be DD-MM-YYYY (or YYYY-MM-DD).`,
+    });
+  } else if (endDate < startDate) {
+    problems.push({
+      field: `mealPlan${n}Season${m}EndDate`,
+      header: `${prefix} End Date`,
+      value: `${startStr}–${endStr}`,
+      message: `${prefix} end date is before the start date.`,
+    });
+  }
+  if (nameStr === '') {
+    problems.push({
+      field: `mealPlan${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: null,
+      message: `${prefix} requires a season name when the rate is used.`,
+    });
+  } else if (nameStr.length > 160) {
+    problems.push({
+      field: `mealPlan${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: nameStr,
+      message: `${prefix} season name must be 160 characters or fewer.`,
+    });
+  }
+  const price = money(problems, `mealPlan${n}Season${m}Price`, `${prefix} Price`, priceStr);
+  const currency = resolveCurrency(problems, `mealPlan${n}Season${m}Currency`, `${prefix} Currency`, curStr, defaultCurrency);
+
+  if (startDate && endDate && seasonRates.some((s) => startDate <= s.endDate && endDate >= s.startDate)) {
+    problems.push({
+      field: `mealPlan${n}Season${m}Name`,
+      header: `${prefix} Season Name`,
+      value: nameStr || null,
+      message: `${prefix} overlaps another season of Meal Plan ${n}.`,
+    });
+  }
+
+  return {
+    name: nameStr || `Season ${m}`,
+    startDate: startDate ?? new Date(0),
+    endDate: endDate ?? new Date(0),
+    price,
+    currency,
+  };
+}
+
+function resolveMealPlanGroup(
+  input: Record<string, unknown>,
+  n: number,
+  problems: Problem[],
+  seenMealNames: Set<string>,
+): MealPlanDraft | null {
+  const name = str(input, `mealPlan${n}`);
+  const description = str(input, `mealPlan${n}Description`);
+  const priceStr = str(input, `mealPlan${n}BasePrice`);
+  const currencyStr = str(input, `mealPlan${n}Currency`);
+
+  if (name === '') {
+    problems.push({
+      field: `mealPlan${n}`,
+      header: `Meal Plan ${n}`,
+      value: null,
+      message: `Meal Plan ${n} requires a name when the group is used.`,
+    });
+  } else if (name.length > 160) {
+    problems.push({
+      field: `mealPlan${n}`,
+      header: `Meal Plan ${n}`,
+      value: name,
+      message: `Meal Plan ${n} name must be 160 characters or fewer.`,
+    });
+  } else if (seenMealNames.has(normalizeCustomerName(name))) {
+    problems.push({
+      field: `mealPlan${n}`,
+      header: `Meal Plan ${n}`,
+      value: name,
+      message: `Duplicate meal plan "${name}" in this hotel row.`,
+    });
+  } else {
+    seenMealNames.add(normalizeCustomerName(name));
+  }
+  if (description.length > 2000) {
+    problems.push({
+      field: `mealPlan${n}Description`,
+      header: `Meal Plan ${n} Description`,
+      value: description,
+      message: `Meal Plan ${n} Description must be 2000 characters or fewer.`,
+    });
+  }
+
+  const price = money(problems, `mealPlan${n}BasePrice`, `Meal Plan ${n} Base Price`, priceStr);
+  const currency = resolveCurrency(problems, `mealPlan${n}Currency`, `Meal Plan ${n} Currency`, currencyStr, 'INR');
+
+  const monthRates: MealPlanDraft['monthRates'] = [];
+  const maxMonthly = maxIndex(input, `mealPlan${n}Monthly`);
+  for (let m = 1; m <= maxMonthly; m++) {
+    const rate = resolveMealMonthlyRate(input, n, m, problems, monthRates, currency);
+    if (rate) monthRates.push(rate);
+  }
+
+  const seasonRates: MealPlanDraft['seasonRates'] = [];
+  const maxSeasonal = maxIndex(input, `mealPlan${n}Season`);
+  for (let m = 1; m <= maxSeasonal; m++) {
+    const rate = resolveMealSeasonalRate(input, n, m, problems, seasonRates, currency);
+    if (rate) seasonRates.push(rate);
+  }
+
+  const hasBaseContent = [name, description, priceStr, currencyStr].some((s) => s !== '');
+  if (!hasBaseContent && monthRates.length === 0 && seasonRates.length === 0) return null;
+
+  return {
+    name,
+    description: description === '' ? null : description,
+    price,
+    currency,
+    monthRates,
+    seasonRates,
+  };
 }
 
 async function resolveDestinationCity(
@@ -392,6 +1173,7 @@ export const hotelAdapter = {
   permission: PERMISSIONS.MASTER_HOTELS_CREATE,
   columns: hotelColumns,
   zodSchema: hotelImportSchema,
+  resolveColumns: resolveHotelColumns,
   duplicateKeys: async (input: Record<string, unknown>, auth: AuthContext): Promise<UniquenessCheck[]> => {
     const resolved = await resolveDestinationCity(
       auth,
@@ -433,252 +1215,25 @@ export const hotelAdapter = {
       });
     }
 
-    // ---- Room Types (positional) -----------------------------------------
-    const roomTypeNames = splitValues(input.roomTypes);
-    const basePrices = splitValues(input.basePrices);
-    const extraBeds = splitValues(input.extraBedPrices);
-    const childWithoutBeds = splitValues(input.childWithoutBedPrices);
-    const roomCurrencyRaw = String(input.currency ?? '').trim().toUpperCase();
-    const roomCurrency = roomCurrencyRaw === '' ? 'INR' : roomCurrencyRaw;
-    if (roomCurrencyRaw !== '' && !/^[A-Z]{3}$/.test(roomCurrencyRaw)) {
-      problems.push({ field: 'currency', header: 'Currency', value: roomCurrencyRaw, message: 'Currency must be a three-letter code.' });
-    }
-
-    const seenRoomNames = new Set<string>();
+    // ---- Room Types: every Room Type N group present in the row -------------
     const roomTypes: RoomRateDraft[] = [];
-    if (roomTypeNames.length > 0) {
-      if (basePrices.length > 0 && basePrices.length !== roomTypeNames.length) {
-        problems.push({
-          field: 'basePrices',
-          header: 'Base Prices',
-          value: input.basePrices as string,
-          message: `Base Prices has ${basePrices.length} values but Room Types has ${roomTypeNames.length}.`,
-        });
-      }
-      if (extraBeds.length > 0 && extraBeds.length !== roomTypeNames.length) {
-        problems.push({
-          field: 'extraBedPrices',
-          header: 'Extra Bed Prices',
-          value: input.extraBedPrices as string,
-          message: `Extra Bed Prices has ${extraBeds.length} values but Room Types has ${roomTypeNames.length}.`,
-        });
-      }
-      if (childWithoutBeds.length > 0 && childWithoutBeds.length !== roomTypeNames.length) {
-        problems.push({
-          field: 'childWithoutBedPrices',
-          header: 'Child Without Bed Prices',
-          value: input.childWithoutBedPrices as string,
-          message: `Child Without Bed Prices has ${childWithoutBeds.length} values but Room Types has ${roomTypeNames.length}.`,
-        });
-      }
-      roomTypeNames.forEach((name, index) => {
-        if (seenRoomNames.has(normalizeCustomerName(name))) {
-          problems.push({
-            field: 'roomTypes',
-            header: 'Room Types',
-            value: name,
-            message: `Duplicate room type "${name}".`,
-          });
-        }
-        seenRoomNames.add(normalizeCustomerName(name));
-        const sell = basePrices[index] == null ? null : parseMoney(basePrices[index]!);
-        const extra = extraBeds[index] == null ? null : parseMoney(extraBeds[index]!);
-        const child = childWithoutBeds[index] == null ? null : parseMoney(childWithoutBeds[index]!);
-        if (sell !== null && Number.isNaN(sell)) {
-          problems.push({ field: 'basePrices', header: 'Base Prices', value: basePrices[index] ?? null, message: `Base price "${basePrices[index] ?? ''}" is not a valid number.` });
-        }
-        if (extra !== null && Number.isNaN(extra)) {
-          problems.push({ field: 'extraBedPrices', header: 'Extra Bed Prices', value: extraBeds[index] ?? null, message: `Extra bed price "${extraBeds[index] ?? ''}" is not a valid number.` });
-        }
-        if (child !== null && Number.isNaN(child)) {
-          problems.push({ field: 'childWithoutBedPrices', header: 'Child Without Bed Prices', value: childWithoutBeds[index] ?? null, message: `Child without bed price "${childWithoutBeds[index] ?? ''}" is not a valid number.` });
-        }
-        roomTypes.push({
-          name,
-          sellingPrice: sell !== null && Number.isNaN(sell) ? null : sell,
-          extraBedPrice: extra !== null && Number.isNaN(extra) ? null : extra,
-          childWithoutBedPrice: child !== null && Number.isNaN(child) ? null : child,
-          currency: roomCurrency,
-          monthRates: [],
-          seasonRates: [],
-        });
-      });
-    } else if (basePrices.length || extraBeds.length || childWithoutBeds.length) {
-      problems.push({ field: 'roomTypes', header: 'Room Types', value: null, message: 'Base/Extra/Child prices were provided but no Room Types were declared.' });
+    const seenRoomNames = new Set<string>();
+    const maxRoom = maxIndex(input, 'roomType');
+    for (let n = 1; n <= maxRoom; n++) {
+      const draft = resolveRoomTypeGroup(input, n, problems, seenRoomNames);
+      if (!draft) continue;
+      roomTypes.push(draft);
     }
 
-    const roomNameToIndex = new Map(roomTypes.map((r, i) => [normalizeCustomerName(r.name), i]));
-
-    // ---- Room Monthly Rates ----------------------------------------------
-    const roomMonthlyRates = splitValues(input.monthlyRates);
-    roomMonthlyRates.forEach((segment) => {
-      const parts = segment.split(':');
-      if (parts.length !== 6) {
-        problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: segment, message: 'Invalid Monthly Rate format. Use RoomType:Month:Price:ExtraBed:ChildWithoutBed:Currency.' });
-        return;
-      }
-      const [rtName, monthLabel, priceStr, extraStr, childStr, curStr] = parts as [string, string, string, string, string, string];
-      const roomIndex = roomNameToIndex.get(normalizeCustomerName(rtName));
-      if (roomIndex === undefined) {
-        problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: rtName, message: `Monthly rate references unknown room type "${rtName}".` });
-        return;
-      }
-      const month = parseMonth(monthLabel);
-      if (!month) {
-        problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: monthLabel, message: `Month "${monthLabel}" is invalid (use a name or 1–12).` });
-        return;
-      }
-      const price = parseMoney(priceStr);
-      const extra = parseMoney(extraStr);
-      const child = parseMoney(childStr);
-      const currency = normalizeCurrency(curStr);
-      if (price !== null && Number.isNaN(price)) { problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: priceStr, message: `Room price "${priceStr}" is not a valid number.` }); return; }
-      if (extra !== null && Number.isNaN(extra)) { problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: extraStr, message: `Extra bed price "${extraStr}" is not a valid number.` }); return; }
-      if (child !== null && Number.isNaN(child)) { problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: childStr, message: `Child without bed price "${childStr}" is not a valid number.` }); return; }
-      if (!currency) { problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: curStr, message: `Currency "${curStr}" is invalid.` }); return; }
-      const room = roomTypes[roomIndex]!;
-      if (room.monthRates.some((m) => m.month === month)) {
-        problems.push({ field: 'monthlyRates', header: 'Monthly Rates', value: segment, message: `Duplicate monthly rate for room type "${rtName}" in month ${month}.` });
-        return;
-      }
-      room.monthRates.push({ month, price, extraBedPrice: extra, childWithoutBedPrice: child, currency });
-    });
-
-    // ---- Room Seasonal Rates ---------------------------------------------
-    const roomSeasonalRates = splitValues(input.seasonalRates);
-    roomSeasonalRates.forEach((segment) => {
-      const parts = segment.split(':');
-      if (parts.length !== 8) {
-        problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: segment, message: 'Invalid Seasonal Rate format. Use RoomType:Season:Start:End:Price:ExtraBed:ChildWithoutBed:Currency (DD-MM-YYYY).' });
-        return;
-      }
-      const [rtName, seasonName, startStr, endStr, priceStr, extraStr, childStr, curStr] = parts as [string, string, string, string, string, string, string, string];
-      const roomIndex = roomNameToIndex.get(normalizeCustomerName(rtName));
-      if (roomIndex === undefined) {
-        problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: rtName, message: `Seasonal rate references unknown room type "${rtName}".` });
-        return;
-      }
-      const startDate = parseDate(startStr);
-      const endDate = parseDate(endStr);
-      if (!startDate || !endDate) {
-        problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: `${startStr}–${endStr}`, message: `Invalid dates (use DD-MM-YYYY).` });
-        return;
-      }
-      if (endDate < startDate) {
-        problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: segment, message: `Season end date is before the start date.` });
-        return;
-      }
-      const price = parseMoney(priceStr);
-      const extra = parseMoney(extraStr);
-      const child = parseMoney(childStr);
-      const currency = normalizeCurrency(curStr);
-      if (price !== null && Number.isNaN(price)) { problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: priceStr, message: `Room price "${priceStr}" is not a valid number.` }); return; }
-      if (extra !== null && Number.isNaN(extra)) { problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: extraStr, message: `Extra bed price "${extraStr}" is not a valid number.` }); return; }
-      if (child !== null && Number.isNaN(child)) { problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: childStr, message: `Child without bed price "${childStr}" is not a valid number.` }); return; }
-      if (!currency) { problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: curStr, message: `Currency "${curStr}" is invalid.` }); return; }
-      const room = roomTypes[roomIndex]!;
-      if (room.seasonRates.some((s) => startDate <= s.endDate && endDate >= s.startDate)) {
-        problems.push({ field: 'seasonalRates', header: 'Seasonal Rates', value: seasonName, message: `Season "${seasonName}" overlaps another season of room type "${rtName}".` });
-        return;
-      }
-      room.seasonRates.push({ name: seasonName, startDate, endDate, price, extraBedPrice: extra, childWithoutBedPrice: child, currency });
-    });
-
-    // ---- Meal Plans (positional) -----------------------------------------
-    const mealPlanNames = splitValues(input.mealPlans);
-    const mealDescriptions = splitValues(input.mealPlanDescriptions);
-    const mealPrices = splitValues(input.mealPlanPrices);
-    const mealCurrencies = splitValues(input.mealPlanCurrency);
-    const seenMealNames = new Set<string>();
+    // ---- Meal Plans: every Meal Plan N group present in the row -------------
     const mealPlans: MealPlanDraft[] = [];
-    if (mealPlanNames.length > 0) {
-      if (mealPrices.length > 0 && mealPrices.length !== mealPlanNames.length) {
-        problems.push({ field: 'mealPlanPrices', header: 'Meal Plan Prices', value: input.mealPlanPrices as string, message: `Meal Plan Prices has ${mealPrices.length} values but Meal Plans has ${mealPlanNames.length}.` });
-      }
-      mealPlanNames.forEach((name, index) => {
-        if (seenMealNames.has(normalizeCustomerName(name))) {
-          problems.push({ field: 'mealPlans', header: 'Meal Plans', value: name, message: `Duplicate meal plan "${name}".` });
-        }
-        seenMealNames.add(normalizeCustomerName(name));
-        const price = mealPrices[index] == null ? null : parseMoney(mealPrices[index]!);
-        if (price !== null && Number.isNaN(price)) {
-          problems.push({ field: 'mealPlanPrices', header: 'Meal Plan Prices', value: mealPrices[index] ?? null, message: `Meal plan price "${mealPrices[index] ?? ''}" is not a valid number.` });
-        }
-        const currencyRaw = mealCurrencies[index];
-        const currency = normalizeCurrency(currencyRaw ?? '');
-        if (currencyRaw != null && !currency) {
-          problems.push({ field: 'mealPlanCurrency', header: 'Meal Plan Currency', value: currencyRaw, message: `Currency "${currencyRaw}" is invalid.` });
-        }
-        mealPlans.push({
-          name,
-          description: mealDescriptions[index] != null ? mealDescriptions[index]!.trim() || null : null,
-          price: price !== null && Number.isNaN(price) ? null : price,
-          currency: currency ?? 'INR',
-          monthRates: [],
-          seasonRates: [],
-        });
-      });
-    } else if (mealPrices.length || mealDescriptions.length) {
-      problems.push({ field: 'mealPlans', header: 'Meal Plans', value: null, message: 'Meal plan prices/descriptions were provided but no Meal Plans were declared.' });
+    const seenMealNames = new Set<string>();
+    const maxMeal = maxIndex(input, 'mealPlan');
+    for (let n = 1; n <= maxMeal; n++) {
+      const draft = resolveMealPlanGroup(input, n, problems, seenMealNames);
+      if (!draft) continue;
+      mealPlans.push(draft);
     }
-
-    const mealNameToIndex = new Map(mealPlans.map((m, i) => [normalizeCustomerName(m.name), i]));
-
-    // ---- Meal Plan Monthly Rates -----------------------------------------
-    splitValues(input.mealPlanMonthlyRates).forEach((segment) => {
-      const parts = segment.split(':');
-      if (parts.length !== 4) {
-        problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: segment, message: 'Invalid Meal Plan Monthly Rate format. Use MealPlan:Month:Price:Currency.' });
-        return;
-      }
-      const [mpName, monthLabel, priceStr, curStr] = parts as [string, string, string, string];
-      const mealIndex = mealNameToIndex.get(normalizeCustomerName(mpName));
-      if (mealIndex === undefined) {
-        problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: mpName, message: `Meal plan monthly rate references unknown meal plan "${mpName}".` });
-        return;
-      }
-      const month = parseMonth(monthLabel);
-      if (!month) { problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: monthLabel, message: `Month "${monthLabel}" is invalid.` }); return; }
-      const price = parseMoney(priceStr);
-      if (price !== null && Number.isNaN(price)) { problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: priceStr, message: `Price "${priceStr}" is not a valid number.` }); return; }
-      const currency = normalizeCurrency(curStr);
-      if (!currency) { problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: curStr, message: `Currency "${curStr}" is invalid.` }); return; }
-      const meal = mealPlans[mealIndex]!;
-      if (meal.monthRates.some((m) => m.month === month)) {
-        problems.push({ field: 'mealPlanMonthlyRates', header: 'Meal Plan Monthly Rates', value: segment, message: `Duplicate monthly rate for meal plan "${mpName}" in month ${month}.` });
-        return;
-      }
-      meal.monthRates.push({ month, price, currency });
-    });
-
-    // ---- Meal Plan Seasonal Rates ----------------------------------------
-    splitValues(input.mealPlanSeasonalRates).forEach((segment) => {
-      const parts = segment.split(':');
-      if (parts.length !== 6) {
-        problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: segment, message: 'Invalid Meal Plan Seasonal Rate format. Use MealPlan:Season:Start:End:Price:Currency (DD-MM-YYYY).' });
-        return;
-      }
-      const [mpName, seasonName, startStr, endStr, priceStr, curStr] = parts as [string, string, string, string, string, string];
-      const mealIndex = mealNameToIndex.get(normalizeCustomerName(mpName));
-      if (mealIndex === undefined) {
-        problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: mpName, message: `Meal plan seasonal rate references unknown meal plan "${mpName}".` });
-        return;
-      }
-      const startDate = parseDate(startStr);
-      const endDate = parseDate(endStr);
-      if (!startDate || !endDate) { problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: `${startStr}–${endStr}`, message: `Invalid dates (use DD-MM-YYYY).` }); return; }
-      if (endDate < startDate) { problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: segment, message: `Season end date is before the start date.` }); return; }
-      const price = parseMoney(priceStr);
-      if (price !== null && Number.isNaN(price)) { problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: priceStr, message: `Price "${priceStr}" is not a valid number.` }); return; }
-      const currency = normalizeCurrency(curStr);
-      if (!currency) { problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: curStr, message: `Currency "${curStr}" is invalid.` }); return; }
-      const meal = mealPlans[mealIndex]!;
-      if (meal.seasonRates.some((s) => startDate <= s.endDate && endDate >= s.startDate)) {
-        problems.push({ field: 'mealPlanSeasonalRates', header: 'Meal Plan Seasonal Rates', value: seasonName, message: `Season "${seasonName}" overlaps another season of meal plan "${mpName}".` });
-        return;
-      }
-      meal.seasonRates.push({ name: seasonName, startDate, endDate, price, currency });
-    });
 
     return {
       resolved: {
@@ -706,7 +1261,6 @@ export const hotelAdapter = {
 
     const roomTypes = (input.roomTypes as RoomRateDraft[]) ?? [];
     const mealPlans = (input.mealPlans as MealPlanDraft[]) ?? [];
-    const currency = String(input.currency ?? '').trim().toUpperCase() || 'INR';
 
     const created = await tx.hotel.create({
       data: {
@@ -723,7 +1277,7 @@ export const hotelAdapter = {
         reviewLink: blankToNull(input.reviewLink),
         description: sanitizeRichText(blankToNull(input.description)),
         amenities: sanitizeRichText(blankToNull(input.amenities)),
-        currency,
+        currency: String(input.currency ?? '').trim().toUpperCase() || 'INR',
       },
     });
 

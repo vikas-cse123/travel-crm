@@ -1886,391 +1886,690 @@ describe('excel import', () => {
   });
 
   describe('hotel import', () => {
-    const HOTEL_HEADERS = [
-      'Hotel Name',
-      'Destination',
-      'City',
-      'Address',
-      'Star Category',
-      'Star Rating',
-      'Review Link',
-      'Description',
-      'Amenities',
-      'Room Types',
-      'Base Prices',
-      'Extra Bed Prices',
-      'Child Without Bed Prices',
-      'Currency',
-      'Monthly Rates',
-      'Seasonal Rates',
-      'Meal Plans',
-      'Meal Plan Descriptions',
-      'Meal Plan Prices',
-      'Meal Plan Currency',
-      'Meal Plan Monthly Rates',
-      'Meal Plan Seasonal Rates',
-    ];
+      const HOTEL_BASE_HEADERS = [
+        'Hotel Name',
+        'Destination',
+        'City',
+        'Address',
+        'Star Category',
+        'Star Rating',
+        'Review Link',
+        'Description',
+        'Amenities',
+      ];
 
-    function hotelRow(partial: Record<string, string>): Record<string, string> {
-      const row: Record<string, string> = {};
-      for (const header of HOTEL_HEADERS) row[header] = partial[header] ?? '';
-      return row;
-    }
-
-    async function makeHotelBase(email: string, companyId: string) {
-      const { citiesService, destinationsService } = await import('../src/modules/masters/masters.service.js');
-      const user = await db.user.findFirst({ where: { normalizedEmail: email } });
-      const auth = { companyId, userId: user!.id } as never;
-      const context = { ipAddress: null, userAgent: null };
-      const goa = await citiesService.create(auth, { name: 'Goa', countryCode: 'IN', airportCode: 'GOI', status: 'ACTIVE' }, context);
-      const destination = await destinationsService.create(
-        auth,
-        { countryCode: 'IN', name: 'Goa', destinationType: 'DOMESTIC', cityIds: [String(goa.id)], status: 'ACTIVE' },
-        context,
-      );
-      return { goaId: String(goa.id), destinationId: String(destination.id) };
-    }
-
-    async function importedHotel(companyId: string, name: string) {
-      return db.hotel.findFirst({ where: { companyId, name } });
-    }
-
-    it('generates a hotel template with exactly the expected columns and no image/status/internal columns', async () => {
-      const { generateTemplate } = await import('../src/modules/masters/excel-import/template.service.js');
-      const { hotelAdapter } = await import('../src/modules/masters/excel-import/adapters/hotel.adapter.js');
-      expect(hotelAdapter.columns.map((c) => c.header)).toEqual(HOTEL_HEADERS);
-      const buf = await generateTemplate('HOTEL');
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
-      const sheet = wb.getWorksheet('Data');
-      const values = (sheet!.getRow(1).values as unknown[]) as unknown[];
-      expect(values.slice(1).map((v) => String(v))).toEqual(HOTEL_HEADERS);
-      for (const header of HOTEL_HEADERS) {
-        const lower = header.toLowerCase();
-        expect(lower).not.toContain('image');
-        expect(lower).not.toContain('status');
-        expect(lower).not.toContain(' id');
+      function roomTypeHeaders(n: number, monthlyCount = 0, seasonalCount = 0): string[] {
+        const headers = [
+          `Room Type ${n}`,
+          `Room Type ${n} Description`,
+          `Room Type ${n} Base Price`,
+          `Room Type ${n} Currency`,
+          `Room Type ${n} Extra Bed Price`,
+          `Room Type ${n} Child Without Bed Price`,
+        ];
+        for (let m = 1; m <= monthlyCount; m++) {
+          headers.push(
+            `Room Type ${n} Monthly Rate ${m} Month`,
+            `Room Type ${n} Monthly Rate ${m} Room`,
+            `Room Type ${n} Monthly Rate ${m} Extra Bed`,
+            `Room Type ${n} Monthly Rate ${m} Child Without Bed`,
+            `Room Type ${n} Monthly Rate ${m} Currency`,
+          );
+        }
+        for (let m = 1; m <= seasonalCount; m++) {
+          headers.push(
+            `Room Type ${n} Seasonal Rate ${m} Season Name`,
+            `Room Type ${n} Seasonal Rate ${m} Start Date`,
+            `Room Type ${n} Seasonal Rate ${m} End Date`,
+            `Room Type ${n} Seasonal Rate ${m} Room`,
+            `Room Type ${n} Seasonal Rate ${m} Extra Bed`,
+            `Room Type ${n} Seasonal Rate ${m} Child Without Bed`,
+            `Room Type ${n} Seasonal Rate ${m} Currency`,
+          );
+        }
+        return headers;
       }
-      expect(wb.getWorksheet('Instructions')).toBeTruthy();
-    });
 
-    it('imports one hotel with one room type (base, extra bed, child without bed)', async () => {
-      await owner('hotel-one@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-one@excel.test' } });
-      await makeHotelBase('hotel-one@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Taj Goa',
-            Destination: 'Goa',
-            City: 'Goa',
-            Address: 'Baga Beach',
-            'Star Category': '5',
-            'Star Rating': '4.5',
-            Description: 'Luxury resort',
-            Amenities: 'Pool, Spa',
-            'Room Types': 'Deluxe',
-            'Base Prices': '8000',
-            'Extra Bed Prices': '2000',
-            'Child Without Bed Prices': '1000',
-            Currency: 'INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
-      const hotel = await importedHotel(user!.companyId, 'Taj Goa');
-      expect(hotel).toMatchObject({ starCategory: 5, address: 'Baga Beach', currency: 'INR' });
-      const room = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id } });
-      expect(room).toMatchObject({ name: 'Deluxe', currency: 'INR' });
-      expect(Number(room!.sellingPrice)).toBe(8000);
-      expect(Number(room!.extraBedPrice)).toBe(2000);
-      expect(Number(room!.childWithoutBedPrice)).toBe(1000);
-    });
+      function mealPlanHeaders(n: number, monthlyCount = 0, seasonalCount = 0): string[] {
+        const headers = [
+          `Meal Plan ${n}`,
+          `Meal Plan ${n} Description`,
+          `Meal Plan ${n} Base Price`,
+          `Meal Plan ${n} Currency`,
+        ];
+        for (let m = 1; m <= monthlyCount; m++) {
+          headers.push(
+            `Meal Plan ${n} Monthly Rate ${m} Month`,
+            `Meal Plan ${n} Monthly Rate ${m} Price`,
+            `Meal Plan ${n} Monthly Rate ${m} Currency`,
+          );
+        }
+        for (let m = 1; m <= seasonalCount; m++) {
+          headers.push(
+            `Meal Plan ${n} Seasonal Rate ${m} Season Name`,
+            `Meal Plan ${n} Seasonal Rate ${m} Start Date`,
+            `Meal Plan ${n} Seasonal Rate ${m} End Date`,
+            `Meal Plan ${n} Seasonal Rate ${m} Price`,
+            `Meal Plan ${n} Seasonal Rate ${m} Currency`,
+          );
+        }
+        return headers;
+      }
 
-    it('imports one hotel with multiple room types and meal plans (no duplicate hotels)', async () => {
-      await owner('hotel-multi@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-multi@excel.test' } });
-      await makeHotelBase('hotel-multi@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Grand Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'Deluxe | Suite | Executive',
-            'Base Prices': '8000 | 12000 | 15000',
-            'Extra Bed Prices': '2000 | 3000 | 3500',
-            'Child Without Bed Prices': '1000 | 1500 | 1800',
-            Currency: 'INR',
-            'Meal Plans': 'Breakfast | Half Board | Full Board',
-            'Meal Plan Descriptions': 'Breakfast included | Breakfast and dinner included | All meals included',
-            'Meal Plan Prices': '1200 | 2500 | 3500',
-            'Meal Plan Currency': 'INR | INR | INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
-      const hotel = await importedHotel(user!.companyId, 'Grand Hotel');
-      const rooms = await db.hotelRoomType.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
-      expect(rooms.map((r) => r.name)).toEqual(['Deluxe', 'Suite', 'Executive']);
-      expect(Number(rooms[1]!.sellingPrice)).toBe(12000);
-      expect(Number(rooms[2]!.extraBedPrice)).toBe(3500);
-      expect(Number(rooms[2]!.childWithoutBedPrice)).toBe(1800);
-      const meals = await db.hotelMealPlan.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
-      expect(meals.map((m) => m.name)).toEqual(['Breakfast', 'Half Board', 'Full Board']);
-      expect(Number(meals[1]!.sellingPrice)).toBe(2500);
-    });
+      function hotelHeaders(opts: {
+        rooms: number;
+        roomMonthly?: number;
+        roomSeasonal?: number;
+        meals: number;
+        mealMonthly?: number;
+        mealSeasonal?: number;
+      }): string[] {
+        const headers = [...HOTEL_BASE_HEADERS];
+        for (let n = 1; n <= opts.rooms; n++) {
+          headers.push(...roomTypeHeaders(n, opts.roomMonthly ?? 0, opts.roomSeasonal ?? 0));
+        }
+        for (let n = 1; n <= opts.meals; n++) {
+          headers.push(...mealPlanHeaders(n, opts.mealMonthly ?? 0, opts.mealSeasonal ?? 0));
+        }
+        return headers;
+      }
 
-    it('imports room-type monthly and seasonal rates with extra bed and child-without-bed', async () => {
-      await owner('hotel-rates@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-rates@excel.test' } });
-      await makeHotelBase('hotel-rates@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Rated Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'Deluxe | Suite',
-            'Monthly Rates': 'Deluxe:May:8500:2000:1000:INR | Deluxe:June:9000:2200:1100:INR | Suite:May:13000:3000:1500:INR',
-            'Seasonal Rates': 'Deluxe:Summer:01-05-2026:30-06-2026:10000:2500:1200:INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      const hotel = await importedHotel(user!.companyId, 'Rated Hotel');
-      const deluxe = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id, name: 'Deluxe' } });
-      const suite = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id, name: 'Suite' } });
-      const deluxeMonths = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: deluxe!.id }, orderBy: { month: 'asc' } });
-      expect(deluxeMonths.map((m) => m.month)).toEqual([5, 6]);
-      expect(Number(deluxeMonths[0]!.price)).toBe(8500);
-      expect(Number(deluxeMonths[0]!.extraBedPrice)).toBe(2000);
-      expect(Number(deluxeMonths[0]!.childWithoutBedPrice)).toBe(1000);
-      const suiteMonths = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: suite!.id } });
-      expect(suiteMonths).toHaveLength(1);
-      const deluxeSeasons = await db.hotelRoomTypeSeason.findMany({ where: { hotelRoomTypeId: deluxe!.id } });
-      expect(deluxeSeasons).toHaveLength(1);
-      expect(deluxeSeasons[0]).toMatchObject({ name: 'Summer', currency: 'INR' });
-      expect(Number(deluxeSeasons[0]!.extraBedPrice)).toBe(2500);
-      expect(Number(deluxeSeasons[0]!.childWithoutBedPrice)).toBe(1200);
-    });
+      interface TestRoom {
+        name?: string;
+        description?: string;
+        basePrice?: string;
+        currency?: string;
+        extraBed?: string;
+        childWithoutBed?: string;
+        monthlyRates?: Array<{ month?: string; room?: string; extraBed?: string; childWithoutBed?: string; currency?: string }>;
+        seasonalRates?: Array<{ name?: string; startDate?: string; endDate?: string; room?: string; extraBed?: string; childWithoutBed?: string; currency?: string }>;
+      }
 
-    it('imports meal-plan monthly and seasonal rates', async () => {
-      await owner('hotel-meal-rates@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-meal-rates@excel.test' } });
-      await makeHotelBase('hotel-meal-rates@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Meal Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Meal Plans': 'Breakfast | Half Board',
-            'Meal Plan Monthly Rates': 'Breakfast:May:1200:INR | Breakfast:June:1400:INR | Half Board:May:2500:INR',
-            'Meal Plan Seasonal Rates': 'Breakfast:Summer:01-05-2026:30-06-2026:1500:INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      const hotel = await importedHotel(user!.companyId, 'Meal Hotel');
-      const breakfast = await db.hotelMealPlan.findFirst({ where: { hotelId: hotel!.id, name: 'Breakfast' } });
-      const halfBoard = await db.hotelMealPlan.findFirst({ where: { hotelId: hotel!.id, name: 'Half Board' } });
-      const breakfastMonths = await db.hotelMealPlanMonthPrice.findMany({ where: { hotelMealPlanId: breakfast!.id }, orderBy: { month: 'asc' } });
-      expect(breakfastMonths.map((m) => m.month)).toEqual([5, 6]);
-      expect(Number(breakfastMonths[0]!.price)).toBe(1200);
-      expect((await db.hotelMealPlanMonthPrice.findMany({ where: { hotelMealPlanId: halfBoard!.id } }))).toHaveLength(1);
-      const breakfastSeasons = await db.hotelMealPlanSeason.findMany({ where: { hotelMealPlanId: breakfast!.id } });
-      expect(breakfastSeasons).toHaveLength(1);
-      expect(Number(breakfastSeasons[0]!.price)).toBe(1500);
-    });
+      interface TestMeal {
+        name?: string;
+        description?: string;
+        basePrice?: string;
+        currency?: string;
+        monthlyRates?: Array<{ month?: string; price?: string; currency?: string }>;
+        seasonalRates?: Array<{ name?: string; startDate?: string; endDate?: string; price?: string; currency?: string }>;
+      }
 
-    it('imports a hotel with no optional rates or meal plans', async () => {
-      await owner('hotel-min@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-min@excel.test' } });
-      await makeHotelBase('hotel-min@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [hotelRow({ 'Hotel Name': 'Minimal Hotel', Destination: 'Goa', City: 'Goa' })],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      const hotel = await importedHotel(user!.companyId, 'Minimal Hotel');
-      expect(hotel).toMatchObject({ status: 'ACTIVE', currency: 'INR' });
-      expect(await db.hotelRoomType.count({ where: { hotelId: hotel!.id } })).toBe(0);
-      expect(await db.hotelMealPlan.count({ where: { hotelId: hotel!.id } })).toBe(0);
-    });
+      function hotelRow(base: Record<string, string>, rooms: TestRoom[] = [], meals: TestMeal[] = []): Record<string, string> {
+        const row = { ...base };
+        rooms.forEach((room, i) => {
+          const n = i + 1;
+          if (room.name !== undefined) row[`Room Type ${n}`] = room.name;
+          if (room.description !== undefined) row[`Room Type ${n} Description`] = room.description;
+          if (room.basePrice !== undefined) row[`Room Type ${n} Base Price`] = room.basePrice;
+          if (room.currency !== undefined) row[`Room Type ${n} Currency`] = room.currency;
+          if (room.extraBed !== undefined) row[`Room Type ${n} Extra Bed Price`] = room.extraBed;
+          if (room.childWithoutBed !== undefined) row[`Room Type ${n} Child Without Bed Price`] = room.childWithoutBed;
+          room.monthlyRates?.forEach((rate, m) => {
+            const mi = m + 1;
+            if (rate.month !== undefined) row[`Room Type ${n} Monthly Rate ${mi} Month`] = rate.month;
+            if (rate.room !== undefined) row[`Room Type ${n} Monthly Rate ${mi} Room`] = rate.room;
+            if (rate.extraBed !== undefined) row[`Room Type ${n} Monthly Rate ${mi} Extra Bed`] = rate.extraBed;
+            if (rate.childWithoutBed !== undefined) row[`Room Type ${n} Monthly Rate ${mi} Child Without Bed`] = rate.childWithoutBed;
+            if (rate.currency !== undefined) row[`Room Type ${n} Monthly Rate ${mi} Currency`] = rate.currency;
+          });
+          room.seasonalRates?.forEach((rate, m) => {
+            const mi = m + 1;
+            if (rate.name !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Season Name`] = rate.name;
+            if (rate.startDate !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Start Date`] = rate.startDate;
+            if (rate.endDate !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} End Date`] = rate.endDate;
+            if (rate.room !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Room`] = rate.room;
+            if (rate.extraBed !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Extra Bed`] = rate.extraBed;
+            if (rate.childWithoutBed !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Child Without Bed`] = rate.childWithoutBed;
+            if (rate.currency !== undefined) row[`Room Type ${n} Seasonal Rate ${mi} Currency`] = rate.currency;
+          });
+        });
+        meals.forEach((meal, i) => {
+          const n = i + 1;
+          if (meal.name !== undefined) row[`Meal Plan ${n}`] = meal.name;
+          if (meal.description !== undefined) row[`Meal Plan ${n} Description`] = meal.description;
+          if (meal.basePrice !== undefined) row[`Meal Plan ${n} Base Price`] = meal.basePrice;
+          if (meal.currency !== undefined) row[`Meal Plan ${n} Currency`] = meal.currency;
+          meal.monthlyRates?.forEach((rate, m) => {
+            const mi = m + 1;
+            if (rate.month !== undefined) row[`Meal Plan ${n} Monthly Rate ${mi} Month`] = rate.month;
+            if (rate.price !== undefined) row[`Meal Plan ${n} Monthly Rate ${mi} Price`] = rate.price;
+            if (rate.currency !== undefined) row[`Meal Plan ${n} Monthly Rate ${mi} Currency`] = rate.currency;
+          });
+          meal.seasonalRates?.forEach((rate, m) => {
+            const mi = m + 1;
+            if (rate.name !== undefined) row[`Meal Plan ${n} Seasonal Rate ${mi} Season Name`] = rate.name;
+            if (rate.startDate !== undefined) row[`Meal Plan ${n} Seasonal Rate ${mi} Start Date`] = rate.startDate;
+            if (rate.endDate !== undefined) row[`Meal Plan ${n} Seasonal Rate ${mi} End Date`] = rate.endDate;
+            if (rate.price !== undefined) row[`Meal Plan ${n} Seasonal Rate ${mi} Price`] = rate.price;
+            if (rate.currency !== undefined) row[`Meal Plan ${n} Seasonal Rate ${mi} Currency`] = rate.currency;
+          });
+        });
+        return row;
+      }
 
-    it('rejects duplicate hotels against the database', async () => {
-      await owner('hotel-dup@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-dup@excel.test' } });
-      await makeHotelBase('hotel-dup@excel.test', user!.companyId);
-      const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const headers = HOTEL_HEADERS;
-      const buf = await createWorkbook([hotelRow({ 'Hotel Name': 'Dup Hotel', Destination: 'Goa', City: 'Goa' })], headers);
-      const auth = authOf(user!);
-      const first = await executeImport(buf, 'HOTEL', auth, { ipAddress: null, userAgent: null });
-      expect(first.createdCount).toBe(1);
-      const preview = await previewImport(buf, 'HOTEL', auth);
-      expect(preview.invalidCount).toBe(1);
-      expect(preview.rows[0]!.errors.some((e) => /already exists/i.test(e.message))).toBe(true);
-      const second = await executeImport(buf, 'HOTEL', auth, { ipAddress: null, userAgent: null });
-      expect(second.createdCount).toBe(0);
-    });
+      async function makeHotelBase(email: string, companyId: string) {
+        const { citiesService, destinationsService } = await import('../src/modules/masters/masters.service.js');
+        const user = await db.user.findFirst({ where: { normalizedEmail: email } });
+        const auth = { companyId, userId: user!.id } as never;
+        const context = { ipAddress: null, userAgent: null };
+        const goa = await citiesService.create(auth, { name: 'Goa', countryCode: 'IN', airportCode: 'GOI', status: 'ACTIVE' }, context);
+        const destination = await destinationsService.create(
+          auth,
+          { countryCode: 'IN', name: 'Goa', destinationType: 'DOMESTIC', cityIds: [String(goa.id)], status: 'ACTIVE' },
+          context,
+        );
+        return { goaId: String(goa.id), destinationId: String(destination.id) };
+      }
 
-    it('detects duplicate room types, meal plans and monthly rates in one row', async () => {
-      await owner('hotel-nested-dup@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-nested-dup@excel.test' } });
-      await makeHotelBase('hotel-nested-dup@excel.test', user!.companyId);
-      const { previewImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Nested Dup',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'Deluxe | Deluxe',
-            'Base Prices': '100 | 200',
-            'Meal Plans': 'Breakfast | Breakfast',
-            'Meal Plan Monthly Rates': 'Breakfast:May:1200:INR | Breakfast:May:1400:INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const preview = await previewImport(buf, 'HOTEL', authOf(user!));
-      expect(preview.invalidCount).toBe(1);
-      const errors = preview.rows[0]!.errors;
-      expect(errors.some((e) => /Duplicate room type/i.test(e.message))).toBe(true);
-      expect(errors.some((e) => /Duplicate meal plan/i.test(e.message))).toBe(true);
-      expect(errors.some((e) => /Duplicate monthly rate/i.test(e.message))).toBe(true);
-    });
+      async function importedHotel(companyId: string, name: string) {
+        return db.hotel.findFirst({ where: { companyId, name } });
+      }
 
-    it('rejects overlapping seasonal rates for the same room type', async () => {
-      await owner('hotel-overlap@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-overlap@excel.test' } });
-      await makeHotelBase('hotel-overlap@excel.test', user!.companyId);
-      const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Overlap Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'Deluxe',
-            'Seasonal Rates': 'Deluxe:Summer:01-05-2026:30-06-2026:10000:2000:1000:INR | Deluxe:Peak:15-05-2026:15-06-2026:12000:2500:1200:INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const preview = await previewImport(buf, 'HOTEL', authOf(user!));
-      expect(preview.invalidCount).toBe(1);
-      expect(preview.rows[0]!.errors.some((e) => /overlap/i.test(e.message))).toBe(true);
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(0);
-    });
+      it('generates a hotel template with the base columns plus Room Type 1 & 2 and Meal Plan 1 & 2 groups, and no image/status/internal columns', async () => {
+        const { generateTemplate } = await import('../src/modules/masters/excel-import/template.service.js');
+        const { hotelAdapter } = await import('../src/modules/masters/excel-import/adapters/hotel.adapter.js');
+        const expected = [
+          ...HOTEL_BASE_HEADERS,
+          ...roomTypeHeaders(1, 1, 1),
+          ...roomTypeHeaders(2, 1, 1),
+          ...mealPlanHeaders(1, 1, 1),
+          ...mealPlanHeaders(2, 1, 1),
+        ];
+        expect(hotelAdapter.columns.map((c) => c.header)).toEqual(expected);
+        const buf = await generateTemplate('HOTEL');
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
+        const sheet = wb.getWorksheet('Data');
+        const values = (sheet!.getRow(1).values as unknown[]) as unknown[];
+        expect(values.slice(1).map((v) => String(v))).toEqual(expected);
+        for (const header of expected) {
+          const lower = header.toLowerCase();
+          expect(lower).not.toContain('image');
+          expect(lower).not.toContain('status');
+          expect(lower).not.toContain(' id');
+        }
+        expect(wb.getWorksheet('Instructions')).toBeTruthy();
+      });
 
-    it('rejects invalid nested data (unknown room type, invalid month, invalid dates)', async () => {
-      await owner('hotel-invalid@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-invalid@excel.test' } });
-      await makeHotelBase('hotel-invalid@excel.test', user!.companyId);
-      const { previewImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Invalid Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'Deluxe',
-            'Monthly Rates': 'UnknownRoom:May:100:50:20:INR',
-            'Seasonal Rates': 'Deluxe:Summer:not-a-date:30-06-2026:10000:2000:1000:INR',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const preview = await previewImport(buf, 'HOTEL', authOf(user!));
-      expect(preview.invalidCount).toBe(1);
-      const errors = preview.rows[0]!.errors;
-      expect(errors.some((e) => /unknown room type/i.test(e.message))).toBe(true);
-      expect(errors.some((e) => /invalid dates/i.test(e.message))).toBe(true);
-    });
+      it('imports one hotel with 1 room type (base, extra bed, child without bed)', async () => {
+        await owner('hotel-one@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-one@excel.test' } });
+        await makeHotelBase('hotel-one@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, meals: 0 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              {
+                'Hotel Name': 'Taj Goa',
+                Destination: 'Goa',
+                City: 'Goa',
+                Address: 'Baga Beach',
+                'Star Category': '5',
+                'Star Rating': '4.5',
+                Description: 'Luxury resort',
+                Amenities: 'Pool, Spa',
+              },
+              [{ name: 'Deluxe', basePrice: '8000', extraBed: '2000', childWithoutBed: '1000', currency: 'INR' }],
+            ),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Taj Goa');
+        expect(hotel).toMatchObject({ starCategory: 5, address: 'Baga Beach', currency: 'INR' });
+        const room = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id } });
+        expect(room).toMatchObject({ name: 'Deluxe', currency: 'INR' });
+        expect(Number(room!.sellingPrice)).toBe(8000);
+        expect(Number(room!.extraBedPrice)).toBe(2000);
+        expect(Number(room!.childWithoutBedPrice)).toBe(1000);
+      });
 
-    it('partially imports valid hotel rows and skips invalid ones', async () => {
-      await owner('hotel-partial@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-partial@excel.test' } });
-      await makeHotelBase('hotel-partial@excel.test', user!.companyId);
-      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({ 'Hotel Name': 'Good One', Destination: 'Goa', City: 'Goa' }),
-          hotelRow({ 'Hotel Name': 'Good Two', Destination: 'Goa', City: 'Goa' }),
-          hotelRow({ 'Hotel Name': 'Bad Three', Destination: 'Atlantis', City: 'Goa' }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(2);
-      expect(result.skippedCount).toBe(1);
-      expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(2);
-    });
+      it('imports one hotel with exactly 2 room types', async () => {
+        await owner('hotel-two@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-two@excel.test' } });
+        await makeHotelBase('hotel-two@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 2, meals: 0 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Two Room Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                { name: 'Deluxe', basePrice: '8000', currency: 'INR' },
+                { name: 'Suite', basePrice: '12000', currency: 'INR' },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Two Room Hotel');
+        const rooms = await db.hotelRoomType.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
+        expect(rooms.map((r) => r.name)).toEqual(['Deluxe', 'Suite']);
+        expect(Number(rooms[1]!.sellingPrice)).toBe(12000);
+      });
 
-    it('isolates tenants so city resolution only sees the caller company', async () => {
-      await owner('hotel-tenant-a@excel.test');
-      await owner('hotel-tenant-b@excel.test');
-      const userA = await db.user.findFirst({ where: { normalizedEmail: 'hotel-tenant-a@excel.test' } });
-      const userB = await db.user.findFirst({ where: { normalizedEmail: 'hotel-tenant-b@excel.test' } });
-      await makeHotelBase('hotel-tenant-a@excel.test', userA!.companyId);
-      const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook([hotelRow({ 'Hotel Name': 'Shared', Destination: 'Goa', City: 'Goa' })], HOTEL_HEADERS);
-      const previewA = await previewImport(buf, 'HOTEL', authOf(userA!));
-      expect(previewA.validCount).toBe(1);
-      const previewB = await previewImport(buf, 'HOTEL', authOf(userB!));
-      expect(previewB.invalidCount).toBe(1);
-      const resultA = await executeImport(buf, 'HOTEL', authOf(userA!), { ipAddress: null, userAgent: null });
-      expect(resultA.createdCount).toBe(1);
-      const resultB = await executeImport(buf, 'HOTEL', authOf(userB!), { ipAddress: null, userAgent: null });
-      expect(resultB.createdCount).toBe(0);
-      expect(await db.hotel.count({ where: { companyId: userB!.companyId } })).toBe(0);
-    });
+      it('imports one hotel with 3 room types and multiple meal plans (no duplicate hotels)', async () => {
+        await owner('hotel-multi@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-multi@excel.test' } });
+        await makeHotelBase('hotel-multi@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 3, meals: 3 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Grand Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                { name: 'Deluxe', basePrice: '8000', extraBed: '2000', childWithoutBed: '1000', currency: 'INR' },
+                { name: 'Suite', basePrice: '12000', extraBed: '3000', childWithoutBed: '1500', currency: 'INR' },
+                { name: 'Executive', basePrice: '15000', extraBed: '3500', childWithoutBed: '1800', currency: 'INR' },
+              ],
+              [
+                { name: 'Breakfast', description: 'Breakfast included', basePrice: '1200', currency: 'INR' },
+                { name: 'Half Board', description: 'Breakfast and dinner included', basePrice: '2500', currency: 'INR' },
+                { name: 'Full Board', description: 'All meals included', basePrice: '3500', currency: 'INR' },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Grand Hotel');
+        const rooms = await db.hotelRoomType.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
+        expect(rooms.map((r) => r.name)).toEqual(['Deluxe', 'Suite', 'Executive']);
+        expect(Number(rooms[1]!.sellingPrice)).toBe(12000);
+        expect(Number(rooms[2]!.extraBedPrice)).toBe(3500);
+        expect(Number(rooms[2]!.childWithoutBedPrice)).toBe(1800);
+        const meals = await db.hotelMealPlan.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
+        expect(meals.map((m) => m.name)).toEqual(['Breakfast', 'Half Board', 'Full Board']);
+        expect(Number(meals[1]!.sellingPrice)).toBe(2500);
+      });
 
-    it('keeps preview and actual import consistent (one row = one hotel)', async () => {
-      await owner('hotel-consistent@excel.test');
-      const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-consistent@excel.test' } });
-      await makeHotelBase('hotel-consistent@excel.test', user!.companyId);
-      const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
-      const buf = await createWorkbook(
-        [
-          hotelRow({
-            'Hotel Name': 'Consistent Hotel',
-            Destination: 'Goa',
-            City: 'Goa',
-            'Room Types': 'A | B | C',
-            'Base Prices': '100 | 200 | 300',
-            'Meal Plans': 'Breakfast | Lunch',
-          }),
-        ],
-        HOTEL_HEADERS,
-      );
-      const preview = await previewImport(buf, 'HOTEL', authOf(user!));
-      expect(preview.validCount).toBe(1);
-      const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
-      expect(result.createdCount).toBe(1);
-      expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+      it('imports room-type monthly and seasonal rates with extra bed and child-without-bed', async () => {
+        await owner('hotel-rates@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-rates@excel.test' } });
+        await makeHotelBase('hotel-rates@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 2, roomMonthly: 2, roomSeasonal: 1, meals: 0 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Rated Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                {
+                  name: 'Deluxe',
+                  monthlyRates: [
+                    { month: 'May', room: '8500', extraBed: '2000', childWithoutBed: '1000', currency: 'INR' },
+                    { month: 'June', room: '9000', extraBed: '2200', childWithoutBed: '1100', currency: 'INR' },
+                  ],
+                  seasonalRates: [
+                    { name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', room: '10000', extraBed: '2500', childWithoutBed: '1200', currency: 'INR' },
+                  ],
+                },
+                {
+                  name: 'Suite',
+                  monthlyRates: [{ month: 'May', room: '13000', extraBed: '3000', childWithoutBed: '1500', currency: 'INR' }],
+                },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Rated Hotel');
+        const deluxe = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id, name: 'Deluxe' } });
+        const suite = await db.hotelRoomType.findFirst({ where: { hotelId: hotel!.id, name: 'Suite' } });
+        const deluxeMonths = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: deluxe!.id }, orderBy: { month: 'asc' } });
+        expect(deluxeMonths.map((m) => m.month)).toEqual([5, 6]);
+        expect(Number(deluxeMonths[0]!.price)).toBe(8500);
+        expect(Number(deluxeMonths[0]!.extraBedPrice)).toBe(2000);
+        expect(Number(deluxeMonths[0]!.childWithoutBedPrice)).toBe(1000);
+        const suiteMonths = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: suite!.id } });
+        expect(suiteMonths).toHaveLength(1);
+        const deluxeSeasons = await db.hotelRoomTypeSeason.findMany({ where: { hotelRoomTypeId: deluxe!.id } });
+        expect(deluxeSeasons).toHaveLength(1);
+        expect(deluxeSeasons[0]).toMatchObject({ name: 'Summer', currency: 'INR' });
+        expect(Number(deluxeSeasons[0]!.extraBedPrice)).toBe(2500);
+        expect(Number(deluxeSeasons[0]!.childWithoutBedPrice)).toBe(1200);
+      });
+
+      it('imports meal-plan monthly and seasonal rates', async () => {
+        await owner('hotel-meal-rates@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-meal-rates@excel.test' } });
+        await makeHotelBase('hotel-meal-rates@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 0, meals: 2, mealMonthly: 2, mealSeasonal: 1 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Meal Hotel', Destination: 'Goa', City: 'Goa' },
+              [],
+              [
+                {
+                  name: 'Breakfast',
+                  monthlyRates: [
+                    { month: 'May', price: '1200', currency: 'INR' },
+                    { month: 'June', price: '1400', currency: 'INR' },
+                  ],
+                  seasonalRates: [{ name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', price: '1500', currency: 'INR' }],
+                },
+                {
+                  name: 'Half Board',
+                  monthlyRates: [{ month: 'May', price: '2500', currency: 'INR' }],
+                },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Meal Hotel');
+        const breakfast = await db.hotelMealPlan.findFirst({ where: { hotelId: hotel!.id, name: 'Breakfast' } });
+        const halfBoard = await db.hotelMealPlan.findFirst({ where: { hotelId: hotel!.id, name: 'Half Board' } });
+        const breakfastMonths = await db.hotelMealPlanMonthPrice.findMany({ where: { hotelMealPlanId: breakfast!.id }, orderBy: { month: 'asc' } });
+        expect(breakfastMonths.map((m) => m.month)).toEqual([5, 6]);
+        expect(Number(breakfastMonths[0]!.price)).toBe(1200);
+        expect((await db.hotelMealPlanMonthPrice.findMany({ where: { hotelMealPlanId: halfBoard!.id } }))).toHaveLength(1);
+        const breakfastSeasons = await db.hotelMealPlanSeason.findMany({ where: { hotelMealPlanId: breakfast!.id } });
+        expect(breakfastSeasons).toHaveLength(1);
+        expect(Number(breakfastSeasons[0]!.price)).toBe(1500);
+      });
+
+      it('dynamically detects 5+ room types with per-room monthly/seasonal rates and multiple meal plans (one hotel, one row)', async () => {
+        await owner('hotel-5rooms@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-5rooms@excel.test' } });
+        await makeHotelBase('hotel-5rooms@excel.test', user!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 5, roomMonthly: 2, roomSeasonal: 2, meals: 3, mealMonthly: 1, mealSeasonal: 1 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Grand Voyage', Destination: 'Goa', City: 'Goa' },
+              [
+                {
+                  name: 'R1',
+                  basePrice: '100',
+                  monthlyRates: [
+                    { month: 'May', room: '110' },
+                    { month: 'June', room: '120' },
+                  ],
+                  seasonalRates: [
+                    { name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', room: '130' },
+                    { name: 'Winter', startDate: '01-12-2026', endDate: '31-12-2026', room: '140' },
+                  ],
+                },
+                {
+                  name: 'R2',
+                  basePrice: '200',
+                  monthlyRates: [
+                    { month: 'May', room: '210' },
+                    { month: 'June', room: '220' },
+                  ],
+                  seasonalRates: [
+                    { name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', room: '230' },
+                    { name: 'Winter', startDate: '01-12-2026', endDate: '31-12-2026', room: '240' },
+                  ],
+                },
+                { name: 'R3', basePrice: '300', monthlyRates: [{ month: 'May', room: '310' }], seasonalRates: [{ name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', room: '330' }] },
+                { name: 'R4', basePrice: '400' },
+                { name: 'R5', basePrice: '500', monthlyRates: [{ month: 'Aug', room: '510' }], seasonalRates: [{ name: 'Monsoon', startDate: '01-07-2026', endDate: '31-07-2026', room: '530' }] },
+              ],
+              [
+                { name: 'Breakfast', basePrice: '1200', monthlyRates: [{ month: 'May', price: '1300' }], seasonalRates: [{ name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', price: '1500' }] },
+                { name: 'Lunch', basePrice: '1800' },
+                { name: 'Dinner', basePrice: '2500', monthlyRates: [{ month: 'May', price: '2700' }] },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.validCount).toBe(1);
+        expect(preview.invalidCount).toBe(0);
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Grand Voyage');
+
+        const rooms = await db.hotelRoomType.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
+        expect(rooms.map((r) => r.name)).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
+
+        const r1 = rooms[0]!;
+        const r1Months = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: r1.id }, orderBy: { month: 'asc' } });
+        expect(r1Months.map((m) => m.month)).toEqual([5, 6]);
+        expect(Number(r1Months[0]!.price)).toBe(110);
+        expect(Number(r1Months[1]!.price)).toBe(120);
+
+        const r2 = rooms[1]!;
+        const r2Seasons = await db.hotelRoomTypeSeason.findMany({ where: { hotelRoomTypeId: r2.id }, orderBy: { startDate: 'asc' } });
+        expect(r2Seasons.map((s) => s.name)).toEqual(['Summer', 'Winter']);
+        expect(Number(r2Seasons[0]!.price)).toBe(230);
+        expect(Number(r2Seasons[1]!.price)).toBe(240);
+
+        const r3 = rooms[2]!;
+        expect(await db.hotelRoomTypeMonthPrice.count({ where: { hotelRoomTypeId: r3.id } })).toBe(1);
+        const r4 = rooms[3]!;
+        expect(await db.hotelRoomTypeMonthPrice.count({ where: { hotelRoomTypeId: r4.id } })).toBe(0);
+        expect(await db.hotelRoomTypeSeason.count({ where: { hotelRoomTypeId: r4.id } })).toBe(0);
+        const r5 = rooms[4]!;
+        const r5Months = await db.hotelRoomTypeMonthPrice.findMany({ where: { hotelRoomTypeId: r5.id } });
+        expect(r5Months).toHaveLength(1);
+        expect(r5Months[0]!.month).toBe(8);
+        expect(Number(r5Months[0]!.price)).toBe(510);
+
+        const meals = await db.hotelMealPlan.findMany({ where: { hotelId: hotel!.id }, orderBy: { sortOrder: 'asc' } });
+        expect(meals.map((m) => m.name)).toEqual(['Breakfast', 'Lunch', 'Dinner']);
+        const breakfastMonths = await db.hotelMealPlanMonthPrice.findMany({ where: { hotelMealPlanId: meals[0]!.id } });
+        expect(breakfastMonths).toHaveLength(1);
+        expect(Number(breakfastMonths[0]!.price)).toBe(1300);
+        expect(await db.hotelMealPlanSeason.count({ where: { hotelMealPlanId: meals[0]!.id } })).toBe(1);
+        expect(await db.hotelMealPlan.count({ where: { hotelId: hotel!.id, name: 'Dinner' } })).toBe(1);
+      });
+
+      it('imports a hotel with no optional rates or meal plans (empty groups are ignored)', async () => {
+        await owner('hotel-min@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-min@excel.test' } });
+        await makeHotelBase('hotel-min@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 2, meals: 2 });
+        const buf = await createWorkbook(
+          [hotelRow({ 'Hotel Name': 'Minimal Hotel', Destination: 'Goa', City: 'Goa' })],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Minimal Hotel');
+        expect(hotel).toMatchObject({ status: 'ACTIVE', currency: 'INR' });
+        expect(await db.hotelRoomType.count({ where: { hotelId: hotel!.id } })).toBe(0);
+        expect(await db.hotelMealPlan.count({ where: { hotelId: hotel!.id } })).toBe(0);
+      });
+
+      it('rejects duplicate hotels against the database', async () => {
+        await owner('hotel-dup@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-dup@excel.test' } });
+        await makeHotelBase('hotel-dup@excel.test', user!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, meals: 1 });
+        const buf = await createWorkbook([hotelRow({ 'Hotel Name': 'Dup Hotel', Destination: 'Goa', City: 'Goa' })], headers);
+        const auth = authOf(user!);
+        const first = await executeImport(buf, 'HOTEL', auth, { ipAddress: null, userAgent: null });
+        expect(first.createdCount).toBe(1);
+        const preview = await previewImport(buf, 'HOTEL', auth);
+        expect(preview.invalidCount).toBe(1);
+        expect(preview.rows[0]!.errors.some((e) => /already exists/i.test(e.message))).toBe(true);
+        const second = await executeImport(buf, 'HOTEL', auth, { ipAddress: null, userAgent: null });
+        expect(second.createdCount).toBe(0);
+      });
+
+      it('detects duplicate room types, meal plans and monthly rates in one row', async () => {
+        await owner('hotel-nested-dup@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-nested-dup@excel.test' } });
+        await makeHotelBase('hotel-nested-dup@excel.test', user!.companyId);
+        const { previewImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 2, roomMonthly: 2, meals: 2, mealMonthly: 1 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Nested Dup', Destination: 'Goa', City: 'Goa' },
+              [
+                { name: 'Deluxe', monthlyRates: [{ month: 'May', room: '100' }, { month: 'May', room: '200' }] },
+                { name: 'Deluxe', basePrice: '300' },
+              ],
+              [
+                { name: 'Breakfast', monthlyRates: [{ month: 'May', price: '1200' }] },
+                { name: 'Breakfast', monthlyRates: [{ month: 'May', price: '1400' }] },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.invalidCount).toBe(1);
+        const errors = preview.rows[0]!.errors;
+        expect(errors.some((e) => /Duplicate room type/i.test(e.message))).toBe(true);
+        expect(errors.some((e) => /Duplicate meal plan/i.test(e.message))).toBe(true);
+        expect(errors.some((e) => /Duplicate monthly rate/i.test(e.message))).toBe(true);
+      });
+
+      it('rejects overlapping seasonal rates for the same room type', async () => {
+        await owner('hotel-overlap@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-overlap@excel.test' } });
+        await makeHotelBase('hotel-overlap@excel.test', user!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, roomSeasonal: 2, meals: 0 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Overlap Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                {
+                  name: 'Deluxe',
+                  seasonalRates: [
+                    { name: 'Summer', startDate: '01-05-2026', endDate: '30-06-2026', room: '10000', currency: 'INR' },
+                    { name: 'Peak', startDate: '15-05-2026', endDate: '15-06-2026', room: '12000', currency: 'INR' },
+                  ],
+                },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.invalidCount).toBe(1);
+        expect(preview.rows[0]!.errors.some((e) => /overlap/i.test(e.message))).toBe(true);
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(0);
+      });
+
+      it('rejects invalid nested data (missing room name, invalid month, invalid dates, bad money)', async () => {
+        await owner('hotel-invalid@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-invalid@excel.test' } });
+        await makeHotelBase('hotel-invalid@excel.test', user!.companyId);
+        const { previewImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, roomMonthly: 1, roomSeasonal: 1, meals: 0 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Invalid Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                {
+                  basePrice: 'not-a-number',
+                  monthlyRates: [{ month: '13', room: '100', currency: 'INR' }],
+                  seasonalRates: [{ name: 'Summer', startDate: 'not-a-date', endDate: '30-06-2026', room: '10000', currency: 'INR' }],
+                },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.invalidCount).toBe(1);
+        const errors = preview.rows[0]!.errors;
+        expect(errors.some((e) => /requires a name/i.test(e.message))).toBe(true);
+        expect(errors.some((e) => /"13" is invalid/i.test(e.message))).toBe(true);
+        expect(errors.some((e) => /dates must be/i.test(e.message))).toBe(true);
+        expect(errors.some((e) => /non-negative number/i.test(e.message))).toBe(true);
+      });
+
+      it('partially imports valid hotel rows and skips invalid ones', async () => {
+        await owner('hotel-partial@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-partial@excel.test' } });
+        await makeHotelBase('hotel-partial@excel.test', user!.companyId);
+        const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, meals: 1 });
+        const buf = await createWorkbook(
+          [
+            hotelRow({ 'Hotel Name': 'Good One', Destination: 'Goa', City: 'Goa' }),
+            hotelRow({ 'Hotel Name': 'Good Two', Destination: 'Goa', City: 'Goa' }),
+            hotelRow({ 'Hotel Name': 'Bad Three', Destination: 'Atlantis', City: 'Goa' }),
+          ],
+          headers,
+        );
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(2);
+        expect(result.skippedCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(2);
+      });
+
+      it('isolates tenants so city resolution only sees the caller company', async () => {
+        await owner('hotel-tenant-a@excel.test');
+        await owner('hotel-tenant-b@excel.test');
+        const userA = await db.user.findFirst({ where: { normalizedEmail: 'hotel-tenant-a@excel.test' } });
+        const userB = await db.user.findFirst({ where: { normalizedEmail: 'hotel-tenant-b@excel.test' } });
+        await makeHotelBase('hotel-tenant-a@excel.test', userA!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 1, meals: 1 });
+        const buf = await createWorkbook([hotelRow({ 'Hotel Name': 'Shared', Destination: 'Goa', City: 'Goa' })], headers);
+        const previewA = await previewImport(buf, 'HOTEL', authOf(userA!));
+        expect(previewA.validCount).toBe(1);
+        const previewB = await previewImport(buf, 'HOTEL', authOf(userB!));
+        expect(previewB.invalidCount).toBe(1);
+        const resultA = await executeImport(buf, 'HOTEL', authOf(userA!), { ipAddress: null, userAgent: null });
+        expect(resultA.createdCount).toBe(1);
+        const resultB = await executeImport(buf, 'HOTEL', authOf(userB!), { ipAddress: null, userAgent: null });
+        expect(resultB.createdCount).toBe(0);
+        expect(await db.hotel.count({ where: { companyId: userB!.companyId } })).toBe(0);
+      });
+
+      it('keeps preview and actual import consistent (one row = one hotel)', async () => {
+        await owner('hotel-consistent@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-consistent@excel.test' } });
+        await makeHotelBase('hotel-consistent@excel.test', user!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const headers = hotelHeaders({ rooms: 3, meals: 2 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              { 'Hotel Name': 'Consistent Hotel', Destination: 'Goa', City: 'Goa' },
+              [
+                { name: 'A', basePrice: '100' },
+                { name: 'B', basePrice: '200' },
+                { name: 'C', basePrice: '300' },
+              ],
+              [
+                { name: 'Breakfast' },
+                { name: 'Lunch' },
+              ],
+            ),
+          ],
+          headers,
+        );
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.validCount).toBe(1);
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        expect(await db.hotel.count({ where: { companyId: user!.companyId } })).toBe(1);
+      });
     });
-  });
 
   describe('soft-deleted duplicates', () => {
     // Cruise/Vehicle/AddOnService enforce @@unique([companyId, normalizedName])
