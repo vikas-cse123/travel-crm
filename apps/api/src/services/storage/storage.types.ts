@@ -12,7 +12,7 @@ export interface PutObjectInput {
 }
 
 export interface StorageService {
-  readonly provider: 'S3' | 'MEMORY';
+  readonly provider: 'S3' | 'MEMORY' | 'LOCAL';
   readonly bucket: string;
   putObject(input: PutObjectInput): Promise<void>;
   createUploadUrl(

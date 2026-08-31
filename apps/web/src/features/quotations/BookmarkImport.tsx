@@ -404,6 +404,27 @@ export function hotelBookmarkToDetails(bookmark: LiveSearchBookmark): {
       imageSnapshotPresent: true,
       // Per-stay PDF selection: default to the first saved image.
       pdfImageUrl: images[0]?.url ?? null,
+      // Multi-room structure: a bookmark carries one room allocation.
+      roomLines:
+        room?.roomName || hotel?.roomTypeId
+          ? [
+              {
+                hotelRoomTypeId: hotel?.roomTypeId ?? null,
+                roomType: room?.roomName ?? null,
+                rooms: rooms ?? 1,
+                extraBedQuantity: null,
+                extraBedPrice: null,
+                childWithoutBedQuantity: null,
+                childWithoutBedPrice: null,
+                baseRoomPrice: null,
+                pricingSource: null,
+                sellingPrice: null,
+                internalCost: null,
+                notes: null,
+              },
+            ]
+          : [],
+      mealPlanLines: [],
     },
     hotelDetails: {
       include: true,

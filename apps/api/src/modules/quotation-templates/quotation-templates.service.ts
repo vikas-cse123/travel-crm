@@ -327,7 +327,17 @@ export const quotationTemplatesService = {
   ) {
     const existing = await get(auth, id);
     await validateMasterRefs(auth, input.hotels ?? [], input.services ?? [], {
-      hotels: existing.hotels,
+      hotels: existing.hotels.map((row) => ({
+        hotelId: row.hotelId,
+        hotelRoomTypeId: row.hotelRoomTypeId,
+        hotelMealPlanId: row.hotelMealPlanId,
+        roomLines: Array.isArray(row.roomLines)
+          ? (row.roomLines as Array<{ hotelRoomTypeId?: string | null }>)
+          : [],
+        mealPlanLines: Array.isArray(row.mealPlanLines)
+          ? (row.mealPlanLines as Array<{ hotelMealPlanId?: string | null }>)
+          : [],
+      })),
       services: existing.services,
     });
     try {
@@ -537,6 +547,13 @@ export const quotationTemplatesService = {
           // Template hotel options have no images column; expose an empty list
           // so the snapshot keeps the shared hotel schema shape.
           images: [],
+          // Legacy template rows store NULL in the Json line columns.
+          roomLines: Array.isArray(row.roomLines)
+            ? (row.roomLines as unknown as QuotationTemplateInput['hotels'][number]['roomLines'])
+            : [],
+          mealPlanLines: Array.isArray(row.mealPlanLines)
+            ? (row.mealPlanLines as unknown as QuotationTemplateInput['hotels'][number]['mealPlanLines'])
+            : [],
         }),
       ),
       services: source.services.map(

@@ -144,6 +144,16 @@ export function GlobalBadge({ withTooltip = true }: { withTooltip?: boolean }) {
 /** Shared pagination footer (also used by the Leads table). */
 export { Pagination } from '@/components/ui/Pagination';
 
+/** Escape plain text and preserve line breaks as <br> so values stored as
+ *  plain text (e.g. Excel imports) display their original line structure. */
+function plainTextToHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r\n|\r|\n/g, '<br>');
+}
+
 export function RichTextEditor({
   label,
   value,
@@ -156,7 +166,9 @@ export function RichTextEditor({
   const editor = useRef<HTMLDivElement>(null);
   const labelId = useId();
   useEffect(() => {
-    if (editor.current && editor.current.innerHTML !== value) editor.current.innerHTML = value;
+    if (!editor.current) return;
+    const html = value.includes('<') ? value : plainTextToHtml(value);
+    if (editor.current.innerHTML !== html) editor.current.innerHTML = html;
   }, [value]);
   const command = (name: string, argument?: string) => {
     editor.current?.focus();
@@ -339,7 +351,7 @@ export function SafeRichText({
   if (!html) return <p className="text-sm text-slate-500">{empty}</p>;
   return (
     <div
-      className="prose prose-sm max-w-none text-slate-700"
+      className="prose prose-sm max-w-none whitespace-pre-line text-slate-700"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

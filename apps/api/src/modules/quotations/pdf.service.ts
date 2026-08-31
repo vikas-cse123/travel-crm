@@ -1,10 +1,13 @@
 import PDFDocument from 'pdfkit';
 import {
   cabinLuggageLabel,
+  formatAgeList,
   formatItineraryDayTitle,
   hotelStayNights,
   isPublicTaxNote,
   normalizeFaqs,
+  resolveHotelMealPlanLines,
+  resolveHotelRoomLines,
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
   resolveQuotationPdfSectionOrder,
@@ -365,6 +368,11 @@ export interface QuotationPdfInput {
     childrenWithoutBed: number;
     infants: number;
     rooms: number;
+    // Child ages carried from the Lead (JSON arrays). Absent/NULL for legacy
+    // quotations — the age lines are simply omitted.
+    childrenWithBedAges?: unknown;
+    childrenWithoutBedAges?: unknown;
+    infantAges?: unknown;
     validUntil: Date | null;
   };
   version: {
@@ -592,6 +600,36 @@ export function computePageHeight(contentHeight: number): PdfPageLayout {
   const pageHeight = Math.min(PDF_MAX_PAGE_HEIGHT, Math.max(PDF_MIN_PAGE_HEIGHT, requiredHeight));
   const footerTop = pageHeight - BOTTOM_M - FOOTER_H;
   return { pageHeight, contentBottom, footerTop };
+}
+
+/**
+ * Largest font size (in 0.5 steps, ≤ startSize) at which `text` still fits on
+ * ONE line within `maxWidth`. Used by the classic Package Total box: PDFKit
+ * wraps long unbroken amounts (e.g. ₹1,90,00,000) mid-number when they exceed
+ * the available width, so the amount is measured with the real bold font and
+ * the size shrinks just enough to keep the whole figure — currency symbol
+ * included — on a single line. Normal amounts return `startSize` unchanged.
+ * Exported for tests.
+ */
+export function fitPackageTotalFontSize(
+  doc: {
+    font: (name: string) => unknown;
+    fontSize: (size: number) => unknown;
+    widthOfString: (text: string) => number;
+  },
+  text: string,
+  maxWidth: number,
+  startSize = 20,
+  minSize = 8,
+): number {
+  doc.font('Bold');
+  let size = startSize;
+  while (size > minSize) {
+    doc.fontSize(size);
+    if (doc.widthOfString(text) <= maxWidth) break;
+    size -= 0.5;
+  }
+  return size;
 }
 
 /** A measured, renderable block. render(y0) draws and returns the next y. */
@@ -1458,6 +1496,15 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
     ['Duration', duration],
     ['Travel Date', dateFmt(q.travelStartDate)],
     ['Pax', pax],
+    // Child ages from the Lead, displayed directly under the Pax line. Omitted
+    // entirely for legacy quotations without age data (never "undefined").
+    ...(formatAgeList(q.childrenWithBedAges)
+      ? [['CWB Ages', formatAgeList(q.childrenWithBedAges) as string]]
+      : []),
+    ...(formatAgeList(q.childrenWithoutBedAges)
+      ? [['CWOB Ages', formatAgeList(q.childrenWithoutBedAges) as string]]
+      : []),
+    ...(formatAgeList(q.infantAges) ? [['Infant Ages', formatAgeList(q.infantAges) as string]] : []),
     ['Quotation ID', q.quotationNumber],
   ].filter(([, val]) => Boolean(val)) as Array<[string, string]>;
 
@@ -1562,11 +1609,19 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
             lineBreak: false,
           },
         );
+      // The complete amount is one visual unit and must never wrap mid-number
+      // (PDFKit breaks long figures like ₹1,90,00,000 when they exceed the
+      // column). Measure with the real bold font and shrink the size just
+      // enough for one line; normal amounts keep the original 20pt rendering.
+      const totalText = money(finalTotal);
+      const totalMaxWidth = rightW - 118;
+      const totalFontSize = fitPackageTotalFontSize(doc, totalText, totalMaxWidth);
       doc
         .fillColor(DARK)
-        .fontSize(20)
-        .text(money(finalTotal), rightX + 104, ry + 12, {
-          width: rightW - 118,
+        .font('Bold')
+        .fontSize(totalFontSize)
+        .text(totalText, rightX + 104, ry + Math.max(6, (totalBoxH - totalFontSize * 1.2) / 2), {
+          width: totalMaxWidth,
           align: 'right',
           lineBreak: false,
         });
@@ -2039,24 +2094,66 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
         // Keep the nights badge in the content flow, below the title/stars,
         // rather than pinning it against the hotel name.
         textY += 8 + 20 + 6;
+        // Multi-room hotel options list EVERY room allocation and meal plan;
+        // legacy single-room rows keep the exact historical line strings.
+        const hotelRoomLines = resolveHotelRoomLines(hotel);
+        const hotelMealLines = resolveHotelMealPlanLines(hotel);
+        const multiRoom = hotelRoomLines.length > 1;
+        const multiMeal = hotelMealLines.length > 1;
+        const roomLineRows = multiRoom
+          ? hotelRoomLines.flatMap((line, j) => {
+              const name = (line.roomType ?? '').trim() || 'Room';
+              const head = `${j + 1}. ${name}${line.rooms != null ? ` — Rooms: ${line.rooms}` : ''}`;
+              const details: string[] = [];
+              if (line.baseRoomPrice != null)
+                details.push(
+                   `Base Room: ${line.baseRoomPrice} × ${stayNights} nights${line.rooms ? ` × ${line.rooms} rooms` : ''}`,
+                );
+              if (line.extraBedQuantity != null && line.extraBedPrice != null)
+                details.push(
+                  `Extra Bed: ${line.extraBedPrice} × ${line.extraBedQuantity} × ${stayNights} nights`,
+                );
+              if (line.childWithoutBedQuantity != null && line.childWithoutBedPrice != null)
+                details.push(
+                  `Child Without Bed: ${line.childWithoutBedPrice} × ${line.childWithoutBedQuantity} × ${stayNights} nights`,
+                );
+              return [head, ...details.map((detail) => `    ${detail}`)];
+            })
+          : [];
+        const mealLineRows = multiMeal
+          ? hotelMealLines.map((line, j) => `Meal Plan ${j + 1}: ${(line.mealPlan ?? '').trim()}`)
+          : [];
         const rows = [
           hotel.city && `City: ${hotel.city}`,
-          hotel.roomType && `Room Type: ${hotel.roomType}`,
-          hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`,
-          hotel.rooms != null && `Rooms: ${hotel.rooms}`,
+          ...(multiRoom
+            ? roomLineRows
+            : [
+                hotel.roomType && `Room Type: ${hotel.roomType}`,
+                ...(multiMeal ? [] : [hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`]),
+                hotel.rooms != null && `Rooms: ${hotel.rooms}`,
+              ]),
+          ...(multiMeal
+            ? mealLineRows
+            : multiRoom
+              ? [hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`]
+              : []),
           hotel.checkInDate &&
             `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
           hotel.checkOutDate &&
             `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
-          // Snapshot breakdown for extra bed / child without bed (if present).
-          (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice != null &&
-            `Base Room: ${(hotel as unknown as { baseRoomPrice: number }).baseRoomPrice} × ${stayNights} nights${(hotel as unknown as { rooms?: number | null }).rooms ? ` × ${(hotel as unknown as { rooms: number }).rooms} rooms` : ''}`,
-          (hotel as unknown as { extraBedQuantity?: number | null; extraBedPrice?: number | null }).extraBedQuantity != null &&
-            (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice != null &&
-            `Extra Bed: ${(hotel as unknown as { extraBedPrice: number }).extraBedPrice} × ${(hotel as unknown as { extraBedQuantity: number }).extraBedQuantity} × ${stayNights} nights`,
-          (hotel as unknown as { childWithoutBedQuantity?: number | null; childWithoutBedPrice?: number | null }).childWithoutBedQuantity != null &&
-            (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice != null &&
-            `Child Without Bed: ${(hotel as unknown as { childWithoutBedPrice: number }).childWithoutBedPrice} × ${(hotel as unknown as { childWithoutBedQuantity: number }).childWithoutBedQuantity} × ${stayNights} nights`,
+          ...(multiRoom
+            ? []
+            : [
+                // Snapshot breakdown for extra bed / child without bed (if present).
+                (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice != null &&
+                  `Base Room: ${(hotel as unknown as { baseRoomPrice: number }).baseRoomPrice} × ${stayNights} nights${(hotel as unknown as { rooms?: number | null }).rooms ? ` × ${(hotel as unknown as { rooms: number }).rooms} rooms` : ''}`,
+                (hotel as unknown as { extraBedQuantity?: number | null; extraBedPrice?: number | null }).extraBedQuantity != null &&
+                  (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice != null &&
+                  `Extra Bed: ${(hotel as unknown as { extraBedPrice: number }).extraBedPrice} × ${(hotel as unknown as { extraBedQuantity: number }).extraBedQuantity} × ${stayNights} nights`,
+                (hotel as unknown as { childWithoutBedQuantity?: number | null; childWithoutBedPrice?: number | null }).childWithoutBedQuantity != null &&
+                  (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice != null &&
+                  `Child Without Bed: ${(hotel as unknown as { childWithoutBedPrice: number }).childWithoutBedPrice} × ${(hotel as unknown as { childWithoutBedQuantity: number }).childWithoutBedQuantity} × ${stayNights} nights`,
+              ]),
           (hotel as unknown as { sellingPrice?: number | null }).sellingPrice != null && `Total: ${(hotel as unknown as { sellingPrice: number }).sellingPrice}`,
         ].filter(Boolean) as string[];
         doc.font('Body').fontSize(10);

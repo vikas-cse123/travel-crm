@@ -563,6 +563,11 @@ function scalarData(input: QueryInput | QueryUpdateInput) {
     'childrenWithoutBed',
     'infants',
     'extraBeds',
+    // Per-child ages (JSON arrays); '' never occurs for arrays, so the generic
+    // '' → null mapping below is harmless and absent fields stay untouched.
+    'childrenWithBedAges',
+    'childrenWithoutBedAges',
+    'infantAges',
     'expectedAmount',
     'budgetMin',
     'budgetMax',

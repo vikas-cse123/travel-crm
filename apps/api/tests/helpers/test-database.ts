@@ -81,7 +81,9 @@ export async function ensureTestDatabaseExists(databaseUrl: string): Promise<voi
 
 /** Apply the migration history to the test database. */
 export function migrateTestDatabase(databaseUrl: string): void {
+  // On Windows `npx` is a .cmd shim that must be spawned through a shell.
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
+    shell: process.platform === 'win32',
     cwd: apiRoot,
     env: { ...process.env, DATABASE_URL: databaseUrl },
     stdio: 'pipe',

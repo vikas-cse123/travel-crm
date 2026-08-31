@@ -295,7 +295,7 @@ export function ExcelImportDialog({ open, onClose, initialMasterType, onSuccess 
                               <tr key={`${r.rowNumber}-${idx}`}>
                                 <td className="px-2 py-1">{e.row}</td>
                                 <td className="px-2 py-1">{e.header}</td>
-                                <td className="px-2 py-1">{e.value ?? '—'}</td>
+                                <td className="whitespace-pre-line break-words px-2 py-1">{e.value ?? '—'}</td>
                                 <td className="px-2 py-1 text-red-600">{e.message}</td>
                               </tr>
                             )),

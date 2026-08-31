@@ -1288,6 +1288,77 @@ describe('excel import', () => {
       expect(links).toHaveLength(2);
     });
 
+    it('preserves multiline Excel cell content across all policy fields', async () => {
+      await owner('dest-multiline@excel.test');
+      const user = await db.user.findFirst({ where: { normalizedEmail: 'dest-multiline@excel.test' } });
+      await makeCities('dest-multiline@excel.test', user!.companyId);
+      const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+      const inclusions = ['Daily breakfast', 'Airport transfers', 'Sightseeing as per itinerary'].join('\n');
+      const exclusions = ['Personal expenses', 'Travel insurance', 'Optional activities'].join('\n');
+      const paymentPolicies = ['50% advance on confirmation', 'Balance due 15 days before departure', 'Bank transfer only'].join('\n');
+      const cancellationPolicies = ['30+ days: full refund', '15-30 days: 50% refund', 'Under 15 days: non-refundable'].join('\n');
+      const bookingTerms = ['Rates valid until 31 Dec 2026', 'Prices subject to availability', 'All disputes subject to Mumbai jurisdiction'].join('\n');
+      const buf = await createWorkbook(
+        [
+          {
+            Country: 'India',
+            'Destination Name': 'Kerala Multiline',
+            'Destination Type': 'DOMESTIC',
+            Cities: 'Goa',
+            Inclusions: inclusions,
+            Exclusions: exclusions,
+            'Payment Policies': paymentPolicies,
+            'Cancellation Policies': cancellationPolicies,
+            'Booking Terms & Conditions': bookingTerms,
+          },
+        ],
+        DEST_HEADERS,
+      );
+      // Preview must keep the original line-break structure intact.
+      const preview = await previewImport(buf, 'DESTINATION', authOf(user!));
+      expect(preview.validCount).toBe(1);
+      expect(preview.rows[0]!.data.inclusions).toBe(inclusions);
+      expect(preview.rows[0]!.data.exclusions).toBe(exclusions);
+      expect(preview.rows[0]!.data.paymentPolicies).toBe(paymentPolicies);
+      // The imported record must store the exact multiline strings.
+      const result = await executeImport(buf, 'DESTINATION', authOf(user!), { ipAddress: null, userAgent: null });
+      expect(result.createdCount).toBe(1);
+      const dest = await db.destination.findFirst({ where: { companyId: user!.companyId, name: 'Kerala Multiline' } });
+      expect(dest!.inclusions).toBe(inclusions);
+      expect(dest!.exclusions).toBe(exclusions);
+      expect(dest!.paymentPolicies).toBe(paymentPolicies);
+      expect(dest!.cancellationPolicies).toBe(cancellationPolicies);
+      expect(dest!.bookingTerms).toBe(bookingTerms);
+      // Explicit regression guard: internal newlines must NOT be collapsed to spaces.
+      expect(dest!.inclusions).not.toBe(inclusions.replace(/\n/g, ' '));
+      expect(dest!.inclusions!.split('\n')).toHaveLength(3);
+    });
+
+    it('normalizes CRLF line breaks from Excel cells to LF while preserving the breaks', async () => {
+      await owner('dest-crlf@excel.test');
+      const user = await db.user.findFirst({ where: { normalizedEmail: 'dest-crlf@excel.test' } });
+      await makeCities('dest-crlf@excel.test', user!.companyId);
+      const { executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+      const crlfInclusions = ['Daily breakfast', 'Airport transfers', 'Sightseeing as per itinerary'].join('\r\n');
+      const buf = await createWorkbook(
+        [
+          {
+            Country: 'India',
+            'Destination Name': 'CRLF Destination',
+            'Destination Type': 'DOMESTIC',
+            Cities: 'Goa',
+            Inclusions: crlfInclusions,
+          },
+        ],
+        DEST_HEADERS,
+      );
+      const result = await executeImport(buf, 'DESTINATION', authOf(user!), { ipAddress: null, userAgent: null });
+      expect(result.createdCount).toBe(1);
+      const dest = await db.destination.findFirst({ where: { companyId: user!.companyId, name: 'CRLF Destination' } });
+      expect(dest!.inclusions).toBe(['Daily breakfast', 'Airport transfers', 'Sightseeing as per itinerary'].join('\n'));
+      expect(dest!.inclusions!.split('\n')).toHaveLength(3);
+    });
+
     it('partially imports valid rows and skips invalid rows', async () => {
       await owner('dest-partial@excel.test');
       const user = await db.user.findFirst({ where: { normalizedEmail: 'dest-partial@excel.test' } });
@@ -2125,6 +2196,56 @@ describe('excel import', () => {
         expect(Number(room!.sellingPrice)).toBe(8000);
         expect(Number(room!.extraBedPrice)).toBe(2000);
         expect(Number(room!.childWithoutBedPrice)).toBe(1000);
+      });
+
+      it('preserves multiline Excel cell content in address, description, amenities and meal plan description', async () => {
+        await owner('hotel-multiline@excel.test');
+        const user = await db.user.findFirst({ where: { normalizedEmail: 'hotel-multiline@excel.test' } });
+        await makeHotelBase('hotel-multiline@excel.test', user!.companyId);
+        const { previewImport, executeImport } = await import('../src/modules/masters/excel-import/excel-import.service.js');
+        const address = ['123 Beach Road', 'Near Marina Bay', 'Singapore 018956'].join('\n');
+        const description = [
+          'Luxury hotel in central Singapore.',
+          'Walking distance from major attractions.',
+          'Suitable for families and business travellers.',
+        ].join('\n');
+        const amenities = ['Free Wi-Fi', 'Swimming Pool', 'Gym', '24-hour Front Desk', 'Airport Transfer'].join('\n');
+        const mealDescription = ['Breakfast buffet included', 'Served 7:00-10:30 daily'].join('\n');
+        const headers = hotelHeaders({ rooms: 1, meals: 1 });
+        const buf = await createWorkbook(
+          [
+            hotelRow(
+              {
+                'Hotel Name': 'Multiline Bay',
+                Destination: 'Goa',
+                City: 'Goa',
+                Address: address,
+                Description: description,
+                Amenities: amenities,
+              },
+              [{ name: 'Deluxe', basePrice: '8000', currency: 'INR' }],
+              [{ name: 'Breakfast', description: mealDescription, basePrice: '1200', currency: 'INR' }],
+            ),
+          ],
+          headers,
+        );
+        // Preview must keep the original line-break structure intact.
+        const preview = await previewImport(buf, 'HOTEL', authOf(user!));
+        expect(preview.validCount).toBe(1);
+        expect(preview.rows[0]!.data.address).toBe(address);
+        expect(preview.rows[0]!.data.description).toBe(description);
+        const result = await executeImport(buf, 'HOTEL', authOf(user!), { ipAddress: null, userAgent: null });
+        expect(result.createdCount).toBe(1);
+        const hotel = await importedHotel(user!.companyId, 'Multiline Bay');
+        expect(hotel!.address).toBe(address);
+        expect(hotel!.description).toBe(description);
+        expect(hotel!.amenities).toBe(amenities);
+        // Explicit regression guard: internal newlines must NOT be collapsed to spaces.
+        expect(hotel!.address).not.toBe(address.replace(/\n/g, ' '));
+        expect(hotel!.address!.split('\n')).toHaveLength(3);
+        expect(hotel!.amenities!.split('\n')).toHaveLength(5);
+        const meal = await db.hotelMealPlan.findFirst({ where: { hotelId: hotel!.id } });
+        expect(meal!.description).toBe(mealDescription);
       });
 
       it('imports one hotel with exactly 2 room types', async () => {

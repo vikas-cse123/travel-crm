@@ -51,6 +51,11 @@ export interface Lead {
   childrenWithoutBed: number;
   infants: number;
   extraBeds: number;
+  // Per-child ages collected on the Lead form (CWB 1 Age, …); carried into
+  // quotations for PDF/Weblink display. Null for legacy leads.
+  childrenWithBedAges: number[] | null;
+  childrenWithoutBedAges: number[] | null;
+  infantAges: number[] | null;
   travellerSummary: string;
   expectedAmount: string | null;
   budgetMin: string | null;

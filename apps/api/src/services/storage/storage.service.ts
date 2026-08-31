@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { DiskStorageService } from './disk-storage.service.js';
 import { MemoryStorageService } from './memory-storage.service.js';
 import { S3StorageService } from './s3-storage.service.js';
 
@@ -154,7 +155,14 @@ export function userProfileImageObjectKey(input: {
 }
 
 export const storageService =
-  env.STORAGE_PROVIDER === 's3' ? new S3StorageService() : new MemoryStorageService();
+  env.STORAGE_PROVIDER === 's3'
+    ? new S3StorageService()
+    : env.STORAGE_PROVIDER === 'local'
+      ? // Development: persistent local disk (presigned-style URLs, see
+        // disk-storage.service.ts). Production still requires S3.
+        new DiskStorageService()
+      : new MemoryStorageService();
 
 export { MemoryStorageService } from './memory-storage.service.js';
+export { DiskStorageService } from './disk-storage.service.js';
 export type { StorageService } from './storage.types.js';

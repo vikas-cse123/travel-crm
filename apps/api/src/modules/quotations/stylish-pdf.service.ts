@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import sharp from 'sharp';
 import {
+  formatAgeList,
   normalizeFaqs,
+  resolveHotelMealPlanLines,
+  resolveHotelRoomLines,
   resolveQuotationPdfSectionOrder,
   resolveQuotationPricing,
   stripItineraryDayPrefixes,
@@ -926,14 +929,31 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     [
       overviewIcons.travelers,
       'TRAVELERS',
-      [
-        `${input.quotation.adults} Adults`,
-        input.quotation.childrenWithBed ? `${input.quotation.childrenWithBed} CWB` : null,
-        input.quotation.childrenWithoutBed ? `${input.quotation.childrenWithoutBed} CWOB` : null,
-        input.quotation.infants ? `${input.quotation.infants} Inf` : null,
-      ]
-        .filter(Boolean)
-        .join(', '),
+      (() => {
+        const counts = [
+          `${input.quotation.adults} Adults`,
+          input.quotation.childrenWithBed ? `${input.quotation.childrenWithBed} CWB` : null,
+          input.quotation.childrenWithoutBed ? `${input.quotation.childrenWithoutBed} CWOB` : null,
+          input.quotation.infants ? `${input.quotation.infants} Inf` : null,
+        ]
+          .filter(Boolean)
+          .join(', ');
+        // Child ages from the Lead — appended as a second line inside the
+        // existing travelers cell. Omitted entirely for legacy quotations
+        // without age data.
+        const ageBits = [
+          formatAgeList(input.quotation.childrenWithBedAges)
+            ? `CWB: ${formatAgeList(input.quotation.childrenWithBedAges)}`
+            : null,
+          formatAgeList(input.quotation.childrenWithoutBedAges)
+            ? `CWOB: ${formatAgeList(input.quotation.childrenWithoutBedAges)}`
+            : null,
+          formatAgeList(input.quotation.infantAges)
+            ? `Inf: ${formatAgeList(input.quotation.infantAges)}`
+            : null,
+        ].filter(Boolean);
+        return ageBits.length ? `${counts}\nAges — ${ageBits.join(', ')}` : counts;
+      })(),
       RED,
     ],
   ] as const;
@@ -1462,164 +1482,206 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .map((hotel, index) => ({ hotel, index }))
       .filter(({ hotel }) => hotel.selected);
     if (selectedHotels.length) {
-      for (const [selectedIndex, { hotel, index }] of selectedHotels.entries()) {
-        if (selectedIndex % 3 === 0) {
-          const cardsOnPage = Math.min(3, selectedHotels.length - selectedIndex);
-          const contentBottom = 118 + cardsOnPage * 169;
-          const layout = computePageHeight(contentBottom - PDF_TOP_MARGIN);
-          addContentPage('Hotel Accommodations', layout.pageHeight);
-        }
-        const top = y;
-        const presentation = input.hotelPresentations?.[index];
-        const categoryStars = Number.parseInt(hotel.category ?? '', 10);
-        const starCount = Math.max(
-          0,
-          Math.min(
-            5,
-            presentation?.starCategory ?? (Number.isFinite(categoryStars) ? categoryStars : 0),
-          ),
-        );
-        const address = presentation?.address?.trim() ?? '';
-        const rating = presentation?.starRating == null ? null : Number(presentation.starRating);
-        const reviewLink = presentation?.reviewLink?.trim() ?? '';
-        const validReviewLink = /^https?:\/\//i.test(reviewLink) ? reviewLink : '';
-        rounded(M, top, CONTENT_W, 154, '#ffffff', LINE, 8);
-        doc
-          .moveTo(M + 1, top)
-          .lineTo(M + 1, top + 154)
-          .lineWidth(2)
-          .strokeColor(NAVY)
-          .stroke();
-        if (!drawImage(input.images?.hotels?.[index], M + 17, top + 11, 106, 122)) {
-          doc.roundedRect(M + 17, top + 11, 106, 122, 7).fill('#e7edf4');
-          drawEmoji('🏨', M + 53, top + 54, 34);
-        }
-        const infoX = M + 136;
-        const title = hotel.hotelName.trim();
-        doc.font('Bold').fontSize(11);
-        const starsText = '★'.repeat(starCount);
-        const starsWidth = starCount ? doc.widthOfString(starsText) : 0;
-        const titleWidth = Math.min(doc.widthOfString(title), Math.max(120, 360 - starsWidth - 10));
-        doc
-          .font('Bold')
-          .fontSize(11)
-          .fillColor(NAVY)
-          .text(title, infoX, top + 13, {
-            width: titleWidth,
-            height: 15,
-            ellipsis: true,
-          });
-        if (starCount) {
+      // Multi-room / multi-meal hotel options grow their card by 11pt per
+      // extra list line, so EVERY room allocation and meal plan stays visible
+      // without changing the card design for legacy single-room options.
+      const cardLayouts = selectedHotels.map(({ hotel, index }) => {
+        const roomLines = resolveHotelRoomLines(hotel);
+        const mealLines = resolveHotelMealPlanLines(hotel);
+        const extraLines =
+          (roomLines.length > 1 ? roomLines.length : 0) +
+          (mealLines.length > 1 ? mealLines.length : 0);
+        return { hotel, index, roomLines, mealLines, extraLines, cardH: 154 + extraLines * 11 };
+      });
+      for (let pageStart = 0; pageStart < cardLayouts.length; pageStart += 3) {
+        const pageCards = cardLayouts.slice(pageStart, pageStart + 3);
+        const contentBottom = 118 + pageCards.reduce((sum, card) => sum + card.cardH + 15, 0);
+        const layout = computePageHeight(contentBottom - PDF_TOP_MARGIN);
+        addContentPage('Hotel Accommodations', layout.pageHeight);
+        for (const { hotel, index, roomLines, mealLines, extraLines, cardH } of pageCards) {
+          const top = y;
+          const listMode = roomLines.length > 1 || mealLines.length > 1;
+          const presentation = input.hotelPresentations?.[index];
+          const categoryStars = Number.parseInt(hotel.category ?? '', 10);
+          const starCount = Math.max(
+            0,
+            Math.min(
+              5,
+              presentation?.starCategory ?? (Number.isFinite(categoryStars) ? categoryStars : 0),
+            ),
+          );
+          const address = presentation?.address?.trim() ?? '';
+          const rating = presentation?.starRating == null ? null : Number(presentation.starRating);
+          const reviewLink = presentation?.reviewLink?.trim() ?? '';
+          const validReviewLink = /^https?:\/\//i.test(reviewLink) ? reviewLink : '';
+          rounded(M, top, CONTENT_W, cardH, '#ffffff', LINE, 8);
+          doc
+            .moveTo(M + 1, top)
+            .lineTo(M + 1, top + cardH)
+            .lineWidth(2)
+            .strokeColor(NAVY)
+            .stroke();
+          if (!drawImage(input.images?.hotels?.[index], M + 17, top + 11, 106, 122)) {
+            doc.roundedRect(M + 17, top + 11, 106, 122, 7).fill('#e7edf4');
+            drawEmoji('🏨', M + 53, top + 54, 34);
+          }
+          const infoX = M + 136;
+          const title = hotel.hotelName.trim();
+          doc.font('Bold').fontSize(11);
+          const starsText = '★'.repeat(starCount);
+          const starsWidth = starCount ? doc.widthOfString(starsText) : 0;
+          const titleWidth = Math.min(doc.widthOfString(title), Math.max(120, 360 - starsWidth - 10));
           doc
             .font('Bold')
             .fontSize(11)
-            .fillColor(GOLD)
-            .text(starsText, infoX + titleWidth + 7, top + 12, { width: starsWidth + 2 });
-        }
-        pill(hotel.city || 'Destination', infoX, top + 32, {
-          fill: NAVY,
-          color: '#ffffff',
-          minWidth: 58,
-          height: 17,
-          size: 6.5,
-        });
-        if (address) {
-          doc
-            .font('Body')
-            .fontSize(6.5)
-            .fillColor(MUTED)
-            .text(address, infoX + 68, top + 36, {
-              width: 292,
-              height: 10,
+            .fillColor(NAVY)
+            .text(title, infoX, top + 13, {
+              width: titleWidth,
+              height: 15,
               ellipsis: true,
             });
-        }
-        const hotelFacts: Array<[string, string, string]> = [
-          [
-            'CHECK-IN',
-            date(hotel.checkInDate),
-            hotel.checkInTime && hotel.showCheckInTime !== false
-              ? formatClock12Hour(hotel.checkInTime)
-              : '',
-          ],
-          [
-            'CHECK-OUT',
-            date(hotel.checkOutDate),
-            hotel.checkOutTime && hotel.showCheckOutTime !== false
-              ? formatClock12Hour(hotel.checkOutTime)
-              : '',
-          ],
-        ];
-        // Room type / meal plan are optional: an empty value renders no fact
-        // box at all (no "-", "N/A" or other placeholder). Remaining boxes
-        // reflow into the vacated columns.
-        const roomType = hotel.roomType?.trim();
-        if (roomType) {
-          hotelFacts.push([
-            'ROOM TYPE',
-            roomType,
-            hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
-          ]);
-        }
-        const mealPlan = hotel.mealPlan?.trim();
-        if (mealPlan) {
-          hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
-        }
-        const extraBedQty = (hotel as unknown as { extraBedQuantity?: number | null }).extraBedQuantity;
-        const extraBedPrice = (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice;
-        if (extraBedQty != null && extraBedPrice != null) {
-          hotelFacts.push(['EXTRA BED', `${extraBedQty} × ${extraBedPrice}`, `${hotel.nights} Nights`]);
-        }
-        const childQty = (hotel as unknown as { childWithoutBedQuantity?: number | null }).childWithoutBedQuantity;
-        const childPrice = (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice;
-        if (childQty != null && childPrice != null) {
-          hotelFacts.push(['CHILD W/O BED', `${childQty} × ${childPrice}`, `${hotel.nights} Nights`]);
-        }
-        const basePrice = (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice;
-        if (basePrice != null && (extraBedQty != null || childQty != null)) {
-          // Show base as fact if extras present, for clarity (optional).
-          hotelFacts.push(['BASE ROOM', `${basePrice}`, `${hotel.nights} Nights`]);
-        }
-        hotelFacts.forEach(([label, value, sub], factIndex) => {
-          const left = infoX + factIndex * 88;
-          rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
-          doc
-            .font('Body')
-            .fontSize(6.2)
-            .fillColor(MUTED)
-            .text(label, left + 8, top + 64, { width: 66 });
-          doc
-            .font('Bold')
-            .fontSize(7.5)
-            .fillColor(NAVY)
-            .text(value, left + 8, top + 80, { width: 66, height: 14 });
-          doc
-            .font('Body')
-            .fontSize(6.5)
-            .fillColor(MUTED)
-            .text(sub, left + 8, top + 98, { width: 66 });
-        });
-        if (validReviewLink) {
-          let reviewX = infoX;
-          if (rating != null && Number.isFinite(rating)) {
-            rounded(reviewX, top + 121, 28, 20, GOLD, GOLD, 4);
+          if (starCount) {
+            doc
+              .font('Bold')
+              .fontSize(11)
+              .fillColor(GOLD)
+              .text(starsText, infoX + titleWidth + 7, top + 12, { width: starsWidth + 2 });
+          }
+          pill(hotel.city || 'Destination', infoX, top + 32, {
+            fill: NAVY,
+            color: '#ffffff',
+            minWidth: 58,
+            height: 17,
+            size: 6.5,
+          });
+          if (address) {
+            doc
+              .font('Body')
+              .fontSize(6.5)
+              .fillColor(MUTED)
+              .text(address, infoX + 68, top + 36, {
+                width: 292,
+                height: 10,
+                ellipsis: true,
+              });
+          }
+          const hotelFacts: Array<[string, string, string]> = [
+            [
+              'CHECK-IN',
+              date(hotel.checkInDate),
+              hotel.checkInTime && hotel.showCheckInTime !== false
+                ? formatClock12Hour(hotel.checkInTime)
+                : '',
+            ],
+            [
+              'CHECK-OUT',
+              date(hotel.checkOutDate),
+              hotel.checkOutTime && hotel.showCheckOutTime !== false
+                ? formatClock12Hour(hotel.checkOutTime)
+                : '',
+            ],
+          ];
+          // Room type / meal plan are optional: an empty value renders no fact
+          // box at all (no "-", "N/A" or other placeholder). Remaining boxes
+          // reflow into the vacated columns. In list mode (multiple rooms or
+          // meal plans) the boxes are replaced by the full list block below.
+          const roomType = listMode ? undefined : (hotel.roomType?.trim() ?? undefined);
+          if (roomType) {
+            hotelFacts.push([
+              'ROOM TYPE',
+              roomType,
+              hotel.rooms != null ? `${hotel.rooms} Room${hotel.rooms === 1 ? '' : 's'}` : '',
+            ]);
+          }
+          const mealPlan = listMode ? undefined : (hotel.mealPlan?.trim() ?? undefined);
+          if (mealPlan) {
+            hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
+          }
+          const extraBedQty = (hotel as unknown as { extraBedQuantity?: number | null }).extraBedQuantity;
+          const extraBedPrice = (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice;
+          if (!listMode && extraBedQty != null && extraBedPrice != null) {
+            hotelFacts.push(['EXTRA BED', `${extraBedQty} × ${extraBedPrice}`, `${hotel.nights} Nights`]);
+          }
+          const childQty = (hotel as unknown as { childWithoutBedQuantity?: number | null }).childWithoutBedQuantity;
+          const childPrice = (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice;
+          if (!listMode && childQty != null && childPrice != null) {
+            hotelFacts.push(['CHILD W/O BED', `${childQty} × ${childPrice}`, `${hotel.nights} Nights`]);
+          }
+          const basePrice = (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice;
+          if (!listMode && basePrice != null && (extraBedQty != null || childQty != null)) {
+            // Show base as fact if extras present, for clarity (optional).
+            hotelFacts.push(['BASE ROOM', `${basePrice}`, `${hotel.nights} Nights`]);
+          }
+          hotelFacts.forEach(([label, value, sub], factIndex) => {
+            const left = infoX + factIndex * 88;
+            rounded(left, top + 55, 82, 54, PALE_BLUE, PALE_BLUE, 6);
+            doc
+              .font('Body')
+              .fontSize(6.2)
+              .fillColor(MUTED)
+              .text(label, left + 8, top + 64, { width: 66 });
             doc
               .font('Bold')
               .fontSize(7.5)
-              .fillColor(NAVY_DARK)
-              .text(String(rating), reviewX, top + 127, { width: 28, align: 'center' });
-            reviewX += 38;
-          }
-          if (validReviewLink) {
-            const reviewText = 'Check Hotel Review >>';
+              .fillColor(NAVY)
+              .text(value, left + 8, top + 80, { width: 66, height: 14 });
             doc
               .font('Body')
-              .fontSize(7)
-              .fillColor(NAVY)
-              .text(reviewText, reviewX, top + 127, { width: 145, link: validReviewLink });
+              .fontSize(6.5)
+              .fillColor(MUTED)
+              .text(sub, left + 8, top + 98, { width: 66 });
+          });
+          // Full list of every room allocation and meal plan (list mode only).
+          if (listMode) {
+            const listWidth = CONTENT_W - (infoX - M) - 10;
+            let listY = top + 113;
+            const drawListLine = (text: string) => {
+              doc
+                .font('Body')
+                .fontSize(6.5)
+                .fillColor(INK)
+                .text(text, infoX, listY, { width: listWidth, height: 10, ellipsis: true });
+              listY += 11;
+            };
+            roomLines.forEach((line, j) => {
+              const name = (line.roomType ?? '').trim() || 'Room';
+              const bits = [`${j + 1}. ${name}`];
+              if (line.rooms != null) bits.push(`${line.rooms} Room${line.rooms === 1 ? '' : 's'}`);
+              if (line.extraBedQuantity != null && line.extraBedPrice != null)
+                bits.push(`Extra Bed: ${line.extraBedQuantity} × ${line.extraBedPrice}`);
+              if (line.childWithoutBedQuantity != null && line.childWithoutBedPrice != null)
+                bits.push(`Child W/O Bed: ${line.childWithoutBedQuantity} × ${line.childWithoutBedPrice}`);
+              drawListLine(bits.join(' — '));
+            });
+            if (mealLines.length > 1) {
+              mealLines.forEach((line, j) => {
+                drawListLine(`Meal Plan ${j + 1}: ${(line.mealPlan ?? '').trim()}`);
+              });
+            }
           }
+          const reviewTop = top + 121 + extraLines * 11;
+          if (validReviewLink) {
+            let reviewX = infoX;
+            if (rating != null && Number.isFinite(rating)) {
+              rounded(reviewX, reviewTop, 28, 20, GOLD, GOLD, 4);
+              doc
+                .font('Bold')
+                .fontSize(7.5)
+                .fillColor(NAVY_DARK)
+                .text(String(rating), reviewX, reviewTop + 6, { width: 28, align: 'center' });
+              reviewX += 38;
+            }
+            if (validReviewLink) {
+              const reviewText = 'Check Hotel Review >>';
+              doc
+                .font('Body')
+                .fontSize(7)
+                .fillColor(NAVY)
+                .text(reviewText, reviewX, reviewTop + 6, { width: 145, link: validReviewLink });
+            }
+          }
+          y += cardH + 15;
         }
-        y += 169;
       }
     }
   };

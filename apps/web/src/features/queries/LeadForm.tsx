@@ -74,6 +74,9 @@ interface FormValues {
   itinerary: ItineraryForm[];
   initialNote: string;
   followUpAt: string;
+  childrenWithBedAges: Array<number | null>;
+  childrenWithoutBedAges: Array<number | null>;
+  infantAges: Array<number | null>;
 }
 const emptyRow = (sequence = 1): ItineraryForm => ({
   country: '',
@@ -123,6 +126,9 @@ function defaults(lead?: Lead): FormValues {
     assignedToId: lead?.assignedToId ?? '',
     internalRemarks: lead?.internalRemarks ?? '',
     services: lead ? lead.services.map((s) => s.serviceType) : ['HOTEL', 'SIGHTSEEING'],
+    childrenWithBedAges: lead?.childrenWithBedAges ?? [],
+    childrenWithoutBedAges: lead?.childrenWithoutBedAges ?? [],
+    infantAges: lead?.infantAges ?? [],
     itinerary: lead?.itinerary.map((r) => ({
       ...r,
       arrivalDate: dateValue(r.arrivalDate),
@@ -414,6 +420,17 @@ export function LeadForm({
       departureCity: v.departureCity || null,
       travelStartDate: v.travelStartDate ? new Date(v.travelStartDate) : null,
       travelEndDate: null,
+      // Per-child ages: drop blank inputs so partial entries render correctly
+      // ("CWB 1: 8, CWB 2: empty" → [8]) and never become NaN/undefined.
+      childrenWithBedAges: (v.childrenWithBedAges ?? []).filter(
+        (age): age is number => age != null && Number.isFinite(age),
+      ),
+      childrenWithoutBedAges: (v.childrenWithoutBedAges ?? []).filter(
+        (age): age is number => age != null && Number.isFinite(age),
+      ),
+      infantAges: (v.infantAges ?? []).filter(
+        (age): age is number => age != null && Number.isFinite(age),
+      ),
       expectedAmount: v.expectedAmount ? Number(v.expectedAmount) : null,
       budgetMin: v.budgetMin ? Number(v.budgetMin) : null,
       budgetMax: v.budgetMax ? Number(v.budgetMax) : null,
@@ -652,7 +669,9 @@ export function LeadForm({
                       type="number"
                       min="0"
                       placeholder="Age"
-                      defaultValue={8}
+                      {...register(`childrenWithBedAges.${index}`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
                     />
                   </Field>
                 ))}
@@ -667,7 +686,9 @@ export function LeadForm({
                       type="number"
                       min="0"
                       placeholder="Age"
-                      defaultValue={4}
+                      {...register(`childrenWithoutBedAges.${index}`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
                     />
                   </Field>
                 ))}
@@ -682,7 +703,9 @@ export function LeadForm({
                       type="number"
                       min="0"
                       placeholder="Age"
-                      defaultValue={1}
+                      {...register(`infantAges.${index}`, {
+                        setValueAs: (value) => (value === '' ? null : Number(value)),
+                      })}
                     />
                   </Field>
                 ))}

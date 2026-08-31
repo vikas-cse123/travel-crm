@@ -9193,6 +9193,104 @@ const longRichText = (label: string, repeat = 460) =>
       `<p><strong>${label} ${index + 1}</strong> customer-safe details with links, lists and formatted CRM content.</p>`,
   ).join('')}</div>`;
 
+describe('Quotation Builder — multiple room allocations and meal plans per hotel option', () => {
+  const baseQuotation = (hotels: unknown[]) =>
+    builderQuotation({
+      hotelDetails: {
+        include: true,
+        sectionTitle: 'Your Hotels',
+        amount: 0,
+        description: null,
+        images: [],
+        pdfImageUrl: null,
+      },
+      hotels,
+    });
+
+  const legacyHotel = {
+    hotelId: null,
+    hotelRoomTypeId: null,
+    hotelMealPlanId: null,
+    city: 'Baku',
+    hotelName: 'Shah Palace Hotel',
+    category: '4 Star',
+    roomType: 'Deluxe Room',
+    mealPlan: 'Breakfast',
+    rooms: 2,
+    nights: 4,
+    checkInDate: '2026-09-10T00:00:00.000Z',
+    checkOutDate: '2026-09-14T00:00:00.000Z',
+    checkInTime: null,
+    checkOutTime: null,
+    showCheckInTime: false,
+    showCheckOutTime: false,
+    internalCost: 0,
+    sellingPrice: 0,
+    selected: true,
+    notes: null,
+    sequence: 1,
+  };
+
+  beforeEach(() => {
+    auth.permissions.add('MASTER_HOTELS_VIEW');
+    auth.permissions.add('QUOTATIONS_VIEW');
+    auth.permissions.add('QUOTATIONS_EDIT');
+  });
+
+  it('loads a legacy single-room hotel as Room 1 + Meal Plan 1 and adds a second room and meal plan', async () => {
+    vi.stubGlobal('fetch', masterFetch(baseQuotation([legacyHotel])));
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+
+    // Legacy row: one room allocation + one meal plan, restored as line 1.
+    expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room');
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast');
+    expect(screen.getByLabelText('Hotel total rooms')).toHaveValue('2');
+
+    // + Add Room creates Room 2; + Add Meal Plan creates Meal Plan 2.
+    await userEvent.click(screen.getByRole('button', { name: 'Add room' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add meal plan' }));
+    await userEvent.type(screen.getByLabelText('Room 2 type master'), 'Executive Suite');
+    await userEvent.type(
+      screen.getByLabelText('Room 2 number of rooms'),
+      '3',
+    );
+    await userEvent.clear(screen.getByLabelText('Room 2 number of rooms'));
+    await userEvent.type(screen.getByLabelText('Room 2 number of rooms'), '3');
+    await userEvent.type(screen.getByLabelText('Meal plan 2 master'), 'Half Board');
+
+    // Saving persists BOTH allocations and BOTH meal plans; the row's `rooms`
+    // mirrors the total across allocations (2 + 3), no duplicated hotels.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
+    const fetchMock = vi.mocked(fetch);
+    const body = await getSavedQuotationBody(fetchMock as never);
+    expect(body.hotels).toHaveLength(1);
+    expect(body.hotels[0].roomLines).toHaveLength(2);
+    expect(body.hotels[0].roomLines[0]).toMatchObject({ roomType: 'Deluxe Room', rooms: 2 });
+    expect(body.hotels[0].roomLines[1]).toMatchObject({ roomType: 'Executive Suite', rooms: 3 });
+    expect(body.hotels[0].mealPlanLines).toHaveLength(2);
+    expect(body.hotels[0].mealPlanLines.map((l: { mealPlan: string }) => l.mealPlan)).toEqual([
+      'Breakfast',
+      'Half Board',
+    ]);
+    expect(body.hotels[0].rooms).toBe(5);
+    expect(body.hotels[0].roomType).toBe('Deluxe Room');
+  });
+
+  it('removes a room allocation and keeps the remaining line intact', async () => {
+    vi.stubGlobal('fetch', masterFetch(baseQuotation([legacyHotel])));
+    renderBuilderPage();
+    await openTab('Hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add room' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove room 2' }));
+    expect(screen.queryByLabelText('Room 2 type master')).toBeNull();
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(2);
+  });
+});
+
 describe('Quotation Builder — defensive legacy normalization', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -9442,12 +9540,12 @@ describe.skip('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel master')).toBeEnabled();
     // Unlinked hotels (e.g. bookmark imports) support manual text entry —
     // no Hotel Master selection is required.
-    expect(screen.getByLabelText('Room type master')).toBeEnabled();
-    expect(screen.getByLabelText('Meal plan master')).toBeEnabled();
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
-    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Included');
-    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
-    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Included');
+    expect(screen.getByLabelText('Room 1 type master')).toBeEnabled();
+    expect(screen.getByLabelText('Meal plan 1 master')).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
+    await userEvent.type(screen.getByLabelText('Meal plan 1 master'), 'Breakfast Included');
+    expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room');
+    expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast Included');
   });
 
   it('hides the Hotel Autofill (Suggest Hotels) control from the hotel section', async () => {
@@ -9532,7 +9630,7 @@ describe.skip('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-12');
     expect(screen.getByLabelText('Hotel check-in time')).toHaveValue('14:00');
     expect(screen.getByLabelText('Hotel check-out time')).toHaveValue('11:00');
-    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(1);
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(1);
     expect(screen.getByLabelText('Hotel remark')).toHaveValue(
       'A heritage hotel on the banks of Dal Lake.',
     );
@@ -9556,7 +9654,7 @@ describe.skip('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Use hotel image 1 in PDF')).toBeChecked();
 
     // 5. Imported fields remain editable (rooms / remark inputs are enabled).
-    expect(screen.getByLabelText('Hotel number of rooms')).not.toBeDisabled();
+    expect(screen.getByLabelText('Room 1 number of rooms')).not.toBeDisabled();
     expect(screen.getByLabelText('Hotel remark')).not.toBeDisabled();
 
     // 6. Loading the bookmark made ZERO SearchAPI (live search) requests — the
@@ -9634,7 +9732,7 @@ describe.skip('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('4');
-    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(2);
     expect(screen.getByLabelText('Hotel remark')).toHaveValue(
       'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
     );
@@ -9644,8 +9742,8 @@ describe.skip('Phase 14 master selectors', () => {
 
     // 3. Room Type and Meal Plan are manually editable without a Hotel Master
     // link (bookmark-imported hotels have no master).
-    const roomTypeField = screen.getByLabelText('Room type master');
-    const mealPlanField = screen.getByLabelText('Meal plan master');
+    const roomTypeField = screen.getByLabelText('Room 1 type master');
+    const mealPlanField = screen.getByLabelText('Meal plan 1 master');
     expect(roomTypeField).toBeEnabled();
     expect(mealPlanField).toBeEnabled();
     await userEvent.clear(roomTypeField);
@@ -9756,9 +9854,9 @@ describe.skip('Phase 14 master selectors', () => {
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-14');
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('4');
-    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
-    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
-    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Included');
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room');
+    expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast Included');
     // The Remark survives save + refresh; the Description stays empty.
     expect(screen.getByLabelText('Hotel remark')).toHaveValue(
       'Modern rooms minutes from Chaudhary Charan Singh International Airport.',
@@ -10403,7 +10501,7 @@ describe.skip('Phase 14 master selectors', () => {
     await openTab('Hotel');
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
-    const rooms = await screen.findByLabelText('Hotel number of rooms');
+    const rooms = await screen.findByLabelText('Room 1 number of rooms');
     const checkInToggle = screen.getByRole('checkbox', {
       name: 'Hotel check-in include time in PDF and weblink',
     });
@@ -10779,7 +10877,7 @@ describe.skip('Phase 14 master selectors', () => {
     expect(await screen.findByLabelText('Hotel city')).toHaveValue('Baku');
     expect(screen.getByLabelText('Hotel check-in')).toHaveValue('2026-09-10');
     expect(screen.getByLabelText('Hotel check-out')).toHaveValue('2026-09-13');
-    expect(screen.getByLabelText('Hotel number of rooms')).toHaveValue(2);
+    expect(screen.getByLabelText('Room 1 number of rooms')).toHaveValue(2);
     // Nights is read-only and derived from the stay dates (10 Sep → 13 Sep = 3).
     expect(screen.getByLabelText('Hotel nights')).toHaveValue('3');
   });
@@ -10973,16 +11071,16 @@ describe.skip('Phase 14 master selectors', () => {
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
     );
     expect(screen.getByLabelText('Hotel city')).toHaveValue('Baku');
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
 
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
     await waitFor(() =>
-      expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room'),
+      expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room'),
     );
 
-    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Only');
+    await userEvent.type(screen.getByLabelText('Meal plan 1 master'), 'Breakfast Only');
     await waitFor(() =>
-      expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Only'),
+      expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast Only'),
     );
     expect(screen.queryByLabelText('Hotel selling price')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
@@ -10996,10 +11094,10 @@ describe.skip('Phase 14 master selectors', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
 
-    const roomType = screen.getByLabelText('Room type master');
-    const mealPlan = screen.getByLabelText('Meal plan master');
+    const roomType = screen.getByLabelText('Room 1 type master');
+    const mealPlan = screen.getByLabelText('Meal plan 1 master');
     await userEvent.type(roomType, 'Super Deluxe Valley View');
     await userEvent.type(mealPlan, 'Breakfast + Dinner');
     fireEvent.blur(roomType);
@@ -11036,14 +11134,14 @@ describe.skip('Phase 14 master selectors', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
-    await userEvent.type(screen.getByLabelText('Meal plan master'), 'Breakfast Only');
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
+    await userEvent.type(screen.getByLabelText('Meal plan 1 master'), 'Breakfast Only');
     await waitFor(() =>
-      expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room'),
+      expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room'),
     );
     await waitFor(() =>
-      expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast Only'),
+      expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast Only'),
     );
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
@@ -11093,8 +11191,8 @@ describe.skip('Phase 14 master selectors', () => {
     await openTab('Hotel');
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
 
-    expect(screen.getByLabelText('Room type master')).toHaveValue('Super Deluxe Valley View');
-    expect(screen.getByLabelText('Meal plan master')).toHaveValue('Breakfast + Dinner');
+    expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Super Deluxe Valley View');
+    expect(screen.getByLabelText('Meal plan 1 master')).toHaveValue('Breakfast + Dinner');
   });
 
   it('keeps the simplified hotel card free of costing fields for every permission level', async () => {
@@ -11105,10 +11203,10 @@ describe.skip('Phase 14 master selectors', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
     await waitFor(() =>
-      expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room'),
+      expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room'),
     );
     expect(screen.queryByLabelText('Hotel selling price')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
@@ -13556,8 +13654,8 @@ describe.skip('Phase 14 master selectors', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add Hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Expand hotel stay 1' }));
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
 
     await waitFor(() => {
@@ -13814,10 +13912,10 @@ describe.skip('Phase 14 master selectors', () => {
 
     // Unlinking the master keeps manual Room Type / Meal Plan entry available.
     await userEvent.click(screen.getByRole('button', { name: 'Clear Hotel master' }));
-    await waitFor(() => expect(screen.getByLabelText('Room type master')).toBeEnabled());
-    expect(screen.getByLabelText('Meal plan master')).toBeEnabled();
-    await userEvent.type(screen.getByLabelText('Room type master'), 'Deluxe Room');
-    expect(screen.getByLabelText('Room type master')).toHaveValue('Deluxe Room');
+    await waitFor(() => expect(screen.getByLabelText('Room 1 type master')).toBeEnabled());
+    expect(screen.getByLabelText('Meal plan 1 master')).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Room 1 type master'), 'Deluxe Room');
+    expect(screen.getByLabelText('Room 1 type master')).toHaveValue('Deluxe Room');
   });
 
   it('derives hotel nights from check-in/check-out dates in the editor and on save', async () => {
@@ -13963,7 +14061,7 @@ describe.skip('Phase 14 master selectors', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('Hotel master')).toHaveValue('Shah Palace Hotel'),
     );
-    expect(screen.getByLabelText('Room type master')).toBeEnabled();
+    expect(screen.getByLabelText('Room 1 type master')).toBeEnabled();
   });
 
   const singaporeDefaultHotel = () => ({
@@ -14904,7 +15002,7 @@ describe.skip('Phase 14 master selectors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add hotel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Add service' }));
     expect(screen.getByLabelText('Hotel master')).toBeInTheDocument();
-    expect(screen.getByLabelText('Room type master')).toBeEnabled();
+    expect(screen.getByLabelText('Room 1 type master')).toBeEnabled();
     expect(screen.getByLabelText('Sightseeing master')).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Hotel master'), 'Shah Palace Hotel');

@@ -4,6 +4,15 @@ const D = (value: Prisma.Decimal.Value | null | undefined) => new Prisma.Decimal
 const roundMoney = (value: Prisma.Decimal) =>
   value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
+export interface PriceableHotelLine {
+  baseRoomPrice?: number | string | null | undefined;
+  extraBedQuantity?: number | null | undefined;
+  extraBedPrice?: number | string | null | undefined;
+  childWithoutBedQuantity?: number | null | undefined;
+  childWithoutBedPrice?: number | string | null | undefined;
+  rooms?: number | null | undefined;
+  sellingPrice?: number | string | null | undefined;
+}
 export interface PriceableHotel {
   internalCost?: number | string | null | undefined;
   sellingPrice?: number | string | null | undefined;
@@ -14,6 +23,10 @@ export interface PriceableHotel {
   childWithoutBedPrice?: number | string | null | undefined;
   rooms?: number | null | undefined;
   nights?: number | null | undefined;
+  // Multiple room allocations inside ONE hotel option. When present, the row
+  // prices from its lines (same per-line formula as the legacy row formula);
+  // legacy rows without lines keep the exact legacy behavior.
+  roomLines?: PriceableHotelLine[] | null | undefined;
 }
 export interface PriceableService {
   quantity?: number | string | null;
@@ -51,9 +64,29 @@ export function calculatePricing(input: {
   // Hotel selling: if snapshot contains resolved breakdown (baseRoomPrice), compute per-night breakdown; else fallback to sellingPrice (backward compat).
   const hotelCost = (input.hotels ?? []).reduce((sum, row) => sum.plus(D(row.internalCost)), D(0));
   const hotelSelling = (input.hotels ?? []).reduce((sum, row) => {
+    const nights = Number(row.nights ?? 1);
+    // Multi-room hotel option: sum the same legacy per-row formula per room
+    // allocation. A row whose lines all price to zero falls back to the row's
+    // sellingPrice exactly like a legacy row (manual override preserved).
+    const roomLines = Array.isArray(row.roomLines) ? row.roomLines : [];
+    if (roomLines.length > 0) {
+      const lineSum = roomLines.reduce((lineAcc, line) => {
+        const hasLineBreakdown =
+          line.baseRoomPrice != null || line.extraBedPrice != null || line.childWithoutBedPrice != null;
+        if (!hasLineBreakdown) {
+          return line.sellingPrice != null ? lineAcc.plus(D(line.sellingPrice)) : lineAcc;
+        }
+        const rooms = Number(line.rooms ?? 1);
+        const base = D(line.baseRoomPrice).mul(rooms).mul(nights);
+        const extra = D(line.extraBedPrice).mul(line.extraBedQuantity ?? 0).mul(nights);
+        const child = D(line.childWithoutBedPrice).mul(line.childWithoutBedQuantity ?? 0).mul(nights);
+        return lineAcc.plus(roundMoney(base.plus(extra).plus(child)));
+      }, D(0));
+      if (lineSum.isZero() && row.sellingPrice != null) return sum.plus(D(row.sellingPrice));
+      return sum.plus(lineSum);
+    }
     const hasBreakdown = row.baseRoomPrice != null || row.extraBedPrice != null || row.childWithoutBedPrice != null;
     if (hasBreakdown) {
-      const nights = Number(row.nights ?? 1);
       const rooms = Number(row.rooms ?? 1);
       const base = D(row.baseRoomPrice).mul(rooms).mul(nights);
       const extra = D(row.extraBedPrice).mul(row.extraBedQuantity ?? 0).mul(nights);

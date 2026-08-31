@@ -630,20 +630,39 @@ async function presentVersion(version: FullVersion, canViewCosting: boolean, cus
         const { internalCost, hotelId, hotelRoomTypeId, hotelMealPlanId, baseRoomPrice, extraBedPrice, childWithoutBedPrice, ...hotel } = strip(
           row as unknown as typeof row & { baseRoomPrice: unknown; extraBedPrice: unknown; childWithoutBedPrice: unknown },
         );
+        // Multi-room lines: master ids are internal editing aids and line costs
+        // are internal data — apply the same visibility rules as the row level.
+        const presentLines = (lines: unknown, idKey: 'hotelRoomTypeId' | 'hotelMealPlanId') =>
+          (Array.isArray(lines) ? lines : []).map((line) => {
+            const { [idKey]: lineId, internalCost: lineCost, ...rest } = line as Record<string, unknown>;
+            void lineId;
+            return {
+              ...(rest as object),
+              ...(customerSafe ? {} : { [idKey]: lineId ?? null }),
+              ...(canViewCosting && !customerSafe ? { internalCost: lineCost ?? null } : {}),
+            };
+          });
+        const hotelScalars = hotel as unknown as {
+          sellingPrice: { toString(): string } | null | undefined;
+        };
         return {
           ...hotel,
           images: await presentQuotationImages((hotel as unknown as { images: unknown }).images),
           imageSnapshotPresent: Array.isArray((hotel as unknown as { images: unknown }).images),
-          sellingPrice: decimal((hotel as any).sellingPrice),
-          baseRoomPrice: baseRoomPrice == null ? null : decimal(baseRoomPrice as any),
-          extraBedPrice: extraBedPrice == null ? null : decimal(extraBedPrice as any),
+          sellingPrice: decimal(hotelScalars.sellingPrice),
+          baseRoomPrice: baseRoomPrice == null ? null : decimal(baseRoomPrice as { toString(): string }),
+          extraBedPrice: extraBedPrice == null ? null : decimal(extraBedPrice as { toString(): string }),
           childWithoutBedPrice:
-            childWithoutBedPrice == null ? null : decimal(childWithoutBedPrice as any),
+            childWithoutBedPrice == null ? null : decimal(childWithoutBedPrice as { toString(): string }),
+          roomLines: presentLines(hotel.roomLines, 'hotelRoomTypeId'),
+          mealPlanLines: presentLines(hotel.mealPlanLines, 'hotelMealPlanId'),
           // Master ids are an internal editing aid. Customer-facing output
           // (public link, PDF, email) is snapshot-only, so they are omitted
           // there rather than nulled.
           ...(customerSafe ? {} : { hotelId, hotelRoomTypeId, hotelMealPlanId }),
-          ...(canViewCosting && !customerSafe ? { internalCost: decimal(internalCost as any) } : {}),
+          ...(canViewCosting && !customerSafe
+            ? { internalCost: decimal(internalCost as { toString(): string }) }
+            : {}),
         };
       }),
     ),
@@ -715,20 +734,73 @@ async function presentQuotation(
   };
 }
 
+type HotelRowInput = QuotationVersionInput['hotels'][number];
+
+/**
+ * Mirror the first room/meal line of a multi-room hotel option onto the legacy
+ * scalar columns (roomType, hotelRoomTypeId, rooms, extraBed*, childWithoutBed*,
+ * mealPlan, hotelMealPlanId) so older readers — booking import, exports, any
+ * code path still reading the scalars — keep working unchanged. The row's
+ * `rooms` total becomes the sum of every room allocation. Rows without lines
+ * (legacy writers) pass through untouched.
+ */
+function syncHotelLineScalars<T extends Pick<HotelRowInput, 'roomLines' | 'mealPlanLines'> & Record<string, unknown>>(
+  hotel: T,
+): T {
+  const roomLines = Array.isArray(hotel.roomLines) ? hotel.roomLines : [];
+  const mealPlanLines = Array.isArray(hotel.mealPlanLines) ? hotel.mealPlanLines : [];
+  if (!roomLines.length && !mealPlanLines.length) return hotel;
+  const firstRoom = roomLines[0];
+  const firstMeal = mealPlanLines[0];
+  return {
+    ...hotel,
+    ...(roomLines.length
+      ? {
+          hotelRoomTypeId: firstRoom?.hotelRoomTypeId ?? null,
+          roomType: firstRoom?.roomType ?? null,
+          rooms: roomLines.reduce((sum, line) => sum + (Number(line.rooms) || 1), 0),
+          extraBedQuantity: firstRoom?.extraBedQuantity ?? null,
+          extraBedPrice: firstRoom?.extraBedPrice ?? null,
+          childWithoutBedQuantity: firstRoom?.childWithoutBedQuantity ?? null,
+          childWithoutBedPrice: firstRoom?.childWithoutBedPrice ?? null,
+          baseRoomPrice: firstRoom?.baseRoomPrice ?? null,
+          pricingSource: firstRoom?.pricingSource ?? null,
+        }
+      : {}),
+    ...(mealPlanLines.length
+      ? {
+          hotelMealPlanId: firstMeal?.hotelMealPlanId ?? null,
+          mealPlan: firstMeal?.mealPlan ?? null,
+        }
+      : {}),
+  } as T;
+}
+
 function normalizeVersionInput(input: QuotationVersionInput, allowCosting: boolean) {
   return {
     ...input,
-    hotels: input.hotels.map((hotel) => ({
-      ...hotel,
-      internalCost: allowCosting ? (hotel.internalCost ?? 0) : 0,
-      sellingPrice: hotel.sellingPrice ?? 0,
-      baseRoomPrice: hotel.baseRoomPrice ?? null,
-      extraBedQuantity: hotel.extraBedQuantity ?? null,
-      extraBedPrice: hotel.extraBedPrice ?? null,
-      childWithoutBedQuantity: hotel.childWithoutBedQuantity ?? null,
-      childWithoutBedPrice: hotel.childWithoutBedPrice ?? null,
-      pricingSource: hotel.pricingSource ?? null,
-    })),
+    hotels: input.hotels.map((hotel) =>
+      syncHotelLineScalars({
+        ...hotel,
+        internalCost: allowCosting ? (hotel.internalCost ?? 0) : 0,
+        sellingPrice: hotel.sellingPrice ?? 0,
+        baseRoomPrice: hotel.baseRoomPrice ?? null,
+        extraBedQuantity: hotel.extraBedQuantity ?? null,
+        extraBedPrice: hotel.extraBedPrice ?? null,
+        childWithoutBedQuantity: hotel.childWithoutBedQuantity ?? null,
+        childWithoutBedPrice: hotel.childWithoutBedPrice ?? null,
+        pricingSource: hotel.pricingSource ?? null,
+        roomLines: (Array.isArray(hotel.roomLines) ? hotel.roomLines : []).map((line) => ({
+          ...line,
+          // Costing lines are internal data — same gating as the row-level cost.
+          internalCost: allowCosting ? (line.internalCost ?? null) : null,
+        })),
+        mealPlanLines: (Array.isArray(hotel.mealPlanLines) ? hotel.mealPlanLines : []).map((line) => ({
+          ...line,
+          internalCost: allowCosting ? (line.internalCost ?? null) : null,
+        })),
+      }),
+    ),
     services: input.services.map((service) => ({
       ...service,
       internalCost: allowCosting ? (service.internalCost ?? 0) : 0,
@@ -744,17 +816,49 @@ async function enrichHotelPricingSnapshots(
 ): Promise<QuotationVersionInput> {
   // Snapshot enrichment: if a hotel row links to a room type and has a check-in date but no resolved pricing, fill from master.
   // Manual overrides (client-provided baseRoomPrice != null) are preserved.
+  // Multi-room hotel options resolve EVERY room allocation line independently.
   const enrichedHotels = await Promise.all(
     input.hotels.map(async (hotel) => {
-      if (!hotel.hotelRoomTypeId || !hotel.checkInDate) return hotel;
+      const roomLines = Array.isArray(hotel.roomLines) ? hotel.roomLines : [];
+      let lines = roomLines;
+      if (roomLines.length && hotel.checkInDate) {
+        lines = await Promise.all(
+          roomLines.map(async (line) => {
+            if (!line.hotelRoomTypeId) return line;
+            const needsResolution =
+              line.baseRoomPrice == null && line.extraBedPrice == null && line.childWithoutBedPrice == null;
+            // If any pricing snapshot already set (manual), keep it.
+            if (!needsResolution && line.baseRoomPrice != null) return line;
+            const resolved = await resolveHotelRoomPricing(
+              imageOwnerCompanyIds,
+              line.hotelRoomTypeId,
+              hotel.checkInDate,
+            );
+            if (!resolved) return line;
+            return {
+              ...line,
+              baseRoomPrice: line.baseRoomPrice ?? resolved.baseRoomPrice,
+              extraBedPrice: line.extraBedPrice ?? resolved.extraBedPrice,
+              childWithoutBedPrice: line.childWithoutBedPrice ?? resolved.childWithoutBedPrice,
+              pricingSource: line.pricingSource ?? resolved.pricingSource,
+            };
+          }),
+        );
+      }
+      if (!hotel.hotelRoomTypeId || !hotel.checkInDate) {
+        return lines === roomLines ? hotel : { ...hotel, roomLines: lines };
+      }
       const needsResolution =
         hotel.baseRoomPrice == null && hotel.extraBedPrice == null && hotel.childWithoutBedPrice == null;
       // If any pricing snapshot already set (manual), keep it.
-      if (!needsResolution && hotel.baseRoomPrice != null) return hotel;
+      if (!needsResolution && hotel.baseRoomPrice != null) {
+        return lines === roomLines ? hotel : { ...hotel, roomLines: lines };
+      }
       const resolved = await resolveHotelRoomPricing(imageOwnerCompanyIds, hotel.hotelRoomTypeId, hotel.checkInDate);
-      if (!resolved) return hotel;
+      if (!resolved) return lines === roomLines ? hotel : { ...hotel, roomLines: lines };
       return {
         ...hotel,
+        roomLines: lines,
         baseRoomPrice: hotel.baseRoomPrice ?? resolved.baseRoomPrice,
         extraBedPrice: hotel.extraBedPrice ?? resolved.extraBedPrice,
         childWithoutBedPrice: hotel.childWithoutBedPrice ?? resolved.childWithoutBedPrice,
@@ -1170,6 +1274,13 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
           alt?: string | null;
         }>,
         imageSnapshotPresent: Array.isArray(rawImages),
+        // Multi-room lines normalize the same way: legacy NULL → [].
+        roomLines: Array.isArray(row.roomLines)
+          ? (row.roomLines as HotelRowInput['roomLines'])
+          : [],
+        mealPlanLines: Array.isArray(row.mealPlanLines)
+          ? (row.mealPlanLines as HotelRowInput['mealPlanLines'])
+          : [],
       }),
     ),
     services: source.services.map(
@@ -2086,6 +2197,13 @@ export const quotationsService = {
             // Template hotel options have no images column; keep the shared
             // hotel schema shape valid on apply.
             images: [],
+            // Legacy template rows store NULL in the Json line columns.
+            roomLines: Array.isArray(row.roomLines)
+              ? (row.roomLines as unknown as HotelRowInput['roomLines'])
+              : [],
+            mealPlanLines: Array.isArray(row.mealPlanLines)
+              ? (row.mealPlanLines as unknown as HotelRowInput['mealPlanLines'])
+              : [],
           }),
         ),
         services: template.services.map(
@@ -2240,6 +2358,21 @@ export const quotationsService = {
           childrenWithoutBed: input.childrenWithoutBed ?? lead.childrenWithoutBed,
           infants: input.infants ?? lead.infants,
           rooms: input.rooms ?? lead.rooms,
+          // Carry the Lead's child ages into the quotation: the PDF and the
+          // Weblink both render from these columns, so the two outputs always
+          // agree. Explicit input overrides the Lead snapshot.
+          ...((() => {
+            const leadRow = lead as typeof lead & Record<string, unknown>;
+            const pick = (key: 'childrenWithBedAges' | 'childrenWithoutBedAges' | 'infantAges') => {
+              const value = (input[key] ?? (leadRow[key] as number[] | null | undefined)) ?? null;
+              return Array.isArray(value) && value.length ? { [key]: value } : {};
+            };
+            return {
+              ...pick('childrenWithBedAges'),
+              ...pick('childrenWithoutBedAges'),
+              ...pick('infantAges'),
+            };
+          })()),
           currency: input.currency ?? lead.currency,
           validUntil: input.validUntil ?? null,
           publicToken: token,
@@ -2318,6 +2451,13 @@ export const quotationsService = {
           ? { childrenWithoutBed: input.childrenWithoutBed }
           : {}),
         ...(input.infants !== undefined ? { infants: input.infants } : {}),
+        ...(input.childrenWithBedAges !== undefined
+          ? { childrenWithBedAges: input.childrenWithBedAges }
+          : {}),
+        ...(input.childrenWithoutBedAges !== undefined
+          ? { childrenWithoutBedAges: input.childrenWithoutBedAges }
+          : {}),
+        ...(input.infantAges !== undefined ? { infantAges: input.infantAges } : {}),
         ...(input.rooms !== undefined ? { rooms: input.rooms } : {}),
         ...(input.currency !== undefined ? { currency: input.currency } : {}),
         ...(input.validUntil !== undefined ? { validUntil: input.validUntil } : {}),
@@ -3966,6 +4106,11 @@ export const quotationsService = {
         childrenWithoutBed: quotation.childrenWithoutBed,
         infants: quotation.infants,
         rooms: quotation.rooms,
+        // Child ages for the public Travelers display (same source the PDF
+        // renders). Null for legacy quotations → the age line is omitted.
+        childrenWithBedAges: (quotation.childrenWithBedAges as number[] | null) ?? null,
+        childrenWithoutBedAges: (quotation.childrenWithoutBedAges as number[] | null) ?? null,
+        infantAges: (quotation.infantAges as number[] | null) ?? null,
         validUntil: quotation.validUntil,
         createdAt: quotation.createdAt,
         status: quotation.status,

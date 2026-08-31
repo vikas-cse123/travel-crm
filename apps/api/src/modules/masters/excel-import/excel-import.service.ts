@@ -25,7 +25,11 @@ function normalizeHeader(value: string) {
 function normalizeCell(value: unknown): string {
   if (value == null) return '';
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).trim();
+  // Normalize CR/CRLF to LF so internal line breaks survive the pipeline; only
+  // leading/trailing whitespace is trimmed — newlines INSIDE the cell are kept.
+  return String(value)
+    .replace(/\r\n?/g, '\n')
+    .trim();
 }
 
 interface ParsedDataRow {

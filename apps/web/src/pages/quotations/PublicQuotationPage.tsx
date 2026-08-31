@@ -32,8 +32,11 @@ import { useParams } from 'react-router-dom';
 import {
   cabinLuggageLabel,
   formatItineraryDayTitle,
+  formatAgeList,
   hotelStayNights,
   isPublicTaxNote,
+  resolveHotelMealPlanLines,
+  resolveHotelRoomLines,
   resolveItineraryActivityImage,
   resolveItineraryDayImage,
   resolveQuotationPricing,
@@ -88,6 +91,11 @@ interface PublicQuotation {
     childrenWithoutBed: number;
     infants: number;
     rooms: number;
+    // Child ages carried from the Lead — same source the PDF renders. Null for
+    // legacy quotations, in which case the age cells are omitted.
+    childrenWithBedAges?: number[] | null;
+    childrenWithoutBedAges?: number[] | null;
+    infantAges?: number[] | null;
     createdAt?: string | null;
   };
   version: QuotationVersion;
@@ -1895,6 +1903,11 @@ export function PublicQuotationPage() {
   ]
     .filter(Boolean)
     .join(', ');
+  // Child ages from the Lead — shared with the PDF via the same quotation
+  // columns. Null/empty for legacy data → the age cells are simply omitted.
+  const cwbAgesText = formatAgeList(q.childrenWithBedAges);
+  const cwobAgesText = formatAgeList(q.childrenWithoutBedAges);
+  const infantAgesText = formatAgeList(q.infantAges);
 
   const packageTotal =
     Number(v.perAdultPrice ?? 0) * q.adults +
@@ -2107,6 +2120,9 @@ export function PublicQuotationPage() {
                 <Info label="Travel Date" value={dateShort(q.travelStartDate) ?? 'Flexible'} />
                 <Info label="Duration" value={duration ?? 'As advised'} />
                 <Info label="Travelers" value={travelers} />
+                {cwbAgesText && <Info label="CWB Ages" value={cwbAgesText} />}
+                {cwobAgesText && <Info label="CWOB Ages" value={cwobAgesText} />}
+                {infantAgesText && <Info label="Infant Ages" value={infantAgesText} />}
                 <Info label="Quotation ID" value={formatPublicQuotationNumber(q.quotationNumber)} />
                 <Info
                   label="Destinations"
@@ -2368,42 +2384,74 @@ export function PublicQuotationPage() {
                           )}
 
                           <div className="mt-4 flex flex-wrap items-center gap-2">
-                            {hotel.roomType?.trim() ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
-                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                  Room
-                                </strong>
-                                {' '}
-                                {hotel.roomType}
-                              </span>
-                            ) : null}
-                            {hotel.mealPlan?.trim() ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
-                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                  Meals
-                                </strong>
-                                {' '}
-                                {hotel.mealPlan}
-                              </span>
-                            ) : null}
-                            {hotel.rooms != null ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800">
-                                <strong className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                  Rooms:
-                                </strong>
-                                {' '}
-                                {hotel.rooms}
-                              </span>
-                            ) : null}
-                            {nights != null && (
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">
-                                <strong className="text-xs font-medium uppercase tracking-wide text-white/85">
-                                  Nights:
-                                </strong>
-                                {' '}
-                                {nights}
-                              </span>
-                            )}
+                            {(() => {
+                              // Multi-room / multi-meal hotel options list EVERY
+                              // allocation; legacy single-room rows keep the
+                              // exact historical chips.
+                              const roomLines = resolveHotelRoomLines(hotel);
+                              const mealLines = resolveHotelMealPlanLines(hotel);
+                              const multiRoom = roomLines.length > 1;
+                              const multiMeal = mealLines.length > 1;
+                              const chipClass =
+                                'inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800';
+                              const labelClass =
+                                'text-xs font-medium uppercase tracking-wide text-slate-500';
+                              return (
+                                <>
+                                  {multiRoom
+                                    ? roomLines.map((line, lineIndex) => (
+                                        <span key={`room-line-${lineIndex}`} className={chipClass}>
+                                          <strong className={labelClass}>Room {lineIndex + 1}</strong>
+                                          {' '}
+                                          {(line.roomType ?? '').trim() || 'Room'}
+                                          {line.rooms != null && line.rooms !== 1
+                                            ? ` — ${line.rooms} rooms`
+                                            : line.rooms != null
+                                              ? ' — 1 room'
+                                              : ''}
+                                        </span>
+                                      ))
+                                    : hotel.roomType?.trim() ? (
+                                        <span className={chipClass}>
+                                          <strong className={labelClass}>Room</strong>
+                                          {' '}
+                                          {hotel.roomType}
+                                        </span>
+                                      ) : null}
+                                  {multiMeal
+                                    ? mealLines.map((line, lineIndex) => (
+                                        <span key={`meal-line-${lineIndex}`} className={chipClass}>
+                                          <strong className={labelClass}>Meal {lineIndex + 1}</strong>
+                                          {' '}
+                                          {(line.mealPlan ?? '').trim()}
+                                        </span>
+                                      ))
+                                    : hotel.mealPlan?.trim() ? (
+                                        <span className={chipClass}>
+                                          <strong className={labelClass}>Meals</strong>
+                                          {' '}
+                                          {hotel.mealPlan}
+                                        </span>
+                                      ) : null}
+                                  {hotel.rooms != null ? (
+                                    <span className={chipClass}>
+                                      <strong className={labelClass}>Rooms:</strong>
+                                      {' '}
+                                      {hotel.rooms}
+                                    </span>
+                                  ) : null}
+                                  {nights != null && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">
+                                      <strong className="text-xs font-medium uppercase tracking-wide text-white/85">
+                                        Nights:
+                                      </strong>
+                                      {' '}
+                                      {nights}
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
 
                           <div className="mt-4 grid gap-1.5 text-sm text-slate-600 sm:grid-cols-2">

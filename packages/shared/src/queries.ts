@@ -126,6 +126,12 @@ export const queryInputSchema = z
     childrenWithoutBed: z.coerce.number().int().min(0).max(100).default(0),
     infants: z.coerce.number().int().min(0).max(100).default(0),
     extraBeds: z.coerce.number().int().min(0).max(100).default(0),
+    // Optional per-child ages collected on the Lead (CWB 1 Age, CWB 2 Age, …).
+    // Carried into quotations so the PDF and Weblink render the same traveler
+    // data. Empty entries are dropped by the form before submission.
+    childrenWithBedAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).default([]),
+    childrenWithoutBedAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).default([]),
+    infantAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).default([]),
     expectedAmount: optionalMoney,
     budgetMin: optionalMoney,
     budgetMax: optionalMoney,
@@ -352,3 +358,19 @@ export const labelForLookup = (value: string) =>
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+
+/**
+ * Format a stored child-age array ("CWB Ages") for display: `8, 10`.
+ * Returns null when the data is absent/empty or holds no usable numbers, so
+ * callers can simply omit the age line for legacy quotations — never rendering
+ * "undefined"/"null"/"-". Shared by the Classic PDF, the Stylish PDF and the
+ * Weblink so all three render the same traveler ages from one source.
+ */
+export function formatAgeList(ages: unknown): string | null {
+  if (!Array.isArray(ages)) return null;
+  const list = ages
+    .filter((age) => age != null && `${age}`.trim() !== '')
+    .map((age) => Number(age))
+    .filter((age) => Number.isFinite(age) && age >= 0);
+  return list.length ? list.join(', ') : null;
+}

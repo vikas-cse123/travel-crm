@@ -73,6 +73,9 @@ export interface TemplateHotel extends MasterHotelRefs {
   images?: QuotationSnapshotImage[];
   imageSnapshotPresent?: boolean;
   pdfImageUrl?: string | null;
+  /** Multi-room allocations / meal plans inside ONE hotel option (JSON arrays). */
+  roomLines?: Array<Record<string, unknown>> | null;
+  mealPlanLines?: Array<Record<string, unknown>> | null;
 }
 export interface TemplateService extends MasterServiceRefs {
   id: string;

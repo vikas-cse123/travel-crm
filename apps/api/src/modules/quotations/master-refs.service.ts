@@ -38,6 +38,14 @@ export interface HotelRefInput {
   hotelId?: string | null | undefined;
   hotelRoomTypeId?: string | null | undefined;
   hotelMealPlanId?: string | null | undefined;
+  // Multi-room hotel options carry per-line master references that must pass
+  // the same tenancy and parent-child rules as the row-level ones.
+  roomLines?: Array<{
+    hotelRoomTypeId?: string | null | undefined;
+  }> | null | undefined;
+  mealPlanLines?: Array<{
+    hotelMealPlanId?: string | null | undefined;
+  }> | null | undefined;
 }
 
 export interface ServiceRefInput {
@@ -160,16 +168,28 @@ export async function validateMasterRefs(
   }
 
   // --- Hotels --------------------------------------------------------------
+  const hotelLineRoomTypeIds = (row: HotelRefInput) =>
+    (Array.isArray(row.roomLines) ? row.roomLines : []).map((line) => line?.hotelRoomTypeId ?? null);
+  const hotelLineMealPlanIds = (row: HotelRefInput) =>
+    (Array.isArray(row.mealPlanLines) ? row.mealPlanLines : []).map((line) => line?.hotelMealPlanId ?? null);
   const hotelIds = unique(hotels.map((row) => row.hotelId));
-  const roomTypeIds = unique(hotels.map((row) => row.hotelRoomTypeId));
-  const mealPlanIds = unique(hotels.map((row) => row.hotelMealPlanId));
+  const roomTypeIds = unique(hotels.flatMap((row) => [row.hotelRoomTypeId, ...hotelLineRoomTypeIds(row)]));
+  const mealPlanIds = unique(hotels.flatMap((row) => [row.hotelMealPlanId, ...hotelLineMealPlanIds(row)]));
   const retainedHotelIds = ids((retained.hotels ?? []).map((row) => row.hotelId));
   const retainedRoomTypeIds = ids((retained.hotels ?? []).map((row) => row.hotelRoomTypeId));
   const retainedMealPlanIds = ids((retained.hotels ?? []).map((row) => row.hotelMealPlanId));
 
   // A room type or meal plan without its hotel would leave the row unable to
   // prove parentage, so require the hotel explicitly rather than inferring it.
-  if (hotels.some((row) => (row.hotelRoomTypeId || row.hotelMealPlanId) && !row.hotelId)) {
+  if (
+    hotels.some(
+      (row) =>
+        ((row.hotelRoomTypeId || row.hotelMealPlanId ||
+          hotelLineRoomTypeIds(row).some(Boolean) ||
+          hotelLineMealPlanIds(row).some(Boolean)) &&
+          !row.hotelId),
+    )
+  ) {
     throw new ValidationError('Select a hotel before choosing a room type or meal plan.');
   }
 
@@ -212,23 +232,38 @@ export async function validateMasterRefs(
   const roomTypeById = new Map(foundRoomTypes.map((row) => [row.id, row]));
   const mealPlanById = new Map(foundMealPlans.map((row) => [row.id, row]));
 
+  const validateRoomTypeRef = (roomTypeId: string, row: HotelRefInput, context: string) => {
+    const child = roomTypeById.get(roomTypeId);
+    const parent = row.hotelId ? hotelById.get(row.hotelId) : undefined;
+    if (!childAvailable(child, parent, hotelScope, retainedRoomTypeIds, retainedHotelIds))
+      missing('room type');
+    if (child!.hotelId !== row.hotelId)
+      throw new ValidationError(
+        `The selected room type does not belong to the selected hotel${context}.`,
+      );
+  };
+  const validateMealPlanRef = (mealPlanId: string, row: HotelRefInput, context: string) => {
+    const child = mealPlanById.get(mealPlanId);
+    const parent = row.hotelId ? hotelById.get(row.hotelId) : undefined;
+    if (!childAvailable(child, parent, hotelScope, retainedMealPlanIds, retainedHotelIds))
+      missing('meal plan');
+    if (child!.hotelId !== row.hotelId)
+      throw new ValidationError(
+        `The selected meal plan does not belong to the selected hotel${context}.`,
+      );
+  };
+
   for (const row of hotels) {
-    if (row.hotelRoomTypeId) {
-      const child = roomTypeById.get(row.hotelRoomTypeId);
-      const parent = row.hotelId ? hotelById.get(row.hotelId) : undefined;
-      if (!childAvailable(child, parent, hotelScope, retainedRoomTypeIds, retainedHotelIds))
-        missing('room type');
-      if (child!.hotelId !== row.hotelId)
-        throw new ValidationError('The selected room type does not belong to the selected hotel.');
-    }
-    if (row.hotelMealPlanId) {
-      const child = mealPlanById.get(row.hotelMealPlanId);
-      const parent = row.hotelId ? hotelById.get(row.hotelId) : undefined;
-      if (!childAvailable(child, parent, hotelScope, retainedMealPlanIds, retainedHotelIds))
-        missing('meal plan');
-      if (child!.hotelId !== row.hotelId)
-        throw new ValidationError('The selected meal plan does not belong to the selected hotel.');
-    }
+    if (row.hotelRoomTypeId) validateRoomTypeRef(row.hotelRoomTypeId, row, '');
+    if (row.hotelMealPlanId) validateMealPlanRef(row.hotelMealPlanId, row, '');
+    // Every room allocation / meal-plan line must point at the same hotel.
+    (Array.isArray(row.roomLines) ? row.roomLines : []).forEach((line, index) => {
+      if (line?.hotelRoomTypeId) validateRoomTypeRef(line.hotelRoomTypeId, row, ` (Room ${index + 1})`);
+    });
+    (Array.isArray(row.mealPlanLines) ? row.mealPlanLines : []).forEach((line, index) => {
+      if (line?.hotelMealPlanId)
+        validateMealPlanRef(line.hotelMealPlanId, row, ` (Meal Plan ${index + 1})`);
+    });
   }
 
   // --- Services ------------------------------------------------------------

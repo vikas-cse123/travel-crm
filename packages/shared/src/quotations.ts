@@ -253,6 +253,51 @@ export const quotationItinerarySchema = z.object({
   sequence,
 });
 
+/**
+ * One room allocation inside a hotel option. A hotel option may carry any
+ * number of these (unlimited); each line keeps its own room-type link, room
+ * quantity and extra-bed / child-without-bed details, mirroring the legacy
+ * row-level scalar columns so a single-line hotel option prices identically
+ * to a legacy quotation.
+ */
+export const quotationHotelRoomLineSchema = z.object({
+  hotelRoomTypeId: optionalMasterId,
+  roomType: optionalText(100),
+  rooms: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? 1 : value),
+    z.coerce.number().int().min(1).max(100),
+  ),
+  extraBedQuantity: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? null : value),
+    z.coerce.number().int().min(0).max(100).nullable().optional(),
+  ),
+  extraBedPrice: optionalMoney,
+  childWithoutBedQuantity: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? null : value),
+    z.coerce.number().int().min(0).max(100).nullable().optional(),
+  ),
+  childWithoutBedPrice: optionalMoney,
+  // Snapshot of resolved master pricing (per-night), same semantics as the
+  // row-level snapshot columns.
+  baseRoomPrice: optionalMoney,
+  pricingSource: optionalText(20),
+  /** Per-line master selling figure (additive row total), mirroring the row's sellingPrice semantics. */
+  sellingPrice: optionalMoney,
+  internalCost: optionalMoney,
+  notes: optionalText(2000),
+});
+
+/** One meal-plan selection inside a hotel option (unlimited per option). */
+export const quotationHotelMealPlanLineSchema = z.object({
+  hotelMealPlanId: optionalMasterId,
+  mealPlan: optionalText(100),
+  sellingPrice: optionalMoney,
+  internalCost: optionalMoney,
+});
+
+export type QuotationHotelRoomLine = z.infer<typeof quotationHotelRoomLineSchema>;
+export type QuotationHotelMealPlanLine = z.infer<typeof quotationHotelMealPlanLineSchema>;
+
 export const quotationHotelSchema = z
   .object({
     // Master references. These columns already existed on the hotel-option
@@ -315,10 +360,50 @@ export const quotationHotelSchema = z
      * back to the first image in the stay's saved order.
      */
     pdfImageUrl: optionalText(1000),
+    /**
+     * Multiple room allocations inside ONE hotel option (unlimited). Legacy
+     * quotations store NULL and keep using the row-level scalar columns
+     * (roomType, rooms, extraBed and childWithoutBed fields); when the array
+     * is present it is the authoritative room list and the scalars mirror the
+     * first line for older readers.
+     */
+    roomLines: z.preprocess(
+      (value) => (value === null || value === undefined ? [] : value),
+      z.array(quotationHotelRoomLineSchema).max(10),
+    ),
+    /** Multiple meal-plan selections inside ONE hotel option (up to 10). */
+    mealPlanLines: z.preprocess(
+      (value) => (value === null || value === undefined ? [] : value),
+      z.array(quotationHotelMealPlanLineSchema).max(10),
+    ),
   })
   .refine((v) => !v.checkInDate || !v.checkOutDate || v.checkInDate <= v.checkOutDate, {
     message: 'Check-out must be on or after check-in.',
     path: ['checkOutDate'],
+  })
+  .superRefine((v, ctx) => {
+    // A partially filled room line must name its room type so the problem is
+    // reported against the exact line ("Room 2") instead of being dropped.
+    (v.roomLines ?? []).forEach((line, index) => {
+      const hasRoom = Boolean(line.hotelRoomTypeId) || Boolean(line.roomType?.trim());
+      const hasData =
+        hasRoom ||
+        line.rooms !== 1 ||
+        line.extraBedQuantity != null ||
+        line.childWithoutBedQuantity != null ||
+        Boolean(line.notes?.trim()) ||
+        line.baseRoomPrice != null ||
+        line.extraBedPrice != null ||
+        line.childWithoutBedPrice != null ||
+        line.sellingPrice != null;
+      if (hasData && !hasRoom) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['roomLines', index],
+          message: `Room ${index + 1}: Room Type is required.`,
+        });
+      }
+    });
   });
 
 export const quotationServiceSchema = z.object({
@@ -507,6 +592,104 @@ export function validateHotelOccupancy(
   const rooms = pax.rooms ?? 1;
   if (totalExtra > max * rooms) return `Extra occupants (${totalExtra}) exceed room max occupancy (${max}${rooms > 1 ? ` × ${rooms}` : ''}).`;
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-room / multi-meal hotel option support
+// ---------------------------------------------------------------------------
+
+const hotelLineRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+/**
+ * The room allocations of one hotel option, always as a line array.
+ *
+ * Rows saved with the multi-room structure return their lines as-is; legacy
+ * rows (single roomType/rooms/extraBed* scalar columns, NULL roomLines) are
+ * synthesized into exactly one line so every reader — PDF, weblink, pricing,
+ * builder — consumes the same shape without data migration.
+ */
+export function resolveHotelRoomLines(hotel: unknown): QuotationHotelRoomLine[] {
+  const row = hotelLineRecord(hotel);
+  const stored = Array.isArray(row.roomLines) ? (row.roomLines as unknown[]) : [];
+  if (stored.length > 0) return stored.map((line) => hotelLineRecord(line)) as unknown as QuotationHotelRoomLine[];
+  const hasLegacy =
+    row.roomType != null ||
+    row.hotelRoomTypeId != null ||
+    row.rooms != null ||
+    row.extraBedQuantity != null ||
+    row.childWithoutBedQuantity != null;
+  if (!hasLegacy) return [];
+  return [
+    {
+      hotelRoomTypeId: (row.hotelRoomTypeId as QuotationHotelRoomLine['hotelRoomTypeId']) ?? null,
+      roomType: (row.roomType as QuotationHotelRoomLine['roomType']) ?? null,
+      rooms: row.rooms == null ? 1 : Number(row.rooms) || 1,
+      extraBedQuantity: (row.extraBedQuantity as QuotationHotelRoomLine['extraBedQuantity']) ?? null,
+      extraBedPrice: (row.extraBedPrice as QuotationHotelRoomLine['extraBedPrice']) ?? null,
+      childWithoutBedQuantity: (row.childWithoutBedQuantity as QuotationHotelRoomLine['childWithoutBedQuantity']) ?? null,
+      childWithoutBedPrice: (row.childWithoutBedPrice as QuotationHotelRoomLine['childWithoutBedPrice']) ?? null,
+      baseRoomPrice: (row.baseRoomPrice as QuotationHotelRoomLine['baseRoomPrice']) ?? null,
+      pricingSource: (row.pricingSource as QuotationHotelRoomLine['pricingSource']) ?? null,
+      sellingPrice: null,
+      internalCost: null,
+      notes: null,
+    },
+  ];
+}
+
+/**
+ * The meal-plan selections of one hotel option as a line array. Legacy rows
+ * (single mealPlan scalar, NULL mealPlanLines) synthesize exactly one line.
+ */
+export function resolveHotelMealPlanLines(hotel: unknown): QuotationHotelMealPlanLine[] {
+  const row = hotelLineRecord(hotel);
+  const stored = Array.isArray(row.mealPlanLines) ? (row.mealPlanLines as unknown[]) : [];
+  if (stored.length > 0) return stored.map((line) => hotelLineRecord(line)) as unknown as QuotationHotelMealPlanLine[];
+  if (row.mealPlan == null && row.hotelMealPlanId == null) return [];
+  return [
+    {
+      hotelMealPlanId: (row.hotelMealPlanId as QuotationHotelMealPlanLine['hotelMealPlanId']) ?? null,
+      mealPlan: (row.mealPlan as QuotationHotelMealPlanLine['mealPlan']) ?? null,
+      sellingPrice: null,
+      internalCost: null,
+    },
+  ];
+}
+
+/** Total room quantity across every room allocation of a hotel option. */
+export function hotelRoomLinesTotalRooms(hotel: unknown): number | null {
+  const lines = resolveHotelRoomLines(hotel);
+  if (!lines.length) return null;
+  return lines.reduce((sum, line) => sum + (Number(line.rooms) || 1), 0);
+}
+
+/**
+ * Accommodation total across every room allocation of a hotel option, using
+ * the exact legacy per-row formula applied per line (base × rooms × nights +
+ * extra bed + child without bed). A legacy single-room row therefore yields
+ * exactly the legacy total.
+ */
+export function calculateHotelRoomLinesTotal(
+  hotel: unknown,
+  nights?: number | null,
+): number {
+  const row = hotelLineRecord(hotel);
+  const resolvedNights =
+    nights ??
+    (row.nights == null ? 0 : Number(row.nights));
+  return resolveHotelRoomLines(hotel).reduce((sum, line) => {
+    const lineTotal = calculateHotelStayTotal({
+      baseRoomPrice: line.baseRoomPrice ?? 0,
+      rooms: line.rooms ?? 1,
+      extraBedQuantity: line.extraBedQuantity ?? 0,
+      extraBedPrice: line.extraBedPrice ?? 0,
+      childWithoutBedQuantity: line.childWithoutBedQuantity ?? 0,
+      childWithoutBedPrice: line.childWithoutBedPrice ?? 0,
+      nights: resolvedNights,
+    });
+    return sum + lineTotal.accommodationTotal;
+  }, 0);
 }
 
 /** Reference "Flight" tab — one segment (leg/connection) of a journey. */
@@ -1263,6 +1446,11 @@ export const quotationInputSchema = z.object({
   childrenWithBed: z.coerce.number().int().min(0).max(100).optional(),
   childrenWithoutBed: z.coerce.number().int().min(0).max(100).optional(),
   infants: z.coerce.number().int().min(0).max(100).optional(),
+  // Optional child ages carried from the Lead (or edited on the quotation) so
+  // the PDF and Weblink render the same traveler data.
+  childrenWithBedAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).optional(),
+  childrenWithoutBedAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).optional(),
+  infantAges: z.array(z.coerce.number().int().min(0).max(30)).max(100).optional(),
   rooms: z.coerce.number().int().min(1).max(100).optional(),
   currency: z
     .string()
@@ -1495,18 +1683,53 @@ export function resolveQuotationPricing(input: {
               childWithoutBedQuantity?: unknown;
               rooms?: unknown;
               nights?: unknown;
+              roomLines?: unknown;
             };
             if (r.selected === false) return sum;
+            const nightsFactor = (() => {
+              const nights = Math.max(0, Math.floor(toNumber(r.nights ?? 1)));
+              return nights > 0 ? nights : 1;
+            })();
+            // Multi-room hotel option: each room allocation prices with the
+            // legacy per-row formula (breakdown, else the line's selling
+            // figure); a row whose lines all price to zero falls back to the
+            // row's sellingPrice exactly like a legacy row.
+            const roomLines = Array.isArray(r.roomLines)
+              ? (r.roomLines as Array<Record<string, unknown>>)
+              : [];
+            if (roomLines.length > 0) {
+              let lineSum = 0;
+              for (const line of roomLines) {
+                if (!line || typeof line !== 'object') continue;
+                const hasLineBreakdown =
+                  line.baseRoomPrice != null || line.extraBedPrice != null || line.childWithoutBedPrice != null;
+                if (hasLineBreakdown) {
+                  const rooms = Math.max(1, Math.floor(toNumber(line.rooms ?? 1)));
+                  const base = toNumber(line.baseRoomPrice);
+                  const ebQty = Math.max(0, Math.floor(toNumber(line.extraBedQuantity)));
+                  const ebPrice = toNumber(line.extraBedPrice);
+                  const cwQty = Math.max(0, Math.floor(toNumber(line.childWithoutBedQuantity)));
+                  const cwPrice = toNumber(line.childWithoutBedPrice);
+                  lineSum +=
+                    base * rooms * nightsFactor +
+                    ebPrice * ebQty * nightsFactor +
+                    cwPrice * cwQty * nightsFactor;
+                } else if (line.sellingPrice != null) {
+                  lineSum += toNumber(line.sellingPrice);
+                }
+              }
+              const roundedLines = Math.round(lineSum * 100) / 100;
+              if (roundedLines === 0 && r.sellingPrice != null) return sum + toNumber(r.sellingPrice);
+              return sum + roundedLines;
+            }
             const hasBreakdown = r.baseRoomPrice != null || r.extraBedPrice != null || r.childWithoutBedPrice != null;
             if (hasBreakdown) {
-              const nights = Math.max(0, Math.floor(toNumber(r.nights ?? 1)));
               const rooms = Math.max(1, Math.floor(toNumber(r.rooms ?? 1)));
               const base = toNumber(r.baseRoomPrice);
               const ebQty = Math.max(0, Math.floor(toNumber(r.extraBedQuantity)));
               const ebPrice = toNumber(r.extraBedPrice);
               const cwQty = Math.max(0, Math.floor(toNumber(r.childWithoutBedQuantity)));
               const cwPrice = toNumber(r.childWithoutBedPrice);
-              const nightsFactor = nights > 0 ? nights : 1;
               const line = base * rooms * nightsFactor + ebPrice * ebQty * nightsFactor + cwPrice * cwQty * nightsFactor;
               const rounded = Math.round(line * 100) / 100;
               if (rounded === 0 && r.sellingPrice != null) return sum + toNumber(r.sellingPrice);

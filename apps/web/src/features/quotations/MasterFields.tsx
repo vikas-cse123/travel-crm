@@ -87,6 +87,12 @@ interface HotelMasterFieldsProps {
   /** Saved snapshot hotel name (e.g. imported from a hotel bookmark), shown
    * when no Hotel Master is linked. */
   hotelNameText?: string | null | undefined;
+  /**
+   * Render ONLY the hotel picker. The quotation builder uses this because its
+   * room types and meal plans are per-allocation repeatable lists managed by
+   * the builder itself; the template builder keeps the combined layout.
+   */
+  hotelOnly?: boolean;
   onChange: (patch: HotelRowPatch) => void;
   onMasterSelect?: (hotelId: string, images: MasterImageMeta[] | undefined, name: string) => void;
 }
@@ -99,6 +105,7 @@ export function HotelMasterFields({
   roomTypeText,
   mealPlanText,
   hotelNameText,
+  hotelOnly = false,
   onChange,
   onMasterSelect,
 }: HotelMasterFieldsProps) {
@@ -182,52 +189,56 @@ export function HotelMasterFields({
           }}
         />
       </FieldShell>
-      <FieldShell label="Room Type" showLabels={showLabels}>
-        <MasterSelect
-          ariaLabel="Room type master"
-          placeholder={value.hotelId ? 'Link a room type' : 'Type room type'}
-          options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
-          value={value.hotelRoomTypeId}
-          loading={Boolean(value.hotelId) && detail.isPending}
-          fallbackLabel={roomTypeText ?? undefined}
-          onText={(text) =>
-            onChange({
-              hotelRoomTypeId: null,
-              roomType: text.trim() ? text : null,
-            })
-          }
-          onSelect={(option) =>
-            onChange({
-              hotelRoomTypeId: option?.id ?? null,
-              ...(option ? { roomType: option.label } : {}),
-              ...pricing(option?.id ?? null, value.hotelMealPlanId ?? null),
-            })
-          }
-        />
-      </FieldShell>
-      <FieldShell label="Meal Plan" showLabels={showLabels}>
-        <MasterSelect
-          ariaLabel="Meal plan master"
-          placeholder={value.hotelId ? 'Link a meal plan' : 'Type meal plan'}
-          options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
-          value={value.hotelMealPlanId}
-          loading={Boolean(value.hotelId) && detail.isPending}
-          fallbackLabel={mealPlanText ?? undefined}
-          onText={(text) =>
-            onChange({
-              hotelMealPlanId: null,
-              mealPlan: text.trim() ? text : null,
-            })
-          }
-          onSelect={(option) =>
-            onChange({
-              hotelMealPlanId: option?.id ?? null,
-              ...(option ? { mealPlan: option.label } : {}),
-              ...pricing(value.hotelRoomTypeId ?? null, option?.id ?? null),
-            })
-          }
-        />
-      </FieldShell>
+      {hotelOnly ? null : (
+        <>
+          <FieldShell label="Room Type" showLabels={showLabels}>
+            <MasterSelect
+              ariaLabel="Room type master"
+              placeholder={value.hotelId ? 'Link a room type' : 'Type room type'}
+              options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
+              value={value.hotelRoomTypeId}
+              loading={Boolean(value.hotelId) && detail.isPending}
+              fallbackLabel={roomTypeText ?? undefined}
+              onText={(text) =>
+                onChange({
+                  hotelRoomTypeId: null,
+                  roomType: text.trim() ? text : null,
+                })
+              }
+              onSelect={(option) =>
+                onChange({
+                  hotelRoomTypeId: option?.id ?? null,
+                  ...(option ? { roomType: option.label } : {}),
+                  ...pricing(option?.id ?? null, value.hotelMealPlanId ?? null),
+                })
+              }
+            />
+          </FieldShell>
+          <FieldShell label="Meal Plan" showLabels={showLabels}>
+            <MasterSelect
+              ariaLabel="Meal plan master"
+              placeholder={value.hotelId ? 'Link a meal plan' : 'Type meal plan'}
+              options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
+              value={value.hotelMealPlanId}
+              loading={Boolean(value.hotelId) && detail.isPending}
+              fallbackLabel={mealPlanText ?? undefined}
+              onText={(text) =>
+                onChange({
+                  hotelMealPlanId: null,
+                  mealPlan: text.trim() ? text : null,
+                })
+              }
+              onSelect={(option) =>
+                onChange({
+                  hotelMealPlanId: option?.id ?? null,
+                  ...(option ? { mealPlan: option.label } : {}),
+                  ...pricing(value.hotelRoomTypeId ?? null, option?.id ?? null),
+                })
+              }
+            />
+          </FieldShell>
+        </>
+      )}
     </>
   );
 }

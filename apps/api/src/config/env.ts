@@ -94,7 +94,11 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
 
-  STORAGE_PROVIDER: z.enum(['s3', 'memory']).default('memory'),
+  // 'local' is a development-only provider: persistent local disk with
+  // presigned-style URLs (disk-storage.service.ts). Production requires 's3'.
+  STORAGE_PROVIDER: z.enum(['s3', 'memory', 'local']).default('memory'),
+  // Root directory for STORAGE_PROVIDER=local (dev only).
+  STORAGE_LOCAL_DIR: z.string().default('./.local-storage'),
   AWS_REGION: z.string().default('ap-south-1'),
   AWS_S3_BUCKET: z.string().default('interscale-travel-crm-dev'),
   AWS_ACCESS_KEY_ID: z.string().optional(),

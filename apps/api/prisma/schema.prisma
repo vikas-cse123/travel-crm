@@ -313,6 +313,7 @@ enum MarkupMode {
 enum StorageProvider {
   S3
   MEMORY
+  LOCAL
 }
 
 enum SearchApiKeyStatus {
@@ -2817,6 +2818,11 @@ model Query {
   childrenWithoutBed       Int                      @default(0)
   infants                  Int                      @default(0)
   extraBeds                Int                      @default(0)
+  // Optional per-child ages collected on the Lead form (CWB 1 Age, …), carried
+  // into quotations for PDF/Weblink display. NULL for legacy leads.
+  childrenWithBedAges      Json?
+  childrenWithoutBedAges   Json?
+  infantAges               Json?
   travellerSummary         String                   @db.VarChar(255)
   expectedAmount           Decimal?                 @db.Decimal(14, 2)
   budgetMin                Decimal?                 @db.Decimal(14, 2)
@@ -3290,6 +3296,10 @@ model QuotationTemplateHotelOption {
   pricingSource          String?           @db.VarChar(20)
   selected               Boolean           @default(true)
   notes                  String?           @db.VarChar(2000)
+  // Multiple room allocations / meal-plan selections inside ONE hotel option
+  // (JSON arrays; NULL for legacy rows, which keep using the scalar columns).
+  roomLines              Json?
+  mealPlanLines          Json?
   sequence               Int
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
@@ -3417,6 +3427,11 @@ model Quotation {
   childrenWithoutBed   Int             @default(0)
   infants              Int             @default(0)
   rooms                Int             @default(1)
+  // Child ages carried from the Lead (or edited on the quotation) — the single
+  // source the PDF and Weblink both render. NULL for legacy quotations.
+  childrenWithBedAges  Json?
+  childrenWithoutBedAges Json?
+  infantAges           Json?
   currency             String          @default("INR") @db.VarChar(3)
   validUntil           DateTime?       @db.Date
   publicTokenHash      String?         @unique @db.VarChar(64)
@@ -3696,6 +3711,10 @@ model QuotationVersionHotelOption {
   selected                Boolean          @default(true)
   notes                   String?          @db.VarChar(2000)
   images                  Json?            @db.Json
+  // Multiple room allocations / meal-plan selections inside ONE hotel option
+  // (JSON arrays; NULL for legacy rows, which keep using the scalar columns).
+  roomLines               Json?
+  mealPlanLines           Json?
   pdfImageUrl             String?          @db.VarChar(1000)
   sequence                Int
   createdAt               DateTime         @default(now())

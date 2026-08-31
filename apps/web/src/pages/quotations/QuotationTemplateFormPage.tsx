@@ -138,6 +138,10 @@ export function QuotationTemplateFormPage() {
         checkOutDate: row.checkOutDate ? new Date(row.checkOutDate) : null,
         internalCost: row.internalCost ? Number(row.internalCost) : null,
         sellingPrice: row.sellingPrice ? Number(row.sellingPrice) : null,
+        // The template builder edits the single-room scalar columns; the
+        // multi-room line arrays stay empty and are derived on read.
+        roomLines: [],
+        mealPlanLines: [],
       })),
       services: t.services.map((row) => ({
         serviceType: row.serviceType as QuotationTemplateInput['services'][number]['serviceType'],
@@ -320,6 +324,8 @@ export function QuotationTemplateFormPage() {
                 notes: null,
                 sequence: hotels.fields.length + 1,
                 images: [],
+                roomLines: [],
+                mealPlanLines: [],
               })
             }
           >

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-form';
+import { useFieldArray, useForm, useWatch, type FieldPath, type UseFormReturn } from 'react-hook-form';
 import {
   AlertTriangle,
   ArrowDown,
@@ -31,6 +31,8 @@ import {
   normalizePricingMode,
   quotationVersionInputSchema,
   quotationSnapshotImageIdentity,
+  resolveHotelMealPlanLines,
+  resolveHotelRoomLines,
   resolveQuotationPricing,
   resolveTaxNoteChoice,
   DEFAULT_WEBLINK_SECTION_ORDER,
@@ -605,6 +607,326 @@ export const hotelRateForDate = (
 };
 
 type HotelInputRow = QuotationVersionInput['hotels'][number];
+type HotelRoomLineInput = HotelInputRow['roomLines'][number];
+type HotelMealPlanLineInput = HotelInputRow['mealPlanLines'][number];
+
+/** A clean, empty room allocation inside a hotel option. */
+const emptyRoomLine = (seed: Partial<HotelRoomLineInput> = {}): HotelRoomLineInput => ({
+  hotelRoomTypeId: null,
+  roomType: null,
+  rooms: 1,
+  extraBedQuantity: null,
+  extraBedPrice: null,
+  childWithoutBedQuantity: null,
+  childWithoutBedPrice: null,
+  baseRoomPrice: null,
+  pricingSource: null,
+  sellingPrice: null,
+  internalCost: null,
+  notes: null,
+  ...seed,
+});
+
+/** A clean, empty meal-plan selection inside a hotel option. */
+const emptyMealLine = (seed: Partial<HotelMealPlanLineInput> = {}): HotelMealPlanLineInput => ({
+  hotelMealPlanId: null,
+  mealPlan: null,
+  sellingPrice: null,
+  internalCost: null,
+  ...seed,
+});
+
+/**
+ * A room line the user actually filled in. Untouched default lines (added via
+ * "+ Add Room" but never completed) are dropped on save; a PARTIALLY filled
+ * line (quantities/remark without a room type) is kept so validation can point
+ * at the exact room ("Room 2: Room Type is required.").
+ */
+const roomLineHasData = (line: HotelRoomLineInput): boolean =>
+  Boolean(line.hotelRoomTypeId) ||
+  Boolean(line.roomType?.trim()) ||
+  line.extraBedQuantity != null ||
+  line.childWithoutBedQuantity != null ||
+  Boolean(line.notes?.trim()) ||
+  line.baseRoomPrice != null ||
+  line.extraBedPrice != null ||
+  line.childWithoutBedPrice != null ||
+  line.sellingPrice != null;
+
+const mealLineHasData = (line: HotelMealPlanLineInput): boolean =>
+  Boolean(line.hotelMealPlanId) || Boolean(line.mealPlan?.trim());
+
+/**
+ * A legacy quotation row stores its single room/meal on the row-level scalar
+ * columns with NULL lines. resolveHotelRoomLines / resolveHotelMealPlanLines
+ * synthesize one line from those scalars, so the same repeatable editor can
+ * load and extend old quotations without migration.
+ */
+const withSynthesizedLines = (row: HotelInputRow): HotelInputRow => {
+  const roomLines = row.roomLines?.length
+    ? row.roomLines
+    : resolveHotelRoomLines(row).map((line) => emptyRoomLine(line));
+  const mealPlanLines = row.mealPlanLines?.length
+    ? row.mealPlanLines
+    : resolveHotelMealPlanLines(row).map((line) => emptyMealLine(line));
+  return {
+    ...row,
+    // Every hotel option edits at least one (possibly empty) room allocation
+    // and one meal-plan selection, so "+ Add Room" / "+ Add Meal Plan" always
+    // extend an existing list.
+    roomLines: roomLines.length ? roomLines : [emptyRoomLine()],
+    mealPlanLines: mealPlanLines.length ? mealPlanLines : [emptyMealLine()],
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Repeatable room-allocation and meal-plan editors for ONE hotel option.
+// Unlimited entries: each line is its own field-array entry. The room type and
+// meal plan come from the linked Hotel Master (free text still supported).
+// ---------------------------------------------------------------------------
+
+interface HotelLinesEditorProps {
+  form: UseFormReturn<QuotationVersionInput>;
+  hotelIndex: number;
+  hotelId: string | null | undefined;
+  canCost: boolean;
+  /** Recomputes the row's additive selling/cost totals from all lines. */
+  recalculateTotals: () => void;
+}
+
+function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateTotals }: HotelLinesEditorProps) {
+  const roomLines = useFieldArray({
+    control: form.control,
+    name: `hotels.${hotelIndex}.roomLines`,
+  });
+  const watchedLines = useWatch({ control: form.control, name: `hotels.${hotelIndex}.roomLines` }) ?? [];
+  const detail = useHotel(hotelId ?? undefined);
+  const roomTypes = detail.data?.roomTypes ?? [];
+
+  const applyLine = (lineIndex: number, patch: Partial<HotelRoomLineInput>) => {
+    for (const [key, value] of Object.entries(patch))
+      form.setValue(
+        `hotels.${hotelIndex}.roomLines.${lineIndex}.${key}` as FieldPath<QuotationVersionInput>,
+        value as never,
+        { shouldDirty: true },
+      );
+    recalculateTotals();
+  };
+
+  return (
+    <div className="space-y-3">
+      {roomLines.fields.map((lineField, lineIndex) => {
+        const line = watchedLines[lineIndex];
+        return (
+          <div key={lineField.id} className="rounded-lg border border-slate-200 bg-card p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Room {lineIndex + 1}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label={`Remove room ${lineIndex + 1}`}
+                onClick={() => {
+                  roomLines.remove(lineIndex);
+                  recalculateTotals();
+                }}
+              >
+                <Trash2 className="h-4 w-4 text-red-600" /> Remove
+              </Button>
+            </div>
+            <div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <label className="text-sm font-semibold text-slate-800 md:col-span-2 xl:col-span-2">
+                Room Type <span className="text-red-500">*</span>
+                <span className="mt-1 block">
+                  <MasterSelect
+                    ariaLabel={`Room ${lineIndex + 1} type master`}
+                    placeholder={hotelId ? 'Link a room type' : 'Type room type'}
+                    options={roomTypes.map((room) => ({ id: room.id, label: room.name }))}
+                    value={line?.hotelRoomTypeId}
+                    loading={Boolean(hotelId) && detail.isPending}
+                    fallbackLabel={line?.roomType ?? undefined}
+                    onText={(text) =>
+                      applyLine(lineIndex, {
+                        hotelRoomTypeId: null,
+                        roomType: text.trim() ? text : null,
+                      })
+                    }
+                    onSelect={(option) => {
+                      const room = roomTypes.find((entry) => entry.id === option?.id);
+                      applyLine(lineIndex, {
+                        hotelRoomTypeId: option?.id ?? null,
+                        ...(option ? { roomType: option.label } : {}),
+                        // Master prices prefill this allocation's additive
+                        // figures — the same rule the single-room editor used.
+                        ...(room?.sellingPrice != null && Number(room.sellingPrice) > 0
+                          ? { sellingPrice: Number(room.sellingPrice) }
+                          : {}),
+                        ...(canCost && room?.baseCost != null && Number(room.baseCost) > 0
+                          ? { internalCost: Number(room.baseCost) }
+                          : {}),
+                      });
+                    }}
+                  />
+                </span>
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Number of Rooms
+                <input
+                  aria-label={`Room ${lineIndex + 1} number of rooms`}
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.rooms`, {
+                    setValueAs: (value) => (value === '' ? 1 : Number(value)),
+                  })}
+                  className={`${field} mt-1`}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Extra Bed Quantity
+                <input
+                  aria-label={`Room ${lineIndex + 1} extra bed quantity`}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.extraBedQuantity`, {
+                    setValueAs: (value) => (value === '' ? null : Number(value)),
+                  })}
+                  className={`${field} mt-1`}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Child Without Bed Quantity
+                <input
+                  aria-label={`Room ${lineIndex + 1} child without bed quantity`}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.childWithoutBedQuantity`, {
+                    setValueAs: (value) => (value === '' ? null : Number(value)),
+                  })}
+                  className={`${field} mt-1`}
+                />
+              </label>
+            </div>
+            <label className="mt-3 block text-sm font-semibold text-slate-800">
+              Room Remark
+              <input
+                aria-label={`Room ${lineIndex + 1} remark`}
+                placeholder="e.g. high floor, twin beds"
+                {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.notes`)}
+                className={`${field} mt-1`}
+              />
+            </label>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        aria-label="Add room"
+        disabled={roomLines.fields.length >= 10}
+        title={roomLines.fields.length >= 10 ? 'A hotel option supports up to 10 room allocations.' : undefined}
+        onClick={() => roomLines.append(emptyRoomLine())}
+      >
+        <Plus className="h-4 w-4" /> Add Room
+      </Button>
+    </div>
+  );
+}
+
+function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateTotals }: HotelLinesEditorProps) {
+  const mealPlanLines = useFieldArray({
+    control: form.control,
+    name: `hotels.${hotelIndex}.mealPlanLines`,
+  });
+  const watchedLines = useWatch({ control: form.control, name: `hotels.${hotelIndex}.mealPlanLines` }) ?? [];
+  const detail = useHotel(hotelId ?? undefined);
+  const mealPlans = detail.data?.mealPlans ?? [];
+
+  const applyLine = (lineIndex: number, patch: Partial<HotelMealPlanLineInput>) => {
+    for (const [key, value] of Object.entries(patch))
+      form.setValue(
+        `hotels.${hotelIndex}.mealPlanLines.${lineIndex}.${key}` as FieldPath<QuotationVersionInput>,
+        value as never,
+        { shouldDirty: true },
+      );
+    recalculateTotals();
+  };
+
+  return (
+    <div className="space-y-3">
+      {mealPlanLines.fields.map((lineField, lineIndex) => {
+        const line = watchedLines[lineIndex];
+        return (
+          <div key={lineField.id} className="flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+              Meal Plan {lineIndex + 1}
+              <span className="mt-1 block">
+                <MasterSelect
+                  ariaLabel={`Meal plan ${lineIndex + 1} master`}
+                  placeholder={hotelId ? 'Link a meal plan' : 'Type meal plan'}
+                  options={mealPlans.map((meal) => ({ id: meal.id, label: meal.name, hint: meal.type }))}
+                  value={line?.hotelMealPlanId}
+                  loading={Boolean(hotelId) && detail.isPending}
+                  fallbackLabel={line?.mealPlan ?? undefined}
+                  onText={(text) =>
+                    applyLine(lineIndex, {
+                      hotelMealPlanId: null,
+                      mealPlan: text.trim() ? text : null,
+                    })
+                  }
+                  onSelect={(option) => {
+                    const meal = mealPlans.find((entry) => entry.id === option?.id);
+                    applyLine(lineIndex, {
+                      hotelMealPlanId: option?.id ?? null,
+                      ...(option ? { mealPlan: option.label } : {}),
+                      ...(meal?.sellingPrice != null && Number(meal.sellingPrice) > 0
+                        ? { sellingPrice: Number(meal.sellingPrice) }
+                        : {}),
+                      ...(canCost && meal?.baseCost != null && Number(meal.baseCost) > 0
+                        ? { internalCost: Number(meal.baseCost) }
+                        : {}),
+                    });
+                  }}
+                />
+              </span>
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={`Remove meal plan ${lineIndex + 1}`}
+              onClick={() => {
+                mealPlanLines.remove(lineIndex);
+                recalculateTotals();
+              }}
+            >
+              <Trash2 className="h-4 w-4 text-red-600" /> Remove
+            </Button>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        aria-label="Add meal plan"
+        disabled={mealPlanLines.fields.length >= 10}
+        title={mealPlanLines.fields.length >= 10 ? 'A hotel option supports up to 10 meal plans.' : undefined}
+        onClick={() => mealPlanLines.append(emptyMealLine())}
+      >
+        <Plus className="h-4 w-4" /> Add Meal Plan
+      </Button>
+    </div>
+  );
+}
 
 const emptyHotel = (
   sequence: number,
@@ -640,6 +962,8 @@ const emptyHotel = (
   sequence,
   images: [],
   imageSnapshotPresent: false,
+  roomLines: [emptyRoomLine()],
+  mealPlanLines: [emptyMealLine()],
   ...seed,
 });
 
@@ -1829,7 +2153,7 @@ export function QuotationBuilderPage() {
                 (stay) =>
                   (stay.city ?? '').trim().toLowerCase() === (row.city ?? '').trim().toLowerCase(),
               ) ?? leadHotelRows[index];
-            return {
+            return withSynthesizedLines({
               ...row,
               checkInDate: row.checkInDate
                 ? new Date(row.checkInDate)
@@ -1868,9 +2192,9 @@ export function QuotationBuilderPage() {
               pdfImageUrl:
                 row.pdfImageUrl ??
                 (version.hotels.length === 1 ? (version.hotelDetails?.pdfImageUrl ?? null) : null),
-            };
+            } as unknown as HotelInputRow);
           })
-        : autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? []),
+        : autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? []).map(withSynthesizedLines),
       services: version.services.map((row) => ({
         serviceType: row.serviceType as ServiceType,
         airlineId: row.airlineId ?? null,
@@ -2000,6 +2324,25 @@ export function QuotationBuilderPage() {
   const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
   const applyService = (index: number, patch: ServiceRowPatch) =>
     applyPatch('services', index, patch);
+
+  /**
+   * A room/meal allocation's master selection writes its own additive selling
+   * figure onto the line; the row's sellingPrice/internalCost become the sum
+   * across ALL allocations — the same additive rule the single room+meal pair
+   * always used, never accumulated twice. Manual figures are kept when no line
+   * carries a master price.
+   */
+  const recalculateHotelTotals = (index: number) => {
+    const row = form.getValues(`hotels.${index}`) as HotelInputRow;
+    const lines = [...(row.roomLines ?? []), ...(row.mealPlanLines ?? [])];
+    if (!lines.some((line) => line?.sellingPrice != null)) return;
+    const selling = lines.reduce((sum, line) => sum + (Number(line?.sellingPrice) || 0), 0);
+    form.setValue(`hotels.${index}.sellingPrice`, selling as never, { shouldDirty: true });
+    if (canCost && lines.some((line) => line?.internalCost != null)) {
+      const cost = lines.reduce((sum, line) => sum + (Number(line?.internalCost) || 0), 0);
+      form.setValue(`hotels.${index}.internalCost`, cost as never, { shouldDirty: true });
+    }
+  };
 
   // Unsaved Master refs deliberately carry no expiring URL. Enrich them for
   // editing in the background, while merging into the latest order so delayed
@@ -2537,12 +2880,45 @@ export function QuotationBuilderPage() {
             : value.sightseeingDetails,
           itinerary: seq(value.itinerary).map((row, index) => ({ ...row, dayNumber: index + 1 })),
           hotels: seq(value.hotels)
-            .map((hotel) => ({
-              ...hotel,
-              // Persist the calendar-date-derived nights whenever valid dates
-              // exist, so re-saving repairs historical incorrect night counts.
-              nights: hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights,
-            }))
+            .map((hotel) => {
+              // Untouched default allocations are dropped; partially filled
+              // ones are kept so validation reports the exact room number.
+              const roomLines = (hotel.roomLines ?? []).filter(roomLineHasData);
+              const mealPlanLines = (hotel.mealPlanLines ?? []).filter(mealLineHasData);
+              const firstRoom = roomLines[0];
+              const firstMeal = mealPlanLines[0];
+              return {
+                ...hotel,
+                // Persist the calendar-date-derived nights whenever valid dates
+                // exist, so re-saving repairs historical incorrect night counts.
+                nights: hotelStayNights(hotel.checkInDate, hotel.checkOutDate) ?? hotel.nights,
+                roomLines,
+                mealPlanLines,
+                // Mirror the first allocation onto the legacy scalar columns so
+                // older readers (PDF fallbacks, booking import, exports) always
+                // see a coherent snapshot; `rooms` is the total across ALL
+                // allocations.
+                ...(roomLines.length
+                  ? {
+                      hotelRoomTypeId: firstRoom?.hotelRoomTypeId ?? null,
+                      roomType: firstRoom?.roomType ?? null,
+                      rooms: roomLines.reduce((sum, line) => sum + (Number(line.rooms) || 1), 0),
+                      extraBedQuantity: firstRoom?.extraBedQuantity ?? null,
+                      extraBedPrice: firstRoom?.extraBedPrice ?? null,
+                      childWithoutBedQuantity: firstRoom?.childWithoutBedQuantity ?? null,
+                      childWithoutBedPrice: firstRoom?.childWithoutBedPrice ?? null,
+                      baseRoomPrice: firstRoom?.baseRoomPrice ?? null,
+                      pricingSource: firstRoom?.pricingSource ?? null,
+                    }
+                  : {}),
+                ...(mealPlanLines.length
+                  ? {
+                      hotelMealPlanId: firstMeal?.hotelMealPlanId ?? null,
+                      mealPlan: firstMeal?.mealPlan ?? null,
+                    }
+                  : {}),
+              };
+            })
             // Draft Hotel Stays added via "Add Stay Before/After" but never
             // named have no hotel name — they must not be persisted (the API
             // also rejects empty hotel rows).
@@ -3120,11 +3496,12 @@ export function QuotationBuilderPage() {
           <>
             <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
               <div className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2">
                   <HotelMasterFields
                     canCost={canCost}
                     preferredCity={hotel?.city ?? undefined}
                     showLabels
+                    hotelOnly
                     value={{
                       hotelId: hotel?.hotelId,
                       hotelRoomTypeId: hotel?.hotelRoomTypeId,
@@ -3294,66 +3671,69 @@ export function QuotationBuilderPage() {
                     />
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
-                    Number of Rooms
+                    Total Rooms
                     <input
-                      aria-label="Hotel number of rooms"
-                      type="number"
-                      min={1}
-                      max={100}
-                      step={1}
-                      {...form.register(`hotels.${index}.rooms`, {
-                        setValueAs: (value) => (value === '' ? null : Number(value)),
-                      })}
-                      className={`${field} mt-1`}
+                      aria-label="Hotel total rooms"
+                      readOnly
+                      value={String(
+                        (hotel?.roomLines ?? []).reduce(
+                          (sum, line) => sum + (Number(line?.rooms) || 1),
+                          0,
+                        ) || '',
+                      )}
+                      className={`${field} mt-1 bg-slate-100`}
                     />
                   </label>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="text-sm font-semibold text-slate-800">
-                    Extra Bed Quantity
-                    <input
-                      aria-label="Hotel extra bed quantity"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      {...form.register(`hotels.${index}.extraBedQuantity`, {
-                        setValueAs: (value) => (value === '' ? null : Number(value)),
-                      })}
-                      className={`${field} mt-1`}
-                    />
-                  </label>
-                  <label className="text-sm font-semibold text-slate-800">
-                    Child Without Bed Quantity
-                    <input
-                      aria-label="Hotel child without bed quantity"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      {...form.register(`hotels.${index}.childWithoutBedQuantity`, {
-                        setValueAs: (value) => (value === '' ? null : Number(value)),
-                      })}
-                      className={`${field} mt-1`}
-                    />
-                  </label>
-                </div>
+                {/* Repeatable room allocations — unlimited per hotel option. */}
+                <HotelRoomLinesEditor
+                  form={form}
+                  hotelIndex={index}
+                  hotelId={hotel?.hotelId}
+                  canCost={canCost}
+                  recalculateTotals={() => recalculateHotelTotals(index)}
+                />
 
-                {hotel && (hotel.baseRoomPrice != null || hotel.extraBedPrice != null || hotel.childWithoutBedPrice != null) && (
+                {/* Repeatable meal-plan selections — unlimited per hotel option. */}
+                <HotelMealPlanLinesEditor
+                  form={form}
+                  hotelIndex={index}
+                  hotelId={hotel?.hotelId}
+                  canCost={canCost}
+                  recalculateTotals={() => recalculateHotelTotals(index)}
+                />
+
+                {hotel &&
+                  (hotel.roomLines ?? []).some(
+                    (line) => line?.baseRoomPrice != null || line?.extraBedPrice != null || line?.childWithoutBedPrice != null,
+                  ) && (
                   <div className="rounded-lg border bg-slate-50 p-3 text-sm">
                     <h5 className="font-semibold text-slate-800">Accommodation Breakdown</h5>
                     <ul className="mt-2 space-y-1 text-slate-600">
-                      <li>
-                        Base Room: {hotel.baseRoomPrice != null ? `${hotel.baseRoomPrice} × ${hotel.nights ?? displayNights} nights${hotel.rooms ? ` × ${hotel.rooms} rooms` : ''}` : '—'}
-                      </li>
-                      <li>
-                        Extra Bed: {hotel.extraBedPrice != null ? `${hotel.extraBedPrice} × ${hotel.extraBedQuantity ?? 0} × ${hotel.nights ?? displayNights} nights` : '—'}
-                      </li>
-                      <li>
-                        Child Without Bed: {hotel.childWithoutBedPrice != null ? `${hotel.childWithoutBedPrice} × ${hotel.childWithoutBedQuantity ?? 0} × ${hotel.nights ?? displayNights} nights` : '—'}
-                      </li>
-                      {hotel.pricingSource && <li className="text-xs text-slate-500">Pricing: {hotel.pricingSource} {hotel.baseRoomPrice != null ? `(${hotel.baseRoomPrice})` : ''}</li>}
+                      {(hotel.roomLines ?? []).map((line, lineIndex) => {
+                        if (line?.baseRoomPrice == null && line?.extraBedPrice == null && line?.childWithoutBedPrice == null)
+                          return null;
+                        const lineNights = hotel.nights ?? displayNights;
+                        return (
+                          <li key={lineIndex}>
+                            Room {lineIndex + 1}
+                            {line?.roomType ? ` (${line.roomType})` : ''}:{' '}
+                            {line?.baseRoomPrice != null
+                              ? `Base Room: ${line.baseRoomPrice} × ${lineNights} nights${line?.rooms ? ` × ${line.rooms} rooms` : ''}`
+                              : '—'}
+                            {line?.extraBedPrice != null && line?.extraBedQuantity != null
+                              ? ` · Extra Bed: ${line.extraBedPrice} × ${line.extraBedQuantity} × ${lineNights} nights`
+                              : ''}
+                            {line?.childWithoutBedPrice != null && line?.childWithoutBedQuantity != null
+                              ? ` · Child Without Bed: ${line.childWithoutBedPrice} × ${line.childWithoutBedQuantity} × ${lineNights} nights`
+                              : ''}
+                          </li>
+                        );
+                      })}
+                      {hotel.pricingSource && (
+                        <li className="text-xs text-slate-500">Pricing: {hotel.pricingSource}</li>
+                      )}
                     </ul>
                   </div>
                 )}

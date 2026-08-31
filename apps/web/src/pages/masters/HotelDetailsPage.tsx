@@ -248,7 +248,7 @@ export function HotelDetailsPage() {
                 <p className="flex items-center gap-1 font-medium text-slate-700">
                   <MapPin className="h-4 w-4" /> Address
                 </p>
-                <p className="mt-1 text-slate-600">{value.address ?? value.landmark}</p>
+                <p className="mt-1 whitespace-pre-line break-words text-slate-600">{value.address ?? value.landmark}</p>
               </div>
             )}
             {(value.contactName || value.phone || value.email || value.website) && (
