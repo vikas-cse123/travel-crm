@@ -2104,19 +2104,13 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           ? hotelRoomLines.flatMap((line, j) => {
               const name = (line.roomType ?? '').trim() || 'Room';
               const head = `${j + 1}. ${name}${line.rooms != null ? ` — Rooms: ${line.rooms}` : ''}`;
+              // Counts only — the per-line price breakdown (Base/Extra/Child
+              // × nights × rooms) is intentionally not shown to the customer.
               const details: string[] = [];
-              if (line.baseRoomPrice != null)
-                details.push(
-                   `Base Room: ${line.baseRoomPrice} × ${stayNights} nights${line.rooms ? ` × ${line.rooms} rooms` : ''}`,
-                );
-              if (line.extraBedQuantity != null && line.extraBedPrice != null)
-                details.push(
-                  `Extra Bed: ${line.extraBedPrice} × ${line.extraBedQuantity} × ${stayNights} nights`,
-                );
-              if (line.childWithoutBedQuantity != null && line.childWithoutBedPrice != null)
-                details.push(
-                  `Child Without Bed: ${line.childWithoutBedPrice} × ${line.childWithoutBedQuantity} × ${stayNights} nights`,
-                );
+              if (line.extraBedQuantity)
+                details.push(`Extra Bed: ${line.extraBedQuantity}`);
+              if (line.childWithoutBedQuantity)
+                details.push(`Child Without Bed: ${line.childWithoutBedQuantity}`);
               return [head, ...details.map((detail) => `    ${detail}`)];
             })
           : [];
@@ -2144,17 +2138,16 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           ...(multiRoom
             ? []
             : [
-                // Snapshot breakdown for extra bed / child without bed (if present).
-                (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice != null &&
-                  `Base Room: ${(hotel as unknown as { baseRoomPrice: number }).baseRoomPrice} × ${stayNights} nights${(hotel as unknown as { rooms?: number | null }).rooms ? ` × ${(hotel as unknown as { rooms: number }).rooms} rooms` : ''}`,
-                (hotel as unknown as { extraBedQuantity?: number | null; extraBedPrice?: number | null }).extraBedQuantity != null &&
-                  (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice != null &&
-                  `Extra Bed: ${(hotel as unknown as { extraBedPrice: number }).extraBedPrice} × ${(hotel as unknown as { extraBedQuantity: number }).extraBedQuantity} × ${stayNights} nights`,
-                (hotel as unknown as { childWithoutBedQuantity?: number | null; childWithoutBedPrice?: number | null }).childWithoutBedQuantity != null &&
-                  (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice != null &&
-                  `Child Without Bed: ${(hotel as unknown as { childWithoutBedPrice: number }).childWithoutBedPrice} × ${(hotel as unknown as { childWithoutBedQuantity: number }).childWithoutBedQuantity} × ${stayNights} nights`,
+                // Counts only — the per-line price breakdown (Base/Extra/Child
+                // × nights × rooms) is intentionally not shown to the customer.
+                (hotel as unknown as { extraBedQuantity?: number | null }).extraBedQuantity
+                  ? `Extra Bed: ${(hotel as unknown as { extraBedQuantity: number }).extraBedQuantity}`
+                  : null,
+                (hotel as unknown as { childWithoutBedQuantity?: number | null }).childWithoutBedQuantity
+                  ? `Child Without Bed: ${(hotel as unknown as { childWithoutBedQuantity: number }).childWithoutBedQuantity}`
+                  : null,
               ]),
-          (hotel as unknown as { sellingPrice?: number | null }).sellingPrice != null && `Total: ${(hotel as unknown as { sellingPrice: number }).sellingPrice}`,
+          // No per-hotel "Total" on the customer-facing classic PDF.
         ].filter(Boolean) as string[];
         doc.font('Body').fontSize(10);
         const rowHeights = rows.map((r) => doc.heightOfString(r, { width: tw }));

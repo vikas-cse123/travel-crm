@@ -2409,6 +2409,12 @@ export function PublicQuotationPage() {
                                             : line.rooms != null
                                               ? ' — 1 room'
                                               : ''}
+                                          {line.extraBedQuantity
+                                            ? ` — Extra Bed: ${line.extraBedQuantity}`
+                                            : ''}
+                                          {line.childWithoutBedQuantity
+                                            ? ` — Child W/O Bed: ${line.childWithoutBedQuantity}`
+                                            : ''}
                                         </span>
                                       ))
                                     : hotel.roomType?.trim() ? (
@@ -2418,6 +2424,20 @@ export function PublicQuotationPage() {
                                           {hotel.roomType}
                                         </span>
                                       ) : null}
+                                  {!multiRoom && hotel.extraBedQuantity ? (
+                                    <span className={chipClass}>
+                                      <strong className={labelClass}>Extra Bed:</strong>
+                                      {' '}
+                                      {hotel.extraBedQuantity}
+                                    </span>
+                                  ) : null}
+                                  {!multiRoom && hotel.childWithoutBedQuantity ? (
+                                    <span className={chipClass}>
+                                      <strong className={labelClass}>Child W/O Bed:</strong>
+                                      {' '}
+                                      {hotel.childWithoutBedQuantity}
+                                    </span>
+                                  ) : null}
                                   {multiMeal
                                     ? mealLines.map((line, lineIndex) => (
                                         <span key={`meal-line-${lineIndex}`} className={chipClass}>

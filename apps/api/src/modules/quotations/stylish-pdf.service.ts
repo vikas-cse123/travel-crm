@@ -883,7 +883,9 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     );
 
   const overviewTop = 250;
-  rounded(M, overviewTop, CONTENT_W, 170, '#ffffff', TEAL, 10);
+  // Height leaves room for the optional traveler-ages sub-line on the second
+  // overview row; the Investment card below is shifted accordingly.
+  rounded(M, overviewTop, CONTENT_W, 184, '#ffffff', TEAL, 10);
   doc
     .font('Body')
     .fontSize(14)
@@ -929,18 +931,19 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     [
       overviewIcons.travelers,
       'TRAVELERS',
+      // Child ages from the Lead go on the row's dedicated sub-line (drawn
+      // smaller below the value) because the value box is fixed to the two
+      // count lines and clipped anything appended after them.
+      [
+        `${input.quotation.adults} Adults`,
+        input.quotation.childrenWithBed ? `${input.quotation.childrenWithBed} CWB` : null,
+        input.quotation.childrenWithoutBed ? `${input.quotation.childrenWithoutBed} CWOB` : null,
+        input.quotation.infants ? `${input.quotation.infants} Inf` : null,
+      ]
+        .filter(Boolean)
+        .join(', '),
+      RED,
       (() => {
-        const counts = [
-          `${input.quotation.adults} Adults`,
-          input.quotation.childrenWithBed ? `${input.quotation.childrenWithBed} CWB` : null,
-          input.quotation.childrenWithoutBed ? `${input.quotation.childrenWithoutBed} CWOB` : null,
-          input.quotation.infants ? `${input.quotation.infants} Inf` : null,
-        ]
-          .filter(Boolean)
-          .join(', ');
-        // Child ages from the Lead — appended as a second line inside the
-        // existing travelers cell. Omitted entirely for legacy quotations
-        // without age data.
         const ageBits = [
           formatAgeList(input.quotation.childrenWithBedAges)
             ? `CWB: ${formatAgeList(input.quotation.childrenWithBedAges)}`
@@ -952,12 +955,11 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             ? `Inf: ${formatAgeList(input.quotation.infantAges)}`
             : null,
         ].filter(Boolean);
-        return ageBits.length ? `${counts}\nAges — ${ageBits.join(', ')}` : counts;
+        return ageBits.length ? `Ages — ${ageBits.join(', ')}` : undefined;
       })(),
-      RED,
     ],
-  ] as const;
-  overviewRows.forEach(([icon, label, value, color], index) => {
+  ] satisfies Array<[PdfImage, string, string, string] | [PdfImage, string, string, string, string | undefined]>;
+  overviewRows.forEach(([icon, label, value, color, sub], index) => {
     const column = index % 3;
     const row = Math.floor(index / 3);
     const left = M + 31 + column * 160;
@@ -973,9 +975,15 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .fontSize(9.3)
       .fillColor(INK)
       .text(value, left + 32, top + 17, { width: 118, height: 27 });
+    if (sub)
+      doc
+        .font('Body')
+        .fontSize(6.8)
+        .fillColor(MUTED)
+        .text(sub, left + 32, top + 39, { width: 118, height: 16 });
   });
 
-  const investmentTop = 432;
+  const investmentTop = 446;
   rounded(M, investmentTop, CONTENT_W, 194, '#ffffff', TEAL, 10);
   doc
     .font('Body')
@@ -1064,7 +1072,7 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     );
 
   if (asNumber(input.version.initialPaymentAmount) > 0) {
-    const bookingTop = 647;
+    const bookingTop = 661;
     rounded(M, bookingTop, CONTENT_W, 64, '#ffffff', GREEN, 10);
     drawImage(overviewIcons.payment, M + 27, bookingTop + 18, 17, 17, 'contain', 0);
     doc
@@ -1598,19 +1606,13 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             hotelFacts.push(['MEAL PLAN', mealPlan, `${hotel.nights} Nights`]);
           }
           const extraBedQty = (hotel as unknown as { extraBedQuantity?: number | null }).extraBedQuantity;
-          const extraBedPrice = (hotel as unknown as { extraBedPrice?: number | null }).extraBedPrice;
-          if (!listMode && extraBedQty != null && extraBedPrice != null) {
-            hotelFacts.push(['EXTRA BED', `${extraBedQty} × ${extraBedPrice}`, `${hotel.nights} Nights`]);
+          if (!listMode && extraBedQty) {
+            // Counts only — no per-item prices on the customer-facing PDF.
+            hotelFacts.push(['EXTRA BED', `${extraBedQty}`, `${hotel.nights} Nights`]);
           }
           const childQty = (hotel as unknown as { childWithoutBedQuantity?: number | null }).childWithoutBedQuantity;
-          const childPrice = (hotel as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice;
-          if (!listMode && childQty != null && childPrice != null) {
-            hotelFacts.push(['CHILD W/O BED', `${childQty} × ${childPrice}`, `${hotel.nights} Nights`]);
-          }
-          const basePrice = (hotel as unknown as { baseRoomPrice?: number | null }).baseRoomPrice;
-          if (!listMode && basePrice != null && (extraBedQty != null || childQty != null)) {
-            // Show base as fact if extras present, for clarity (optional).
-            hotelFacts.push(['BASE ROOM', `${basePrice}`, `${hotel.nights} Nights`]);
+          if (!listMode && childQty) {
+            hotelFacts.push(['CHILD W/O BED', `${childQty}`, `${hotel.nights} Nights`]);
           }
           hotelFacts.forEach(([label, value, sub], factIndex) => {
             const left = infoX + factIndex * 88;
@@ -1645,12 +1647,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             };
             roomLines.forEach((line, j) => {
               const name = (line.roomType ?? '').trim() || 'Room';
+              // Counts only — no per-item prices on the customer-facing PDF.
               const bits = [`${j + 1}. ${name}`];
               if (line.rooms != null) bits.push(`${line.rooms} Room${line.rooms === 1 ? '' : 's'}`);
-              if (line.extraBedQuantity != null && line.extraBedPrice != null)
-                bits.push(`Extra Bed: ${line.extraBedQuantity} × ${line.extraBedPrice}`);
-              if (line.childWithoutBedQuantity != null && line.childWithoutBedPrice != null)
-                bits.push(`Child W/O Bed: ${line.childWithoutBedQuantity} × ${line.childWithoutBedPrice}`);
+              if (line.extraBedQuantity) bits.push(`Extra Bed: ${line.extraBedQuantity}`);
+              if (line.childWithoutBedQuantity)
+                bits.push(`Child W/O Bed: ${line.childWithoutBedQuantity}`);
               drawListLine(bits.join(' — '));
             });
             if (mealLines.length > 1) {
