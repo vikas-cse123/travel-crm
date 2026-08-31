@@ -58,6 +58,8 @@ export interface TemplateHotel extends MasterHotelRefs {
   roomType: string | null;
   mealPlan: string | null;
   rooms: number | null;
+  extraBedQuantity?: number | null;
+  childWithoutBedQuantity?: number | null;
   nights: number;
   checkInDate: string | null;
   checkOutDate: string | null;
