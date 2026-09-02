@@ -8,6 +8,7 @@ import { ValidationError } from '../../../../utils/errors.js';
 import { cruiseImageObjectKey, storageService } from '../../../../services/storage/storage.service.js';
 import { sniffImageMimeType } from '../../master-media.js';
 import { masterImageWriteData } from '../../master-images.js';
+import { sanitizeRichText } from '../../masters.service.js';
 import { PERMISSIONS } from '@interscale/shared';
 import type {
   ImportColumnDefinition,
@@ -265,7 +266,7 @@ export const cruiseAdapter = {
         companyId: auth.companyId,
         name: String(input.name).trim(),
         normalizedName,
-        description: input.description ? String(input.description).trim() || null : null,
+        description: sanitizeRichText(input.description as string | null | undefined),
         price: input.price != null && input.price !== '' ? (input.price as number) : null,
         currency: input.currency ? String(input.currency).toUpperCase() : 'INR',
         status: 'ACTIVE',
@@ -276,7 +277,7 @@ export const cruiseAdapter = {
                 create: roomTypes.map((room) => ({
                   companyId: auth.companyId,
                   name: room.name,
-                  description: room.description,
+                  description: sanitizeRichText(room.description),
                   price: room.price,
                   currency: room.currency,
                   status: room.status as never,

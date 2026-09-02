@@ -6,6 +6,7 @@ import { PERMISSIONS } from '@interscale/shared';
 import type { ImportColumnDefinition, UniquenessCheck } from '../excel-import.types.js';
 import type { AuthContext } from '../../../../middleware/authenticate.js';
 import type { MastersRequestContext } from '../../../masters/masters.service.js';
+import { sanitizeRichText } from '../../../masters/masters.service.js';
 
 export const addOnServiceColumns: ImportColumnDefinition[] = [
   {
@@ -71,7 +72,7 @@ export const addOnServiceAdapter = {
         companyId: auth.companyId,
         name: String(input.name).trim(),
         normalizedName,
-        description: input.description ? String(input.description).trim() || null : null,
+        description: sanitizeRichText(input.description as string | null | undefined),
         price: input.price != null && input.price !== '' ? (input.price as number) : null,
         currency: input.currency ? String(input.currency).toUpperCase() : 'INR',
         status: ((input.status as string) ?? 'ACTIVE') as never,

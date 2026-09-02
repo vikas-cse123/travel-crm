@@ -9,6 +9,7 @@ import { ValidationError } from '../../../../utils/errors.js';
 import { sightseeingImageObjectKey, storageService } from '../../../../services/storage/storage.service.js';
 import { sniffImageMimeType } from '../../master-media.js';
 import { masterImageWriteData } from '../../master-images.js';
+import { sanitizeRichText } from '../../masters.service.js';
 import { buildVisibleWhere, resolveMasterScope } from '../../master-visibility.js';
 import type {
   ImportColumnDefinition,
@@ -385,8 +386,8 @@ export const sightseeingAdapter = {
         estimatedHours:
           input.estimatedHours != null && input.estimatedHours !== '' ? Number(input.estimatedHours) : null,
         suggestedStartTime: blankToNull(input.suggestedStartTime),
-        description: blankToNull(input.description),
-        remarks: blankToNull(input.remarks),
+        description: sanitizeRichText(input.description),
+        remarks: sanitizeRichText(input.remarks),
         pricing: pricing.length ? (pricing as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       },
     });

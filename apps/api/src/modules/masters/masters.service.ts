@@ -69,8 +69,20 @@ function audit(
   };
 }
 
+const richTextAlignStyle = {
+  'text-align': [/^left$/i, /^center$/i, /^right$/i, /^justify$/i],
+};
+const richTextColorStyles = {
+  ...richTextAlignStyle,
+  color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(\s*(\d{1,3}%?\s*,\s*){2}\d{1,3}%?\s*\)$/i],
+  'background-color': [/^#[0-9a-f]{3,8}$/i, /^rgb\(\s*(\d{1,3}%?\s*,\s*){2}\d{1,3}%?\s*\)$/i],
+};
+
 export function sanitizeRichText(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
+  // The allowlist must cover everything the Masters rich-text editor produces
+  // (contentEditable divs per line, alignment, font colors, code blocks), or
+  // formatting such as line breaks and alignment would be lost on save.
   const safe = sanitizeHtml(value, {
     allowedTags: [
       'p',
@@ -88,8 +100,25 @@ export function sanitizeRichText(value: string | null | undefined): string | nul
       'h2',
       'h3',
       'a',
+      'div',
+      'span',
+      'font',
+      'pre',
     ],
-    allowedAttributes: { a: ['href', 'title', 'target', 'rel'] },
+    allowedAttributes: {
+      a: ['href', 'title', 'target', 'rel'],
+      font: ['color', 'face', 'size'],
+      '*': ['align'],
+      p: ['style'],
+      div: ['style'],
+      span: ['style'],
+    },
+    allowedStyles: {
+      p: richTextColorStyles,
+      div: richTextColorStyles,
+      span: richTextColorStyles,
+      font: richTextColorStyles,
+    },
     allowedSchemes: ['http', 'https', 'mailto'],
     transformTags: {
       a: (_tag, attrs) => ({

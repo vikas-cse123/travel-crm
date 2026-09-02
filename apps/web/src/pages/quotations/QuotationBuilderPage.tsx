@@ -4301,7 +4301,7 @@ export function QuotationBuilderPage() {
               {from && to ? `${from} → ${to}` : 'Route will appear here'}
             </span>
           </div>
-          <div className="space-y-4 p-5">
+          <div className="p-5">
             <div className="grid gap-3 md:grid-cols-3">
               <label className={labelCls}>
                 From city
@@ -4320,8 +4320,10 @@ export function QuotationBuilderPage() {
                 </select>
               </label>
             </div>
-            {arr.fields.map((segment, index) => segmentCard(leg, arr, index, segment.id))}
-            <div className="flex justify-center">
+            <div className="mt-4 space-y-4">
+              {arr.fields.map((segment, index) => segmentCard(leg, arr, index, segment.id))}
+            </div>
+            <div className="mt-4 flex justify-center">
               <Button variant="secondary" onClick={() => arr.append(emptySegment())}>
                 <Plus className="h-4 w-4" /> Add Connection
               </Button>

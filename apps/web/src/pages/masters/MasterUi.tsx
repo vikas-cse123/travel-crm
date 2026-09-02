@@ -146,12 +146,19 @@ export { Pagination } from '@/components/ui/Pagination';
 
 /** Escape plain text and preserve line breaks as <br> so values stored as
  *  plain text (e.g. Excel imports) display their original line structure. */
-function plainTextToHtml(value: string): string {
+export function plainTextToHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\r\n|\r|\n/g, '<br>');
+}
+
+/** Values stored without any markup (Excel imports, legacy records) must be
+ *  rendered as plain text with their line structure preserved — exactly how
+ *  the editor displays them. Markup values are rendered as-is. */
+export function richTextToDisplayHtml(value: string): string {
+  return value.includes('<') ? value : plainTextToHtml(value);
 }
 
 export function RichTextEditor({
@@ -348,11 +355,11 @@ export function SafeRichText({
   html: string | null;
   empty?: string;
 }) {
-  if (!html) return <p className="text-sm text-slate-500">{empty}</p>;
+  if (!html?.trim()) return <p className="text-sm text-slate-500">{empty}</p>;
   return (
     <div
-      className="prose prose-sm max-w-none whitespace-pre-line text-slate-700"
-      dangerouslySetInnerHTML={{ __html: html }}
+      className="prose prose-sm max-w-none text-slate-700"
+      dangerouslySetInnerHTML={{ __html: richTextToDisplayHtml(html) }}
     />
   );
 }
@@ -368,11 +375,11 @@ export function RichTextPreview({
   lines?: number;
   className?: string;
 }) {
-  if (!html) return <span className={cn('text-slate-400', className)}>{empty}</span>;
+  if (!html?.trim()) return <span className={cn('text-slate-400', className)}>{empty}</span>;
   return (
     <div
       className={cn(
-        'master-rich-text-preview overflow-hidden text-slate-600 [&_*]:m-0 [&_br]:hidden [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5',
+        'master-rich-text-preview overflow-hidden text-slate-600 [&_*]:m-0 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5',
         className,
       )}
       style={{
@@ -380,7 +387,7 @@ export function RichTextPreview({
         WebkitLineClamp: lines,
         WebkitBoxOrient: 'vertical',
       }}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: richTextToDisplayHtml(html) }}
     />
   );
 }

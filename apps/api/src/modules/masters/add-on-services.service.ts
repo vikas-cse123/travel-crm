@@ -23,6 +23,7 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import { sanitizeRichText } from './masters.service.js';
 
 /**
  * Add-On Services Master.
@@ -36,8 +37,6 @@ import type { MastersRequestContext } from './airlines.service.js';
 const userSelect = { id: true, fullName: true } as const;
 const has = (auth: AuthContext, permission: string) =>
   permissionsService.userHasPermission(auth.userId, permission);
-const blankToNull = (value: string | null | undefined): string | null => value?.trim() || null;
-
 const serviceInclude = {
   createdBy: { select: userSelect },
   updatedBy: { select: userSelect },
@@ -111,7 +110,7 @@ function writeData(input: AddOnServiceInput | AddOnServiceUpdateInput) {
     ...(key('name')
       ? { name: input.name!.trim(), normalizedName: normalizeCustomerName(input.name!) }
       : {}),
-    ...(key('description') ? { description: blankToNull(input.description) } : {}),
+    ...(key('description') ? { description: sanitizeRichText(input.description) } : {}),
     ...(key('price') ? { price: input.price ?? null } : {}),
     ...(key('currency') ? { currency: input.currency ?? 'INR' } : {}),
   };

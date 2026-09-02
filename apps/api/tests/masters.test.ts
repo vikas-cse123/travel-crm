@@ -170,6 +170,30 @@ describe('Phase 13A cities and destinations masters', () => {
     expect(updated.body.data.inclusions).not.toContain('onclick');
     expect(updated.body.data.inclusions).not.toContain('<script');
     expect(updated.body.data.inclusions).not.toContain('javascript:');
+
+    // The rich-text editor emits <div> per line (Chrome contentEditable),
+    // alignment attributes, and font colors — none of that may be lost on save.
+    const formatted = await client.patch(`/api/masters/destinations/${destination.id}`, {
+      inclusions:
+        '<div><strong>Heading</strong></div><div>Second line</div><ul><li>Bullet one</li><li>Bullet two</li></ul><ol><li>Step one</li></ol><div align="center">Centered</div><div>Colored <font color="#ff0000">text</font></div><em>i</em><u>u</u><s>s</s><pre>code</pre>',
+    });
+    expect(formatted.status).toBe(200);
+    expect(formatted.body.data.inclusions).toContain('<div><strong>Heading</strong></div>');
+    expect(formatted.body.data.inclusions).toContain('<div>Second line</div>');
+    expect(formatted.body.data.inclusions).toContain('<ul><li>Bullet one</li><li>Bullet two</li></ul>');
+    expect(formatted.body.data.inclusions).toContain('<ol><li>Step one</li></ol>');
+    expect(formatted.body.data.inclusions).toContain('<div align="center">Centered</div>');
+    expect(formatted.body.data.inclusions).toContain('<font color="#ff0000">text</font>');
+    expect(formatted.body.data.inclusions).toContain('<em>i</em>');
+    expect(formatted.body.data.inclusions).toContain('<u>u</u>');
+    expect(formatted.body.data.inclusions).toContain('<s>s</s>');
+    expect(formatted.body.data.inclusions).toContain('<pre>code</pre>');
+    // Plain-text values (Excel imports) pass through with their bullets intact.
+    const plain = await client.patch(`/api/masters/destinations/${destination.id}`, {
+      inclusions: '• Airfare\n• Visa fees',
+    });
+    expect(plain.status).toBe(200);
+    expect(plain.body.data.inclusions).toBe('• Airfare\n• Visa fees');
     expect(updated.body.data).not.toHaveProperty('imageObjectKey');
 
     const dubai = await client.post('/api/masters/cities', {

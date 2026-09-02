@@ -36,6 +36,7 @@ import {
   type MasterScope,
 } from './master-visibility.js';
 import type { MastersRequestContext } from './airlines.service.js';
+import { sanitizeRichText } from './masters.service.js';
 import {
   appendMasterImage,
   effectiveMasterImages,
@@ -203,8 +204,8 @@ function writeData(input: SightseeingInput | SightseeingUpdateInput) {
     ...(key('suggestedStartTime')
       ? { suggestedStartTime: blankToNull(input.suggestedStartTime) }
       : {}),
-    ...(key('description') ? { description: blankToNull(input.description) } : {}),
-    ...(key('remarks') ? { remarks: blankToNull(input.remarks) } : {}),
+    ...(key('description') ? { description: sanitizeRichText(input.description) } : {}),
+    ...(key('remarks') ? { remarks: sanitizeRichText(input.remarks) } : {}),
     ...(key('pricing')
       ? {
           pricing:

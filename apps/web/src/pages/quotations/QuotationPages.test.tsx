@@ -16873,3 +16873,5 @@ describe('Public weblink — image viewer & Download PDF', () => {
     anchorClick.mockRestore();
   });
 });
+
+export { builderQuotation, masterFetch, renderBuilderPage, openTab };
