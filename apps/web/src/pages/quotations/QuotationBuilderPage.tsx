@@ -1570,6 +1570,11 @@ export function QuotationBuilderPage() {
     control: form.control,
     name: 'flightDetails.returnJourney.segments',
   });
+  const [expandedJourneys, setExpandedJourneys] = useState<Record<'outbound' | 'returnJourney', boolean>>({
+    outbound: true,
+    returnJourney: true,
+  });
+  const [expandedSegments, setExpandedSegments] = useState<Record<string, boolean>>({});
   const airlines = useAirlines(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
@@ -4122,21 +4127,46 @@ export function QuotationBuilderPage() {
         arrivalDate,
         arrivalTime,
       );
+      const segmentKey = `${leg}-${index}`;
+      const isSegmentExpanded = expandedSegments[segmentKey] ?? true;
       return (
-        <article key={id} className="space-y-3 rounded-lg border p-4">
-          <div className="flex items-center justify-between">
-            <strong className="text-brand-700">Segment {index + 1}</strong>
+        <article key={id} className="overflow-hidden rounded-lg border">
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedSegments((prev) => ({ ...prev, [segmentKey]: !isSegmentExpanded }))
+            }
+            className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
+          >
+            <span className="flex items-center gap-2">
+              <ChevronDown
+                className={`h-4 w-4 text-slate-500 transition-transform ${isSegmentExpanded ? 'rotate-180' : ''}`}
+              />
+              <strong className="text-brand-700">Segment {index + 1}</strong>
+            </span>
             {index > 0 && (
-              <Button
-                variant="ghost"
-                className="text-red-600 hover:bg-red-50"
-                onClick={() => arr.remove(index)}
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  arr.remove(index);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation();
+                    arr.remove(index);
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-red-600 hover:bg-red-50"
               >
                 <Trash2 className="h-4 w-4" /> Remove
-              </Button>
+              </span>
             )}
-          </div>
-          {index > 0 && (
+          </button>
+          {isSegmentExpanded && (
+            <div className="space-y-3 p-4">
+              {index > 0 && (
             <p className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white">
               🔗 Connection{via ? `: Connected via ${via}` : ''}
             </p>
@@ -4278,6 +4308,8 @@ export function QuotationBuilderPage() {
               />
             </div>
           </div>
+            </div>
+          )}
         </article>
       );
     };
@@ -4291,44 +4323,45 @@ export function QuotationBuilderPage() {
       const base = `flightDetails.${leg}`;
       const from = (form.watch(fp(`${base}.fromCity`)) as string) || '';
       const to = (form.watch(fp(`${base}.toCity`)) as string) || '';
+      const isJourneyExpanded = expandedJourneys[leg] ?? true;
       return (
         <section className="overflow-hidden rounded-xl border">
           <div
-            className={`flex items-center justify-between px-5 py-3 font-semibold text-white ${headerClass}`}
+            role="button"
+            tabIndex={0}
+            onClick={() =>
+              setExpandedJourneys((prev) => ({ ...prev, [leg]: !isJourneyExpanded }))
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setExpandedJourneys((prev) => ({ ...prev, [leg]: !isJourneyExpanded }));
+              }
+            }}
+            className={`flex cursor-pointer select-none items-center justify-between px-5 py-3 font-semibold text-white ${headerClass}`}
           >
-            <span>✈ {title}</span>
+            <span className="flex items-center gap-2">
+              <ChevronDown
+                className={`h-4 w-4 text-white/80 transition-transform ${isJourneyExpanded ? 'rotate-180' : ''}`}
+              />
+              ✈ {title}
+            </span>
             <span className="text-sm opacity-90">
               {from && to ? `${from} → ${to}` : 'Route will appear here'}
             </span>
           </div>
-          <div className="p-5">
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className={labelCls}>
-                From city
-                <input className={`${field} mt-1`} {...form.register(fp(`${base}.fromCity`))} />
-              </label>
-              <label className={labelCls}>
-                To city
-                <input className={`${field} mt-1`} {...form.register(fp(`${base}.toCity`))} />
-              </label>
-              <label className={labelCls}>
-                Class
-                <select className={`${field} mt-1`} {...form.register(fp(`${base}.travelClass`))}>
-                  {CLASS_OPTIONS.map((value) => (
-                    <option key={value}>{value}</option>
-                  ))}
-                </select>
-              </label>
+          {isJourneyExpanded && (
+            <div className="p-5">
+              <div className="space-y-4">
+                {arr.fields.map((segment, index) => segmentCard(leg, arr, index, segment.id))}
+              </div>
+              <div className="mt-4 flex justify-center">
+                <Button variant="secondary" onClick={() => arr.append(emptySegment())}>
+                  <Plus className="h-4 w-4" /> Add Connection
+                </Button>
+              </div>
             </div>
-            <div className="mt-4 space-y-4">
-              {arr.fields.map((segment, index) => segmentCard(leg, arr, index, segment.id))}
-            </div>
-            <div className="mt-4 flex justify-center">
-              <Button variant="secondary" onClick={() => arr.append(emptySegment())}>
-                <Plus className="h-4 w-4" /> Add Connection
-              </Button>
-            </div>
-          </div>
+          )}
         </section>
       );
     };

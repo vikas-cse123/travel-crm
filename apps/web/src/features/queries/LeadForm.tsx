@@ -374,7 +374,6 @@ export function LeadForm({
     counts[2] ? `${counts[2]} Child With Bed` : '',
     counts[3] ? `${counts[3]} Child Without Bed` : '',
     counts[4] ? `${counts[4]} Infant${counts[4] === 1 ? '' : 's'}` : '',
-    counts[5] ? `${counts[5]} Extra Bed${counts[5] === 1 ? '' : 's'}` : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -629,9 +628,9 @@ export function LeadForm({
           </div>
           <div className="mt-5 rounded-lg bg-slate-50 p-4">
             <input type="hidden" {...register('rooms', { valueAsNumber: true })} />
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               {(
-                ['adults', 'childrenWithBed', 'childrenWithoutBed', 'infants', 'extraBeds'] as const
+                ['adults', 'childrenWithBed', 'childrenWithoutBed', 'infants'] as const
               ).map((name) => (
                 <Field
                   key={name}
@@ -642,7 +641,6 @@ export function LeadForm({
                         childrenWithBed: 'CWB',
                         childrenWithoutBed: 'CWOB',
                         infants: 'Infants',
-                        extraBeds: 'Extra Beds',
                       } as const
                     )[name]
                   }
