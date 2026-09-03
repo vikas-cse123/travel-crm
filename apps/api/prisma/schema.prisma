@@ -3709,6 +3709,10 @@ model QuotationVersionHotelOption {
   childWithoutBedPrice    Decimal?         @db.Decimal(14, 2)
   pricingSource           String?          @db.VarChar(20)
   selected                Boolean          @default(true)
+  // Alternative-hotel group: rows sharing a non-empty group id are
+  // ALTERNATIVE options and only the selected one contributes to pricing.
+  // NULL (legacy rows) keeps the plain selected-flag behavior.
+  optionGroupId           String?          @db.VarChar(40)
   notes                   String?          @db.VarChar(2000)
   images                  Json?            @db.Json
   // Multiple room allocations / meal-plan selections inside ONE hotel option
@@ -3754,6 +3758,9 @@ model QuotationVersionService {
   unitSellingPrice   Decimal          @default(0) @db.Decimal(14, 2)
   totalCost          Decimal          @default(0) @db.Decimal(14, 2)
   totalSellingPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  // What the unit selling price represents (PER_DAY/PER_HOUR/PER_TRANSFER/
+  // PER_VEHICLE/PER_TRAVELER/PER_UNIT/FIXED). NULL keeps legacy semantics.
+  pricingBasis       String?          @db.VarChar(20)
   taxCategory        String?          @db.VarChar(80)
   notes              String?          @db.VarChar(2000)
   /// Ordered, quotation-owned image snapshot copied from a selected Master.

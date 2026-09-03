@@ -12,12 +12,16 @@ import {
 } from 'lucide-react';
 import {
   SIGHTSEEING_DEFAULT_PRICE_LABELS,
+  SIGHTSEEING_PRICING_BASES,
+  calculateSightseeingActivityTotal,
+  calculateSightseeingSectionTotal,
   formatItineraryDayTitle,
   quotationSnapshotImageIdentity,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
+import { cn } from '@/utils/cn';
 import {
   SightseeingActivitySelect,
   type SightseeingSelectOption,
@@ -123,6 +127,8 @@ export const emptySightseeingActivity = (): SightActivity => ({
   pdfImageUrl: null,
   dailyTransfer: null,
   pricingOptions: emptyPricingRows(),
+  pricingBasis: null,
+  pricingQuantity: null,
   sequence: null,
 });
 
@@ -288,10 +294,65 @@ function ActivityPricing({
 
   const defaultCount = SIGHTSEEING_DEFAULT_PRICE_LABELS.length;
   const customRows = rows.fields.slice(defaultCount);
+  const basisBase =
+    `sightseeingDetails.days.${dayIndex}.activities.${activityIndex}.pricingBasis` as const;
+  const quantityBase =
+    `sightseeingDetails.days.${dayIndex}.activities.${activityIndex}.pricingQuantity` as const;
+  const basis =
+    (form.watch(basisBase as never) as unknown as string | null | undefined) ?? 'PER_TRAVELER';
+  const mode = (form.watch('pricingMode' as never) as unknown as string | undefined);
+  const isSectionWise = mode !== 'PER_PERSON';
+  if (!isSectionWise) return null;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
       <p className={labelCls}>Activity Pricing</p>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+        <label className="block text-xs font-medium text-slate-600">
+          Pricing Basis
+          <select
+            aria-label={`${ariaPrefix} pricing basis`}
+            className={`${field} mt-1`}
+            value={basis}
+            {...form.register(basisBase as never)}
+          >
+            {SIGHTSEEING_PRICING_BASES.map((value) => (
+              <option key={value} value={value}>
+                {value === 'PER_TRAVELER'
+                  ? 'Per Traveler (Adult/Child rates)'
+                  : value === 'PER_GROUP'
+                    ? 'Per Group'
+                    : value === 'PER_VEHICLE'
+                      ? 'Per Vehicle'
+                      : value === 'PER_DAY'
+                        ? 'Per Day'
+                        : 'Fixed'}
+              </option>
+            ))}
+          </select>
+        </label>
+        {basis !== 'PER_TRAVELER' && (
+          <label className="block text-xs font-medium text-slate-600">
+            Quantity
+            <input
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              aria-label={`${ariaPrefix} pricing quantity`}
+              className={`${field} mt-1`}
+              placeholder="1"
+              {...form.register(quantityBase as never, {
+                setValueAs: (value: unknown) =>
+                  value === '' || value == null ? null : Math.max(0, Math.floor(Number(value) || 0)),
+              })}
+            />
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">
+              Price × Quantity — traveler counts are not used for this basis.
+            </span>
+          </label>
+        )}
+      </div>
       {/* One column on phones — three narrow price boxes are unreadable there. */}
       <div className="mt-2 grid gap-3 sm:grid-cols-3">
         {SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label, index) => (
@@ -387,6 +448,24 @@ function ActivityPricing({
           <Plus className="h-4 w-4" /> Add Price Option
         </Button>
       </div>
+      {(() => {
+        const pricingOptions = form.watch(name as never) as unknown as Array<{ label: string; price: number | string | null | undefined }>;
+        const pricingBasis = form.watch(basisBase as never) as unknown as string | null;
+        const pricingQuantity = form.watch(quantityBase as never) as unknown as number | null;
+        const pax = { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 };
+        const total = calculateSightseeingActivityTotal(pricingOptions as never, pax as never, { pricingBasis, pricingQuantity } as never);
+        return (
+          <div className="mt-3 rounded-md bg-white px-3 py-2 text-sm">
+            <div className="flex justify-between">
+              <span className="font-medium text-slate-700">Activity Amount</span>
+              <span className="font-semibold text-slate-900">₹{total.toFixed(2)}</span>
+            </div>
+            {pricingOptions?.some((r) => (r as unknown as { price?: unknown })?.price == null) && (
+              <span className="mt-1 block text-[11px] text-amber-600">No master price — enter a manual selling price.</span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -427,7 +506,8 @@ function DayCard({
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [uploadingActivity, setUploadingActivity] = useState<number | null>(null);
   const [imageError, setImageError] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const pricingModeForExpand = (form.watch('pricingMode' as unknown as FieldPath<QuotationVersionInput>) as unknown as string | undefined) ?? 'SECTION_WISE';
+  const [expanded, setExpanded] = useState(pricingModeForExpand === 'SECTION_WISE');
   const savedDocumentIds = useMemo(
     () =>
       activities.fields
@@ -669,29 +749,31 @@ function DayCard({
   return (
     <article className="space-y-4 rounded-xl border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <label className="flex-1 text-sm font-semibold text-slate-800">
-          Day {dayIndex + 1} title
-          <input
-            aria-label={`Sightseeing day ${dayIndex + 1} title`}
-            className={`${field} mt-1`}
-            value={dayTitle}
-            onChange={(event) => {
-              form.setValue(fp(`${base}.title`), event.target.value, { shouldDirty: true });
-              form.setValue(fp(`${base}.titleTouched`), true as never, { shouldDirty: true });
-            }}
-          />
-        </label>
-        <label className="w-48 text-sm font-semibold text-slate-800">
-          City
-          <input
-            aria-label={`Sightseeing day ${dayIndex + 1} city`}
-            className={`${field} mt-1`}
-            value={dayCity}
-            onChange={(event) =>
-              form.setValue(fp(`${base}.city`), event.target.value || null, { shouldDirty: true })
-            }
-          />
-        </label>
+        <div className="flex flex-1 flex-wrap gap-3">
+          <label className="flex-1 text-sm font-semibold text-slate-800">
+            Day {dayIndex + 1} title
+            <input
+              aria-label={`Sightseeing day ${dayIndex + 1} title`}
+              className={`${field} mt-1`}
+              value={dayTitle}
+              onChange={(event) => {
+                form.setValue(fp(`${base}.title`), event.target.value, { shouldDirty: true });
+                form.setValue(fp(`${base}.titleTouched`), true as never, { shouldDirty: true });
+              }}
+            />
+          </label>
+          <label className="w-48 text-sm font-semibold text-slate-800">
+            City
+            <input
+              aria-label={`Sightseeing day ${dayIndex + 1} city`}
+              className={`${field} mt-1`}
+              value={dayCity}
+              onChange={(event) =>
+                form.setValue(fp(`${base}.city`), event.target.value || null, { shouldDirty: true })
+              }
+            />
+          </label>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -1138,6 +1220,7 @@ export function SightseeingSection({
     return source ? source.charAt(0).toUpperCase() + source.slice(1) : '';
   }, [resolvedDestination, destinationToken]);
   const days = useFieldArray({ control: form.control, name: 'sightseeingDetails.days' });
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   useEffect(() => {
     days.fields.forEach((_, index) => {
       const path = `sightseeingDetails.days.${index}.title` as FieldPath<QuotationVersionInput>;
@@ -1146,6 +1229,11 @@ export function SightseeingSection({
       if (current !== normalized) form.setValue(path, normalized as never, { shouldDirty: false });
     });
   }, [days.fields, form]);
+  useEffect(() => {
+    if (days.fields.length === 0) return;
+    if (selectedDayIndex >= days.fields.length) setSelectedDayIndex(days.fields.length - 1);
+    if (selectedDayIndex < 0) setSelectedDayIndex(0);
+  }, [days.fields.length, selectedDayIndex]);
   const include = form.watch('sightseeingDetails.include') ?? true;
   const fp = (path: string) => path as FieldPath<QuotationVersionInput>;
   // Resolve every selected master's current display URL in one batched request
@@ -1183,21 +1271,23 @@ export function SightseeingSection({
                 {...form.register('sightseeingDetails.sectionTitle')}
               />
             </label>
-            <label className="text-sm font-semibold text-slate-800">
-              Amount
-              <input
-                type="number"
-                step="0.01"
-                aria-label="Sightseeing amount"
-                className={`${field} mt-1`}
-                {...form.register('sightseeingDetails.amount', {
-                  setValueAs: (value) => {
-                    const parsed = Number(value);
-                    return value === '' || Number.isNaN(parsed) ? 0 : parsed;
-                  },
-                })}
-              />
-            </label>
+            {((form.watch('pricingMode' as never) as unknown as string) ?? 'SECTION_WISE') !== 'PER_PERSON' && (() => {
+              const sightseeingDetails = form.watch('sightseeingDetails' as never) as unknown as never;
+              const pax = { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 } as const;
+              const sightseeingTotal = calculateSightseeingSectionTotal(sightseeingDetails, pax as never);
+              return (
+                <label className="text-sm font-semibold text-slate-800">
+                  Sightseeing Total
+                  <input
+                    readOnly
+                    aria-label="Sightseeing total"
+                    value={sightseeingTotal > 0 ? String(sightseeingTotal) : String((sightseeingDetails as unknown as { amount?: unknown })?.amount ?? 0)}
+                    className={`${field} mt-1 bg-slate-100`}
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">Auto-calculated from activity selling amounts (sum of all enabled activities).</span>
+                </label>
+              );
+            })()}
           </div>
           <div>
             <span className="text-sm font-semibold text-slate-800">Description</span>
@@ -1212,34 +1302,175 @@ export function SightseeingSection({
             </div>
           </div>
 
-          <div className="space-y-4">
-            {days.fields.map((day, index) => (
-              <DayCard
-                key={day.id}
-                form={form}
-                quotationId={quotationId}
-                quotationVersionId={quotationVersionId}
-                dayIndex={index}
-                attractions={attractions}
-                presentations={presentations}
-                destinationLabel={destinationLabel}
-                attractionsStatus={attractionsStatus}
-                onInsertBefore={
-                  index === 0 ? () => days.insert(0, emptySightseeingDay(1)) : undefined
-                }
-                onInsertAfter={() => days.insert(index + 1, emptySightseeingDay(index + 2))}
-                onRemove={() => days.remove(index)}
-              />
-            ))}
-          </div>
-          <div className="flex justify-start">
-            <Button
-              variant="secondary"
-              onClick={() => days.append(emptySightseeingDay(days.fields.length + 1))}
-            >
-              <Plus className="h-4 w-4" /> Add Day
-            </Button>
-          </div>
+          {days.fields.length === 0 ? (
+            <div className="flex justify-start">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  days.append(emptySightseeingDay(1));
+                  setSelectedDayIndex(0);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Add Day
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 lg:flex-row">
+              {/* LEFT navigation — consistent with Hotel/Flight section navigation */}
+              <aside className="w-full shrink-0 lg:w-64">
+                <div className="rounded-xl border bg-card p-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Sightseeing Days
+                    <select
+                      aria-label="Select sightseeing day"
+                      className={`${field} mt-1 w-full lg:hidden`}
+                      value={selectedDayIndex}
+                      onChange={(event) => setSelectedDayIndex(Number(event.target.value))}
+                    >
+                      {days.fields.map((field, idx) => {
+                        const raw = (form.watch(`sightseeingDetails.days.${idx}.title` as FieldPath<QuotationVersionInput>) as string | null) ?? '';
+                        const label = raw?.trim() ? raw.trim() : `Day ${idx + 1}`;
+                        return (
+                          <option key={field.id} value={idx}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                  <div className="mt-2 hidden flex-col gap-1.5 lg:flex">
+                    {days.fields.map((field, idx) => {
+                      const raw = (form.watch(`sightseeingDetails.days.${idx}.title` as FieldPath<QuotationVersionInput>) as string | null) ?? '';
+                      const label = raw?.trim() ? raw.trim() : `Day ${idx + 1}`;
+                      const isActive = idx === selectedDayIndex;
+                      return (
+                        <button
+                          key={field.id}
+                          type="button"
+                          aria-label={`Select sightseeing day ${idx + 1}`}
+                          aria-selected={isActive}
+                          onClick={() => setSelectedDayIndex(idx)}
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition',
+                            isActive
+                              ? 'border-brand-600 bg-brand-50 text-brand-700 shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+                          )}
+                        >
+                          <span className="truncate font-medium">{label}</span>
+                          <span className={cn('ml-2 shrink-0 rounded px-1.5 py-0.5 text-xs', isActive ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500')}>
+                            {idx + 1}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="Move selected day up"
+                      disabled={selectedDayIndex === 0}
+                      onClick={() => {
+                        const idx = selectedDayIndex;
+                        if (idx <= 0) return;
+                        days.move(idx, idx - 1);
+                        setSelectedDayIndex(idx - 1);
+                      }}
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" /> Up
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="Move selected day down"
+                      disabled={selectedDayIndex === days.fields.length - 1}
+                      onClick={() => {
+                        const idx = selectedDayIndex;
+                        if (idx >= days.fields.length - 1) return;
+                        days.move(idx, idx + 1);
+                        setSelectedDayIndex(idx + 1);
+                      }}
+                    >
+                      Down <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="Add sightseeing day before selected"
+                      onClick={() => {
+                        const idx = selectedDayIndex;
+                        days.insert(idx, emptySightseeingDay(idx + 1));
+                        // keep selection on the newly inserted day
+                        setSelectedDayIndex(idx);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Before
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="Add sightseeing day after selected"
+                      onClick={() => {
+                        const idx = selectedDayIndex;
+                        days.insert(idx + 1, emptySightseeingDay(idx + 2));
+                        setSelectedDayIndex(idx + 1);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> After
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-2 w-full"
+                    onClick={() => {
+                      days.append(emptySightseeingDay(days.fields.length + 1));
+                      setSelectedDayIndex(days.fields.length);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" /> Add Day
+                  </Button>
+                  <p className="mt-2 text-xs text-slate-500">{days.fields.length} day{days.fields.length !== 1 ? 's' : ''} · select a day to edit on the right</p>
+                </div>
+              </aside>
+              <div className="min-w-0 flex-1">
+                <DayCard
+                  key={days.fields[selectedDayIndex]!.id}
+                  form={form}
+                  quotationId={quotationId}
+                  quotationVersionId={quotationVersionId}
+                  dayIndex={selectedDayIndex}
+                  attractions={attractions}
+                  presentations={presentations}
+                  destinationLabel={destinationLabel}
+                  attractionsStatus={attractionsStatus}
+                  onInsertBefore={
+                    selectedDayIndex === 0
+                      ? () => {
+                          days.insert(0, emptySightseeingDay(1));
+                          setSelectedDayIndex(0);
+                        }
+                      : undefined
+                  }
+                  onInsertAfter={() => {
+                    days.insert(selectedDayIndex + 1, emptySightseeingDay(selectedDayIndex + 2));
+                    setSelectedDayIndex(selectedDayIndex + 1);
+                  }}
+                  onRemove={() => {
+                    const idx = selectedDayIndex;
+                    days.remove(idx);
+                    setSelectedDayIndex((prev) => Math.max(0, Math.min(prev, days.fields.length - 2)));
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {((form.watch('pricingMode' as never) as unknown as string) ?? 'SECTION_WISE') !== 'PER_PERSON' && (
+            <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Sightseeing Section Total: calculated from priced activities (see Pricing Breakdown)</div>
+          )}
         </>
       )}
     </div>

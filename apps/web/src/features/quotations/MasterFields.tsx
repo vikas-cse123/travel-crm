@@ -262,6 +262,7 @@ export interface ServiceRowPatch {
   dayNumber?: number | null;
   city?: string | null;
   quantity?: number;
+  pricingBasis?: QuotationVersionInput['services'][number]['pricingBasis'];
   internalCost?: number;
   images?: QuotationVersionInput['services'][number]['images'];
   imageSnapshotPresent?: boolean | undefined;

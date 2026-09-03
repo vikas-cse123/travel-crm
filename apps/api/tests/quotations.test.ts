@@ -2659,7 +2659,7 @@ describe('Phase 8 quotation activity pricing', () => {
     ]);
   });
 
-  it('keeps a pre-feature quotation working and leaves totals untouched', async () => {
+  it('prices legacy activities into the authoritative section total once they carry pricing', async () => {
     const { client, lead } = await setup();
     const quotation = (await client.post('/api/quotations', { queryId: lead.id })).body.data;
     const version = quotation.versions[0];
@@ -2674,7 +2674,9 @@ describe('Phase 8 quotation activity pricing', () => {
     expect(activitiesOf(legacy.body.data)[0]?.pricingOptions).toEqual([]);
     const legacyTotal = legacy.body.data.finalAmount;
 
-    // Adding activity pricing must not move any money field.
+    // Activity pricing now feeds the authoritative section total (2 Adults ×
+    // 3500 + 1 CWB × 2500 = 9500) — the stored total and the shared resolver
+    // agree.
     const priced = await client.patch(`/api/quotations/${quotation.id}/versions/${version.id}`, {
       sightseeingDetails: sightseeing([
         {
@@ -2689,10 +2691,10 @@ describe('Phase 8 quotation activity pricing', () => {
       ]),
     });
     expect(priced.status).toBe(200);
-    expect(priced.body.data.finalAmount).toBe(legacyTotal);
-    expect(priced.body.data.subtotalSellingPrice).toBe(legacy.body.data.subtotalSellingPrice);
-    expect(priced.body.data.totalMarkup).toBe(legacy.body.data.totalMarkup);
-    expect(priced.body.data.taxAmount).toBe(legacy.body.data.taxAmount);
+    expect(Number(priced.body.data.finalAmount)).toBe(9500);
+    expect(Number(priced.body.data.subtotalSellingPrice)).toBe(9500);
+    expect(Number(priced.body.data.taxAmount)).toBe(0);
+    expect(Number(legacyTotal)).toBe(Number(legacy.body.data.subtotalSellingPrice));
   });
 });
 

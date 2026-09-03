@@ -386,8 +386,8 @@ export const sightseeingAdapter = {
         estimatedHours:
           input.estimatedHours != null && input.estimatedHours !== '' ? Number(input.estimatedHours) : null,
         suggestedStartTime: blankToNull(input.suggestedStartTime),
-        description: sanitizeRichText(input.description),
-        remarks: sanitizeRichText(input.remarks),
+        description: sanitizeRichText(input.description as string | null | undefined),
+        remarks: sanitizeRichText(input.remarks as string | null | undefined),
         pricing: pricing.length ? (pricing as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       },
     });

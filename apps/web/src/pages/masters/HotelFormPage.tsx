@@ -51,7 +51,6 @@ interface FormValues {
   address: string;
   description: string;
   amenities: string;
-  price: string;
   currency: string;
   isDefaultForCity: boolean;
 }
@@ -66,7 +65,6 @@ const empty: FormValues = {
   address: '',
   description: '',
   amenities: '',
-  price: '',
   currency: 'INR',
   isDefaultForCity: false,
 };
@@ -164,7 +162,6 @@ export function HotelFormPage() {
       address: value.address ?? '',
       description: value.description ?? '',
       amenities: value.amenities ?? '',
-      price: value.price != null ? String(value.price) : '',
       currency: value.currency ?? 'INR',
       isDefaultForCity: value.isDefaultForCity,
     });
@@ -285,7 +282,6 @@ export function HotelFormPage() {
       address: textOrNull(values.address),
       description: textOrNull(values.description),
       amenities: textOrNull(values.amenities),
-      price: numberOrNull(values.price),
       currency: values.currency || 'INR',
       isDefaultForCity: values.isDefaultForCity,
     };

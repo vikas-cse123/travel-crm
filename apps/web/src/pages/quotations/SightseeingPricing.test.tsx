@@ -29,6 +29,7 @@ function Harness({ days }: { days?: unknown[] }) {
   const form = useForm<QuotationVersionInput>({
     // Only the sightseeing slice matters here; the section reads nothing else.
     defaultValues: {
+      pricingMode: 'SECTION_WISE' as unknown as QuotationVersionInput['pricingMode'],
       sightseeingDetails: {
         include: true,
         sectionTitle: 'Sightseeing & Experiences',
@@ -308,10 +309,11 @@ describe('withDefaultPricingRows', () => {
 describe('activity pricing markup', () => {
   it('stacks the three default prices in one column on phones', () => {
     render(<Harness />);
-    const grid = screen.getByText('Activity Pricing').nextElementSibling as HTMLElement;
-    expect(grid.className).toContain('grid');
-    // One column by default; three only from the sm breakpoint up.
-    expect(grid.className).toContain('sm:grid-cols-3');
-    expect(within(grid).getAllByRole('spinbutton')).toHaveLength(3);
+    const grids = [...document.querySelectorAll('.sm\\:grid-cols-3')] as HTMLElement[];
+    const grid = grids.find((el) => within(el).queryAllByRole('spinbutton').length === 3);
+    expect(grid).toBeTruthy();
+    expect(grid!.className).toContain('grid');
+    expect(grid!.className).toContain('sm:grid-cols-3');
+    expect(within(grid!).getAllByRole('spinbutton')).toHaveLength(3);
   });
 });

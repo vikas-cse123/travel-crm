@@ -298,6 +298,28 @@ export const quotationHotelMealPlanLineSchema = z.object({
 export type QuotationHotelRoomLine = z.infer<typeof quotationHotelRoomLineSchema>;
 export type QuotationHotelMealPlanLine = z.infer<typeof quotationHotelMealPlanLineSchema>;
 
+/**
+ * One cruise room allocation inside a cruise service. A cruise may carry any
+ * number of these; each line keeps its own room-type link, room quantity and
+ * per-night rate, mirroring the cruise room-type master price.
+ */
+export const quotationCruiseRoomLineSchema = z.object({
+  cruiseRoomTypeId: optionalMasterId,
+  roomType: optionalText(100),
+  rooms: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? 1 : value),
+    z.coerce.number().int().min(1).max(100),
+  ),
+  // Per-night rate from master, editable (manual override)
+  roomRate: optionalMoney,
+  // Legacy single-room sellingPrice kept for backward compat; new code uses roomRate
+  sellingPrice: optionalMoney,
+  internalCost: optionalMoney,
+  notes: optionalText(2000),
+});
+
+export type QuotationCruiseRoomLine = z.infer<typeof quotationCruiseRoomLineSchema>;
+
 export const quotationHotelSchema = z
   .object({
     // Master references. These columns already existed on the hotel-option
@@ -341,6 +363,13 @@ export const quotationHotelSchema = z
     childWithoutBedPrice: optionalMoney,
     pricingSource: optionalText(20),
     selected: z.boolean().default(true),
+    /**
+     * Alternative-hotel group. Stays sharing the same non-empty group id are
+     * ALTERNATIVE OPTIONS — only the selected one contributes to the pricing
+     * total. Stays without a group are CONSECUTIVE STAYS and always add up.
+     * Legacy snapshots (null/absent) keep the plain selected-flag behavior.
+     */
+    optionGroupId: optionalText(40),
     notes: optionalText(2000),
     sequence,
     // Per-stay images for bookmark snapshots. When a hotel is bookmarked,
@@ -406,6 +435,18 @@ export const quotationHotelSchema = z
     });
   });
 
+/** Pricing bases for service-backed sections (cruise/vehicle/add-on). */
+export const SERVICE_PRICING_BASES = [
+  'PER_DAY',
+  'PER_HOUR',
+  'PER_TRANSFER',
+  'PER_VEHICLE',
+  'PER_TRAVELER',
+  'PER_UNIT',
+  'FIXED',
+] as const;
+export type ServicePricingBasis = (typeof SERVICE_PRICING_BASES)[number];
+
 export const quotationServiceSchema = z.object({
   serviceType: z.enum(SERVICE_TYPES),
   // Master references, each valid only for its matching service type. The
@@ -426,8 +467,21 @@ export const quotationServiceSchema = z.object({
   quantity: z.coerce.number().positive().max(100_000).default(1),
   internalCost: optionalMoney,
   sellingPrice: optionalMoney,
+  // What the unit price represents (days/hours/transfers/cabins/travelers).
+  // Legacy snapshots (null) keep the plain quantity × unit-price semantics.
+  pricingBasis: z.enum(SERVICE_PRICING_BASES).nullish(),
   taxCategory: optionalText(80),
   notes: optionalText(2000),
+  // Cruise-specific structured duration and multi-room allocation.
+  // Legacy single-room cruises store nights in free-text notes; new code uses cruiseNights.
+  cruiseNights: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? null : value),
+    z.coerce.number().int().min(1).max(365).nullable().optional(),
+  ).optional(),
+  cruiseRoomLines: z
+    .array(quotationCruiseRoomLineSchema)
+    .max(10)
+    .optional(),
   // Ordered, quotation-owned snapshot. Legacy service rows normalize to [].
   images: z
     .preprocess(
@@ -692,6 +746,79 @@ export function calculateHotelRoomLinesTotal(
   }, 0);
 }
 
+// ---------------------------------------------------------------------------
+// Cruise multi-room helpers
+// ---------------------------------------------------------------------------
+
+const cruiseLineRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+/**
+ * The room allocations of one cruise service, always as a line array.
+ * Rows saved with the multi-room structure return their lines as-is; legacy
+ * rows (single cruiseRoomTypeId/quantity/sellingPrice scalar columns, NULL
+ * cruiseRoomLines) are synthesized into exactly one line so every reader —
+ * pricing, builder, PDF, weblink — consumes the same shape without migration.
+ */
+export function resolveCruiseRoomLines(service: unknown): QuotationCruiseRoomLine[] {
+  const row = cruiseLineRecord(service);
+  const stored = Array.isArray(row.cruiseRoomLines) ? (row.cruiseRoomLines as unknown[]) : [];
+  if (stored.length > 0) return stored.map((line) => cruiseLineRecord(line)) as unknown as QuotationCruiseRoomLine[];
+  const hasLegacy =
+    row.cruiseRoomTypeId != null ||
+    row.city != null ||
+    row.quantity != null ||
+    row.sellingPrice != null;
+  if (!hasLegacy) return [];
+  // Legacy single-room: quantity = Number of Rooms, sellingPrice/roomRate = per-night rate, city = snapshot name
+  const legacyRate = (row.roomRate as number | null | undefined) ?? (row.sellingPrice as number | null | undefined) ?? null;
+  return [
+    {
+      cruiseRoomTypeId: (row.cruiseRoomTypeId as QuotationCruiseRoomLine['cruiseRoomTypeId']) ?? null,
+      roomType: (row.city as QuotationCruiseRoomLine['roomType']) ?? (row.roomType as QuotationCruiseRoomLine['roomType']) ?? null,
+      rooms: row.quantity == null ? 1 : Number(row.quantity) || 1,
+      roomRate: legacyRate != null ? Number(legacyRate) : null,
+      sellingPrice: legacyRate != null ? Number(legacyRate) : null,
+      internalCost: (row.internalCost as QuotationCruiseRoomLine['internalCost']) ?? null,
+      notes: null,
+    },
+  ];
+}
+
+/**
+ * Cruise total across every room allocation, using per-night semantics.
+ * If nights is null/0, falls back to quantity×rate without nights (preserves
+ * total-price legacy where nights not yet set). Each line total = roomRate × rooms × nights.
+ */
+export function calculateCruiseRoomLinesTotal(
+  service: unknown,
+  nights?: number | null,
+): number {
+  const row = cruiseLineRecord(service);
+  const resolvedNights = nights ?? (row.cruiseNights == null ? null : Number(row.cruiseNights));
+  const lines = resolveCruiseRoomLines(service);
+  if (!lines.length) {
+    // No lines: fall back to legacy quantity×sellingPrice (and nights if present for per-night)
+    const qty = row.quantity == null ? 1 : Number(row.quantity) || 1;
+    const rate = row.sellingPrice == null ? 0 : Number(row.sellingPrice);
+    if (resolvedNights != null && resolvedNights > 0) return rate * qty * resolvedNights;
+    return rate * qty;
+  }
+  return lines.reduce((sum, line) => {
+    const rate = line.roomRate ?? line.sellingPrice ?? 0;
+    const rooms = line.rooms ?? 1;
+    const r = Number(rate) || 0;
+    if (resolvedNights != null && resolvedNights > 0) return sum + r * rooms * resolvedNights;
+    return sum + r * rooms;
+  }, 0);
+}
+
+/** Cruise nights → days derivation (Days = Nights + 1). */
+export function cruiseNightsToDays(nights: number | null | undefined): number | null {
+  if (nights == null || Number(nights) <= 0) return null;
+  return Number(nights) + 1;
+}
+
 /** Reference "Flight" tab — one segment (leg/connection) of a journey. */
 export const flightSegmentSchema = z
   .object({
@@ -745,11 +872,29 @@ export const flightImageSchema = z.object({
   heading: optionalText(200),
 });
 
+/** How the flight section's selling price is determined. */
+export const FLIGHT_PRICING_BASES = ['FIXED_TOTAL', 'PER_TRAVELER'] as const;
+export type FlightPricingBasis = (typeof FLIGHT_PRICING_BASES)[number];
+
+/** Per-traveler flight rates (FIXED_TOTAL quotations keep these empty). */
+export const flightPerTravelerSchema = z
+  .object({
+    adult: optionalMoney,
+    childWithBed: optionalMoney,
+    childWithoutBed: optionalMoney,
+    infant: optionalMoney,
+  })
+  .default({});
+
 export const flightDetailsSchema = z
   .object({
     include: z.boolean().default(true),
     sectionTitle: optionalText(200),
     amount: optionalMoney,
+    // MUTUALLY EXCLUSIVE with perTraveler rates: only the selected basis
+    // contributes to the quotation total (see resolveQuotationPricing).
+    pricingBasis: z.enum(FLIGHT_PRICING_BASES).default('FIXED_TOTAL'),
+    perTraveler: flightPerTravelerSchema,
     entryMode: z.enum(['MANUAL', 'IMAGE']).default('MANUAL'),
     imageDocumentId: z.string().uuid().nullable().optional(),
     imageFileName: optionalText(255),
@@ -873,6 +1018,21 @@ export const sightseeingPricingOptionsSchema = z
       ),
   );
 
+/**
+ * How one activity's price is applied. PER_TRAVELER multiplies the
+ * label-matched rows (Adult/CWB/CWOB/Infant) by the quotation's traveler
+ * counts; every other basis multiplies each priced row by a plain quantity
+ * (default 1) and never uses traveler counts.
+ */
+export const SIGHTSEEING_PRICING_BASES = [
+  'PER_TRAVELER',
+  'PER_GROUP',
+  'PER_VEHICLE',
+  'PER_DAY',
+  'FIXED',
+] as const;
+export type SightseeingPricingBasis = (typeof SIGHTSEEING_PRICING_BASES)[number];
+
 /** Reference "Sightseeing" tab — one attraction/activity within a day. */
 export const sightseeingActivitySchema = z.object({
   sightseeingId: z.string().uuid().nullable().optional(),
@@ -901,6 +1061,13 @@ export const sightseeingActivitySchema = z.object({
   pricingOptions: z.preprocess(
     (value) => (value === null || value === undefined ? [] : value),
     sightseeingPricingOptionsSchema,
+  ),
+  // Structured pricing basis. Legacy snapshots (null/absent) keep the
+  // PER_TRAVELER label-matching behavior.
+  pricingBasis: z.enum(SIGHTSEEING_PRICING_BASES).nullish(),
+  pricingQuantity: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? null : value),
+    z.coerce.number().int().min(0).max(1000).nullable().optional(),
   ),
   sequence: z.number().int().min(1).max(500).nullable().optional(),
 });
@@ -1050,6 +1217,16 @@ export const quotationVersionInputSchema = z
     visaServiceCharge: optionalMoney,
     visaGstPercent: money.max(100).nullable().optional(),
     visaVfsCharge: optionalMoney,
+    // Custom Charges — only for By Section pricing, FIXED TOTAL each.
+    customCharges: z
+      .array(
+        z.object({
+          label: z.string().trim().min(1).max(100),
+          amount: money,
+        }),
+      )
+      .max(50)
+      .optional(),
     // Reference "Flight" — structured journeys/segments.
     flightDetails: flightDetailsSchema.nullable().optional(),
     // Reference "Hotel" — editable section heading, amount and description.
@@ -1088,14 +1265,14 @@ export const quotationVersionInputSchema = z
           .max(32)
           .nullable()
           .optional()
-          .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
+          .refine((v) => !v || /^\+?[0-9\s()-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
         callNumber: z
           .string()
           .trim()
           .max(32)
           .nullable()
           .optional()
-          .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid phone number'),
+          .refine((v) => !v || /^\+?[0-9\s()-]{6,32}$/.test(v), 'Enter a valid phone number'),
         email: z
           .string()
           .trim()
@@ -1277,14 +1454,14 @@ export const destinationExpertConfigSchema = z
       .max(32)
       .nullable()
       .optional()
-      .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
+      .refine((v) => !v || /^\+?[0-9\s()-]{6,32}$/.test(v), 'Enter a valid WhatsApp number'),
     callNumber: z
       .string()
       .trim()
       .max(32)
       .nullable()
       .optional()
-      .refine((v) => !v || /^\+?[0-9\s()\-]{6,32}$/.test(v), 'Enter a valid phone number'),
+      .refine((v) => !v || /^\+?[0-9\s()-]{6,32}$/.test(v), 'Enter a valid phone number'),
     email: z
       .string()
       .trim()
@@ -1298,6 +1475,15 @@ export const destinationExpertConfigSchema = z
     showExperience: z.boolean().default(true),
     showTripsPlanned: z.boolean().default(true),
     showLanguages: z.boolean().default(true),
+    jobTitle: optionalText(120),
+    bio: optionalText(5000),
+    specialization: optionalText(200),
+    yearsOfExperience: z.coerce.number().int().min(0).max(100).nullable().optional(),
+    tripsPlanned: z.coerce.number().int().min(0).max(100000).nullable().optional(),
+    languages: optionalText(200),
+    gender: z.enum(['MALE', 'FEMALE']).nullable().optional(),
+    profileImageUrl: z.string().trim().url().max(4000).nullable().optional(),
+    destination: optionalText(120),
   })
   .nullable()
   .optional();
@@ -1323,6 +1509,15 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
       showExperience: true,
       showTripsPlanned: true,
       showLanguages: true,
+      jobTitle: null,
+      bio: null,
+      specialization: null,
+      yearsOfExperience: null,
+      tripsPlanned: null,
+      languages: null,
+      gender: null,
+      profileImageUrl: null,
+      destination: null,
     } as DestinationExpertConfig;
   const expertUserId =
     typeof row.expertUserId === 'string' && row.expertUserId.trim()
@@ -1364,6 +1559,15 @@ export function normalizeDestinationExpertConfig(value: unknown): DestinationExp
     showExperience: row.showExperience !== false,
     showTripsPlanned: row.showTripsPlanned !== false,
     showLanguages: row.showLanguages !== false,
+    jobTitle: typeof row.jobTitle === 'string' ? row.jobTitle.trim().slice(0, 120) || null : null,
+    bio: typeof row.bio === 'string' ? row.bio.trim().slice(0, 5000) || null : null,
+    specialization: typeof row.specialization === 'string' ? row.specialization.trim().slice(0, 200) || null : null,
+    yearsOfExperience: row.yearsOfExperience != null ? Math.max(0, Math.min(100, Number(row.yearsOfExperience))) || null : null,
+    tripsPlanned: row.tripsPlanned != null ? Math.max(0, Math.min(100000, Number(row.tripsPlanned))) || null : null,
+    languages: typeof row.languages === 'string' ? row.languages.trim().slice(0, 200) || null : null,
+    gender: row.gender === 'MALE' || row.gender === 'FEMALE' ? row.gender : null,
+    profileImageUrl: typeof row.profileImageUrl === 'string' && row.profileImageUrl.trim() ? row.profileImageUrl.trim().slice(0, 4000) : null,
+    destination: typeof row.destination === 'string' ? row.destination.trim().slice(0, 120) || null : null,
   } as DestinationExpertConfig;
 }
 
@@ -1524,7 +1728,7 @@ export function normalizePricingMode(value: unknown): PricingMode {
 }
 
 export interface SectionPrice {
-  id: 'flight' | 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon' | 'visa';
+  id: 'flight' | 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon' | 'visa' | 'customCharges';
   label: string;
   amount: number;
 }
@@ -1554,20 +1758,25 @@ function paxForLabel(label: string, pax: PaxCounts): number | null {
 export function calculateSightseeingActivityTotal(
   pricingOptions: Array<{ label: string; price: number | string | null | undefined }> | null | undefined,
   pax: PaxCounts,
+  basis?: { pricingBasis?: string | null | undefined; pricingQuantity?: number | null | undefined },
 ): number {
   if (!Array.isArray(pricingOptions) || !pricingOptions.length) return 0;
+  const normalizedBasis = typeof basis?.pricingBasis === 'string' ? basis.pricingBasis.trim().toUpperCase() : '';
+  const usesTravelerCounts = normalizedBasis === '' || normalizedBasis === 'PER_TRAVELER';
+  const quantity = Math.max(
+    0,
+    Math.floor(basis?.pricingQuantity == null ? 1 : Number(basis.pricingQuantity) || 0),
+  );
   let total = 0;
   for (const row of pricingOptions) {
     const label = typeof row.label === 'string' ? row.label.trim() : '';
     if (!label) continue;
     const price = toNumber(row.price);
-    if (price === 0 && row.price !== 0 && row.price !== '0') {
-      // price 0 is valid, but if row.price was null/undefined treated as 0, skip if label has no price? Keep 0 as valid.
-    }
-    const quantity = paxForLabel(label, pax);
-    if (quantity === null) {
-      total += price;
+    if (usesTravelerCounts) {
+      const paxCount = paxForLabel(label, pax);
+      total += price * (paxCount === null ? 1 : paxCount);
     } else {
+      // PER_GROUP / PER_VEHICLE / PER_DAY / FIXED: traveler counts never apply.
       total += price * quantity;
     }
   }
@@ -1591,8 +1800,22 @@ export function calculateSightseeingSectionTotal(
     if (!Array.isArray(activities)) continue;
     for (const activity of activities) {
       if (!activity || typeof activity !== 'object') continue;
-      const pricingOptions = (activity as { pricingOptions?: unknown }).pricingOptions;
-      total += calculateSightseeingActivityTotal(pricingOptions as never, pax);
+      const row = activity as {
+        pricingOptions?: unknown;
+        pricingBasis?: unknown;
+        pricingQuantity?: unknown;
+      };
+      total += calculateSightseeingActivityTotal(
+        row.pricingOptions as never,
+        pax,
+        typeof row.pricingBasis === 'string' || row.pricingQuantity != null
+          ? {
+              pricingBasis: typeof row.pricingBasis === 'string' ? row.pricingBasis : null,
+              pricingQuantity:
+                row.pricingQuantity == null ? null : Number(row.pricingQuantity) || 0,
+            }
+          : undefined,
+      );
     }
   }
   // If no priced activities but amount exists, use amount as fallback
@@ -1602,19 +1825,239 @@ export function calculateSightseeingSectionTotal(
   return Math.round(total * 100) / 100;
 }
 
+/**
+ * Flight section total. Only ONE pricing basis is ever active:
+ *  - FIXED_TOTAL → the section-level amount.
+ *  - PER_TRAVELER → per-traveler rates × the quotation traveler counts, falling
+ *    back to the fixed amount when no rates were entered (legacy/image mode).
+ */
+export function calculateFlightTotal(
+  flightDetails: unknown,
+  pax: PaxCounts,
+): number {
+  if (!flightDetails || typeof flightDetails !== 'object') return 0;
+  const details = flightDetails as {
+    include?: unknown;
+    amount?: unknown;
+    pricingBasis?: unknown;
+    perTraveler?: { adult?: unknown; childWithBed?: unknown; childWithoutBed?: unknown; infant?: unknown } | null;
+  };
+  if (details.include === false) return 0;
+  const fixedAmount = toNumber(details.amount);
+  const basis = typeof details.pricingBasis === 'string' ? details.pricingBasis.trim().toUpperCase() : '';
+  if (basis === 'PER_TRAVELER') {
+    const rates = details.perTraveler ?? {};
+    const adult = toNumber(rates.adult);
+    const cwb = toNumber(rates.childWithBed);
+    const cwob = toNumber(rates.childWithoutBed);
+    const infant = toNumber(rates.infant);
+    const hasRates = adult !== 0 || cwb !== 0 || cwob !== 0 || infant !== 0;
+    if (hasRates) {
+      const total =
+        adult * pax.adults +
+        cwb * pax.childrenWithBed +
+        cwob * pax.childrenWithoutBed +
+        infant * pax.infants;
+      return Math.round(total * 100) / 100;
+    }
+  }
+  return fixedAmount;
+}
+
+export function getFlightPerTravelerBreakdown(
+  flightDetails: unknown,
+  pax: PaxCounts,
+): Array<{ label: string; count: number; rate: number; total: number }> | null {
+  if (!flightDetails || typeof flightDetails !== 'object') return null;
+  const details = flightDetails as {
+    include?: unknown;
+    pricingBasis?: unknown;
+    perTraveler?: { adult?: unknown; childWithBed?: unknown; childWithoutBed?: unknown; infant?: unknown } | null;
+  };
+  if (details.include === false) return null;
+  const basis = typeof details.pricingBasis === 'string' ? details.pricingBasis.trim().toUpperCase() : '';
+  if (basis !== 'PER_TRAVELER') return null;
+  const rates = details.perTraveler ?? {};
+  const adult = toNumber(rates.adult);
+  const cwb = toNumber(rates.childWithBed);
+  const cwob = toNumber(rates.childWithoutBed);
+  const infant = toNumber(rates.infant);
+  const hasRates = adult !== 0 || cwb !== 0 || cwob !== 0 || infant !== 0;
+  if (!hasRates) return null;
+  const rows: Array<{ label: string; count: number; rate: number; total: number }> = [];
+  if (pax.adults > 0) rows.push({ label: 'Adult', count: pax.adults, rate: adult, total: Math.round(adult * pax.adults * 100) / 100 });
+  if (pax.childrenWithBed > 0) rows.push({ label: 'Child With Bed', count: pax.childrenWithBed, rate: cwb, total: Math.round(cwb * pax.childrenWithBed * 100) / 100 });
+  if (pax.childrenWithoutBed > 0) rows.push({ label: 'Child Without Bed', count: pax.childrenWithoutBed, rate: cwob, total: Math.round(cwob * pax.childrenWithoutBed * 100) / 100 });
+  if (pax.infants > 0) rows.push({ label: 'Infant', count: pax.infants, rate: infant, total: Math.round(infant * pax.infants * 100) / 100 });
+  if (rows.length === 0) return null;
+  return rows;
+}
+
+/**
+ * Hotel stays that contribute to the pricing total, with explicit
+ * ALTERNATIVE-OPTION semantics.
+ *
+ * Stays sharing a non-empty `optionGroupId` are alternatives: only the
+ * selected row(s) contribute (when none is selected, the first row of the
+ * group is treated as the default so configuration is never silently
+ * dropped). Stays WITHOUT a group are consecutive stays and contribute
+ * whenever they are not explicitly deselected.
+ */
+export function filterContributingHotelRows(rows: unknown[]): unknown[] {
+  const groups = new Map<string, unknown[]>();
+  const contributing: unknown[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const groupId =
+      typeof (row as { optionGroupId?: unknown }).optionGroupId === 'string'
+        ? ((row as { optionGroupId?: unknown }).optionGroupId as string).trim()
+        : '';
+    if (!groupId) {
+      if ((row as { selected?: unknown }).selected !== false) contributing.push(row);
+      continue;
+    }
+    const bucket = groups.get(groupId);
+    if (bucket) bucket.push(row);
+    else groups.set(groupId, [row]);
+  }
+  for (const [, bucket] of groups) {
+    // A group contributes exactly ONE option: the first explicitly selected
+    // row, else the first row of the group (default option never dropped).
+    const selected = bucket.find((row) => (row as { selected?: unknown }).selected !== false);
+    contributing.push(selected ?? bucket[0]!);
+  }
+  return contributing;
+}
+
+/** Meal-plan selections of one hotel option, as a plain record list. */
+function hotelMealPlanLinesOf(row: Record<string, unknown>): Array<Record<string, unknown>> {
+  const stored = Array.isArray(row.mealPlanLines) ? (row.mealPlanLines as unknown[]) : [];
+  return stored.filter(
+    (line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object',
+  );
+}
+
+/**
+ * Selling total of ONE hotel stay: per-night room breakdowns (base × rooms ×
+ * nights + extra bed + child without bed) across every room allocation, plus
+ * every meal-plan line. Falls back to the row's manual sellingPrice exactly
+ * when the structured lines price to zero (manual override preserved; the
+ * calculated figure is never destroyed).
+ */
+export function calculateHotelRowTotal(
+  row: unknown,
+  nightsOverride?: number | null,
+): { roomTotal: number; mealTotal: number; total: number } {
+  if (!row || typeof row !== 'object') return { roomTotal: 0, mealTotal: 0, total: 0 };
+  const r = row as Record<string, unknown>;
+  const nightsRaw =
+    nightsOverride != null ? nightsOverride : Math.max(0, Math.floor(toNumber(r.nights ?? 1)));
+  const nightsFactor = nightsRaw > 0 ? nightsRaw : 1;
+  const roomLines = Array.isArray(r.roomLines)
+    ? (r.roomLines as Array<Record<string, unknown>>).filter(
+        (line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object',
+      )
+    : [];
+  let roomTotal = 0;
+  if (roomLines.length > 0) {
+    for (const line of roomLines) {
+      const hasLineBreakdown =
+        line.baseRoomPrice != null || line.extraBedPrice != null || line.childWithoutBedPrice != null;
+      if (hasLineBreakdown) {
+        const rooms = Math.max(1, Math.floor(toNumber(line.rooms ?? 1)));
+        roomTotal +=
+          toNumber(line.baseRoomPrice) * rooms * nightsFactor +
+          toNumber(line.extraBedPrice) * Math.max(0, Math.floor(toNumber(line.extraBedQuantity))) * nightsFactor +
+          toNumber(line.childWithoutBedPrice) * Math.max(0, Math.floor(toNumber(line.childWithoutBedQuantity))) * nightsFactor;
+      } else if (line.sellingPrice != null) {
+        roomTotal += toNumber(line.sellingPrice);
+      }
+    }
+  } else {
+    const hasBreakdown =
+      r.baseRoomPrice != null || r.extraBedPrice != null || r.childWithoutBedPrice != null;
+    if (hasBreakdown) {
+      const rooms = Math.max(1, Math.floor(toNumber(r.rooms ?? 1)));
+      roomTotal =
+        toNumber(r.baseRoomPrice) * rooms * nightsFactor +
+        toNumber(r.extraBedPrice) * Math.max(0, Math.floor(toNumber(r.extraBedQuantity))) * nightsFactor +
+        toNumber(r.childWithoutBedPrice) * Math.max(0, Math.floor(toNumber(r.childWithoutBedQuantity))) * nightsFactor;
+    } else {
+      roomTotal = toNumber(r.sellingPrice);
+    }
+  }
+  let mealTotal = 0;
+  for (const line of hotelMealPlanLinesOf(r)) {
+    mealTotal += toNumber(line.sellingPrice);
+  }
+  const roomRounded = Math.round(roomTotal * 100) / 100;
+  const mealRounded = Math.round(mealTotal * 100) / 100;
+  const structured = roomRounded + mealRounded;
+  // Manual override: structured lines priced to zero but a row total exists.
+  if (structured === 0 && r.sellingPrice != null && toNumber(r.sellingPrice) !== 0) {
+    const fallback = Math.round(toNumber(r.sellingPrice) * 100) / 100;
+    return { roomTotal: fallback, mealTotal: 0, total: fallback };
+  }
+  return { roomTotal: roomRounded, mealTotal: mealRounded, total: Math.round(structured * 100) / 100 };
+}
+
+export interface TravelerPriceRow {
+  label: string;
+  count: number;
+  price: number;
+  total: number;
+}
+
 export interface QuotationPricing {
   pricingMode: PricingMode;
+  /** Σ per-traveler price × count — authoritative ONLY in PER_PERSON mode. */
   packageTotal: number;
-  /** Sum of every section amount (incl. visa). This is the authoritative
-   *  total for SECTION_WISE pricing. */
+  /** Sum of every section amount (incl. visa). Authoritative ONLY in
+   *  SECTION_WISE mode. */
   sectionTotal: number;
   currency: string;
   sections: SectionPrice[];
+  /** Pre-adjustment amount of the ACTIVE pricing method. */
+  subtotal: number;
+  discountAmount: number;
+  taxableAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  /** The single authoritative customer total: subtotal − discount + tax,
+   *  computed from the ACTIVE pricing method only (never both). */
+  grandTotal: number;
+  /** Per-traveler package breakdown (rows for adults/CWB/CWOB/infants). */
+  travelerPricing: {
+    rows: TravelerPriceRow[];
+    subtotal: number;
+  };
   allocatedAmount: number;
   remainingAmount: number;
   overallocatedAmount: number;
   isOverallocated: boolean;
   isExactlyAllocated: boolean;
+}
+
+/**
+ * The one authoritative service-row → section mapping. Used by the shared
+ * resolver, the backend pricing engine and the validators so a service row can
+ * never be counted twice or land in different sections in different layers.
+ */
+export type ServiceSectionBucket = 'flight' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon';
+
+export function classifyServiceBucket(serviceType: unknown): ServiceSectionBucket {
+  switch (String(serviceType ?? '')) {
+    case 'FLIGHT':
+      return 'flight';
+    case 'CRUISE':
+      return 'cruise';
+    case 'VEHICLE_TRANSFER':
+      return 'vehicle';
+    case 'SIGHTSEEING':
+      return 'sightseeing';
+    default:
+      return 'addon';
+  }
 }
 
 export function resolveQuotationPricing(input: {
@@ -1626,12 +2069,22 @@ export function resolveQuotationPricing(input: {
     hotelDetails?: unknown;
     hotels?: unknown;
     sightseeingDetails?: unknown;
+    addOnDetails?: unknown;
     services?: unknown;
     includeVisa?: unknown;
     visaAmount?: unknown;
     visaServiceCharge?: unknown;
     visaGstPercent?: unknown;
     visaVfsCharge?: unknown;
+    customCharges?: unknown;
+    // Adjustment pipeline — applied ONCE to the active method's subtotal.
+    discountAmount?: unknown;
+    taxRate?: unknown;
+    // Per-traveler package rates.
+    perAdultPrice?: unknown;
+    perChildWithBedPrice?: unknown;
+    perChildWithoutBedPrice?: unknown;
+    perInfantPrice?: unknown;
   };
   quotation: {
     adults?: unknown;
@@ -1646,7 +2099,7 @@ export function resolveQuotationPricing(input: {
     (typeof input.version.currency === 'string' && input.version.currency.trim()) ||
     (typeof input.quotation.currency === 'string' && input.quotation.currency.trim()) ||
     'INR';
-  const packageTotal = Math.round(toNumber(input.version.finalAmount) * 100) / 100;
+  const storedFinalAmount = Math.round(toNumber(input.version.finalAmount) * 100) / 100;
 
   const pax: PaxCounts = {
     adults: Math.max(0, Math.floor(toNumber(input.quotation.adults))),
@@ -1655,89 +2108,45 @@ export function resolveQuotationPricing(input: {
     infants: Math.max(0, Math.floor(toNumber(input.quotation.infants))),
   };
 
-  const flightAmount =
-    (input.version.flightDetails as { include?: boolean; amount?: unknown } | null)?.include === false
-      ? 0
-      : toNumber((input.version.flightDetails as { amount?: unknown } | null)?.amount);
-  // Each hotel stay stores its own quotation price in hotels[].sellingPrice.
-  // The section-wise hotel amount is the SUM of every included stay's price,
-  // never a single shared value — so selecting a second hotel cannot clobber
-  // the first one's price. When no per-stay rows are supplied (legacy callers
-  // that only carry hotelDetails.amount), fall back to the section amount.
+  // ---- Traveler-wise (package) pricing -------------------------------------
+  const perAdult = toNumber(input.version.perAdultPrice);
+  const perCwb = toNumber(input.version.perChildWithBedPrice);
+  const perCwob = toNumber(input.version.perChildWithoutBedPrice);
+  const perInfant = toNumber(input.version.perInfantPrice);
+  const travelerRows: TravelerPriceRow[] = [
+    { label: 'Adults', count: pax.adults, price: perAdult },
+    { label: 'CWB', count: pax.childrenWithBed, price: perCwb },
+    { label: 'CWOB', count: pax.childrenWithoutBed, price: perCwob },
+    { label: 'Infants', count: pax.infants, price: perInfant },
+  ]
+    .map((row) => ({ ...row, total: Math.round(row.price * row.count * 100) / 100 }))
+    .filter((row) => row.count > 0 && row.price > 0);
+  const travelerSubtotal =
+    Math.round(
+      (perAdult * pax.adults +
+        perCwb * pax.childrenWithBed +
+        perCwob * pax.childrenWithoutBed +
+        perInfant * pax.infants) *
+        100,
+    ) / 100;
+  // Legacy quotations carry only a stored final total (no per-traveler
+  // rates); the stored amount is the package total in that case.
+  const packageTotal = travelerSubtotal > 0 ? travelerSubtotal : storedFinalAmount;
+
+  // ---- Section-wise pricing -------------------------------------------------
+  const flightFixedAmount = calculateFlightTotal(input.version.flightDetails, pax);
+  // Each hotel stay stores its own quotation price. Only contributing stays
+  // count: deselected rows and non-selected ALTERNATIVE options never do.
   const hotelIncluded =
     (input.version.hotelDetails as { include?: boolean } | null)?.include !== false;
   const hotelRows = Array.isArray(input.version.hotels) ? (input.version.hotels as unknown[]) : [];
   const hotelAmount = !hotelIncluded
     ? 0
     : hotelRows.length > 0
-      ? Math.round(
-          hotelRows.reduce<number>((sum, row) => {
-            if (!row || typeof row !== 'object') return sum;
-            const r = row as {
-              selected?: unknown;
-              sellingPrice?: unknown;
-              baseRoomPrice?: unknown;
-              extraBedPrice?: unknown;
-              extraBedQuantity?: unknown;
-              childWithoutBedPrice?: unknown;
-              childWithoutBedQuantity?: unknown;
-              rooms?: unknown;
-              nights?: unknown;
-              roomLines?: unknown;
-            };
-            if (r.selected === false) return sum;
-            const nightsFactor = (() => {
-              const nights = Math.max(0, Math.floor(toNumber(r.nights ?? 1)));
-              return nights > 0 ? nights : 1;
-            })();
-            // Multi-room hotel option: each room allocation prices with the
-            // legacy per-row formula (breakdown, else the line's selling
-            // figure); a row whose lines all price to zero falls back to the
-            // row's sellingPrice exactly like a legacy row.
-            const roomLines = Array.isArray(r.roomLines)
-              ? (r.roomLines as Array<Record<string, unknown>>)
-              : [];
-            if (roomLines.length > 0) {
-              let lineSum = 0;
-              for (const line of roomLines) {
-                if (!line || typeof line !== 'object') continue;
-                const hasLineBreakdown =
-                  line.baseRoomPrice != null || line.extraBedPrice != null || line.childWithoutBedPrice != null;
-                if (hasLineBreakdown) {
-                  const rooms = Math.max(1, Math.floor(toNumber(line.rooms ?? 1)));
-                  const base = toNumber(line.baseRoomPrice);
-                  const ebQty = Math.max(0, Math.floor(toNumber(line.extraBedQuantity)));
-                  const ebPrice = toNumber(line.extraBedPrice);
-                  const cwQty = Math.max(0, Math.floor(toNumber(line.childWithoutBedQuantity)));
-                  const cwPrice = toNumber(line.childWithoutBedPrice);
-                  lineSum +=
-                    base * rooms * nightsFactor +
-                    ebPrice * ebQty * nightsFactor +
-                    cwPrice * cwQty * nightsFactor;
-                } else if (line.sellingPrice != null) {
-                  lineSum += toNumber(line.sellingPrice);
-                }
-              }
-              const roundedLines = Math.round(lineSum * 100) / 100;
-              if (roundedLines === 0 && r.sellingPrice != null) return sum + toNumber(r.sellingPrice);
-              return sum + roundedLines;
-            }
-            const hasBreakdown = r.baseRoomPrice != null || r.extraBedPrice != null || r.childWithoutBedPrice != null;
-            if (hasBreakdown) {
-              const rooms = Math.max(1, Math.floor(toNumber(r.rooms ?? 1)));
-              const base = toNumber(r.baseRoomPrice);
-              const ebQty = Math.max(0, Math.floor(toNumber(r.extraBedQuantity)));
-              const ebPrice = toNumber(r.extraBedPrice);
-              const cwQty = Math.max(0, Math.floor(toNumber(r.childWithoutBedQuantity)));
-              const cwPrice = toNumber(r.childWithoutBedPrice);
-              const line = base * rooms * nightsFactor + ebPrice * ebQty * nightsFactor + cwPrice * cwQty * nightsFactor;
-              const rounded = Math.round(line * 100) / 100;
-              if (rounded === 0 && r.sellingPrice != null) return sum + toNumber(r.sellingPrice);
-              return sum + rounded;
-            }
-            return sum + toNumber(r.sellingPrice);
-          }, 0) * 100,
-        ) / 100
+      ? filterContributingHotelRows(hotelRows).reduce<number>(
+          (sum, row) => sum + calculateHotelRowTotal(row).total,
+          0,
+        )
       : toNumber((input.version.hotelDetails as { amount?: unknown } | null)?.amount);
 
   const services = Array.isArray(input.version.services) ? (input.version.services as unknown[]) : [];
@@ -1748,6 +2157,13 @@ export function resolveQuotationPricing(input: {
       if (!row || typeof row !== 'object') continue;
       const r = row as Record<string, unknown>;
       if (!predicate(r)) continue;
+      // Cruise with structured multi-room + nights uses per-night total
+      if (r.serviceType === 'CRUISE' && (Array.isArray(r.cruiseRoomLines) || r.cruiseNights != null)) {
+        const cruiseTotal = calculateCruiseRoomLinesTotal(r, r.cruiseNights != null ? toNumber(r.cruiseNights) : null);
+        // If cruiseRoomLines present, cruiseTotal is authoritative; fallback to legacy quantity*price already handled inside helper
+        sum += cruiseTotal;
+        continue;
+      }
       const quantity = toNumber(r.quantity ?? 1);
       const unitPrice = toNumber(r.unitSellingPrice ?? r.sellingPrice);
       const total = r.totalSellingPrice != null ? toNumber(r.totalSellingPrice) : quantity * unitPrice;
@@ -1756,14 +2172,46 @@ export function resolveQuotationPricing(input: {
     return Math.round(sum * 100) / 100;
   };
 
-  const cruiseAmount = sumServices((r) => r.serviceType === 'CRUISE');
-  const vehicleAmount = sumServices((r) => r.serviceType === 'VEHICLE_TRANSFER');
-  const sightseeingAmount = calculateSightseeingSectionTotal(input.version.sightseeingDetails, pax);
-  const addonAmount = sumServices((r) => {
-    if (r.addOnServiceId) return true;
-    const t = String(r.serviceType ?? '');
-    return ['OTHER_ADD_ON', 'TRAVEL_INSURANCE', 'RAIL', 'PASSPORT_ASSISTANCE', 'MEAL', 'GUIDE', 'GENERAL_ENQUIRY'].includes(t);
-  });
+  // Section enable flags. A disabled section contributes ₹0 while its stored
+  // configuration is preserved. Legacy snapshots without a flag (or without
+  // the details object at all) stay enabled — backward compatible.
+  const flightDetailsRec = input.version.flightDetails as
+    | { include?: boolean; amount?: unknown }
+    | null
+    | undefined;
+  const sightseeingDetailsRec = input.version.sightseeingDetails as
+    | { include?: boolean }
+    | null
+    | undefined;
+  const addOnDetailsRec = input.version.addOnDetails as { include?: boolean } | null | undefined;
+  const flightSectionEnabled = flightDetailsRec?.include !== false;
+  const sightseeingSectionEnabled = sightseeingDetailsRec?.include !== false;
+  const addOnSectionEnabled = addOnDetailsRec?.include !== false;
+
+  // Flight section: structured flight pricing plus any legacy FLIGHT service
+  // rows — every service row is counted in exactly one section, never twice.
+  const flightSectionServiceAmount = flightSectionEnabled
+    ? sumServices((r) => classifyServiceBucket(r.serviceType) === 'flight')
+    : 0;
+  const flightAmount =
+    Math.round((flightFixedAmount + flightSectionServiceAmount) * 100) / 100;
+  const cruiseAmount = sumServices((r) => classifyServiceBucket(r.serviceType) === 'cruise');
+  const vehicleAmount = sumServices((r) => classifyServiceBucket(r.serviceType) === 'vehicle');
+  // Day-wise activity pricing plus any legacy SIGHTSEEING service rows —
+  // every service row is counted in exactly one section, never twice.
+  const sightseeingServiceAmount = sightseeingSectionEnabled
+    ? sumServices((r) => classifyServiceBucket(r.serviceType) === 'sightseeing')
+    : 0;
+  const sightseeingAmount = !sightseeingSectionEnabled
+    ? 0
+    : Math.round(
+        (calculateSightseeingSectionTotal(input.version.sightseeingDetails, pax) +
+          sightseeingServiceAmount) *
+          100,
+      ) / 100;
+  const addonAmount = !addOnSectionEnabled
+    ? 0
+    : sumServices((r) => classifyServiceBucket(r.serviceType) === 'addon');
   // Visa is a single dedicated section: base visa amount plus the service
   // charge, its GST, and the VFS charge — mirroring the builder's consolidated
   // visa total. Kept out of the sum when the visa section is excluded.
@@ -1782,6 +2230,12 @@ export function resolveQuotationPricing(input: {
           100,
       ) / 100;
 
+  const isSectionWise = pricingMode === 'SECTION_WISE';
+  const customChargesRaw = (input.version.customCharges ?? []) as Array<{ label?: unknown; amount?: unknown }>;
+  const customChargesAmount = isSectionWise
+    ? Math.round(customChargesRaw.reduce((sum, c) => sum + toNumber(c.amount), 0) * 100) / 100
+    : 0;
+
   const sections: SectionPrice[] = [
     { id: 'flight', label: 'Flights', amount: flightAmount },
     { id: 'hotel', label: 'Hotels', amount: hotelAmount },
@@ -1790,6 +2244,7 @@ export function resolveQuotationPricing(input: {
     { id: 'sightseeing', label: 'Sightseeing', amount: sightseeingAmount },
     { id: 'addon', label: 'Add-on Services', amount: addonAmount },
     { id: 'visa', label: 'Visa', amount: visaAmount },
+    { id: 'customCharges', label: 'Custom Charges', amount: customChargesAmount },
   ];
 
   // allocated is the sum of all section amounts (incl. visa). For SECTION_WISE
@@ -1803,16 +2258,218 @@ export function resolveQuotationPricing(input: {
   const remainingAmount = isOverallocated ? 0 : remainingRaw;
   const isExactlyAllocated = remainingRaw === 0;
 
+  // ---- Adjustment pipeline: subtotal → discount → tax → grand total --------
+  // Only the ACTIVE pricing method's subtotal enters the pipeline, so section
+  // prices and traveler prices can NEVER be added together.
+  const subtotal = pricingMode === 'SECTION_WISE' ? sectionTotal : packageTotal;
+  const discountAmount = Math.round(toNumber(input.version.discountAmount) * 100) / 100;
+  const taxableAmount = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+  const taxRate = toNumber(input.version.taxRate);
+  const taxAmount = Math.round(taxableAmount * taxRate) / 100;
+  const grandTotal = Math.round((taxableAmount + taxAmount) * 100) / 100;
+
   return {
     pricingMode,
     packageTotal,
     sectionTotal,
     currency: currency.toUpperCase(),
     sections,
+    subtotal,
+    discountAmount,
+    taxableAmount,
+    taxRate,
+    taxAmount,
+    grandTotal,
+    travelerPricing: { rows: travelerRows, subtotal: travelerSubtotal },
     allocatedAmount,
     remainingAmount,
     overallocatedAmount,
     isOverallocated,
     isExactlyAllocated,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pricing completeness validation — shared by the builder UI and the backend
+// finalization gate. Missing pricing is NEVER treated as a valid ₹0 price.
+// ---------------------------------------------------------------------------
+
+export interface PricingIssue {
+  severity: 'ERROR' | 'WARNING';
+  section: string;
+  message: string;
+}
+
+export function validateQuotationPricing(input: {
+  version: Parameters<typeof resolveQuotationPricing>[0]['version'];
+  quotation: Parameters<typeof resolveQuotationPricing>[0]['quotation'];
+}): PricingIssue[] {
+  const pricing = resolveQuotationPricing(input);
+  const version = input.version;
+  const issues: PricingIssue[] = [];
+  const v = (key: string): unknown =>
+    (version as Record<string, unknown>)[key as keyof typeof version];
+
+  const flightDetails = v('flightDetails') as
+    | { include?: boolean; entryMode?: string; amount?: unknown; pricingBasis?: string; perTraveler?: Record<string, unknown> }
+    | null
+    | undefined;
+  const hotelDetails = v('hotelDetails') as { include?: boolean; amount?: unknown } | null | undefined;
+  const sightseeingDetails = v('sightseeingDetails') as { include?: boolean } | null | undefined;
+
+  if (pricing.pricingMode === 'PER_PERSON' && pricing.travelerPricing.subtotal > 0) {
+    // Real per-traveler prices exist — the package total is authoritative.
+    return issues;
+  }
+  // PER_PERSON without per-traveler prices falls back to the section/itemized
+  // pipeline (legacy behavior), so the section checks below apply to it too.
+
+  // SECTION_WISE — every ENABLED section must carry a real price. A section
+  // that was never configured (null details) is not treated as enabled.
+  // Flight specifics: IMAGE-mode sections carry the fare inside the uploaded
+  // ticket image (no structured amount to require), and auto-seeded skeleton
+  // sections (template airline rows without real segment data) are treated as
+  // display-only until the agent prices them.
+  const flightSegments =
+    flightDetails && typeof flightDetails === 'object'
+      ? [
+          ...(((flightDetails as { outbound?: { segments?: unknown[] } }).outbound?.segments ??
+            []) as unknown[]),
+          ...(((flightDetails as { returnJourney?: { segments?: unknown[] } }).returnJourney
+            ?.segments ?? []) as unknown[]),
+        ]
+      : [];
+  const flightHasRealSegments = flightSegments.some((segment) => {
+    if (!segment || typeof segment !== 'object') return false;
+    const s = segment as { flightNumber?: unknown; from?: unknown; to?: unknown; departureDate?: unknown };
+    return Boolean(s.flightNumber || s.from || s.to || s.departureDate);
+  });
+  if (flightDetails && flightDetails.include !== false && flightDetails.entryMode !== 'IMAGE') {
+    const hasRates =
+      flightDetails.pricingBasis === 'PER_TRAVELER' &&
+      Object.values(flightDetails.perTraveler ?? {}).some((rate) => toNumber(rate) > 0);
+    if (!hasRates && toNumber(flightDetails.amount) <= 0 && flightHasRealSegments) {
+      issues.push({
+        severity: 'ERROR',
+        section: 'flight',
+        message: 'Flight selling price is required.',
+      });
+    }
+  }
+  const hotelRows = Array.isArray(v('hotels')) ? (v('hotels') as unknown[]) : [];
+  const hotelEnabled = hotelDetails != null && hotelDetails.include !== false;
+  const hotelContributingTotal = hotelRows.reduce<number>(
+    (sum, row) => sum + calculateHotelRowTotal(row).total,
+    0,
+  );
+  if (hotelContributingTotal <= 0) {
+    if (hotelEnabled) {
+      issues.push({
+        severity: 'ERROR',
+        section: 'hotel',
+        message: 'Hotel pricing is incomplete.',
+      });
+    } else if (hotelRows.length > 0) {
+      // Legacy rows (or DB-seeded stays) without a configured Hotel section
+      // only warn — legacy quotations never carried a section flag.
+      issues.push({
+        severity: 'WARNING',
+        section: 'hotel',
+        message: 'Hotel stays have no selling price configured.',
+      });
+    }
+  }
+  const services = Array.isArray(v('services')) ? (v('services') as unknown[]) : [];
+  // Quotations created from a lead seed zero-priced placeholder rows for every
+  // requested service type. A placeholder row may only block finalization when
+  // the quotation is genuinely section-priced — otherwise the global
+  // zero-total gate below handles it.
+  const sectionPriced = pricing.sectionTotal > 0;
+  for (const row of services) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const quantity = toNumber(r.quantity ?? 1);
+    const total =
+      r.totalSellingPrice != null
+        ? toNumber(r.totalSellingPrice)
+        : quantity * toNumber(r.unitSellingPrice ?? r.sellingPrice);
+    if (total > 0) continue;
+    if (r.serviceType === 'CRUISE' && sectionPriced) {
+      issues.push({
+        severity: 'ERROR',
+        section: 'cruise',
+        message: 'Cruise pricing is incomplete. Select a cabin rate or enter a selling price.',
+      });
+    }
+    if (r.serviceType === 'VEHICLE_TRANSFER' && sectionPriced) {
+      issues.push({
+        severity: 'ERROR',
+        section: 'vehicle',
+        message: 'Vehicle pricing is required. Choose a pricing basis and rate.',
+      });
+    }
+  }
+  if (
+    sightseeingDetails &&
+    sightseeingDetails.include !== false &&
+    pricing.sections.find((s) => s.id === 'sightseeing')?.amount === 0
+  ) {
+    issues.push({
+      severity: 'WARNING',
+      section: 'sightseeing',
+      message: 'Sightseeing section is enabled but has no priced activities.',
+    });
+  }
+  if (
+    v('includeVisa') !== false &&
+    pricing.sections.find((s) => s.id === 'visa')?.amount === 0 &&
+    (v('visaType') != null || v('visaDestination') != null)
+  ) {
+    issues.push({
+      severity: 'WARNING',
+      section: 'visa',
+      message: 'Visa section is enabled but has no charges configured.',
+    });
+  }
+  if (pricing.sectionTotal <= 0 && pricing.travelerPricing.subtotal <= 0) {
+    // A quotation with NO priced content at all (legacy empty draft, including
+    // the zero-priced placeholder service rows seeded from the lead) only
+    // warns; one that carries real pricing configuration but no prices is
+    // invalid and must not be finalized.
+    const serviceTotal = (row: Record<string, unknown>): number => {
+      const quantity = toNumber(row.quantity ?? 1);
+      return row.totalSellingPrice != null
+        ? toNumber(row.totalSellingPrice)
+        : quantity * toNumber(row.unitSellingPrice ?? row.sellingPrice);
+    };
+    const hasAnyPricingConfig =
+      flightDetails != null &&
+      (toNumber((flightDetails as { amount?: unknown }).amount) > 0 ||
+        Object.values((flightDetails as { perTraveler?: Record<string, unknown> }).perTraveler ?? {}).some(
+          (rate) => toNumber(rate) > 0,
+        )) ||
+      hotelDetails != null ||
+      hotelRows.some((row) => calculateHotelRowTotal(row).total > 0) ||
+      services.some(
+        (row): row is Record<string, unknown> =>
+          Boolean(row) &&
+          typeof row === 'object' &&
+          (row as Record<string, unknown>).serviceType !== 'HOTEL' &&
+          serviceTotal(row as Record<string, unknown>) > 0,
+      ) ||
+      toNumber(v('visaAmount')) > 0 ||
+      toNumber(v('visaServiceCharge')) > 0 ||
+      toNumber(v('visaVfsCharge')) > 0;
+    issues.push({
+      severity: hasAnyPricingConfig ? 'ERROR' : 'WARNING',
+      section: 'pricing',
+      message:
+        pricing.pricingMode === 'PER_PERSON'
+          ? 'Traveler pricing is incomplete. Enter per-traveler prices or configure section pricing.'
+          : hasAnyPricingConfig
+            ? 'Quotation pricing is incomplete. No enabled section carries a selling price.'
+            : 'Quotation has no pricing configured yet.',
+    });
+  }
+  return issues;
 }

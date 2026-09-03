@@ -120,6 +120,8 @@ export function flightBookmarkToDetails(
     include: true,
     sectionTitle: 'Flight Details',
     amount: typeof price === 'number' && Number.isFinite(price) ? price : 0,
+    pricingBasis: 'FIXED_TOTAL',
+    perTraveler: { adult: null, childWithBed: null, childWithoutBed: null, infant: null },
     entryMode: 'MANUAL',
     imageDocumentId: null,
     imageFileName: null,

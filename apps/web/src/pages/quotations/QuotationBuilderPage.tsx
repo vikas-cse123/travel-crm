@@ -24,22 +24,29 @@ import {
   QUOTATION_TAX_NOTE_OPTIONS,
   QUOTATION_TAX_NOTE_SENTINEL,
   SETTINGS_CURRENCIES,
+  calculateCruiseRoomLinesTotal,
+  calculateFlightTotal,
+  calculateHotelRowTotal,
   cabinLuggageLabel,
+  cruiseNightsToDays,
   formatItineraryDayTitle,
   hotelStayNights,
   labelForLookup,
   normalizePricingMode,
   quotationVersionInputSchema,
   quotationSnapshotImageIdentity,
+  resolveCruiseRoomLines,
   resolveHotelMealPlanLines,
   resolveHotelRoomLines,
   resolveQuotationPricing,
   resolveTaxNoteChoice,
+  validateQuotationPricing,
   DEFAULT_WEBLINK_SECTION_ORDER,
   resolveWeblinkSectionOrder,
   normalizePublicSlug,
   isReservedPublicSlug,
   type LiveSearchBookmark,
+  type QuotationCruiseRoomLine,
   type QuotationVersionInput,
 } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
@@ -70,6 +77,7 @@ import {
   useAddOnServices,
   useAirlines,
   useCreateAirline,
+  useCruise,
   useCruises,
   useDestinations,
   useHotel,
@@ -277,6 +285,8 @@ const defaultFlightDetails = (): NonNullable<QuotationVersionInput['flightDetail
   include: true,
   sectionTitle: 'Flight Details',
   amount: 0,
+  pricingBasis: 'FIXED_TOTAL',
+  perTraveler: { adult: null, childWithBed: null, childWithoutBed: null, infant: null },
   entryMode: 'MANUAL',
   imageDocumentId: null,
   imageFileName: null,
@@ -310,7 +320,19 @@ interface VehicleDraft {
   images: QuotationImage[];
   imageSnapshotPresent: boolean | undefined;
   pdfImageUrl: string | null;
+  // What `amount` represents: days / hours / transfers / vehicles / fixed total.
+  pricingBasis: string;
+  // Days / hours / transfers / vehicle count — the multiplier of the unit rate.
+  quantity: number;
 }
+
+const VEHICLE_PRICING_BASES: Array<[string, string]> = [
+  ['PER_DAY', 'Per Day'],
+  ['PER_HOUR', 'Per Hour'],
+  ['PER_TRANSFER', 'Per Transfer'],
+  ['PER_VEHICLE', 'Per Vehicle'],
+  ['FIXED', 'Fixed Total'],
+];
 
 const defaultVehicleDraft = (): VehicleDraft => ({
   include: true,
@@ -324,6 +346,8 @@ const defaultVehicleDraft = (): VehicleDraft => ({
   images: [],
   imageSnapshotPresent: false,
   pdfImageUrl: null,
+  pricingBasis: 'PER_DAY',
+  quantity: 1,
 });
 
 const hotelSectionTitle = (value: string | null | undefined) => {
@@ -419,6 +443,7 @@ const defaults: QuotationVersionInput = {
   netAmount: 0,
   initialPaymentAmount: 0,
   paymentLink: null,
+  customCharges: [],
   showServiceChargesSeparately: false,
   markServiceChargesOutside: false,
   hidePricing: false,
@@ -574,13 +599,44 @@ export function normalizeQuotationVersionForBuilder(version: QuotationVersion): 
       : null,
   } as QuotationVersion;
 }
+const parseCheckInToDate = (value: string | Date | null | undefined): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const dmy = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (dmy) {
+    const dd = Number(dmy[1]);
+    const mm = Number(dmy[2]);
+    const yyyy = Number(dmy[3]);
+    const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    const ymd = raw.slice(0, 10).split('-').map(Number);
+    const d = new Date(Date.UTC(ymd[0]!, ymd[1]! - 1, ymd[2]!));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 const toDate = (value: string | Date | null | undefined) => {
-  if (!value) return '';
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
+  const date = parseCheckInToDate(value);
+  if (!date) return '';
+  // Normalize to YYYY-MM-DD via UTC to avoid timezone shift
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  // If input was already YYYY-MM-DD we still return same; for Date we use UTC date
+  // For legacy local handling, use UTC date components for consistency with pricing
+  if (value instanceof Date) {
+    // Use local date components for Date inputs that were constructed as local dates (from <input type=date>)
+    // but parseCheckInToDate already treated YYYY-MM-DD as UTC, Date objects as UTC already.
+    // Return YYYY-MM-DD
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return `${yyyy}-${mm}-${dd}`;
 };
 const nullable = (value: string) => (value === '' ? null : Number(value));
 
@@ -592,19 +648,150 @@ export const hotelRateForDate = (
   },
   travelDate: string | Date | null | undefined,
 ): number | null => {
-  const checkIn = toDate(travelDate);
+  const checkIn = parseCheckInToDate(travelDate);
   if (checkIn) {
-    const match = (master.seasons ?? []).find(
-      (season) =>
-        season.price != null &&
-        checkIn >= season.startDate.slice(0, 10) &&
-        checkIn <= season.endDate.slice(0, 10),
-    );
+    const d = Date.UTC(checkIn.getUTCFullYear(), checkIn.getUTCMonth(), checkIn.getUTCDate());
+    const match = (master.seasons ?? []).find((season) => {
+      if (season.price == null) return false;
+      const s = parseCheckInToDate(season.startDate);
+      const e = parseCheckInToDate(season.endDate);
+      if (!s || !e) return false;
+      const sd = Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+      const ed = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+      return d >= sd && d <= ed;
+    });
     if (match) return Number(match.price);
   }
   const base = master.price;
   return base != null && Number(base) > 0 ? Number(base) : null;
 };
+
+/**
+ * Resolve applicable master pricing for a room type on a given check-in date.
+ * Precedence: Season (date within range) > Month (calendar month) > Base sellingPrice.
+ * Returns null when no price found. Manual override protection is handled by caller.
+ */
+export const resolveRoomPricingForDate = (
+  roomType: {
+    sellingPrice?: number | null;
+    extraBedPrice?: number | null;
+    childWithoutBedPrice?: number | null;
+    currency?: string | null;
+    seasons?: Array<{ startDate: string | Date; endDate: string | Date; price: number | null; extraBedPrice?: number | null; childWithoutBedPrice?: number | null; currency: string; name: string }>;
+    monthPrices?: Array<{ month: number; price: number | null; extraBedPrice?: number | null; childWithoutBedPrice?: number | null; currency: string }>;
+  } | null | undefined,
+  travelDate: string | Date | null | undefined,
+): { baseRoomPrice: number | null; extraBedPrice: number | null; childWithoutBedPrice: number | null; pricingSource: 'SEASON' | 'MONTH' | 'BASE' | null } | null => {
+  if (!roomType) return null;
+  const isValid = parseCheckInToDate(travelDate);
+  if (isValid) {
+    const d = Date.UTC(isValid.getUTCFullYear(), isValid.getUTCMonth(), isValid.getUTCDate());
+    const season = (roomType.seasons ?? []).find((s) => {
+      const start = parseCheckInToDate(s.startDate);
+      const end = parseCheckInToDate(s.endDate);
+      if (!start || !end) return false;
+      const sd = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+      const ed = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+      return d >= sd && d <= ed;
+    });
+    if (season) {
+      return {
+        baseRoomPrice: season.price ?? roomType.sellingPrice ?? null,
+        extraBedPrice: (season as unknown as { extraBedPrice?: number | null }).extraBedPrice ?? null,
+        childWithoutBedPrice: (season as unknown as { childWithoutBedPrice?: number | null }).childWithoutBedPrice ?? null,
+        pricingSource: 'SEASON',
+      };
+    }
+    const month = isValid.getUTCMonth() + 1;
+    const monthRow = (roomType.monthPrices ?? []).find((m) => m.month === month);
+    if (monthRow) {
+      return {
+        baseRoomPrice: monthRow.price ?? roomType.sellingPrice ?? null,
+        extraBedPrice: monthRow.extraBedPrice ?? null,
+        childWithoutBedPrice: monthRow.childWithoutBedPrice ?? null,
+        pricingSource: 'MONTH',
+      };
+    }
+  }
+  if (roomType.sellingPrice != null && Number(roomType.sellingPrice) > 0) {
+    return {
+      baseRoomPrice: Number(roomType.sellingPrice),
+      extraBedPrice: roomType.extraBedPrice ?? null,
+      childWithoutBedPrice: roomType.childWithoutBedPrice ?? null,
+      pricingSource: 'BASE',
+    };
+  }
+  if (roomType.extraBedPrice != null || roomType.childWithoutBedPrice != null) {
+    return {
+      baseRoomPrice: null,
+      extraBedPrice: roomType.extraBedPrice ?? null,
+      childWithoutBedPrice: roomType.childWithoutBedPrice ?? null,
+      pricingSource: 'BASE',
+    };
+  }
+  // If no base sellingPrice but month/season not matching, still check if any monthPrice exists with null date? fallback null
+  return null;
+};
+
+export const resolveMealPlanPricingForDate = (
+  mealPlan: {
+    sellingPrice?: number | null;
+    currency?: string | null;
+    seasons?: Array<{ startDate: string | Date; endDate: string | Date; price: number | null; currency: string; name: string }>;
+    monthPrices?: Array<{ month: number; price: number | null; currency: string }>;
+  } | null | undefined,
+  travelDate: string | Date | null | undefined,
+): { price: number | null; pricingSource: 'SEASON' | 'MONTH' | 'BASE' | null } | null => {
+  if (!mealPlan) return null;
+  const isValid = parseCheckInToDate(travelDate);
+  if (isValid) {
+    const d = Date.UTC(isValid.getUTCFullYear(), isValid.getUTCMonth(), isValid.getUTCDate());
+    const season = (mealPlan.seasons ?? []).find((s) => {
+      const start = parseCheckInToDate(s.startDate);
+      const end = parseCheckInToDate(s.endDate);
+      if (!start || !end) return false;
+      const sd = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+      const ed = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+      return d >= sd && d <= ed;
+    });
+    if (season) return { price: season.price ?? mealPlan.sellingPrice ?? null, pricingSource: 'SEASON' };
+    const month = isValid.getUTCMonth() + 1;
+    const monthRow = (mealPlan.monthPrices ?? []).find((m) => m.month === month);
+    if (monthRow) return { price: monthRow.price ?? mealPlan.sellingPrice ?? null, pricingSource: 'MONTH' };
+  }
+  if (mealPlan.sellingPrice != null && Number(mealPlan.sellingPrice) > 0) return { price: Number(mealPlan.sellingPrice), pricingSource: 'BASE' };
+  return null;
+};
+
+/** Cruise room-type matching: ID first, fallback to trimmed case-insensitive name (legacy). */
+export function findCruiseRoomType(
+  cruise: { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> } | null | undefined,
+  roomTypeId: string | null | undefined,
+  fallbackName: string | null | undefined,
+): { id: string; name: string; price?: number | null; status: string } | null {
+  if (!cruise?.roomTypes?.length) return null;
+  if (roomTypeId) {
+    const byId = cruise.roomTypes.find((room) => room.id === roomTypeId);
+    if (byId) return byId as never;
+  }
+  if (fallbackName?.trim()) {
+    const key = fallbackName.trim().toLowerCase();
+    const byName = cruise.roomTypes.find((room) => room.name.trim().toLowerCase() === key);
+    if (byName) return byName as never;
+  }
+  return null;
+}
+
+/** Resolve cruise cabin price from matched room type. */
+export function resolveCruiseCabinPrice(
+  cruise: { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> } | null | undefined,
+  roomTypeId: string | null | undefined,
+  fallbackName: string | null | undefined,
+): number | null {
+  const room = findCruiseRoomType(cruise, roomTypeId, fallbackName);
+  if (!room) return null;
+  return room.price != null ? Number(room.price) : null;
+}
 
 type HotelInputRow = QuotationVersionInput['hotels'][number];
 type HotelRoomLineInput = HotelInputRow['roomLines'][number];
@@ -679,6 +866,41 @@ const withSynthesizedLines = (row: HotelInputRow): HotelInputRow => {
   };
 };
 
+type CruiseServiceInput = QuotationVersionInput['services'][number];
+type CruiseRoomLineInput = QuotationCruiseRoomLine;
+
+const emptyCruiseRoomLine = (seed: Partial<QuotationCruiseRoomLine> = {}): QuotationCruiseRoomLine => ({
+  cruiseRoomTypeId: null,
+  roomType: null,
+  rooms: 1,
+  roomRate: null,
+  sellingPrice: null,
+  internalCost: null,
+  notes: null,
+  ...seed,
+} as QuotationCruiseRoomLine);
+
+const cruiseRoomLineHasData = (line: QuotationCruiseRoomLine): boolean =>
+  Boolean(line.cruiseRoomTypeId) ||
+  Boolean(line.roomType?.trim()) ||
+  (line.rooms != null && Number(line.rooms) !== 1) ||
+  line.roomRate != null ||
+  line.sellingPrice != null ||
+  Boolean(line.notes?.trim());
+
+const withCruiseSynthesizedLines = (service: unknown): unknown => {
+  const raw = service as unknown as { cruiseRoomLines?: QuotationCruiseRoomLine[]; cruiseNights?: number | null; quantity?: number | null; sellingPrice?: number | null; city?: string | null; cruiseRoomTypeId?: string | null };
+  const stored = Array.isArray(raw.cruiseRoomLines) ? raw.cruiseRoomLines : [];
+  const lines = stored.length ? stored : resolveCruiseRoomLines(service).map((l) => emptyCruiseRoomLine(l as unknown as Partial<QuotationCruiseRoomLine>));
+  const nights = raw.cruiseNights ?? 2;
+  const resolvedNights = nights ?? 2;
+  return {
+    ...(service as Record<string, unknown>),
+    cruiseNights: resolvedNights,
+    cruiseRoomLines: lines.length ? lines : [emptyCruiseRoomLine()],
+  } as unknown;
+};
+
 // ---------------------------------------------------------------------------
 // Repeatable room-allocation and meal-plan editors for ONE hotel option.
 // Unlimited entries: each line is its own field-array entry. The room type and
@@ -702,6 +924,19 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
   const watchedLines = useWatch({ control: form.control, name: `hotels.${hotelIndex}.roomLines` }) ?? [];
   const detail = useHotel(hotelId ?? undefined);
   const roomTypes = detail.data?.roomTypes ?? [];
+  const currency = (form.watch('currency') as string) ?? 'INR';
+  const isSectionWise = (form.watch('pricingMode') as string ?? 'PER_PERSON') === 'SECTION_WISE';
+  const watchedNights = useWatch({ control: form.control, name: `hotels.${hotelIndex}.nights` as never }) as unknown as number | null | undefined;
+  const nights = Number(watchedNights ?? form.watch(`hotels.${hotelIndex}.nights` as never) ?? 0) || 1;
+  const checkInDate = useWatch({ control: form.control, name: `hotels.${hotelIndex}.checkInDate` as never }) as unknown as string | Date | null | undefined;
+  const manualOverridesRef = useRef<Set<string>>(new Set());
+  const markOverridden = (lineIndex: number, field: string) => {
+    manualOverridesRef.current.add(`${hotelIndex}-${lineIndex}-${field}`);
+  };
+  const isOverridden = (lineIndex: number, field: string) => manualOverridesRef.current.has(`${hotelIndex}-${lineIndex}-${field}`);
+  const clearOverrideForLine = (lineIndex: number) => {
+    ['baseRoomPrice', 'extraBedPrice', 'childWithoutBedPrice'].forEach((f) => manualOverridesRef.current.delete(`${hotelIndex}-${lineIndex}-${f}`));
+  };
 
   const applyLine = (lineIndex: number, patch: Partial<HotelRoomLineInput>) => {
     for (const [key, value] of Object.entries(patch))
@@ -713,10 +948,65 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
     recalculateTotals();
   };
 
+  // Auto-prefill room pricing when Hotel / Room Type / Check-in date changes, respecting manual overrides
+  // Manual overrides are never overwritten; changing room type clears overrides.
+  // Changing check-in date updates non-overridden fields to the new resolved master price.
+  useEffect(() => {
+    watchedLines.forEach((line, lineIndex) => {
+      const roomTypeId = line?.hotelRoomTypeId;
+      if (!roomTypeId) return;
+      const roomType = roomTypes.find((rt) => rt.id === roomTypeId);
+      if (!roomType) return;
+      const resolved = resolveRoomPricingForDate(roomType as unknown as Parameters<typeof resolveRoomPricingForDate>[0], checkInDate);
+      if (!resolved) return;
+      const currentBase = line?.baseRoomPrice;
+      const currentExtra = line?.extraBedPrice;
+      const currentCwob = line?.childWithoutBedPrice;
+      const patch: Partial<HotelRoomLineInput> = {};
+      let needsPatch = false;
+      if (resolved.baseRoomPrice != null && !isOverridden(lineIndex, 'baseRoomPrice')) {
+        if (currentBase == null || Number(currentBase) !== Number(resolved.baseRoomPrice)) {
+          patch.baseRoomPrice = resolved.baseRoomPrice;
+          needsPatch = true;
+        }
+      }
+      if (resolved.extraBedPrice != null && !isOverridden(lineIndex, 'extraBedPrice')) {
+        if (currentExtra == null || Number(currentExtra) !== Number(resolved.extraBedPrice)) {
+          patch.extraBedPrice = resolved.extraBedPrice;
+          needsPatch = true;
+        }
+      }
+      if (resolved.childWithoutBedPrice != null && !isOverridden(lineIndex, 'childWithoutBedPrice')) {
+        if (currentCwob == null || Number(currentCwob) !== Number(resolved.childWithoutBedPrice)) {
+          patch.childWithoutBedPrice = resolved.childWithoutBedPrice;
+          needsPatch = true;
+        }
+      }
+      if (needsPatch) {
+        if (resolved.pricingSource) patch.pricingSource = resolved.pricingSource;
+        applyLine(lineIndex, patch);
+      } else if (resolved.pricingSource && line?.pricingSource !== resolved.pricingSource && !isOverridden(lineIndex, 'baseRoomPrice')) {
+        // Keep pricingSource in sync when price already matches but source differs (e.g., initial BASE -> SEASON)
+        applyLine(lineIndex, { pricingSource: resolved.pricingSource });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId, checkInDate, detail.data, watchedLines.map((l) => l?.hotelRoomTypeId).join(','), roomTypes.length]);
+
   return (
     <div className="space-y-3">
       {roomLines.fields.map((lineField, lineIndex) => {
         const line = watchedLines[lineIndex];
+        const basePrice = Number(line?.baseRoomPrice ?? 0);
+        const ebQty = Number(line?.extraBedQuantity ?? 0);
+        const ebPrice = Number(line?.extraBedPrice ?? 0);
+        const cwQty = Number(line?.childWithoutBedQuantity ?? 0);
+        const cwPrice = Number(line?.childWithoutBedPrice ?? 0);
+        const rooms = Number(line?.rooms ?? 1);
+        const lineBaseTotal = basePrice * rooms * (nights || 1);
+        const ebTotal = ebQty * ebPrice * (nights || 1);
+        const cwTotal = cwQty * cwPrice * (nights || 1);
+        const lineTotal = lineBaseTotal + ebTotal + cwTotal;
         return (
           <div key={lineField.id} className="rounded-lg border border-slate-200 bg-card p-3">
             <div className="flex items-center justify-between">
@@ -755,18 +1045,24 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
                     }
                     onSelect={(option) => {
                       const room = roomTypes.find((entry) => entry.id === option?.id);
-                      applyLine(lineIndex, {
+                      clearOverrideForLine(lineIndex);
+                      const resolved = room ? resolveRoomPricingForDate(room as unknown as Parameters<typeof resolveRoomPricingForDate>[0], checkInDate) : null;
+                      const patch: Partial<HotelRoomLineInput> = {
                         hotelRoomTypeId: option?.id ?? null,
                         ...(option ? { roomType: option.label } : {}),
-                        // Master prices prefill this allocation's additive
-                        // figures — the same rule the single-room editor used.
-                        ...(room?.sellingPrice != null && Number(room.sellingPrice) > 0
-                          ? { sellingPrice: Number(room.sellingPrice) }
-                          : {}),
-                        ...(canCost && room?.baseCost != null && Number(room.baseCost) > 0
-                          ? { internalCost: Number(room.baseCost) }
-                          : {}),
-                      });
+                      };
+                      if (resolved) {
+                        if (resolved.baseRoomPrice != null) patch.baseRoomPrice = resolved.baseRoomPrice;
+                        if (resolved.extraBedPrice != null) patch.extraBedPrice = resolved.extraBedPrice;
+                        if (resolved.childWithoutBedPrice != null) patch.childWithoutBedPrice = resolved.childWithoutBedPrice;
+                        if (resolved.pricingSource) patch.pricingSource = resolved.pricingSource;
+                      } else if (room?.sellingPrice != null && Number(room.sellingPrice) > 0) {
+                        patch.baseRoomPrice = Number(room.sellingPrice);
+                      }
+                      if (canCost && room?.baseCost != null && Number(room.baseCost) > 0) {
+                        patch.internalCost = Number(room.baseCost);
+                      }
+                      applyLine(lineIndex, patch);
                     }}
                   />
                 </span>
@@ -814,6 +1110,35 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
                 />
               </label>
             </div>
+            {isSectionWise && (() => {
+              const roomTypeForLine = roomTypes.find((rt) => rt.id === line?.hotelRoomTypeId);
+              const hasMasterPrice = roomTypeForLine ? resolveRoomPricingForDate(roomTypeForLine as unknown as Parameters<typeof resolveRoomPricingForDate>[0], checkInDate) !== null : false;
+              const showNoPriceHelper = Boolean(line?.hotelRoomTypeId) && !hasMasterPrice && line?.baseRoomPrice == null;
+              return (
+              <div className="mt-3 rounded-md border bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hotel Pricing — per night rates</p>
+                <div className="mt-2 grid gap-3 md:grid-cols-3">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Room Rate / night ({currency})
+                    <input aria-label={`Room ${lineIndex + 1} rate per night`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.baseRoomPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'baseRoomPrice') })} className={`${field} mt-1`} />
+                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{rooms} × {nights || 1} nights = {(basePrice*rooms*(nights||1)).toFixed(2)}</span>
+                    {showNoPriceHelper && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this room type and date.</span>}
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700">
+                    Extra Bed Rate / night
+                    <input aria-label={`Room ${lineIndex + 1} extra bed rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.extraBedPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'extraBedPrice') })} className={`${field} mt-1`} />
+                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{ebQty} × {ebPrice} × {nights||1} = {ebTotal.toFixed(2)}</span>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700">
+                    Child w/o Bed Rate / night
+                    <input aria-label={`Room ${lineIndex + 1} child without bed rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.childWithoutBedPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'childWithoutBedPrice') })} className={`${field} mt-1`} />
+                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{cwQty} × {cwPrice} × {nights||1} = {cwTotal.toFixed(2)}</span>
+                  </label>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-slate-800">Line Amount: {currency} {lineTotal.toFixed(2)}</p>
+              </div>
+              );
+            })()}
             <label className="mt-3 block text-sm font-semibold text-slate-800">
               Room Remark
               <input
@@ -849,6 +1174,13 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
   const watchedLines = useWatch({ control: form.control, name: `hotels.${hotelIndex}.mealPlanLines` }) ?? [];
   const detail = useHotel(hotelId ?? undefined);
   const mealPlans = detail.data?.mealPlans ?? [];
+  const currency = (form.watch('currency') as string) ?? 'INR';
+  const isSectionWise = (form.watch('pricingMode') as string ?? 'PER_PERSON') === 'SECTION_WISE';
+  const checkInDate = useWatch({ control: form.control, name: `hotels.${hotelIndex}.checkInDate` as never }) as unknown as string | Date | null | undefined;
+  const manualOverridesRef = useRef<Set<string>>(new Set());
+  const markOverridden = (lineIndex: number) => manualOverridesRef.current.add(`${hotelIndex}-${lineIndex}-sellingPrice`);
+  const isOverridden = (lineIndex: number) => manualOverridesRef.current.has(`${hotelIndex}-${lineIndex}-sellingPrice`);
+  const clearOverrideForLine = (lineIndex: number) => manualOverridesRef.current.delete(`${hotelIndex}-${lineIndex}-sellingPrice`);
 
   const applyLine = (lineIndex: number, patch: Partial<HotelMealPlanLineInput>) => {
     for (const [key, value] of Object.entries(patch))
@@ -860,10 +1192,30 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
     recalculateTotals();
   };
 
+  useEffect(() => {
+    watchedLines.forEach((line, lineIndex) => {
+      const mealPlanId = line?.hotelMealPlanId;
+      if (!mealPlanId) return;
+      const mealPlan = mealPlans.find((m) => m.id === mealPlanId);
+      if (!mealPlan) return;
+      const resolved = resolveMealPlanPricingForDate(mealPlan as unknown as Parameters<typeof resolveMealPlanPricingForDate>[0], checkInDate);
+      if (!resolved || resolved.price == null) return;
+      if (isOverridden(lineIndex)) return;
+      const currentPrice = line?.sellingPrice;
+      if (currentPrice == null || Number(currentPrice) !== Number(resolved.price)) {
+        applyLine(lineIndex, { sellingPrice: resolved.price });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId, checkInDate, detail.data, watchedLines.map((l) => l?.hotelMealPlanId).join(','), mealPlans.length]);
+
   return (
     <div className="space-y-3">
       {mealPlanLines.fields.map((lineField, lineIndex) => {
         const line = watchedLines[lineIndex];
+        const mealPlanForLine = mealPlans.find((m) => m.id === line?.hotelMealPlanId);
+        const hasMasterPrice = mealPlanForLine ? resolveMealPlanPricingForDate(mealPlanForLine as unknown as Parameters<typeof resolveMealPlanPricingForDate>[0], checkInDate) !== null : false;
+        const showNoPriceHelper = Boolean(line?.hotelMealPlanId) && !hasMasterPrice && line?.sellingPrice == null;
         return (
           <div key={lineField.id} className="flex flex-wrap items-end gap-2">
             <label className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
@@ -884,20 +1236,32 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
                   }
                   onSelect={(option) => {
                     const meal = mealPlans.find((entry) => entry.id === option?.id);
-                    applyLine(lineIndex, {
+                    clearOverrideForLine(lineIndex);
+                    const resolved = meal ? resolveMealPlanPricingForDate(meal as unknown as Parameters<typeof resolveMealPlanPricingForDate>[0], checkInDate) : null;
+                    const patch: Partial<HotelMealPlanLineInput> = {
                       hotelMealPlanId: option?.id ?? null,
                       ...(option ? { mealPlan: option.label } : {}),
-                      ...(meal?.sellingPrice != null && Number(meal.sellingPrice) > 0
-                        ? { sellingPrice: Number(meal.sellingPrice) }
-                        : {}),
-                      ...(canCost && meal?.baseCost != null && Number(meal.baseCost) > 0
-                        ? { internalCost: Number(meal.baseCost) }
-                        : {}),
-                    });
+                    };
+                    if (resolved && resolved.price != null) {
+                      patch.sellingPrice = resolved.price;
+                    } else if (meal?.sellingPrice != null && Number(meal.sellingPrice) > 0) {
+                      patch.sellingPrice = Number(meal.sellingPrice);
+                    }
+                    if (canCost && meal?.baseCost != null && Number(meal.baseCost) > 0) {
+                      patch.internalCost = Number(meal.baseCost);
+                    }
+                    applyLine(lineIndex, patch);
                   }}
                 />
               </span>
             </label>
+            {isSectionWise && (
+              <label className="w-36 text-xs font-semibold text-slate-700">
+                Rate ({currency})
+                <input aria-label={`Meal plan ${lineIndex + 1} rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.mealPlanLines.${lineIndex}.sellingPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex) })} className={`${field} mt-1`} />
+                {showNoPriceHelper && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this meal plan and date.</span>}
+              </label>
+            )}
             <Button
               type="button"
               size="sm"
@@ -923,6 +1287,168 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
         onClick={() => mealPlanLines.append(emptyMealLine())}
       >
         <Plus className="h-4 w-4" /> Add Meal Plan
+      </Button>
+    </div>
+  );
+}
+
+interface CruiseLinesEditorProps {
+  form: UseFormReturn<QuotationVersionInput>;
+  serviceIndex: number;
+  cruiseId: string | null | undefined;
+  canCost: boolean;
+  nights: number;
+  recalculateTotals: () => void;
+}
+
+function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, recalculateTotals }: CruiseLinesEditorProps) {
+  const roomLines = useFieldArray({
+    control: form.control,
+    name: `services.${serviceIndex}.cruiseRoomLines` as never,
+  });
+  const watchedLines = useWatch({ control: form.control, name: `services.${serviceIndex}.cruiseRoomLines` as never }) as unknown as CruiseRoomLineInput[] ?? [];
+  const detail = useCruise(cruiseId ?? undefined);
+  // Prefer detailed cruise for pricing (has price), fallback to list
+  const cruiseMastersList = useCruises(useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []));
+  const listMaster = (cruiseMastersList.data?.data ?? []).find((m) => m.id === cruiseId);
+  const cruiseMaster = (detail.data as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> }) ?? listMaster as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> } ?? null;
+  const roomTypes = (cruiseMaster as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> })?.roomTypes ?? [];
+  const currency = (form.watch('currency') as string) ?? 'INR';
+  const manualOverridesRef = useRef<Set<string>>(new Set());
+  const markOverridden = (lineIndex: number) => manualOverridesRef.current.add(`${serviceIndex}-${lineIndex}-roomRate`);
+  const isOverridden = (lineIndex: number) => manualOverridesRef.current.has(`${serviceIndex}-${lineIndex}-roomRate`);
+  const clearOverrideForLine = (lineIndex: number) => manualOverridesRef.current.delete(`${serviceIndex}-${lineIndex}-roomRate`);
+
+  const applyLine = (lineIndex: number, patch: Partial<CruiseRoomLineInput>) => {
+    for (const [key, value] of Object.entries(patch))
+      form.setValue(
+        `services.${serviceIndex}.cruiseRoomLines.${lineIndex}.${key}` as never,
+        value as never,
+        { shouldDirty: true },
+      );
+    recalculateTotals();
+  };
+
+  // Auto-prefill roomRate when cruise/room/nights change, respecting manual override
+  useEffect(() => {
+    watchedLines.forEach((line, lineIndex) => {
+      const roomTypeId = (line as unknown as { cruiseRoomTypeId?: string | null })?.cruiseRoomTypeId;
+      const fallbackName = (line as unknown as { roomType?: string | null })?.roomType;
+      if (!roomTypeId && !fallbackName?.trim()) return;
+      if (isOverridden(lineIndex)) return;
+      const room = findCruiseRoomType(cruiseMaster as never, roomTypeId, fallbackName);
+      if (!room || room.price == null) return;
+      const currentRate = (line as unknown as { roomRate?: number | null })?.roomRate ?? (line as unknown as { sellingPrice?: number | null })?.sellingPrice;
+      const masterPrice = Number(room.price);
+      if (currentRate != null && Number(currentRate) === masterPrice) return;
+      // If not overridden, sync to master price (covers initial and room change)
+      applyLine(lineIndex, { roomRate: masterPrice, sellingPrice: masterPrice });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cruiseId, detail.data, watchedLines.map((l) => (l as unknown as { cruiseRoomTypeId?: string })?.cruiseRoomTypeId).join(','), watchedLines.map((l) => (l as unknown as { roomType?: string })?.roomType).join('|'), cruiseMaster?.roomTypes?.length]);
+
+  return (
+    <div className="space-y-3">
+      {roomLines.fields.map((lineField, lineIndex) => {
+        const line = watchedLines[lineIndex] as unknown as CruiseRoomLineInput | undefined;
+        const roomRate = Number((line?.roomRate ?? line?.sellingPrice ?? 0) as number) || 0;
+        const rooms = Number(line?.rooms ?? 1) || 1;
+        const lineTotal = roomRate * rooms * (nights || 1);
+        const roomTypeForLine = findCruiseRoomType(cruiseMaster as never, line?.cruiseRoomTypeId, line?.roomType);
+        const hasMasterPrice = roomTypeForLine ? roomTypeForLine.price != null : false;
+        const showNoPriceHelper = Boolean(line?.cruiseRoomTypeId || line?.roomType?.trim()) && !hasMasterPrice && (line?.roomRate == null && line?.sellingPrice == null);
+        const isUnavailable = Boolean(cruiseId && (line?.cruiseRoomTypeId || line?.roomType?.trim()) && !roomTypeForLine);
+        return (
+          <div key={lineField.id} className="rounded-lg border border-slate-200 bg-card p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Room {lineIndex + 1}</span>
+              <Button type="button" size="sm" variant="ghost" aria-label={`Remove room ${lineIndex + 1}`} onClick={() => { roomLines.remove(lineIndex); recalculateTotals(); }}>
+                <Trash2 className="h-4 w-4 text-red-600" /> Remove
+              </Button>
+            </div>
+            <div className="mt-2 grid gap-3 md:grid-cols-3">
+              <label className="text-sm font-semibold text-slate-800 md:col-span-1">
+                Room Type <span className="text-red-500">*</span>
+                <span className="mt-1 block">
+                  <MasterSelect
+                    ariaLabel={`Room ${lineIndex + 1} type master`}
+                    placeholder={cruiseId ? 'Link a room type' : 'Select cruise first'}
+                    options={roomTypes.filter((r) => r.status === 'ACTIVE').map((room) => ({ id: room.id, label: room.name }))}
+                    value={line?.cruiseRoomTypeId}
+                    loading={Boolean(cruiseId) && detail.isPending}
+                    fallbackLabel={line?.roomType ?? undefined}
+                    onText={(text) => applyLine(lineIndex, { cruiseRoomTypeId: null, roomType: text.trim() ? text : null })}
+                    onSelect={(option) => {
+                      const room = roomTypes.find((entry) => entry.id === option?.id);
+                      clearOverrideForLine(lineIndex);
+                      const patch: Partial<CruiseRoomLineInput> = {
+                        cruiseRoomTypeId: option?.id ?? null,
+                        ...(option ? { roomType: option.label } : { roomType: null }),
+                      } as Partial<CruiseRoomLineInput>;
+                      if (room && room.price != null) {
+                        (patch as unknown as Record<string, unknown>).roomRate = Number(room.price);
+                        (patch as unknown as Record<string, unknown>).sellingPrice = Number(room.price);
+                      } else if (room) {
+                        (patch as unknown as Record<string, unknown>).roomRate = null;
+                        (patch as unknown as Record<string, unknown>).sellingPrice = null;
+                      }
+                      if (canCost && (room as unknown as { baseCost?: number | null })?.baseCost != null) {
+                        (patch as unknown as Record<string, unknown>).internalCost = Number((room as unknown as { baseCost?: number | null })?.baseCost);
+                      }
+                      applyLine(lineIndex, patch);
+                    }}
+                  />
+                </span>
+                {isUnavailable && <span className="mt-1 block text-[11px] text-red-600">The selected cruise room type is not available.</span>}
+                {showNoPriceHelper && !isUnavailable && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this room type.</span>}
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Number of Rooms
+                <input
+                  aria-label={`Room ${lineIndex + 1} number of rooms`}
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  {...form.register(`services.${serviceIndex}.cruiseRoomLines.${lineIndex}.rooms` as never, {
+                    setValueAs: (value) => (value === '' ? 1 : Number(value)),
+                  })}
+                  className={`${field} mt-1`}
+                  onChange={() => recalculateTotals()}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                Room Rate / night ({currency})
+                <input
+                  aria-label={`Room ${lineIndex + 1} rate per night`}
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  {...form.register(`services.${serviceIndex}.cruiseRoomLines.${lineIndex}.roomRate` as never, {
+                    setValueAs: (v) => (v === '' || v == null ? null : Number(v)),
+                    onChange: () => markOverridden(lineIndex),
+                  })}
+                  className={`${field} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                  {rooms} × {nights || 1} nights × {roomRate.toFixed(2)} = {lineTotal.toFixed(2)}
+                </span>
+              </label>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-slate-800">Line Amount: {currency} {lineTotal.toFixed(2)}</p>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        aria-label="Add room"
+        disabled={roomLines.fields.length >= 10}
+        title={roomLines.fields.length >= 10 ? 'A cruise option supports up to 10 room allocations.' : undefined}
+        onClick={() => roomLines.append(emptyCruiseRoomLine())}
+      >
+        <Plus className="h-4 w-4" /> Add Room
       </Button>
     </div>
   );
@@ -1088,6 +1614,8 @@ const newCruiseServiceRow = (sequence: number) => ({
   sellingPrice: 0,
   taxCategory: 'Cruise Details',
   notes: null,
+  cruiseNights: 2 as unknown as number,
+  cruiseRoomLines: [emptyCruiseRoomLine()],
   images: [],
   imageSnapshotPresent: false,
   pdfImageUrl: null,
@@ -1438,6 +1966,10 @@ export function QuotationBuilderPage() {
     enabledByAuto: false,
   });
   const hotelPreviewImportsRef = useRef<Set<string>>(new Set());
+  // Manual cruise cabin-rate overrides per service row index (sellingPrice). Set when user types, cleared on room/cruise change.
+  const cruisePriceOverridesRef = useRef<Set<number>>(new Set());
+  // Vehicle description manual override – set when user edits, cleared when vehicle model changes
+  const vehicleDescriptionOverriddenRef = useRef(false);
   const vehicleMasters = useVehicles(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
@@ -1505,6 +2037,24 @@ export function QuotationBuilderPage() {
     excludedRef.current = excluded;
   }, [excluded]);
   const [vehicleDraft, setVehicleDraft] = useState<VehicleDraft>(defaultVehicleDraft);
+  // Auto-fill vehicle description from master when vehicleId exists and description is empty (existing quotation load)
+  useEffect(() => {
+    if (vehicleDescriptionOverriddenRef.current) return;
+    if (!vehicleDraft.vehicleId) return;
+    const currentDesc = vehicleDraft.description ?? '';
+    const isEmpty = !currentDesc || !currentDesc.replace(/<[^>]*>/g, '').trim();
+    if (!isEmpty) return;
+    const master = (vehicleMasters.data?.data ?? []).find((m) => m.id === vehicleDraft.vehicleId);
+    const masterDesc = (master as unknown as { description?: string | null })?.description ?? '';
+    if (!masterDesc) return;
+    setVehicleDraft((current) => {
+      if (current.vehicleId !== vehicleDraft.vehicleId) return current;
+      const curDesc = current.description ?? '';
+      if (curDesc && curDesc.replace(/<[^>]*>/g, '').trim()) return current;
+      if (vehicleDescriptionOverriddenRef.current) return current;
+      return { ...current, description: masterDesc };
+    });
+  }, [vehicleDraft.vehicleId, vehicleDraft.description, vehicleMasters.data]);
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [flightImagePreviewUrls, setFlightImagePreviewUrls] = useState<Record<string, string>>({});
   const [flightImageUploading, setFlightImageUploading] = useState(false);
@@ -1585,6 +2135,27 @@ export function QuotationBuilderPage() {
   const destinationExpertPresetsQuery = useDestinationExpertPresets();
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const watchedExpertConfig = useWatch({ control: form.control, name: 'destinationExpertConfig' });
+  const filteredDestinationExpertPresets = useMemo(() => {
+    const all = destinationExpertPresetsQuery.data ?? [];
+    if (!all.length) return [];
+    const tokens = new Set<string>();
+    const add = (v: string | null | undefined) => {
+      for (const part of (v ?? '').split(/[•,>/→|-]+/)) {
+        const t = part.trim().toLowerCase();
+        if (t) tokens.add(t);
+      }
+    };
+    for (const stay of quotation.data?.query?.itinerary ?? []) {
+      add((stay as unknown as { country?: string | null })?.country);
+      add((stay as unknown as { destination?: string | null })?.destination);
+    }
+    add(quotation.data?.destinationSummary);
+    if (!tokens.size) return all;
+    return all.filter((p) => {
+      const key = p.destination.trim().toLowerCase();
+      return [...tokens].some((t) => key === t || key.includes(t) || t.includes(key));
+    });
+  }, [destinationExpertPresetsQuery.data, quotation.data]);
   const masterFaqsQuery = useFaqs(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
@@ -2001,6 +2572,7 @@ export function QuotationBuilderPage() {
     const savedVehicle = version.services.find(
       (service) => service.serviceType === 'VEHICLE_TRANSFER',
     );
+    vehicleDescriptionOverriddenRef.current = false;
     setVehicleDraft({
       // Keep the reference section visible for a new quotation. A vehicle is
       // only persisted once a model is selected, so this does not create an
@@ -2017,6 +2589,8 @@ export function QuotationBuilderPage() {
       imageSnapshotPresent:
         savedVehicle?.imageSnapshotPresent ?? Boolean(savedVehicle?.images?.length),
       pdfImageUrl: savedVehicle?.pdfImageUrl ?? null,
+      pricingBasis: savedVehicle?.pricingBasis ?? 'PER_DAY',
+      quantity: Number(savedVehicle?.quantity ?? 1) || 1,
     });
     const legacyTitle = version.title.trim().toLowerCase();
     const legacyDestinationTitle =
@@ -2092,6 +2666,9 @@ export function QuotationBuilderPage() {
       visaServiceCharge: Number(version.visaServiceCharge ?? 0),
       visaGstPercent: Number(version.visaGstPercent ?? 0),
       visaVfsCharge: Number(version.visaVfsCharge ?? 0),
+      customCharges: Array.isArray((version as unknown as { customCharges?: unknown }).customCharges)
+        ? ((version as unknown as { customCharges: Array<{ label: string; amount: number }> }).customCharges ?? [])
+        : [],
       flightDetails: version.flightDetails
         ? {
             ...defaultFlightDetails(),
@@ -2200,34 +2777,44 @@ export function QuotationBuilderPage() {
             } as unknown as HotelInputRow);
           })
         : autoPrefillLeadRows(leadHotelRows, hotelMasters.data?.data ?? []).map(withSynthesizedLines),
-      services: version.services.map((row) => ({
-        serviceType: row.serviceType as ServiceType,
-        airlineId: row.airlineId ?? null,
-        cruiseId: row.cruiseId ?? null,
-        cruiseRoomTypeId: row.cruiseRoomTypeId ?? null,
-        vehicleId: row.vehicleId ?? null,
-        sightseeingId: row.sightseeingId ?? null,
-        addOnServiceId: row.addOnServiceId ?? null,
-        name: row.name,
-        description: row.description,
-        dayNumber: row.dayNumber,
-        city: row.city,
-        quantity: Number(row.quantity),
-        internalCost: row.unitCost ? Number(row.unitCost) : 0,
-        sellingPrice: Number(row.unitSellingPrice),
-        // Cruise rows default their section title to "Cruise Details" when the
-        // snapshot never stored one (legacy/custom rows), while custom titles
-        // are always preserved.
-        taxCategory:
-          row.serviceType === 'CRUISE' && !(row.taxCategory ?? '').trim()
-            ? 'Cruise Details'
-            : row.taxCategory,
-        notes: row.notes,
-        images: row.images ?? [],
-        imageSnapshotPresent: row.imageSnapshotPresent ?? Boolean(row.images?.length),
-        pdfImageUrl: row.pdfImageUrl ?? null,
-        sequence: row.sequence,
-      })),
+      services: version.services.map((row) => {
+        const base = {
+          serviceType: row.serviceType as ServiceType,
+          airlineId: row.airlineId ?? null,
+          cruiseId: row.cruiseId ?? null,
+          cruiseRoomTypeId: row.cruiseRoomTypeId ?? null,
+          vehicleId: row.vehicleId ?? null,
+          sightseeingId: row.sightseeingId ?? null,
+          addOnServiceId: row.addOnServiceId ?? null,
+          name: row.name,
+          description: row.description,
+          dayNumber: row.dayNumber,
+          city: row.city,
+          quantity: Number(row.quantity),
+          internalCost: row.unitCost ? Number(row.unitCost) : 0,
+          sellingPrice: Number(row.unitSellingPrice),
+          // Cruise rows default their section title to "Cruise Details" when the
+          // snapshot never stored one (legacy/custom rows), while custom titles
+          // are always preserved.
+          taxCategory:
+            row.serviceType === 'CRUISE' && !(row.taxCategory ?? '').trim()
+              ? 'Cruise Details'
+              : row.taxCategory,
+          notes: row.notes,
+          cruiseNights: (row as unknown as { cruiseNights?: number | null })?.cruiseNights ?? null,
+          cruiseRoomLines: Array.isArray((row as unknown as { cruiseRoomLines?: unknown[] })?.cruiseRoomLines)
+            ? ((row as unknown as { cruiseRoomLines: unknown[] }).cruiseRoomLines as unknown as QuotationVersionInput['services'][number]['cruiseRoomLines'])
+            : undefined,
+          images: row.images ?? [],
+          imageSnapshotPresent: row.imageSnapshotPresent ?? Boolean(row.images?.length),
+          pdfImageUrl: row.pdfImageUrl ?? null,
+          sequence: row.sequence,
+        };
+        if (base.serviceType === 'CRUISE') {
+          return withCruiseSynthesizedLines(base as unknown as CruiseServiceInput) as unknown as typeof base;
+        }
+        return base;
+      }),
       inclusions: version.inclusions,
       exclusions: version.exclusions,
       terms: version.terms,
@@ -2329,6 +2916,37 @@ export function QuotationBuilderPage() {
   const applyHotel = (index: number, patch: HotelRowPatch) => applyPatch('hotels', index, patch);
   const applyService = (index: number, patch: ServiceRowPatch) =>
     applyPatch('services', index, patch);
+
+  // Cruise: auto-prefill cabin rate from master when room selected, respecting manual override.
+  // Handles both stable ID and legacy name-only (city) fallback.
+  useEffect(() => {
+    if (!cruiseMasters.data?.data) return;
+    const masters = cruiseMasters.data.data as unknown as Array<{ id: string; roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> }>;
+    (watchedServices ?? []).forEach((row, index) => {
+      if ((row as unknown as { serviceType: string })?.serviceType !== 'CRUISE') return;
+      const cruiseId = (row as unknown as { cruiseId?: string | null })?.cruiseId;
+      const roomTypeId = (row as unknown as { cruiseRoomTypeId?: string | null })?.cruiseRoomTypeId;
+      const fallbackName = (row as unknown as { city?: string | null })?.city;
+      if (!cruiseId) return;
+      if (!roomTypeId && !fallbackName?.trim()) return;
+      const master = masters.find((m) => m.id === cruiseId);
+      if (!master) return;
+      const room = findCruiseRoomType(master as never, roomTypeId, fallbackName);
+      if (!room) return;
+      // Legacy: if id missing but name matched, migrate id to stable value
+      if (!roomTypeId && fallbackName?.trim() && room.id) {
+        applyService(index, { cruiseRoomTypeId: room.id, city: room.name });
+      }
+      if (room.price == null) return;
+      if (cruisePriceOverridesRef.current.has(index)) return;
+      const currentPrice = (row as unknown as { sellingPrice?: number | null })?.sellingPrice;
+      const masterPrice = Number(room.price);
+      if (currentPrice != null && Number(currentPrice) === masterPrice) return;
+      // If not overridden, sync to master price (covers initial fill and room change)
+      applyService(index, { sellingPrice: masterPrice });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cruiseMasters.data, watchedServices?.map((s) => `${(s as unknown as { cruiseId?: string })?.cruiseId}-${(s as unknown as { cruiseRoomTypeId?: string })?.cruiseRoomTypeId}-${(s as unknown as { city?: string })?.city}`).join('|')]);
 
   /**
    * A room/meal allocation's master selection writes its own additive selling
@@ -2682,10 +3300,10 @@ export function QuotationBuilderPage() {
   // Single shared pricing resolver for the builder. Every view (Summary &
   // Pricing, Pricing Breakdown and the summary card) reads the same numbers so
   // the grand total can never drift between them.
-  const resolveCurrentPricing = () =>
+  const resolveCurrentPricing = (modeOverride?: string) =>
     resolveQuotationPricing({
       version: {
-        pricingMode: form.watch('pricingMode'),
+        pricingMode: modeOverride ?? form.watch('pricingMode'),
         finalAmount: packageTotal > 0 ? packageTotal : 0,
         currency,
         flightDetails: form.watch('flightDetails'),
@@ -2698,6 +3316,12 @@ export function QuotationBuilderPage() {
         visaServiceCharge: form.watch('visaServiceCharge'),
         visaGstPercent: form.watch('visaGstPercent'),
         visaVfsCharge: form.watch('visaVfsCharge'),
+        discountAmount: form.watch('discountAmount'),
+        taxRate: form.watch('taxRate'),
+        perAdultPrice: form.watch('perAdultPrice'),
+        perChildWithBedPrice: form.watch('perChildWithBedPrice'),
+        perChildWithoutBedPrice: form.watch('perChildWithoutBedPrice'),
+        perInfantPrice: form.watch('perInfantPrice'),
       },
       quotation: {
         adults: pax.adults,
@@ -2716,6 +3340,24 @@ export function QuotationBuilderPage() {
   // summary card, the Pricing Breakdown tab and the Summary & Pricing tab can
   // never disagree about the mode.
   const livePricing = resolveCurrentPricing();
+  // Switching the pricing method never deletes the other configuration — it
+  // only changes which subtotal is authoritative. When the customer total
+  // would change, the agent confirms first.
+  const handlePricingMethodChange = (next: 'SECTION_WISE' | 'PER_PERSON') => {
+    if (next === form.getValues('pricingMode')) return;
+    const fromTotal = resolveCurrentPricing().grandTotal;
+    const toTotal = resolveCurrentPricing(next).grandTotal;
+    // Confirm only when BOTH methods carry a real price and the customer total
+    // would change — switching to a not-yet-configured method is expected and
+    // needs no confirmation.
+    if (fromTotal > 0 && toTotal > 0 && fromTotal !== toTotal) {
+      const confirmed = window.confirm(
+        `Changing the pricing method will change the quotation total from ${formatMoney(fromTotal)} to ${formatMoney(toTotal)}. Continue?`,
+      );
+      if (!confirmed) return;
+    }
+    form.setValue('pricingMode', next, { shouldDirty: true });
+  };
   const isSectionWisePricing = livePricing.pricingMode === 'SECTION_WISE';
   // The single authoritative builder total. In section-wise mode this is always
   // the resolver's sectionTotal. It also becomes the sectionTotal when the
@@ -2726,10 +3368,42 @@ export function QuotationBuilderPage() {
   const hasPackagePrice = packageTotal > 0;
   const summaryTotal =
     isSectionWisePricing || (!hasPackagePrice && livePricing.sectionTotal > 0)
-      ? livePricing.sectionTotal
+      ? livePricing.grandTotal
       : hasPackagePrice
-        ? packageTotal
+        ? livePricing.grandTotal
         : estimate.final;
+  // Authoritative pricing-completeness issues (single shared validator, the
+  // same one the backend enforces at finalization).
+  const pricingIssues = validateQuotationPricing({
+    version: {
+      pricingMode: form.watch('pricingMode'),
+      finalAmount: packageTotal > 0 ? packageTotal : 0,
+      currency,
+      flightDetails: form.watch('flightDetails'),
+      hotelDetails: form.watch('hotelDetails'),
+      hotels: form.watch('hotels'),
+      sightseeingDetails: form.watch('sightseeingDetails'),
+      services: form.watch('services'),
+      includeVisa: form.watch('includeVisa'),
+      visaAmount: form.watch('visaAmount'),
+      visaServiceCharge: form.watch('visaServiceCharge'),
+      visaGstPercent: form.watch('visaGstPercent'),
+      visaVfsCharge: form.watch('visaVfsCharge'),
+      discountAmount: form.watch('discountAmount'),
+      taxRate: form.watch('taxRate'),
+      perAdultPrice: form.watch('perAdultPrice'),
+      perChildWithBedPrice: form.watch('perChildWithBedPrice'),
+      perChildWithoutBedPrice: form.watch('perChildWithoutBedPrice'),
+      perInfantPrice: form.watch('perInfantPrice'),
+    },
+    quotation: {
+      adults: pax.adults,
+      childrenWithBed: pax.cwb,
+      childrenWithoutBed: pax.cwob,
+      infants: pax.infants,
+      currency,
+    },
+  });
   const validationMessageFor = (path: string, message: string) => {
     const serviceMatch = path.match(/^services\.(\d+)\.(.+)$/);
     if (serviceMatch) {
@@ -2830,7 +3504,9 @@ export function QuotationBuilderPage() {
               dayNumber: null,
               // Vehicle type is the customer-facing snapshot for this section.
               city: vehicleDraft.vehicleType.trim() || null,
-              quantity: 1,
+              // The rate is per pricing basis; quantity is days/hours/transfers.
+              quantity: Math.max(1, Number(vehicleDraft.quantity) || 1),
+              pricingBasis: (vehicleDraft.pricingBasis || 'PER_DAY') as never,
               internalCost: 0,
               sellingPrice: Number(vehicleDraft.amount) || 0,
               // Section title and usage are preserved in the two existing
@@ -2928,7 +3604,43 @@ export function QuotationBuilderPage() {
             // named have no hotel name — they must not be persisted (the API
             // also rejects empty hotel rows).
             .filter((hotel) => (hotel.hotelName ?? '').trim().length > 0),
-          services: seq(persistedServices),
+          customCharges: (value.customCharges ?? [])
+            .filter((c) => c.label?.trim() && Number(c.amount) > 0)
+            .map((c) => ({ label: c.label!.trim(), amount: Number(c.amount) })),
+          services: seq(
+            (persistedServices as unknown as QuotationVersionInput['services']).map((service: QuotationVersionInput['services'][number]) => {
+                if ((service as unknown as { serviceType: string })?.serviceType !== 'CRUISE') return service;
+                const svc = service as unknown as QuotationVersionInput['services'][number] & {
+                  cruiseRoomLines?: QuotationCruiseRoomLine[];
+                  cruiseNights?: number | null;
+                  quantity?: number;
+                  sellingPrice?: number;
+                };
+                const lines = ((svc as unknown as { cruiseRoomLines?: QuotationCruiseRoomLine[] }).cruiseRoomLines ?? []).filter(cruiseRoomLineHasData) as QuotationCruiseRoomLine[];
+                // Keep partially filled lines for validation; drop untouched defaults
+                const nights = (svc as unknown as { cruiseNights?: number | null }).cruiseNights ?? 2;
+                const total = lines.reduce((sum: number, line: QuotationCruiseRoomLine) => {
+                  const rate = (line.roomRate ?? line.sellingPrice ?? 0) as number;
+                  const rooms = (line.rooms ?? 1) as number;
+                  return sum + Number(rate || 0) * Number(rooms || 1) * Number(nights || 1);
+                }, 0);
+                return {
+                  ...(svc as unknown as Record<string, unknown>),
+                  cruiseRoomLines: lines,
+                  // Mirror total for legacy readers (PDF fallback) – quantity stays 1, sellingPrice is total
+                  quantity: 1,
+                  sellingPrice: total,
+                  ...(lines[0] ? { cruiseRoomTypeId: (lines[0] as QuotationCruiseRoomLine).cruiseRoomTypeId ?? null, city: (lines[0] as QuotationCruiseRoomLine).roomType ?? null } : {}),
+                } as unknown as QuotationVersionInput['services'][number];
+              })
+              .filter((service) => {
+                if ((service as unknown as { serviceType: string })?.serviceType === 'CRUISE') {
+                  const svc = service as unknown as { name?: string | null; cruiseId?: string | null };
+                  return Boolean((svc.name ?? '').trim() || svc.cruiseId);
+                }
+                return true;
+              }),
+          ),
           inclusions: seq(value.inclusions),
           exclusions: seq(value.exclusions),
           terms: seq(value.terms),
@@ -2959,9 +3671,18 @@ export function QuotationBuilderPage() {
                 showEmail: value.destinationExpertConfig.showEmail !== false,
                 showExperience: value.destinationExpertConfig.showExperience !== false,
                 showTripsPlanned: value.destinationExpertConfig.showTripsPlanned !== false,
-                showLanguages: value.destinationExpertConfig.showLanguages !== false,
-              }
-            : null,
+                  showLanguages: value.destinationExpertConfig.showLanguages !== false,
+                  jobTitle: ((value.destinationExpertConfig as unknown as Record<string, unknown>).jobTitle as string | null | undefined)?.trim() || null,
+                  bio: ((value.destinationExpertConfig as unknown as Record<string, unknown>).bio as string | null | undefined)?.trim() || null,
+                  specialization: ((value.destinationExpertConfig as unknown as Record<string, unknown>).specialization as string | null | undefined)?.trim() || null,
+                  yearsOfExperience: (value.destinationExpertConfig as unknown as { yearsOfExperience?: number | null }).yearsOfExperience ?? null,
+                  tripsPlanned: (value.destinationExpertConfig as unknown as { tripsPlanned?: number | null }).tripsPlanned ?? null,
+                  languages: ((value.destinationExpertConfig as unknown as Record<string, unknown>).languages as string | null | undefined)?.trim() || null,
+                  gender: ((value.destinationExpertConfig as unknown as Record<string, unknown>).gender as string | null | undefined) as 'MALE' | 'FEMALE' | null ?? null,
+                  profileImageUrl: ((value.destinationExpertConfig as unknown as Record<string, unknown>).profileImageUrl as string | null | undefined)?.trim() || null,
+                  destination: ((value.destinationExpertConfig as unknown as Record<string, unknown>).destination as string | null | undefined)?.trim() || null,
+                } as unknown as NonNullable<QuotationVersionInput['destinationExpertConfig']>
+              : null,
         },
         {
           onSuccess: () => {
@@ -3243,8 +3964,9 @@ export function QuotationBuilderPage() {
                   className={`${field} mt-1`}
                 />
               </label>
+              {(form.watch('pricingMode') as string) === 'SECTION_WISE' && (
               <label className="text-sm font-semibold text-slate-800">
-                Amount
+                Rate
                 <div className="mt-1 flex rounded-lg border border-slate-300 bg-card focus-within:ring-2 focus-within:ring-brand-500">
                   <span className="flex items-center border-r px-3 text-sm text-slate-500">
                     {currency}
@@ -3265,7 +3987,73 @@ export function QuotationBuilderPage() {
                   />
                 </div>
               </label>
+              )}
             </div>
+
+            {(form.watch('pricingMode') as string) === 'SECTION_WISE' && (
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="text-sm font-semibold text-slate-800">
+                Pricing Basis
+                <select
+                  aria-label="Vehicle pricing basis"
+                  value={vehicleDraft.pricingBasis}
+                  onChange={(event) =>
+                    setVehicleDraft((current) => ({
+                      ...current,
+                      pricingBasis: event.target.value,
+                    }))
+                  }
+                  className={`${field} mt-1`}
+                >
+                  {VEHICLE_PRICING_BASES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm font-semibold text-slate-800">
+                {vehicleDraft.pricingBasis === 'PER_HOUR'
+                  ? 'Hours'
+                  : vehicleDraft.pricingBasis === 'PER_TRANSFER'
+                    ? 'Transfers'
+                    : vehicleDraft.pricingBasis === 'PER_VEHICLE'
+                      ? 'Vehicles'
+                      : 'Days'}
+                <input
+                  aria-label="Vehicle quantity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={vehicleDraft.quantity}
+                  disabled={vehicleDraft.pricingBasis === 'FIXED'}
+                  onChange={(event) =>
+                    setVehicleDraft((current) => ({
+                      ...current,
+                      quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)),
+                    }))
+                  }
+                  className={`${field} mt-1 disabled:bg-slate-100`}
+                />
+              </label>
+              <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Calculation
+                </p>
+                <p className="mt-1 text-slate-700">
+                  {formatMoney(vehicleDraft.amount)} ×{' '}
+                  {vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity} ={' '}
+                  <span className="font-semibold">
+                    {formatMoney(
+                      vehicleDraft.amount *
+                        (vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity),
+                    )}
+                  </span>
+                </p>
+              </div>
+            </div>
+            )}
+            {(form.watch('pricingMode') as string) === 'SECTION_WISE' && <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Transportation Total: {formatMoney(vehicleDraft.amount * (vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity))}</div>}
 
             <div className="grid gap-4 md:grid-cols-3">
               <label className="text-sm font-semibold text-slate-800">
@@ -3306,6 +4094,8 @@ export function QuotationBuilderPage() {
                       master?.images,
                       master?.name ?? 'Vehicle',
                     );
+                    // Changing vehicle model resets manual description override and auto-fills from master
+                    vehicleDescriptionOverriddenRef.current = false;
                     setVehicleDraft((current) => {
                       const masterPrice = (master as unknown as { price?: number | null })?.price;
                       const isEmpty = current.amount == null || Number(current.amount) === 0;
@@ -3315,6 +4105,7 @@ export function QuotationBuilderPage() {
                         ...current,
                         vehicleId: master?.id ?? '',
                         vehicleModel: master?.name ?? '',
+                        description: master?.description ?? '',
                         images: snapshot,
                         imageSnapshotPresent: masterGalleryPresence(master),
                         pdfImageUrl: snapshot[0]
@@ -3367,9 +4158,10 @@ export function QuotationBuilderPage() {
               <RichTextEditor
                 ariaLabel="Vehicle description"
                 value={vehicleDraft.description}
-                onChange={(html) =>
-                  setVehicleDraft((current) => ({ ...current, description: html }))
-                }
+                onChange={(html) => {
+                  vehicleDescriptionOverriddenRef.current = true;
+                  setVehicleDraft((current) => ({ ...current, description: html }));
+                }}
               />
             </div>
             <QuotationImageManager
@@ -3743,6 +4535,82 @@ export function QuotationBuilderPage() {
                   </div>
                 )}
 
+                {/* Alternative hotel options: stays sharing a group id are
+                    ALTERNATIVES — only the selected one is priced. Stays
+                    without a group are consecutive stays and add up. */}
+                <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+                  <h5 className="font-semibold text-slate-800">Alternative Option</h5>
+                  <div className="mt-2 grid gap-3 md:grid-cols-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      Alternative group
+                      <select
+                        aria-label={`Hotel stay ${index + 1} alternative group`}
+                        value={hotel?.optionGroupId ?? ''}
+                        onChange={(event) => {
+                          const groupId = event.target.value;
+                          form.setValue(
+                            `hotels.${index}.optionGroupId`,
+                            (groupId || null) as never,
+                            { shouldDirty: true },
+                          );
+                          if (!groupId) return;
+                          // Assigning a group makes THIS stay the selected
+                          // option and deselects the other members so exactly
+                          // one alternative is ever priced.
+                          const rows = form.getValues('hotels');
+                          rows.forEach((_, rowIndex) => {
+                            if (rowIndex === index) return;
+                            if (
+                              String(rows[rowIndex]?.optionGroupId ?? '') === groupId
+                            ) {
+                              form.setValue(`hotels.${rowIndex}.selected`, false, {
+                                shouldDirty: true,
+                              });
+                            }
+                          });
+                          form.setValue(`hotels.${index}.selected`, true, { shouldDirty: true });
+                        }}
+                        className={`${field} mt-1`}
+                      >
+                        <option value="">None (consecutive stay)</option>
+                        {['A', 'B', 'C', 'D', 'E'].map((group) => (
+                          <option key={group} value={group}>
+                            Option Group {group}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {hotel?.optionGroupId && (
+                      <label className="flex items-end gap-2 pb-2 text-sm font-medium text-slate-700">
+                        <input
+                          type="radio"
+                          name={`hotel-option-selected-${hotel.optionGroupId}`}
+                          checked={hotel.selected !== false}
+                          onChange={() => {
+                            const rows = form.getValues('hotels');
+                            rows.forEach((_, rowIndex) => {
+                              if (
+                                String(rows[rowIndex]?.optionGroupId ?? '') ===
+                                hotel.optionGroupId
+                              ) {
+                                form.setValue(`hotels.${rowIndex}.selected`, rowIndex === index, {
+                                  shouldDirty: true,
+                                });
+                              }
+                            });
+                          }}
+                          className="h-4 w-4 text-brand-700"
+                        />
+                        Selected option for pricing
+                      </label>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Stays in the same group are alternatives — only the selected one contributes to
+                    the total. Ungrouped stays are consecutive and always add up.
+                  </p>
+                </div>
+
                 <div>
                   <label className="text-sm font-semibold text-slate-800">
                     Remark
@@ -3790,10 +4658,10 @@ export function QuotationBuilderPage() {
     const cruiseRows = services.fields
       .map((row, index) => ({ row, index }))
       .filter(({ index }) => watchedServices?.[index]?.serviceType === 'CRUISE');
-    const currency = form.watch('currency');
     const masters = cruiseMasters.data?.data ?? [];
     const primaryIndex = cruiseRows[0]?.index;
     const primary = primaryIndex !== undefined ? watchedServices?.[primaryIndex] : undefined;
+    const isCruiseSectionWise = (form.watch('pricingMode') as string) === 'SECTION_WISE';
     return (
       <div className="space-y-5">
         <IncludeBar tabKey="cruise" label="Cruise" />
@@ -3813,29 +4681,16 @@ export function QuotationBuilderPage() {
                     className={`${field} mt-1`}
                   />
                 </label>
-                <label className="text-sm font-semibold text-slate-800">
-                  Amount
-                  <div className="mt-1 flex rounded-lg border border-slate-300 bg-card focus-within:ring-2 focus-within:ring-brand-500">
-                    <span className="flex items-center border-r px-3 text-sm text-slate-500">
-                      {currency}
-                    </span>
-                    <input
-                      aria-label="Cruise amount"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={primary?.sellingPrice ?? 0}
-                      onChange={(event) =>
-                        applyService(primaryIndex, {
-                          sellingPrice: Math.max(0, Number(event.target.value) || 0),
-                        })
-                      }
-                      className="w-full rounded-r-lg bg-transparent px-3 py-2 text-sm outline-none"
-                    />
-                  </div>
-                </label>
               </div>
             )}
+            {isCruiseSectionWise && primary && (() => {
+              const total = cruiseRows.reduce((sum, { index: idx }) => {
+                const svc = watchedServices?.[idx] as unknown as { cruiseNights?: number | null } | undefined;
+                const nights = (svc as unknown as { cruiseNights?: number | null })?.cruiseNights != null ? Number((svc as unknown as { cruiseNights?: number | null })?.cruiseNights) : 2;
+                return sum + calculateCruiseRoomLinesTotal(watchedServices?.[idx] ?? {}, nights);
+              }, 0);
+              return <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Cruise Total: {formatMoney(total)} {cruiseRows.length>1 ? `· ${cruiseRows.length} cruises` : ''}</div>;
+            })()}
 
             <div className="flex justify-end">
               <Button
@@ -3855,19 +4710,7 @@ export function QuotationBuilderPage() {
 
             <div className="space-y-4">
               {cruiseRows.map(({ row, index }) => {
-                const cruise = watchedServices?.[index];
-                const cruiseMaster = masters.find((m) => m.id === cruise?.cruiseId);
-                // Active options for new selections; a saved historical room type
-                // (now inactive/removed) is kept so reopening never loses it.
-                const allRoomTypes = cruiseMaster?.roomTypes ?? [];
-                const activeRoomTypes = allRoomTypes.filter((room) => room.status === 'ACTIVE');
-                const savedRoomType = allRoomTypes.find(
-                  (room) => room.id === cruise?.cruiseRoomTypeId,
-                );
-                const roomOptions =
-                  savedRoomType && !activeRoomTypes.some((room) => room.id === savedRoomType.id)
-                    ? [...activeRoomTypes, savedRoomType]
-                    : activeRoomTypes;
+                const cruise = watchedServices?.[index] as unknown as QuotationVersionInput['services'][number] | undefined;
                 return (
                   <article
                     key={row.id}
@@ -3880,7 +4723,7 @@ export function QuotationBuilderPage() {
                       </Button>
                     </header>
                     <div className="space-y-4 p-4">
-                      <div className="grid gap-4 md:grid-cols-3">
+                      <div className="grid gap-4 md:grid-cols-2">
                         <label className="text-sm font-semibold text-slate-800">
                           Cruise Name <span className="text-red-500">*</span>
                           <div className="mt-1">
@@ -3899,31 +4742,37 @@ export function QuotationBuilderPage() {
                                   selectedMaster?.images,
                                   selectedMaster?.name ?? 'Cruise',
                                 );
-                                const masterPrice = (selectedMaster as unknown as { price?: number | null })?.price;
-                                const currentPrice = form.getValues(
-                                  `services.${index}.sellingPrice` as never,
-                                ) as unknown;
-                                const isEmpty =
-                                  currentPrice == null ||
-                                  currentPrice === '' ||
-                                  Number(currentPrice) === 0;
-                                const pricePatch =
-                                  masterPrice != null && Number(masterPrice) > 0 && isEmpty
-                                    ? { sellingPrice: Number(masterPrice) }
-                                    : {};
+                                // Changing cruise revalidates rooms: clear invalid room lines
+                                cruisePriceOverridesRef.current.delete(index);
+                                const currentNights = (cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2;
                                 applyService(index, {
                                   cruiseId: option?.id ?? null,
-                                  cruiseRoomTypeId: null,
-                                  city: null,
+                                  // Keep cruiseNights, reset room lines if cruise changed
+                                  ...(option?.id
+                                    ? {
+                                        cruiseRoomTypeId: null,
+                                        city: null,
+                                        sellingPrice: 0,
+                                        quantity: 1,
+                                        cruiseNights: currentNights,
+                                        cruiseRoomLines: [emptyCruiseRoomLine()],
+                                      }
+                                    : {
+                                        cruiseRoomTypeId: null,
+                                        city: null,
+                                        sellingPrice: 0,
+                                        quantity: 1,
+                                        cruiseNights: 2,
+                                        cruiseRoomLines: [emptyCruiseRoomLine()],
+                                      }),
                                   description: selectedMaster?.description ?? null,
                                   images: snapshot,
                                   imageSnapshotPresent: masterGalleryPresence(selectedMaster),
                                   pdfImageUrl: snapshot[0]
                                     ? quotationSnapshotImageIdentity(snapshot[0])
                                     : null,
-                                  ...(option ? { name: option.label } : {}),
-                                  ...pricePatch,
-                                });
+                                  ...(option ? { name: option.label } : { name: '' }),
+                                } as unknown as ServiceRowPatch);
                                 if (selectedMaster)
                                   void importMasterGalleryPreviews(
                                     selectedMaster.id,
@@ -3947,55 +4796,33 @@ export function QuotationBuilderPage() {
                           </div>
                         </label>
                         <label className="text-sm font-semibold text-slate-800">
-                          Duration
+                          Number of Nights <span className="text-red-500">*</span>
                           <input
-                            aria-label="Cruise duration"
-                            placeholder="e.g. 2 nights"
-                            value={cruise?.notes ?? ''}
-                            onChange={(event) =>
-                              applyService(index, { notes: event.target.value || null })
-                            }
+                            aria-label="Cruise nights"
+                            type="number"
+                            min={1}
+                            max={365}
+                            step={1}
+                            value={Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)}
+                            onChange={(event) => {
+                              const nights = Math.max(1, Math.min(365, Math.floor(Number(event.target.value) || 1)));
+                              applyService(index, { cruiseNights: nights } as unknown as ServiceRowPatch);
+                            }}
                             className={`${field} mt-1`}
                           />
-                        </label>
-                        <label className="text-sm font-semibold text-slate-800">
-                          Room Type
-                          <div className="mt-1">
-                            <MasterSelect
-                              ariaLabel="Cruise room type master"
-                              placeholder={
-                                !cruise?.cruiseId
-                                  ? 'Select cruise first'
-                                  : roomOptions.length > 0
-                                    ? 'Select room type'
-                                    : 'No room types configured'
-                              }
-                              options={roomOptions.map((room) => ({
-                                id: room.id,
-                                label: room.name,
-                              }))}
-                              value={cruise?.cruiseRoomTypeId}
-                              disabled={!cruise?.cruiseId}
-                              loading={cruiseMasters.isPending}
-                              fallbackLabel={savedRoomType?.name ?? cruise?.city ?? undefined}
-                              onSelect={(option) => {
-                                const room = roomOptions.find((entry) => entry.id === option?.id);
-                                applyService(index, {
-                                  cruiseRoomTypeId: option?.id ?? null,
-                                  // Snapshot the customer-facing cabin name so
-                                  // historical quotations remain readable even
-                                  // if the Master room type is later removed.
-                                  city: room?.name ?? null,
-                                  // Price is absent for viewers without costing.
-                                  ...(room && room.price != null
-                                    ? { sellingPrice: Number(room.price) }
-                                    : {}),
-                                });
-                              }}
-                            />
-                          </div>
+                          <span className="mt-1 block text-xs font-normal text-slate-500">
+                            {Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)} Nights = {cruiseNightsToDays(Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)) ?? '-'} Days
+                          </span>
                         </label>
                       </div>
+                      <CruiseRoomLinesEditor
+                        form={form}
+                        serviceIndex={index}
+                        cruiseId={cruise?.cruiseId}
+                        canCost={canCost}
+                        nights={Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)}
+                        recalculateTotals={() => {}}
+                      />
                       <label className="block text-sm font-semibold text-slate-800">
                         Description
                         <div className="mt-1">
@@ -4038,6 +4865,16 @@ export function QuotationBuilderPage() {
     const currency = form.watch('currency');
     const include = form.watch('flightDetails.include') ?? true;
     const entryMode = form.watch('flightDetails.entryMode') ?? 'MANUAL';
+    const flightPricingBasis =
+      (form.watch('flightDetails.pricingBasis') as 'FIXED_TOTAL' | 'PER_TRAVELER' | undefined) ??
+      'FIXED_TOTAL';
+    const flightSectionTotal = calculateFlightTotal(form.watch('flightDetails'), {
+      adults: pax.adults,
+      childrenWithBed: pax.cwb,
+      childrenWithoutBed: pax.cwob,
+      infants: pax.infants,
+    });
+    const isFlightSectionWise = (form.watch('pricingMode') as string) === 'SECTION_WISE';
     const flightImages = form.watch('flightDetails.images') ?? [];
     const journeyType = form.watch('flightDetails.journeyType') ?? 'ROUND_TRIP';
     const showOutbound = journeyType === 'ROUND_TRIP' || journeyType === 'ONEWAY_OUTBOUND';
@@ -4385,8 +5222,102 @@ export function QuotationBuilderPage() {
                   {...form.register('flightDetails.sectionTitle')}
                 />
               </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Amount
+              {isFlightSectionWise && (
+              <div>
+                <span className="text-sm font-semibold text-slate-800">Pricing Basis</span>
+                <div
+                  role="radiogroup"
+                  aria-label="Flight pricing basis"
+                  className="mt-1 grid max-w-md grid-cols-2 rounded-lg border border-slate-300 bg-slate-50 p-1"
+                >
+                  {(
+                    [
+                      ['FIXED_TOTAL', 'Fixed Total'],
+                      ['PER_TRAVELER', 'Per Traveler'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={flightPricingBasis === value}
+                      className={cn(
+                        'rounded-md px-4 py-2 text-sm font-semibold transition',
+                        flightPricingBasis === value
+                          ? 'bg-white text-brand-700 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800',
+                      )}
+                      onClick={() =>
+                        form.setValue('flightDetails.pricingBasis', value, { shouldDirty: true })
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Only the selected pricing basis contributes to the quotation total.
+                </p>
+              </div>
+              )}
+            </div>
+            {isFlightSectionWise && (flightPricingBasis === 'PER_TRAVELER' ? (
+              <div className="rounded-xl border p-4">
+                <p className="text-sm font-semibold text-slate-800">Per-Traveler Flight Rates</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-4">
+                  {(
+                    [
+                      ['Adult Rate', 'flightDetails.perTraveler.adult'],
+                      ['CWB Rate', 'flightDetails.perTraveler.childWithBed'],
+                      ['CWOB Rate', 'flightDetails.perTraveler.childWithoutBed'],
+                      ['Infant Rate', 'flightDetails.perTraveler.infant'],
+                    ] as const
+                  ).map(([label, name]) => (
+                    <label key={name} className="text-sm font-semibold text-slate-800">
+                      {label}
+                      <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
+                        <span className="flex items-center bg-slate-100 px-2 text-slate-500">
+                          {currency}
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          aria-label={label}
+                          className="min-w-0 flex-1 bg-card px-3 py-2 text-sm outline-none"
+                          {...form.register(name as never, MONEY_FIELD)}
+                        />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm text-slate-600">
+                  {(
+                    [
+                      ['Adult', pax.adults, Number(form.watch('flightDetails.perTraveler.adult') ?? 0)],
+                      ['CWB', pax.cwb, Number(form.watch('flightDetails.perTraveler.childWithBed') ?? 0)],
+                      ['CWOB', pax.cwob, Number(form.watch('flightDetails.perTraveler.childWithoutBed') ?? 0)],
+                      ['Infant', pax.infants, Number(form.watch('flightDetails.perTraveler.infant') ?? 0)],
+                    ] as const
+                  )
+                    .filter(([, count, rate]) => count > 0 && rate > 0)
+                    .map(([label, count, rate]) => (
+                      <div key={label} className="flex justify-between">
+                        <span>
+                          {label}: {count} × {formatMoney(rate)}
+                        </span>
+                        <span className="font-medium">{formatMoney(rate * count)}</span>
+                      </div>
+                    ))}
+                  <div className="flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-800">
+                    <span>Flight Total</span>
+                    <span>{formatMoney(flightSectionTotal)}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <label className="block max-w-sm text-sm font-semibold text-slate-800">
+                Flight Selling Price
                 <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
                   <span className="flex items-center bg-slate-100 px-2 text-slate-500">
                     {currency}
@@ -4399,8 +5330,12 @@ export function QuotationBuilderPage() {
                     {...form.register('flightDetails.amount', MONEY_FIELD)}
                   />
                 </div>
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Total selling price for the whole flight section.
+                </span>
               </label>
-            </div>
+            ))}
+            {isFlightSectionWise && <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Flight Section Total: {formatMoney(flightSectionTotal)}</div>}
 
             <div>
               <span className="text-sm font-semibold text-slate-800">Flight information</span>
@@ -4602,12 +5537,23 @@ export function QuotationBuilderPage() {
     const masters = addOnMasters.data?.data ?? [];
     const includedIndex = (id: string) =>
       (watchedServices ?? []).findIndex((row) => row?.addOnServiceId === id);
+    const totalPax = pax.adults + pax.cwb + pax.cwob + pax.infants;
     const total = masters.reduce((sum, master) => {
       const index = includedIndex(master.id);
-      return index >= 0 ? sum + Number(watchedServices?.[index]?.sellingPrice ?? 0) : sum;
+      const row = index >= 0 ? watchedServices?.[index] : undefined;
+      return row
+        ? sum + Number(row.sellingPrice ?? 0) * (Number(row.quantity ?? 1) || 1)
+        : sum;
     }, 0);
     const currency = form.watch('currency');
-    const toggle = (master: (typeof masters)[number], checked: boolean) => {
+    const ADDON_BASES: Array<[string, string]> = [
+      ['FIXED', 'Fixed'],
+      ['PER_TRAVELER', 'Per Traveler'],
+      ['PER_DAY', 'Per Day'],
+      ['PER_TRANSFER', 'Per Transfer'],
+      ['PER_UNIT', 'Per Unit'],
+    ];
+     const toggle = (master: (typeof masters)[number], checked: boolean) => {
       if (checked) {
         services.append({
           serviceType: 'OTHER_ADD_ON',
@@ -4618,6 +5564,7 @@ export function QuotationBuilderPage() {
           dayNumber: null,
           city: null,
           quantity: 1,
+          pricingBasis: 'FIXED' as never,
           internalCost: 0,
           sellingPrice: master.price != null ? Number(master.price) : 0,
           taxCategory: null,
@@ -4629,6 +5576,7 @@ export function QuotationBuilderPage() {
         if (index >= 0) services.remove(index);
       }
     };
+    const isAddonSectionWise = (form.watch('pricingMode') as string) === 'SECTION_WISE';
     return (
       <div className="space-y-4">
         <label className="flex items-center gap-2 text-sm font-medium">
@@ -4644,7 +5592,7 @@ export function QuotationBuilderPage() {
         {form.watch('addOnDetails.include') !== false && (
           <>
             <p className="text-sm text-slate-600">
-              Select additional services to include in this quotation:
+              {isAddonSectionWise ? 'Select additional services — pricing entered per service below:' : 'Select additional services to include (pricing entered centrally in Summary & Pricing):'}
             </p>
             <div className="overflow-hidden rounded-lg border">
               <table className="w-full text-sm">
@@ -4653,13 +5601,15 @@ export function QuotationBuilderPage() {
                     <th className="w-20 px-4 py-3 font-semibold">Include</th>
                     <th className="w-48 px-4 py-3 font-semibold">Service</th>
                     <th className="px-4 py-3 font-semibold">Description</th>
-                    <th className="w-40 px-4 py-3 font-semibold">Price</th>
+                    {isAddonSectionWise && <th className="w-40 px-4 py-3 font-semibold">Pricing Basis</th>}
+                    {isAddonSectionWise && <th className="w-24 px-4 py-3 font-semibold">Qty</th>}
+                    {isAddonSectionWise && <th className="w-40 px-4 py-3 font-semibold">Unit Price</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {masters.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={isAddonSectionWise ? 6 : 3} className="px-4 py-8 text-center text-slate-500">
                         {addOnMasters.isPending
                           ? 'Loading add-on services…'
                           : 'No add-on services in the master list yet.'}
@@ -4703,6 +5653,73 @@ export function QuotationBuilderPage() {
                             </p>
                           )}
                         </td>
+                        {isAddonSectionWise && (
+                        <td className="px-4 py-3">
+                          {included ? (
+                            <select
+                              aria-label={`${master.name} pricing basis`}
+                              value={(watchedServices?.[index]?.pricingBasis as string) ?? 'FIXED'}
+                              onChange={(event) => {
+                                const basis = event.target.value;
+                                form.setValue(
+                                  `services.${index}.pricingBasis` as 'services.0.pricingBasis',
+                                  basis as never,
+                                  { shouldDirty: true },
+                                );
+                                if (basis === 'PER_TRAVELER') {
+                                  form.setValue(
+                                    `services.${index}.quantity` as 'services.0.quantity',
+                                    Math.max(1, totalPax),
+                                    { shouldDirty: true },
+                                  );
+                                }
+                              }}
+                              className={`${field}`}
+                            >
+                              {ADDON_BASES.map(([value, label]) => (
+                                <option key={value} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        )}
+                        {isAddonSectionWise && (
+                        <td className="px-4 py-3">
+                          {included ? (
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              aria-label={`${master.name} quantity`}
+                              value={Number(watchedServices?.[index]?.quantity ?? 1) || 1}
+                              readOnly={
+                                (watchedServices?.[index]?.pricingBasis as string) ===
+                                'PER_TRAVELER'
+                              }
+                              onChange={(event) =>
+                                form.setValue(
+                                  `services.${index}.quantity` as 'services.0.quantity',
+                                  Math.max(1, Math.floor(Number(event.target.value) || 1)),
+                                  { shouldDirty: true },
+                                )
+                              }
+                              className={`${field} ${
+                                (watchedServices?.[index]?.pricingBasis as string) ===
+                                'PER_TRAVELER'
+                                  ? 'bg-slate-100'
+                                  : ''
+                              }`}
+                            />
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        )}
+                        {isAddonSectionWise && (
                         <td className="px-4 py-3">
                           <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300">
                             <span className="flex items-center bg-slate-100 px-2 text-slate-500">
@@ -4730,13 +5747,15 @@ export function QuotationBuilderPage() {
                             />
                           </div>
                         </td>
+                        )}
                       </tr>
                     );
                   })}
                 </tbody>
+                {isAddonSectionWise && (
                 <tfoot>
                   <tr className="border-t bg-slate-50">
-                    <td colSpan={3} className="px-4 py-3 text-right font-semibold text-slate-700">
+                    <td colSpan={5} className="px-4 py-3 text-right font-semibold text-slate-700">
                       Total Add-on Services:
                     </td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
@@ -4744,6 +5763,10 @@ export function QuotationBuilderPage() {
                     </td>
                   </tr>
                 </tfoot>
+                )}
+                {!isAddonSectionWise && masters.filter(m=> includedIndex(m.id)>=0).length>0 && (
+                  <tfoot><tr className="border-t bg-slate-50"><td colSpan={3} className="px-4 py-2 text-sm text-slate-600">Add-ons selected: {masters.filter(m=> includedIndex(m.id)>=0).length} · Pricing in Summary & Pricing</td></tr></tfoot>
+                )}
               </table>
             </div>
           </>
@@ -4760,6 +5783,7 @@ export function QuotationBuilderPage() {
     const gstAmount = (svc * gst) / 100;
     const consolidated = svc + gstAmount + vfs;
     const included = form.watch('includeVisa') ?? true;
+    const isVisaSectionWise = (form.watch('pricingMode') as string) === 'SECTION_WISE';
     const moneyInput = (
       label: string,
       name: 'visaAmount' | 'visaServiceCharge' | 'visaVfsCharge',
@@ -4796,7 +5820,7 @@ export function QuotationBuilderPage() {
                   className={`${field} mt-1`}
                 />
               </label>
-              {moneyInput('Amount', 'visaAmount')}
+              {isVisaSectionWise && moneyInput('Visa Selling Price', 'visaAmount')}
               <label className="text-sm font-semibold text-slate-800">
                 Destination
                 <input
@@ -4815,6 +5839,7 @@ export function QuotationBuilderPage() {
                 />
               </label>
             </div>
+            {isVisaSectionWise && (
             <div className="grid gap-4 rounded-lg bg-slate-50 p-4 md:grid-cols-3">
               {moneyInput('Service Charge', 'visaServiceCharge')}
               <label className="text-sm font-semibold text-slate-800">
@@ -4848,6 +5873,7 @@ export function QuotationBuilderPage() {
                 </span>
               </label>
             </div>
+            )}
           </div>
         )}
       </div>
@@ -4953,6 +5979,71 @@ export function QuotationBuilderPage() {
         </div>
       </section>
 
+      {/* STEP 0 — QUOTATION PRICING SETUP */}
+      {(() => {
+        const mode = (form.watch('pricingMode') ?? 'PER_PERSON') as 'SECTION_WISE' | 'PER_PERSON';
+        const isSection = mode === 'SECTION_WISE';
+        const switchMode = (next: 'SECTION_WISE' | 'PER_PERSON') => {
+          if (next === form.getValues('pricingMode')) return;
+          const cur = form.watch('currency') || 'INR';
+          const fmt = (v:number)=>{ try{return new Intl.NumberFormat(cur==='INR'?'en-IN':undefined,{style:'currency',currency:cur}).format(v)}catch{return `${cur} ${v.toFixed(2)}`}};
+          // reuse shared pricing resolver for confirmation text when available; fallback to simple confirm
+          try {
+            const fromPricing = resolveQuotationPricing({ version:{pricingMode: mode, finalAmount: 0, currency: cur, flightDetails: form.getValues('flightDetails'), hotelDetails: form.getValues('hotelDetails'), hotels: form.getValues('hotels'), sightseeingDetails: form.getValues('sightseeingDetails'), services: form.getValues('services'), includeVisa: form.getValues('includeVisa'), visaAmount: form.getValues('visaAmount'), visaServiceCharge: form.getValues('visaServiceCharge'), visaGstPercent: form.getValues('visaGstPercent'), visaVfsCharge: form.getValues('visaVfsCharge'), discountAmount: form.getValues('discountAmount'), taxRate: form.getValues('taxRate'), perAdultPrice: form.getValues('perAdultPrice'), perChildWithBedPrice: form.getValues('perChildWithBedPrice'), perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'), perInfantPrice: form.getValues('perInfantPrice') }, quotation:{ adults: quotation.data?.adults ?? 0, childrenWithBed: quotation.data?.childrenWithBed ??0, childrenWithoutBed: quotation.data?.childrenWithoutBed ??0, infants: quotation.data?.infants ??0, currency: cur }});
+            const toPricing = resolveQuotationPricing({ version:{pricingMode: next, finalAmount: 0, currency: cur, flightDetails: form.getValues('flightDetails'), hotelDetails: form.getValues('hotelDetails'), hotels: form.getValues('hotels'), sightseeingDetails: form.getValues('sightseeingDetails'), services: form.getValues('services'), includeVisa: form.getValues('includeVisa'), visaAmount: form.getValues('visaAmount'), visaServiceCharge: form.getValues('visaServiceCharge'), visaGstPercent: form.getValues('visaGstPercent'), visaVfsCharge: form.getValues('visaVfsCharge'), discountAmount: form.getValues('discountAmount'), taxRate: form.getValues('taxRate'), perAdultPrice: form.getValues('perAdultPrice'), perChildWithBedPrice: form.getValues('perChildWithBedPrice'), perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'), perInfantPrice: form.getValues('perInfantPrice') }, quotation:{ adults: quotation.data?.adults ?? 0, childrenWithBed: quotation.data?.childrenWithBed ??0, childrenWithoutBed: quotation.data?.childrenWithoutBed ??0, infants: quotation.data?.infants ??0, currency: cur }});
+            if (fromPricing.grandTotal>0 && toPricing.grandTotal>0 && fromPricing.grandTotal!==toPricing.grandTotal) {
+              const ok = window.confirm(`Change pricing method? Your quotation currently uses ${isSection ? 'By Section' : 'By Traveler'} (${fmt(fromPricing.grandTotal)}). Switching to ${next==='SECTION_WISE' ? 'By Section' : 'By Traveler'} will change the authoritative total to ${fmt(toPricing.grandTotal)}. Existing values will be preserved where possible.`);
+              if(!ok) return;
+            }
+          } catch (_e) { void _e; }
+          form.setValue('pricingMode', next, { shouldDirty: true });
+        };
+        return (
+        <section className="rounded-xl border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">How would you like to price this quotation?</h2>
+            <p className="mt-1 max-w-2xl text-xs text-slate-500">Choose once at the beginning. The entire builder will adapt — sections show the right pricing controls, Summary shows the authoritative total.</p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+            Current: {isSection ? 'By Section' : 'By Traveler'}
+            <button type="button" onClick={() => switchMode(isSection ? 'PER_PERSON' : 'SECTION_WISE')} className="ml-2 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-brand-700 shadow-sm ring-1 ring-slate-200 hover:bg-brand-50">Change pricing method</button>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(
+            [
+              ['SECTION_WISE', 'By Section', 'Set and calculate a selling price for each service section individually.', 'Each section shows its own pricing editor and section total.'],
+              ['PER_PERSON', 'By Traveler', 'Build the itinerary and calculate the final package price per traveler.', 'Sections focus on itinerary — pricing is entered centrally in Summary & Pricing.'],
+            ] as const
+          ).map(([value, title, desc, hint]) => {
+            const selected = mode === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={selected}
+                aria-label={title}
+                onClick={() => switchMode(value as 'SECTION_WISE' | 'PER_PERSON')}
+                className={`text-left rounded-xl border-2 p-4 transition ${selected ? 'border-brand-600 bg-brand-50/60 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-semibold ${selected ? 'text-brand-700' : 'text-slate-800'}`}>{title}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{desc}</p>
+                    <p className="mt-2 text-[11px] text-slate-400">{hint}</p>
+                  </div>
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 bg-white'}`} aria-hidden="true">{selected ? '✓' : ''}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        </section>
+        );
+      })()}
+
       {/* Tab navigation */}
       <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-brand-500 px-1">
         {TABS.map((tab) => (
@@ -5024,6 +6115,7 @@ export function QuotationBuilderPage() {
                       className={`${field} mt-1`}
                     />
                   </label>
+                  {(form.watch('pricingMode') as string) === 'SECTION_WISE' && (
                   <label className="text-sm font-semibold text-slate-800">
                     Amount
                     <div className="mt-1 flex rounded-lg border border-slate-300 bg-card focus-within:ring-2 focus-within:ring-brand-500">
@@ -5039,8 +6131,15 @@ export function QuotationBuilderPage() {
                         className="w-full rounded-r-lg bg-transparent px-3 py-2 text-sm outline-none"
                       />
                     </div>
+                    <span className="mt-1 block text-xs font-normal text-slate-500">Hotel section total is auto-calculated from room allocations when rates are entered.</span>
                   </label>
+                  )}
                 </div>
+                {(form.watch('pricingMode') as string) === 'SECTION_WISE' && (() => {
+                  const rows = form.watch('hotels') ?? [];
+                  const hotelTotal = rows.filter(r=> r.selected!==false).reduce((sum,row)=> sum + calculateHotelRowTotal(row).total, 0);
+                  return hotelTotal>0 ? <div className="rounded-lg border bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Hotel Section Total: {currency} {hotelTotal.toFixed(2)}</div> : null;
+                })()}
 
                 <div>
                   <h3 className="mb-1 text-sm font-semibold text-slate-800">Description</h3>
@@ -5373,29 +6472,14 @@ export function QuotationBuilderPage() {
                 Pricing
               </div>
               <div className="space-y-5 p-5">
-                <fieldset>
-                  <legend className="text-sm font-semibold text-slate-800">Pricing Method</legend>
-                  <div className="mt-2 flex flex-wrap gap-4">
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        value="SECTION_WISE"
-                        {...form.register('pricingMode')}
-                        className="h-4 w-4 text-brand-700"
-                      />
-                      By Section
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="radio"
-                        value="PER_PERSON"
-                        {...form.register('pricingMode')}
-                        className="h-4 w-4 text-brand-700"
-                      />
-                      By Traveler
-                    </label>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-3 py-2">
+                  <div className="text-sm">
+                    <span className="font-semibold text-slate-800">Pricing Method: </span>
+                    <span className="font-medium text-brand-700">{isSectionWisePricing ? 'By Section' : 'By Traveler'}</span>
+                    <span className="ml-2 text-xs text-slate-500">{isSectionWisePricing ? 'Section totals are authoritative' : 'Traveler prices are authoritative'}</span>
                   </div>
-                </fieldset>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => handlePricingMethodChange(isSectionWisePricing ? 'PER_PERSON' : 'SECTION_WISE')}>Change pricing method</Button>
+                </div>
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
                   Pricing Heading
                   <input
@@ -5502,6 +6586,7 @@ export function QuotationBuilderPage() {
                   </select>
                 </label>
 
+                {!isSectionWisePricing && (
                 <div className="grid gap-4 md:grid-cols-4">
                   {(
                     [
@@ -5528,6 +6613,7 @@ export function QuotationBuilderPage() {
                     </label>
                   ))}
                 </div>
+                )}
 
                 <div className="grid gap-4 md:grid-cols-4 lg:grid-cols-6">
                   {(
@@ -5543,6 +6629,7 @@ export function QuotationBuilderPage() {
                       <input readOnly value={value} className={`${field} mt-1 bg-slate-100`} />
                     </label>
                   ))}
+                  {!isSectionWisePricing && (
                   <label className="text-sm font-semibold text-slate-800">
                     Total Package Price
                     <input
@@ -5552,6 +6639,13 @@ export function QuotationBuilderPage() {
                       className={`${field} mt-1 bg-slate-100`}
                     />
                   </label>
+                  )}
+                  {isSectionWisePricing && (
+                    <label className="text-sm font-semibold text-slate-800">
+                      Section Total
+                      <input readOnly aria-label="Section Total" value={formatMoney(livePricing.sectionTotal)} className={`${field} mt-1 bg-slate-100`} />
+                    </label>
+                  )}
                   <label className="text-sm font-semibold text-slate-800">
                     Tax Note on Total Price
                     <select
@@ -5646,9 +6740,25 @@ export function QuotationBuilderPage() {
                           <span>{formatMoney(price * count)}</span>
                         </div>
                       ))}
-                    <div className="flex justify-between pt-2 font-bold">
-                      <span>Total Package Price:</span>
+                    <div className="flex justify-between py-1 font-bold">
+                      <span>Package Subtotal:</span>
                       <span>{formatMoney(packageTotal)}</span>
+                    </div>
+                    {livePricing.discountAmount !== 0 && (
+                      <div className="flex justify-between border-t border-white/20 py-1">
+                        <span>Discount:</span>
+                        <span>-{formatMoney(livePricing.discountAmount)}</span>
+                      </div>
+                    )}
+                    {livePricing.taxAmount !== 0 && (
+                      <div className="flex justify-between border-b border-white/20 py-1">
+                        <span>Tax ({livePricing.taxRate}%):</span>
+                        <span>{formatMoney(livePricing.taxAmount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 font-bold">
+                      <span>Grand Total:</span>
+                      <span>{formatMoney(livePricing.grandTotal)}</span>
                     </div>
                   </div>
                 )}
@@ -5670,14 +6780,176 @@ export function QuotationBuilderPage() {
                             <span className="font-medium">{formatMoney(s.amount)}</span>
                           </div>
                         ))}
+                      {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (
+                        <div className="flex justify-between border-t pt-2 font-bold">
+                          <span>Subtotal</span>
+                          <span>{formatMoney(pricing.sectionTotal)}</span>
+                        </div>
+                      )}
+                      {pricing.discountAmount !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-600">Discount</span>
+                          <span>-{formatMoney(pricing.discountAmount)}</span>
+                        </div>
+                      )}
+                      {pricing.taxAmount !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-600">Tax ({pricing.taxRate}%)</span>
+                          <span>{formatMoney(pricing.taxAmount)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between border-t pt-2 font-bold">
                         <span>Grand Total</span>
-                        <span>{formatMoney(pricing.sectionTotal)}</span>
+                        <span>{formatMoney(pricing.grandTotal)}</span>
                       </div>
                     </div>
                   </div>
                 );
               })()}
+
+            {isSectionWisePricing && (
+              <section className="rounded-xl border p-5">
+                <h3 className="text-base font-semibold text-slate-800">Custom Charges</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Only for By Section pricing. Fixed total per item, unlimited.</p>
+                {(() => {
+                  const customCharges = (form.watch('customCharges') ?? []) as Array<{ label?: string; amount?: number }>;
+                  const add = () => {
+                    const next = [...customCharges, { label: '', amount: 0 }];
+                    form.setValue('customCharges', next as never, { shouldDirty: true });
+                  };
+                  const remove = (idx: number) => {
+                    const next = customCharges.filter((_, i) => i !== idx);
+                    form.setValue('customCharges', next as never, { shouldDirty: true });
+                  };
+                  const updateLabel = (idx: number, label: string) => {
+                    const next = customCharges.map((c, i) => (i === idx ? { ...c, label } : c));
+                    form.setValue('customCharges', next as never, { shouldDirty: true });
+                  };
+                  const updateAmount = (idx: number, amount: number) => {
+                    const next = customCharges.map((c, i) => (i === idx ? { ...c, amount } : c));
+                    form.setValue('customCharges', next as never, { shouldDirty: true });
+                  };
+                  return (
+                    <div className="mt-3 space-y-3">
+                      {customCharges.length === 0 && <p className="text-sm text-slate-500">No custom charges added.</p>}
+                      {customCharges.map((c, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            aria-label={`Custom charge ${idx + 1} label`}
+                            placeholder="Label e.g. Gym"
+                            value={c.label ?? ''}
+                            onChange={(e) => updateLabel(idx, e.target.value)}
+                            className={`${field} flex-1`}
+                          />
+                          <div className="flex w-40 items-stretch overflow-hidden rounded-lg border border-slate-300">
+                            <span className="flex items-center bg-slate-100 px-2 text-slate-500">{currency}</span>
+                            <input
+                              aria-label={`Custom charge ${idx + 1} amount`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={c.amount ?? 0}
+                              onChange={(e) => updateAmount(idx, Math.max(0, Number(e.target.value) || 0))}
+                              className="min-w-0 flex-1 bg-card px-2 py-2 text-sm outline-none"
+                            />
+                          </div>
+                          <Button type="button" variant="ghost" onClick={() => remove(idx)}><Trash2 className="h-4 w-4" /></Button>
+                        </div>
+                      ))}
+                      <Button type="button" size="sm" variant="secondary" onClick={add}><Plus className="h-4 w-4" /> Add Custom Charge</Button>
+                      {customCharges.length > 0 && (
+                        <p className="text-sm font-medium">Custom Charges Total: {formatMoney(customCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0))}</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </section>
+            )}
+
+            {/* Adjustment pipeline — applied ONCE to the active pricing
+                method's subtotal. Never to both. */}
+            <section className="rounded-xl border p-5">
+              <h3 className="text-base font-semibold text-slate-800">Discount &amp; Tax</h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Applied after the {isSectionWisePricing ? 'section-wise' : 'traveler-wise'}{' '}
+                subtotal: Subtotal → Discount → Tax → Grand Total.
+              </p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-semibold text-slate-800">
+                  Discount Amount
+                  <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
+                    <span className="flex items-center bg-slate-100 px-2 text-slate-500">
+                      {currency}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      aria-label="Discount amount"
+                      className="min-w-0 flex-1 bg-card px-3 py-2 text-sm outline-none"
+                      {...form.register('discountAmount', MONEY_FIELD)}
+                    />
+                  </div>
+                </label>
+                <label className="text-sm font-semibold text-slate-800">
+                  Tax Rate (%)
+                  <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      aria-label="Tax rate percent"
+                      className="min-w-0 flex-1 bg-card px-3 py-2 text-sm outline-none"
+                      {...form.register('taxRate', MONEY_FIELD)}
+                    />
+                    <span className="flex items-center bg-slate-100 px-2 text-slate-500">%</span>
+                  </div>
+                </label>
+              </div>
+              <div className="mt-4 space-y-1 border-t border-slate-100 pt-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-600">
+                    Subtotal ({isSectionWisePricing ? 'Section-wise' : 'Traveler-wise'})
+                  </span>
+                  <span className="font-medium">{formatMoney(livePricing.subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Discount</span>
+                  <span className="font-medium">-{formatMoney(livePricing.discountAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Taxable Amount</span>
+                  <span className="font-medium">{formatMoney(livePricing.taxableAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Tax ({livePricing.taxRate}%)</span>
+                  <span className="font-medium">{formatMoney(livePricing.taxAmount)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2 text-base font-bold text-slate-900">
+                  <span>Grand Total</span>
+                  <span>{formatMoney(livePricing.grandTotal)}</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Pricing completeness — same validator the backend enforces on
+                finalization. Errors block finalize/send; warnings advise. */}
+            {pricingIssues.length > 0 && (
+              <section className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+                <h3 className="text-base font-semibold text-amber-800">Pricing Validation</h3>
+                <ul className="mt-2 space-y-1 text-sm text-amber-800">
+                  {pricingIssues.map((issue, index) => (
+                    <li key={index} className="flex gap-2">
+                      <span className="font-semibold uppercase">
+                        {issue.severity === 'ERROR' ? 'Error:' : 'Warning:'}
+                      </span>
+                      <span>{issue.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <section className="rounded-xl border p-5">
               <h3 className="text-lg font-semibold text-slate-800">Initial Payment Details</h3>
@@ -5771,15 +7043,21 @@ export function QuotationBuilderPage() {
                 ? [{ id: 'destinationExpert', label: 'Destination Expert', amount: 0 }]
                 : []),
             ];
-            // The grand total follows the same rule as the summary card: in
-            // section-wise mode it is always the resolver's sectionTotal, and it
-            // also becomes the sectionTotal when the quotation is section-priced
-            // (no per-person package price). A real per-person package total
-            // keeps the existing TOTAL behavior.
-            const grandTotal =
-              isSectionWise || (!packageTotal && pricing.sectionTotal > 0)
-                ? pricing.sectionTotal
-                : packageTotal;
+            // The grand total follows the same rule as the summary card: the
+            // authoritative pipeline total (subtotal − discount + tax) of the
+            // ACTIVE pricing method only.
+            const grandTotal = pricing.grandTotal;
+            // Expandable hotel calculation: every contributing stay with its
+            // room/meal lines so the agent can verify the arithmetic.
+            const hotelBreakdownRows = (() => {
+              const rows = form.watch('hotels') ?? [];
+              if (!rows.length || form.watch('hotelDetails.include') === false) return [];
+              return rows
+                .filter((row) => row.selected !== false)
+                .map((row) => ({ row, totals: calculateHotelRowTotal(row) }))
+                .filter((entry) => entry.totals.total !== 0);
+            })();
+            const money = (value: number) => formatMoney(Math.round(value * 100) / 100);
             return (
               <div className="space-y-5">
                 <section className="overflow-hidden rounded-xl border">
@@ -5800,18 +7078,98 @@ export function QuotationBuilderPage() {
                       <div className="overflow-hidden rounded-xl border bg-card">
                         <div className="divide-y">
                           {sections.map((section) => (
-                            <div
-                              key={section.id}
-                              className="flex items-center justify-between px-4 py-2.5 text-sm"
-                            >
-                              <span className="font-medium text-slate-700">{section.label}</span>
-                              <span className="text-slate-900">
-                                {section.id === 'destinationExpert' && section.amount === 0
-                                  ? '—'
-                                  : formatMoney(section.amount)}
-                              </span>
+                            <div key={section.id} className="px-4 py-2.5 text-sm">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-slate-700">{section.label}</span>
+                                <span className="text-slate-900">
+                                  {section.id === 'destinationExpert' && section.amount === 0
+                                    ? '—'
+                                    : formatMoney(section.amount)}
+                                </span>
+                              </div>
+                              {section.id === 'hotel' && hotelBreakdownRows.length > 0 && (
+                                <details className="mt-1">
+                                  <summary className="cursor-pointer text-xs text-brand-700 hover:underline">
+                                    Show hotel calculation
+                                  </summary>
+                                  <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                                    {hotelBreakdownRows.map(({ row, totals }, index) => (
+                                      <div key={index}>
+                                        <p className="font-semibold text-slate-700">
+                                          {row.hotelName || `Stay ${index + 1}`}
+                                          {row.nights ? ` · ${row.nights} night(s)` : ''}
+                                          {row.optionGroupId ? ' · Alternative option' : ''}
+                                        </p>
+                                        {resolveHotelRoomLines(row).map((line, lineIndex) => (
+                                          <p key={lineIndex}>
+                                            {line.roomType || `Room ${lineIndex + 1}`}:{' '}
+                                            {line.rooms ?? 1} × {money(Number(line.baseRoomPrice ?? line.sellingPrice ?? 0))} ×{' '}
+                                            {row.nights ?? 1} ={' '}
+                                            {money(
+                                              (Number(line.baseRoomPrice ?? line.sellingPrice ?? 0)) *
+                                                (line.rooms ?? 1) *
+                                                (row.nights ?? 1),
+                                            )}
+                                            {(line.extraBedQuantity ?? 0) > 0 &&
+                                              ` + Extra bed ${line.extraBedQuantity} × ${money(Number(line.extraBedPrice ?? 0))} × ${row.nights ?? 1}`}
+                                            {(line.childWithoutBedQuantity ?? 0) > 0 &&
+                                              ` + CWOB ${line.childWithoutBedQuantity} × ${money(Number(line.childWithoutBedPrice ?? 0))} × ${row.nights ?? 1}`}
+                                          </p>
+                                        ))}
+                                        {resolveHotelMealPlanLines(row).map((line, lineIndex) => (
+                                          <p key={`meal-${lineIndex}`}>
+                                            Meal plan {line.mealPlan || ''}:{' '}
+                                            {money(Number(line.sellingPrice ?? 0))}
+                                          </p>
+                                        ))}
+                                        <p className="font-semibold text-slate-700">
+                                          Stay total: {money(totals.total)}
+                                          {totals.mealTotal > 0
+                                            ? ` (Rooms ${money(totals.roomTotal)} + Meals ${money(totals.mealTotal)})`
+                                            : ''}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
+                              {section.id === 'customCharges' && (() => {
+                                const items = ((form.watch('customCharges') ?? []) as Array<{ label?: string; amount?: number }>).filter((c) => c.label?.trim() && Number(c.amount) > 0);
+                                return items.length > 0 ? (
+                                  <div className="mt-1 space-y-1 rounded-lg bg-slate-50 p-2 text-xs">
+                                    {items.map((c, idx) => (
+                                      <div key={idx} className="flex justify-between">
+                                        <span>{c.label}</span>
+                                        <span>{formatMoney(Number(c.amount))}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           ))}
+                          {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (
+                            <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                              <span className="font-medium text-slate-700">Subtotal</span>
+                              <span className="text-slate-900">{formatMoney(pricing.sectionTotal)}</span>
+                            </div>
+                          )}
+                          {pricing.discountAmount !== 0 && (
+                            <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                              <span className="font-medium text-slate-700">Discount</span>
+                              <span className="text-slate-900">
+                                -{formatMoney(pricing.discountAmount)}
+                              </span>
+                            </div>
+                          )}
+                          {pricing.taxAmount !== 0 && (
+                            <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                              <span className="font-medium text-slate-700">
+                                Tax ({pricing.taxRate}%)
+                              </span>
+                              <span className="text-slate-900">{formatMoney(pricing.taxAmount)}</span>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
                             <span>Grand Total</span>
                             <span>{formatMoney(grandTotal)}</span>
@@ -5846,8 +7204,24 @@ export function QuotationBuilderPage() {
                               </span>
                             </div>
                           ))}
+                        <div className="flex items-center justify-between border-t-2 border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900">
+                          <span>Package Subtotal</span>
+                          <span>{formatMoney(pricing.travelerPricing.subtotal)}</span>
+                        </div>
+                        {pricing.discountAmount !== 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">Discount</span>
+                            <span>-{formatMoney(pricing.discountAmount)}</span>
+                          </div>
+                        )}
+                        {pricing.taxAmount !== 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">Tax ({pricing.taxRate}%)</span>
+                            <span>{formatMoney(pricing.taxAmount)}</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
-                          <span>Total Package Price</span>
+                          <span>Grand Total</span>
                           <span>{formatMoney(grandTotal)}</span>
                         </div>
                       </div>
@@ -6159,7 +7533,7 @@ export function QuotationBuilderPage() {
                           onChange={(e) => setSelectedPresetId(e.target.value)}
                         >
                           <option value="">Select destination preset</option>
-                          {(destinationExpertPresetsQuery.data ?? []).map((p) => (
+                          {filteredDestinationExpertPresets.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.destination}
                             </option>
@@ -6180,8 +7554,8 @@ export function QuotationBuilderPage() {
                               ...(cur ?? {}),
                               enabled: true,
                               expertUserId: user?.id ?? null,
-                              heading: preset.heading ?? cur?.heading ?? null,
-                              customIntroduction: preset.customIntroduction ?? cur?.customIntroduction ?? null,
+                              heading: preset.heading ?? null,
+                              customIntroduction: preset.customIntroduction ?? null,
                               whatsappNumber: preset.whatsappNumber ?? null,
                               callNumber: preset.callNumber ?? null,
                               email: preset.email ?? null,
@@ -6191,6 +7565,15 @@ export function QuotationBuilderPage() {
                               showExperience: preset.showExperience,
                               showTripsPlanned: preset.showTripsPlanned,
                               showLanguages: preset.showLanguages,
+                              jobTitle: (preset as unknown as { jobTitle?: string | null }).jobTitle ?? null,
+                              bio: (preset as unknown as { bio?: string | null }).bio ?? null,
+                              specialization: (preset as unknown as { specialization?: string | null }).specialization ?? null,
+                              yearsOfExperience: (preset as unknown as { yearsOfExperience?: number | null }).yearsOfExperience ?? null,
+                              tripsPlanned: (preset as unknown as { tripsPlanned?: number | null }).tripsPlanned ?? null,
+                              languages: (preset as unknown as { languages?: string | null }).languages ?? null,
+                              gender: (preset as unknown as { gender?: string | null }).gender ?? null,
+                              profileImageUrl: (preset as unknown as { profileImageUrl?: string | null }).profileImageUrl ?? null,
+                              destination: preset.destination ?? null,
                             } as never,
                             { shouldDirty: true },
                           );

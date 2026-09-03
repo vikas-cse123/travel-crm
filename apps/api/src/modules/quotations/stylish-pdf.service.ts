@@ -9,6 +9,7 @@ import {
   resolveHotelRoomLines,
   resolveQuotationPdfSectionOrder,
   resolveQuotationPricing,
+  getFlightPerTravelerBreakdown,
   stripItineraryDayPrefixes,
   type QuotationPdfSectionId,
 } from '@interscale/shared';
@@ -1032,9 +1033,9 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
       .strokeColor(LINE)
       .stroke();
   });
-  const investmentTotal = isSectionWiseInvestment
-    ? pricing.sectionTotal
-    : asNumber(input.version.finalAmount);
+  // Authoritative total from the shared pricing engine (active method's
+  // subtotal with the discount → tax pipeline applied).
+  const investmentTotal = pricing.grandTotal;
   const totalBoxX = W - M - 198;
   rounded(totalBoxX, investmentTop + 50, 176, 121, TEAL, TEAL, 17);
   doc
@@ -2457,14 +2458,74 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
     const labelX = M + 21;
     const amountX = M + CONTENT_W - 21 - amountW;
     for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+      if (section.id === 'flight') {
+        const breakdown = getFlightPerTravelerBreakdown(
+          (input.version as unknown as { flightDetails?: unknown }).flightDetails,
+          {
+            adults: Number((input.quotation as unknown as { adults?: unknown }).adults ?? 0),
+            childrenWithBed: Number((input.quotation as unknown as { childrenWithBed?: unknown }).childrenWithBed ?? 0),
+            childrenWithoutBed: Number((input.quotation as unknown as { childrenWithoutBed?: unknown }).childrenWithoutBed ?? 0),
+            infants: Number((input.quotation as unknown as { infants?: unknown }).infants ?? 0),
+          },
+        );
+        if (breakdown) {
+          if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+          doc.font('Bold').fontSize(10).fillColor(NAVY).text('Flights', labelX, y, { width: CONTENT_W - 42 - amountW });
+          doc.font('Bold').fontSize(10).fillColor(NAVY).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+          y += 16;
+          for (const row of breakdown) {
+            if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+            doc.font('Body').fontSize(10).fillColor(INK).text(`${row.label}: ${row.count} × ${money(row.rate, pricing.currency)}`, labelX, y, { width: CONTENT_W - 42 - amountW });
+            doc.font('Body').fontSize(10).fillColor(INK).text(money(row.total, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+            y += 16;
+          }
+          if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+          doc.font('Bold').fontSize(10).fillColor(NAVY).text('Flight Total', labelX, y, { width: CONTENT_W - 42 - amountW });
+          doc.font('Bold').fontSize(10).fillColor(NAVY).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+          y += 16;
+          continue;
+        }
+      }
+      if (section.id === 'customCharges') {
+        const items = ((input.version as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
+        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+        doc.font('Bold').fontSize(10).fillColor(NAVY).text('Custom Charges', labelX, y, { width: CONTENT_W - 42 - amountW });
+        doc.font('Bold').fontSize(10).fillColor(NAVY).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+        y += 16;
+        for (const c of items) {
+          if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+          doc.font('Body').fontSize(10).fillColor(INK).text(c.label!.trim(), labelX, y, { width: CONTENT_W - 42 - amountW });
+          doc.font('Body').fontSize(10).fillColor(INK).text(money(Number(c.amount), pricing.currency), amountX, y, { width: amountW, align: 'right' });
+          y += 16;
+        }
+        continue;
+      }
       if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
       doc.font('Body').fontSize(10).fillColor(INK).text(section.label, labelX, y, { width: CONTENT_W - 42 - amountW });
       doc.font('Bold').fontSize(10).fillColor(INK).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
       y += 16;
     }
+    if (pricing.discountAmount > 0 || pricing.taxAmount > 0) {
+      if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Bold').fontSize(10).fillColor(NAVY).text('Subtotal', labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Bold').fontSize(10).fillColor(NAVY).text(money(pricing.sectionTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+      y += 16;
+    }
+    if (pricing.discountAmount > 0) {
+      if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Body').fontSize(10).fillColor(INK).text('Discount', labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Body').fontSize(10).fillColor(INK).text(`- ${money(pricing.discountAmount, pricing.currency)}`, amountX, y, { width: amountW, align: 'right' });
+      y += 16;
+    }
+    if (pricing.taxAmount > 0) {
+      if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
+      doc.font('Body').fontSize(10).fillColor(INK).text(`Tax${pricing.taxRate ? ` (${pricing.taxRate}%)` : ''}`, labelX, y, { width: CONTENT_W - 42 - amountW });
+      doc.font('Body').fontSize(10).fillColor(INK).text(money(pricing.taxAmount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+      y += 16;
+    }
     if (y + 24 > bodyBottom()) addContentPage(pricingHeading);
-    doc.font('Bold').fontSize(12).fillColor(NAVY).text('Total Package Price', labelX, y, { width: CONTENT_W - 42 - amountW });
-    doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(pricing.sectionTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
+    doc.font('Bold').fontSize(12).fillColor(NAVY).text('Grand Total', labelX, y, { width: CONTENT_W - 42 - amountW });
+    doc.font('Bold').fontSize(12).fillColor(GOLD).text(money(pricing.grandTotal, pricing.currency), amountX, y, { width: amountW, align: 'right' });
     y += 22;
   }
 

@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { labelForLookup, PERMISSIONS } from '@interscale/shared';
+import { labelForLookup, PERMISSIONS, validateQuotationPricing } from '@interscale/shared';
 import { Button } from '@/components/ui/Button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -70,6 +70,9 @@ export function QuotationDetailsPage() {
   const [uploadError, setUploadError] = useState('');
   const [pdfError, setPdfError] = useState('');
   const [actionError, setActionError] = useState('');
+  // Visible confirmation after a successful finalize (the status flip also
+  // removes the button, but the agent should never be left guessing).
+  const [actionSuccess, setActionSuccess] = useState('');
   const [pdfChoiceOpen, setPdfChoiceOpen] = useState(false);
   const [stylishCoverOpen, setStylishCoverOpen] = useState(false);
   const [coverSource, setCoverSource] = useState<'DESTINATION' | 'UPLOAD'>('DESTINATION');
@@ -97,7 +100,7 @@ export function QuotationDetailsPage() {
     const data = query.data;
     const current =
       data?.versions.find((version) => version.id === data.currentVersionId) ?? data?.versions[0];
-    if (!current || current.status === 'DRAFT') {
+    if (!current) {
       setPublicLinkUrl(null);
       setPublicLinkVersionId(null);
       return;
@@ -161,11 +164,24 @@ export function QuotationDetailsPage() {
     return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
   const q = query.data;
   const current = q.versions.find((version) => version.id === q.currentVersionId) ?? q.versions[0];
+  const pricingIssues = (() => {
+    if (!current) return [] as ReturnType<typeof validateQuotationPricing>;
+    try {
+      return validateQuotationPricing({
+        version: current as unknown as Parameters<typeof validateQuotationPricing>[0]['version'],
+        quotation: q as unknown as Parameters<typeof validateQuotationPricing>[0]['quotation'],
+      });
+    } catch {
+      return [] as ReturnType<typeof validateQuotationPricing>;
+    }
+  })();
+  const isDraftIncomplete = current?.status === 'DRAFT' && pricingIssues.length > 0;
   const money = (value: string, currency: string) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value));
   const createRevision = () => {
     if (!current) return;
     setActionError('');
+    setActionSuccess('');
     action.mutate(
       { path: 'versions', body: { sourceVersionId: current.id } },
       {
@@ -176,6 +192,41 @@ export function QuotationDetailsPage() {
               ? error.message
               : 'Unable to create a revision. Please try again.',
           ),
+      },
+    );
+  };
+  /**
+   * Finalize the current DRAFT version. The backend runs the authoritative
+   * pricing validation (validateQuotationPricing) and a 400/422 carries the
+   * exact pricing errors — they MUST reach the agent, never fail silently:
+   *  - success: refresh the quotation (status flips to FINALIZED via the
+   *    mutation's cache invalidation) and confirm visibly;
+   *  - 4xx (validation/permission): show the server's message verbatim;
+   *  - 5xx / network: show a friendly, visible error.
+   * `action.isPending` keeps the button disabled so a double-click cannot
+   * fire a duplicate finalize request.
+   */
+  const handleFinalize = () => {
+    if (!current || action.isPending) return;
+    setActionError('');
+    setActionSuccess('');
+    action.mutate(
+      { path: `versions/${current.id}/finalize` },
+      {
+        onSuccess: () => {
+          setActionError('');
+          setActionSuccess(
+            `Version v${current.versionNumber} finalized. You can now generate the PDF or send it to the customer.`,
+          );
+        },
+        onError: (error) => {
+          setActionSuccess('');
+          setActionError(
+            error instanceof Error && error.message
+              ? error.message
+              : 'Unable to finalize this quotation. Please try again.',
+          );
+        },
       },
     );
   };
@@ -401,6 +452,30 @@ export function QuotationDetailsPage() {
           {actionError}
         </div>
       )}
+      {actionSuccess && (
+        <div
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+        >
+          {actionSuccess}
+        </div>
+      )}
+      {isDraftIncomplete && (
+        <div
+          role="note"
+          aria-label="Draft pricing incomplete"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <p className="font-medium">Draft pricing is incomplete. You can preview the quotation, but it cannot be finalized until all required pricing is completed.</p>
+          {pricingIssues.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">
+              {pricingIssues.map((issue, idx) => (
+                <li key={idx}>{issue.message}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <section className="grid gap-3 sm:grid-cols-2">
         {[
           ['Current version', current ? `v${current.versionNumber}` : '—'],
@@ -429,14 +504,15 @@ export function QuotationDetailsPage() {
             {current?.status === 'DRAFT' && hasPermission(PERMISSIONS.QUOTATIONS_UPDATE) && (
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => action.mutate({ path: `versions/${current.id}/finalize` })}
+                isLoading={action.isPending}
+                onClick={handleFinalize}
               >
-                Finalize v{current.versionNumber}
+                {action.isPending
+                  ? 'Finalizing…'
+                  : `Finalize v${current.versionNumber}`}
               </Button>
             )}
-            {current &&
-              current.status !== 'DRAFT' &&
-              hasPermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF) && (
+            {current && hasPermission(PERMISSIONS.QUOTATIONS_GENERATE_PDF) && (
                 <Button
                   className="w-full sm:w-auto"
                   variant="secondary"
@@ -447,7 +523,7 @@ export function QuotationDetailsPage() {
                   {generatePdf.isPending ? 'Generating PDF…' : 'Generate PDF'}
                 </Button>
               )}
-            {current?.status !== 'DRAFT' && (
+            {current && (
               <TooltipProvider delayDuration={0}>
                 <Tooltip
                   open={linkCopied}
@@ -469,7 +545,7 @@ export function QuotationDetailsPage() {
                 </Tooltip>
               </TooltipProvider>
             )}
-            {current?.status !== 'DRAFT' && (
+            {current && (
               <a
                 className="w-full sm:w-auto"
                 href={publicLinkUrl ?? undefined}
@@ -478,14 +554,21 @@ export function QuotationDetailsPage() {
                 onClick={(event) => {
                   if (publicLinkUrl) return;
                   event.preventDefault();
+                  const win = window.open('about:blank', '_blank');
+                  if (!win) return;
+                  win.opener = null;
+                  win.document.title = 'Opening preview…';
+                  win.document.body.innerHTML =
+                    '<p style="font:16px system-ui;padding:32px">Opening preview…</p>';
                   void ensurePublicLink().then((url) => {
-                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                    if (url) win.location.replace(url);
+                    else win.close();
                   });
                 }}
               >
                 <Button className="w-full sm:w-auto" variant="secondary">
                   <ExternalLink className="h-4 w-4" />
-                  Open Weblink
+                  {current.status === 'DRAFT' ? 'Preview Weblink' : 'Open Weblink'}
                 </Button>
               </a>
             )}

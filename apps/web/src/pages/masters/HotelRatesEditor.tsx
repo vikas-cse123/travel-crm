@@ -415,9 +415,9 @@ export function HotelRatesEditor({
               <thead>
                 <tr className="border-b bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <th className="py-2 pl-3 pr-2 font-medium">Month</th>
-                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room' : 'Price'}</th>
-                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed</th>}
-                  {isRoom && <th className="py-2 pr-2 font-medium">Child Without Bed</th>}
+                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room Rate' : 'Price'}</th>
+                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed Rate</th>}
+                  {isRoom && <th className="py-2 pr-2 font-medium">Child W/O Bed Rate</th>}
                   <th className="py-2 pr-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -478,7 +478,7 @@ export function HotelRatesEditor({
               <label className="block text-sm font-medium text-slate-700">
                 Month
                 <select
-                  className={fieldClass}
+                  className={`${fieldClass} mt-1`}
                   aria-label="Month rate month"
                   value={monthForm.month}
                   onChange={(event) => setMonthForm({ ...monthForm, month: event.target.value })}
@@ -492,13 +492,13 @@ export function HotelRatesEditor({
                 </select>
               </label>
               <label className="block text-sm font-medium text-slate-700">
-                {isRoom ? 'Room' : 'Price'}
+                {isRoom ? 'Room Rate' : 'Price'}
                 <input
                   type="number"
                   min={0}
                   step={0.01}
                   className={`${fieldClass} mt-1`}
-                  placeholder={isRoom ? 'Room price' : 'Rate (price)'}
+                  placeholder={isRoom ? 'e.g. 5000' : 'e.g. 3000'}
                   aria-label="Month rate price"
                   value={monthForm.price}
                   onChange={(event) => setMonthForm({ ...monthForm, price: event.target.value })}
@@ -506,13 +506,13 @@ export function HotelRatesEditor({
               </label>
               {isRoom && (
                 <label className="block text-sm font-medium text-slate-700">
-                  Extra Bed
+                  Extra Bed Rate
                   <input
                     type="number"
                     min={0}
                     step={0.01}
                     className={`${fieldClass} mt-1`}
-                    placeholder="Extra Bed"
+                    placeholder="e.g. 800"
                     aria-label="Month extra bed price"
                     value={monthForm.extraBedPrice ?? ''}
                     onChange={(event) => setMonthForm({ ...monthForm, extraBedPrice: event.target.value })}
@@ -521,13 +521,13 @@ export function HotelRatesEditor({
               )}
               {isRoom && (
                 <label className="block text-sm font-medium text-slate-700">
-                  Child Without Bed
+                  Child W/O Bed Rate
                   <input
                     type="number"
                     min={0}
                     step={0.01}
                     className={`${fieldClass} mt-1`}
-                    placeholder="Child Without Bed"
+                    placeholder="e.g. 400"
                     aria-label="Month child without bed price"
                     value={monthForm.childWithoutBedPrice ?? ''}
                     onChange={(event) => setMonthForm({ ...monthForm, childWithoutBedPrice: event.target.value })}
@@ -582,9 +582,9 @@ export function HotelRatesEditor({
                   <th className="py-2 pl-3 pr-2 font-medium">Season</th>
                   <th className="py-2 pr-2 font-medium">From</th>
                   <th className="py-2 pr-2 font-medium">To</th>
-                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room' : 'Price'}</th>
-                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed</th>}
-                  {isRoom && <th className="py-2 pr-2 font-medium">Child Without Bed</th>}
+                  <th className="py-2 pr-2 font-medium">{isRoom ? 'Room Rate' : 'Price'}</th>
+                  {isRoom && <th className="py-2 pr-2 font-medium">Extra Bed Rate</th>}
+                  {isRoom && <th className="py-2 pr-2 font-medium">Child W/O Bed Rate</th>}
                   <th className="py-2 pr-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -644,7 +644,7 @@ export function HotelRatesEditor({
             <label className="block text-sm font-medium text-slate-700">
               Season Name
               <input
-                className={fieldClass}
+                className={`${fieldClass} mt-1`}
                 placeholder="e.g. Peak Season, Summer"
                 aria-label="Season name"
                 value={seasonForm.name}
@@ -656,7 +656,7 @@ export function HotelRatesEditor({
                 Start Date
                 <input
                   type="date"
-                  className={fieldClass}
+                  className={`${fieldClass} mt-1`}
                   aria-label="Season start date"
                   value={seasonForm.startDate}
                   onChange={(event) => setSeasonForm({ ...seasonForm, startDate: event.target.value })}
@@ -666,45 +666,36 @@ export function HotelRatesEditor({
                 End Date
                 <input
                   type="date"
-                  className={fieldClass}
+                  className={`${fieldClass} mt-1`}
                   aria-label="Season end date"
                   value={seasonForm.endDate}
                   onChange={(event) => setSeasonForm({ ...seasonForm, endDate: event.target.value })}
                 />
               </label>
             </div>
-            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-3' : 'sm:grid-cols-1'}`}>
+            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-4' : 'sm:grid-cols-2'}`}>
               <label className="block text-sm font-medium text-slate-700">
-                {isRoom ? 'Room' : 'Price'}
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    className={`${fieldClass} mt-0 min-w-0 flex-1`}
-                    placeholder={isRoom ? 'Room price' : 'Season rate (price)'}
-                    aria-label="Season rate"
-                    value={seasonForm.price}
-                    onChange={(event) => setSeasonForm({ ...seasonForm, price: event.target.value })}
-                  />
-                  {!isRoom && (
-                    <CurrencySelect
-                      value={seasonForm.currency}
-                      onChange={(currency) => setSeasonForm({ ...seasonForm, currency })}
-                      aria-label="Season currency"
-                    />
-                  )}
-                </div>
+                {isRoom ? 'Room Rate' : 'Price'}
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className={`${fieldClass} mt-1`}
+                  placeholder={isRoom ? 'e.g. 5000' : 'e.g. 3000'}
+                  aria-label="Season rate"
+                  value={seasonForm.price}
+                  onChange={(event) => setSeasonForm({ ...seasonForm, price: event.target.value })}
+                />
               </label>
               {isRoom && (
                 <label className="block text-sm font-medium text-slate-700">
-                  Extra Bed
+                  Extra Bed Rate
                   <input
                     type="number"
                     min={0}
                     step={0.01}
                     className={`${fieldClass} mt-1`}
-                    placeholder="Extra Bed"
+                    placeholder="e.g. 800"
                     aria-label="Season extra bed price"
                     value={seasonForm.extraBedPrice ?? ''}
                     onChange={(event) => setSeasonForm({ ...seasonForm, extraBedPrice: event.target.value })}
@@ -713,21 +704,19 @@ export function HotelRatesEditor({
               )}
               {isRoom && (
                 <label className="block text-sm font-medium text-slate-700">
-                  Child Without Bed
+                  Child W/O Bed Rate
                   <input
                     type="number"
                     min={0}
                     step={0.01}
                     className={`${fieldClass} mt-1`}
-                    placeholder="Child Without Bed"
+                    placeholder="e.g. 400"
                     aria-label="Season child without bed price"
                     value={seasonForm.childWithoutBedPrice ?? ''}
                     onChange={(event) => setSeasonForm({ ...seasonForm, childWithoutBedPrice: event.target.value })}
                   />
                 </label>
               )}
-            </div>
-            {isRoom && (
               <label className="block text-sm font-medium text-slate-700">
                 Currency
                 <CurrencySelect
@@ -736,7 +725,7 @@ export function HotelRatesEditor({
                   aria-label="Season currency"
                 />
               </label>
-            )}
+            </div>
             {!isRoom && null}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={closeSeason} type="button">

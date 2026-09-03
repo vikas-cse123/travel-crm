@@ -603,9 +603,14 @@ describe('Phase 8 quotation pages', () => {
         { route: '/quotations/quotation-1/versions/version-1/edit' },
       );
     const costView = renderBuilder();
+    await screen.findByRole('heading', { name: 'Quotation builder' });
+    // Hotel amount is only visible in By Section mode
+    await userEvent.click(screen.getByLabelText('By Section'));
     await userEvent.click(await screen.findByRole('button', { name: 'Hotel' }));
     expect(await screen.findByLabelText('Hotel amount')).toBeEnabled();
     expect(screen.queryByLabelText('Hotel internal cost')).not.toBeInTheDocument();
+    // Switch back to By Traveler to test per-traveler pricing
+    await userEvent.click(screen.getByLabelText('By Traveler'));
     await userEvent.click(screen.getByRole('button', { name: 'Summary & Pricing' }));
     // Per-passenger pricing: 1 adult × 110 = the package total.
     await userEvent.type(screen.getByLabelText('Per Adult Price'), '110');
@@ -15190,7 +15195,7 @@ describe('Summary & Pricing — package pricing, tax note and secure booking', (
     expect(screen.getByText(/CWB: 1 ×/)).toBeInTheDocument();
     expect(screen.getByText(/CWOB: 1 ×/)).toBeInTheDocument();
     expect(screen.getByText(/Infants: 1 ×/)).toBeInTheDocument();
-    expect(screen.getByText(/Total Package Price:/)).toBeInTheDocument();
+    expect(screen.getByText(/Package Subtotal:/)).toBeInTheDocument();
     // Traveller counts are read-only and driven by the quotation snapshot.
     expect(screen.getByLabelText('Adults')).toHaveAttribute('readonly');
     expect(screen.getByLabelText('Adults')).toHaveValue('2');
@@ -15626,7 +15631,7 @@ describe('Public weblink — section-wise pricing breakdown', () => {
     expect(screen.getByText('₹40,000')).toBeInTheDocument();
     expect(screen.getByText('₹8,000')).toBeInTheDocument();
     expect(screen.getByText('₹3,790')).toBeInTheDocument();
-    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
 
     // No per-passenger lines leak into a section-wise quotation.
     expect(screen.queryByText(/Adult ×/)).not.toBeInTheDocument();
@@ -15776,7 +15781,8 @@ describe('Pricing Breakdown — section amounts, multi-hotel sum and grand total
     // In per-person mode the section rows are replaced by the per-person block.
     expect(screen.queryByText('Hotels')).not.toBeInTheDocument();
     expect(screen.getByText('Number of Travelers')).toBeInTheDocument();
-    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Package Subtotal').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
   });
 });
 
@@ -16875,3 +16881,233 @@ describe('Public weblink — image viewer & Download PDF', () => {
 });
 
 export { builderQuotation, masterFetch, renderBuilderPage, openTab };
+
+describe('Finalize quotation from the details page', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal('scrollTo', vi.fn());
+    auth.permissions = new Set([
+      'quotations.view',
+      'quotations.update',
+      'quotations.generate_pdf',
+    ]);
+  });
+
+  const draftVersion = {
+    id: 'version-1',
+    versionNumber: 1,
+    title: 'Goa proposal',
+    introduction: null,
+    destinationSummary: 'Goa',
+    travelStartDate: null,
+    travelEndDate: null,
+    currency: 'INR',
+    subtotalSellingPrice: '447466',
+    subtotalCost: '300000',
+    markupMode: 'NONE',
+    markupValue: '0',
+    totalMarkup: '0',
+    taxRate: '0',
+    taxAmount: '0',
+    discountAmount: '0',
+    finalAmount: '447466',
+    marginAmount: '147466',
+    marginPercentage: '32.93',
+    pricingMode: 'SECTION_WISE',
+    notes: null,
+    internalNotes: null,
+    status: 'DRAFT',
+    finalizedAt: null,
+    createdAt: '2026-07-21T00:00:00.000Z',
+    createdBy: person,
+    itinerary: [],
+    hotels: [],
+    services: [],
+    inclusions: [],
+    exclusions: [],
+    terms: [],
+  };
+  const finalizedVersion = {
+    ...draftVersion,
+    status: 'FINALIZED',
+    finalizedAt: '2026-09-02T12:00:00.000Z',
+  };
+  const detail = (version: typeof draftVersion | typeof finalizedVersion) => ({
+    id: 'quotation-1',
+    quotationNumber: 'QT-2026-000001',
+    queryId: 'lead-1',
+    currentVersionId: 'version-1',
+    status: 'DRAFT',
+    customerName: 'Aarav Mehta',
+    customerEmail: 'aarav@example.test',
+    customerPhone: '+91 90000 00000',
+    destinationSummary: 'Goa',
+    travelStartDate: null,
+    travelEndDate: null,
+    adults: 2,
+    childrenWithBed: 0,
+    childrenWithoutBed: 0,
+    infants: 0,
+    rooms: 1,
+    validUntil: null,
+    lastSentAt: null,
+    lastViewedAt: null,
+    acceptedAt: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    createdAt: '2026-07-21T00:00:00.000Z',
+    updatedAt: '2026-07-21T00:00:00.000Z',
+    createdBy: person,
+    query: {
+      id: 'lead-1',
+      queryNumber: 'QRY-1',
+      leadStage: 'QUOTATION',
+      assignedToId: 'user-1',
+      createdById: 'user-1',
+    },
+    versions: [version],
+    documents: [],
+    emailLogs: [],
+    activityTimeline: [],
+  });
+
+  const renderDetails = () =>
+    renderWithProviders(
+      <Routes>
+        <Route path="/quotations/:quotationId" element={<QuotationDetailsPage />} />
+      </Routes>,
+      { route: '/quotations/quotation-1' },
+    );
+
+  it('sends the finalize request with the quotation and version ids and confirms success', async () => {
+    // The refetched quotation after finalization reports the FINALIZED status.
+    let finalized = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (!options || options.method === 'GET')
+        return response(detail(finalized ? finalizedVersion : draftVersion));
+      if (url.endsWith('/versions/version-1/finalize')) {
+        finalized = true;
+        return response({ ...finalizedVersion });
+      }
+      return response({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+
+    const finalizeButton = await screen.findByRole('button', { name: 'Finalize v1' });
+    await userEvent.click(finalizeButton);
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, options]) =>
+            String(url).endsWith('/quotations/quotation-1/versions/version-1/finalize') &&
+            options?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+    // Success confirmation is shown and the status flip removes the button.
+    expect(await screen.findByRole('status')).toHaveTextContent(/Version v1 finalized/i);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Finalize v1' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: /Generate PDF/ })).toBeInTheDocument();
+  });
+
+  it('shows the backend pricing validation errors on 422 and keeps the version draft', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (!options || options.method === 'GET') return response(detail(draftVersion));
+      if (url.endsWith('/versions/version-1/finalize')) {
+        return {
+          ok: false,
+          status: 422,
+          json: async () => ({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message:
+                'Quotation pricing is incomplete: Flight selling price is required.',
+            },
+          }),
+        } as Response;
+      }
+      return response({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Finalize v1' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Quotation pricing is incomplete: Flight selling price is required.',
+    );
+    // The version stays DRAFT — the button remains for a corrected attempt.
+    expect(screen.getByRole('button', { name: 'Finalize v1' })).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows a visible error for 500 failures and network errors', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (!options || options.method === 'GET') return response(detail(draftVersion));
+      if (url.endsWith('/versions/version-1/finalize')) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({
+            success: false,
+            error: { code: 'INTERNAL_ERROR', message: 'Database exploded' },
+          }),
+        } as Response;
+      }
+      return response({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Finalize v1' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Something went wrong|Unable to finalize/i,
+    );
+  });
+
+  it('ignores a second click while the finalize request is pending', async () => {
+    let resolveFinalize: (value: Response) => void = () => {};
+    const gate = new Promise<Response>((resolve) => {
+      resolveFinalize = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (!options || options.method === 'GET') return response(detail(draftVersion));
+      if (url.endsWith('/versions/version-1/finalize')) {
+        await gate;
+        return response({ ...finalizedVersion });
+      }
+      return response({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+
+    const finalizeButton = await screen.findByRole('button', { name: 'Finalize v1' });
+    await userEvent.click(finalizeButton);
+    // While pending the button is disabled and re-labelled — a second click is a no-op.
+    const pendingButton = await screen.findByRole('button', { name: /Finalizing/ });
+    expect(pendingButton).toBeDisabled();
+    await userEvent.click(pendingButton);
+    resolveFinalize(response({ ...finalizedVersion }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([url, options]) =>
+            String(url).endsWith('/versions/version-1/finalize') && options?.method === 'POST',
+        ),
+      ).toHaveLength(1),
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent(/Version v1 finalized/i);
+  });
+});

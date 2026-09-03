@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
   BedDouble,
@@ -61,6 +61,7 @@ import { resolveHotelImageCandidates } from '@/features/search/hotel-images';
 import { formatFlightDate, formatFlightTime } from './flight-format';
 import { resolveHotelPrice } from './hotel-price';
 import {
+  searchKeys,
   useBookmarks,
   useCreateBookmark,
   useFlightSearch,
@@ -1448,7 +1449,22 @@ function FlightResults({
                 </p>
               ) : null}
               {returnSearch.isError ? (
-                <Alert tone="error">We couldn&apos;t load return flights. Please try again.</Alert>
+                <div className="space-y-2">
+                  <Alert tone="error">We couldn&apos;t load return flights. Please try again.</Alert>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isLoading={returnSearch.isFetching}
+                    disabled={returnSearch.isFetching}
+                    onClick={() => {
+                      if (returnSearch.isFetching) return;
+                      void returnSearch.refetch();
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                    Retry return search
+                  </Button>
+                </div>
               ) : null}
               {returnOptions.length > 0 ? (
                 <>
@@ -1708,6 +1724,7 @@ function HotelFormFields({
   onChange,
   onSubmit,
   error,
+  submitting,
 }: {
   form: HotelForm;
   currency: string;
@@ -1715,6 +1732,7 @@ function HotelFormFields({
   onChange: (patch: Partial<HotelForm>) => void;
   onSubmit: () => void;
   error?: string | null;
+  submitting?: boolean;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const toggleList = (key: 'property_types' | 'amenities', id: string) => {
@@ -2000,8 +2018,8 @@ function HotelFormFields({
         {error ? <Alert tone="error">{error}</Alert> : null}
 
         <div>
-          <Button type="submit">
-            <Search className="h-4 w-4" aria-hidden="true" />
+          <Button type="submit" isLoading={Boolean(submitting)} disabled={Boolean(submitting)}>
+            {!submitting && <Search className="h-4 w-4" aria-hidden="true" />}
             Search hotels
           </Button>
         </div>
@@ -3786,6 +3804,7 @@ function HotelPaginationFooter({
 function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
   const paged = useHotelPagedSearch(baseParams);
   const page1 = paged.page1;
+  const queryClient = useQueryClient();
 
   const loadedCount = paged.loadedCount;
   const providerTotal = paged.totalResults;
@@ -3794,6 +3813,13 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
 
   const rangeStart = loadedCount ? (currentPage - 1) * 20 + 1 : 0;
   const rangeEnd = Math.min(currentPage * 20, loadedCount);
+
+  const hotelErrorMessage = (() => {
+    const raw = (page1.error as unknown as { message?: string })?.message ?? paged.pageError ?? '';
+    const isNoKey = raw.toLowerCase().includes('api key') || raw.toLowerCase().includes('not configured') || raw.toLowerCase().includes('no search api key') || raw.toLowerCase().includes('serpapi');
+    if (isNoKey) return 'No search API key is configured. Go to Settings → Search API Keys to add your SerpApi key, or contact your administrator.';
+    return raw || 'We couldn\u0027t load hotels. Please try again.';
+  })();
 
   return (
     <div className="space-y-4">
@@ -3810,9 +3836,39 @@ function HotelResults({ baseParams }: { baseParams: HotelSearchParams }) {
       </div>
 
       {page1.isError ? (
-        <Alert tone="error">We couldn&apos;t load hotels. Please try again.</Alert>
+        <div className="space-y-3">
+          <Alert tone="error">{hotelErrorMessage}</Alert>
+          <Button
+            size="sm"
+            variant="secondary"
+            isLoading={page1.isFetching}
+            disabled={page1.isFetching}
+            onClick={() => {
+              if (page1.isFetching) return;
+              void queryClient.refetchQueries({ queryKey: searchKeys.hotels(baseParams) });
+            }}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Retry hotel search
+          </Button>
+        </div>
       ) : paged.pageError ? (
-        <Alert tone="error">{paged.pageError}</Alert>
+        <div className="space-y-3">
+          <Alert tone="error">{hotelErrorMessage}</Alert>
+          <Button
+            size="sm"
+            variant="secondary"
+            isLoading={page1.isFetching}
+            disabled={page1.isFetching}
+            onClick={() => {
+              if (page1.isFetching) return;
+              void queryClient.refetchQueries({ queryKey: searchKeys.hotels(baseParams) });
+            }}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Retry hotel search
+          </Button>
+        </div>
       ) : loadedCount > 0 ? (
         <>
           <p className="text-sm text-muted-foreground">
@@ -4020,8 +4076,10 @@ export function TravelSearchPage() {
   const flights = useFlightSearch(
     flightQuery ?? { departure_id: '', arrival_id: '', outbound_date: '' },
   );
+  const hotelIsFetching = useIsFetching({ queryKey: ['search', 'hotels'] }) > 0;
 
   const submitFlights = () => {
+    if (flights.isFetching) return;
     setFlightError(null);
     setReturnDateError(null);
     // Local validation BEFORE any provider request.
@@ -4093,10 +4151,17 @@ export function TravelSearchPage() {
     if (flightForm.round_trip && flightForm.return_date) {
       query.return_date = flightForm.return_date;
     }
+    const isSameQuery = flightQuery && JSON.stringify(flightQuery) === JSON.stringify(query);
     setFlightQuery(query);
+    // If the query hasn't changed (e.g., retry after failure), force a refetch
+    // so the user doesn't stay stuck on the previous error.
+    if (isSameQuery) {
+      void queryClient.refetchQueries({ queryKey: searchKeys.flights(query) });
+    }
   };
 
   const submitHotels = () => {
+    if (hotelIsFetching) return;
     setHotelError(null);
     const typed = hotelForm.destinationText.trim();
     if (!typed) {
@@ -4134,11 +4199,14 @@ export function TravelSearchPage() {
     if (hotelForm.bathrooms !== '') query.bathrooms = Number(hotelForm.bathrooms);
     if (hotelForm.min_price !== '') query.min_price = Number(hotelForm.min_price);
     if (hotelForm.max_price !== '') query.max_price = Number(hotelForm.max_price);
+    const isSameHotelQuery = hotelQuery && JSON.stringify(hotelQuery) === JSON.stringify(query);
     setHotelQuery(query);
+    if (isSameHotelQuery) {
+      void queryClient.refetchQueries({ queryKey: searchKeys.hotels(query) });
+    }
   };
 
-  const searching =
-    tab === 'flights' ? flights.isFetching : Boolean(hotelQuery && !hotelQuery.destination);
+  const searching = tab === 'flights' ? flights.isFetching : hotelIsFetching;
   const results = tab === 'flights' ? (flights.data ?? null) : null;
   const isError = tab === 'flights' ? flights.isError : false;
   const errorMessage = tab === 'flights' ? flightError : hotelError;
@@ -4218,12 +4286,13 @@ export function TravelSearchPage() {
           onChange={(patch) => setHotelForm((current) => ({ ...current, ...patch }))}
           onSubmit={submitHotels}
           error={errorMessage}
+          submitting={hotelIsFetching}
         />
       )}
 
       <SearchSummary tab={tab} flightQuery={flightQuery} hotelParams={hotelQuery} />
 
-      {tab === 'flights' ? (
+        {tab === 'flights' ? (
         searching && !results ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -4234,7 +4303,32 @@ export function TravelSearchPage() {
             <Skeleton className="h-32 w-full" />
           </div>
         ) : isError ? (
-          <Alert tone="error">We couldn&apos;t load flights. Please try again.</Alert>
+          <div className="space-y-3">
+            <Alert tone="error">
+              {(() => {
+                const msg = (flights.error as unknown as { message?: string })?.message ?? '';
+                const isNoKey = msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('not configured') || msg.toLowerCase().includes('no search api key') || msg.toLowerCase().includes('serpapi') || msg.toLowerCase().includes('search api key');
+                if (isNoKey) {
+                  return 'No search API key is configured. Go to Settings → Search API Keys to add your SerpApi key, or contact your administrator.';
+                }
+                return msg ? `Search failed: ${msg}` : 'We couldn\u0027t load flights. Please try again.';
+              })()}
+            </Alert>
+            <Button
+              size="sm"
+              variant="secondary"
+              isLoading={flights.isFetching}
+              disabled={flights.isFetching}
+              onClick={() => {
+                if (flights.isFetching) return;
+                if (flightQuery) void queryClient.refetchQueries({ queryKey: searchKeys.flights(flightQuery) });
+                else void flights.refetch();
+              }}
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Retry search
+            </Button>
+          </div>
         ) : results ? (
           <FlightResults
             data={results as FlightSearchResponse}

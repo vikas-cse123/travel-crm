@@ -14,6 +14,8 @@ import {
   normalizeFaqs,
   resolveWeblinkSectionOrder,
   normalizeDestinationExpertConfig,
+  validateQuotationPricing,
+  SERVICE_PRICING_BASES,
   type QuotationSnapshotImage,
   type DestinationExpertConfig,
   type QuotationInput,
@@ -1154,6 +1156,7 @@ function versionCreateData(
       unitSellingPrice: row.sellingPrice ?? 0,
       totalCost: serviceLines[index]?.totalCost ?? 0,
       totalSellingPrice: serviceLines[index]?.totalSellingPrice ?? 0,
+      pricingBasis: row.pricingBasis ?? null,
       taxCategory: row.taxCategory,
       notes: row.notes,
       images: row.imageSnapshotPresent
@@ -1294,6 +1297,7 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         unitSellingPrice,
         totalCost: _totalCost,
         totalSellingPrice: _totalSellingPrice,
+        pricingBasis: rawPricingBasis,
         images: rawImages,
         ...row
       }) => ({
@@ -1301,6 +1305,11 @@ function fromVersion(source: FullVersion): QuotationVersionInput {
         quantity: row.quantity.toNumber(),
         internalCost: unitCost.toNumber(),
         sellingPrice: unitSellingPrice.toNumber(),
+        // The DB column is free-form text; normalize to the shared enum so a
+        // stale/unknown value can never leak into the quotation input.
+        pricingBasis: (SERVICE_PRICING_BASES as readonly string[]).includes(rawPricingBasis ?? '')
+          ? (rawPricingBasis as (typeof SERVICE_PRICING_BASES)[number])
+          : null,
         images: (Array.isArray(rawImages) ? rawImages : []) as Array<{
           url: string;
           thumbnailUrl?: string | null;
@@ -1775,11 +1784,25 @@ async function resolveDestinationExpertPresentation(
     }),
   ]);
   if (!user) return null;
-  // Avatar priority: custom photo > gender default > no avatar. The section itself
-  // remains visible when the expert is selected and enabled.
+  // Snapshot fields from quotation config (imported preset) take precedence over live user data
+  const snap = config as unknown as Record<string, unknown>;
+  const snapJobTitle = typeof snap.jobTitle === 'string' ? (snap.jobTitle as string).trim() || null : (snap.jobTitle as string | null) ?? null;
+  const snapBio = typeof snap.bio === 'string' ? (snap.bio as string).trim() || null : (snap.bio as string | null) ?? null;
+  const snapSpecialization = typeof snap.specialization === 'string' ? (snap.specialization as string).trim() || null : (snap.specialization as string | null) ?? null;
+  const snapYears = snap.yearsOfExperience != null ? Number(snap.yearsOfExperience) : null;
+  const snapTrips = snap.tripsPlanned != null ? Number(snap.tripsPlanned) : null;
+  const snapLanguages = typeof snap.languages === 'string' ? (snap.languages as string).trim() || null : (snap.languages as string | null) ?? null;
+  const snapGender = snap.gender === 'MALE' || snap.gender === 'FEMALE' ? (snap.gender as string) : null;
+  const snapProfileImageUrl = typeof snap.profileImageUrl === 'string' && (snap.profileImageUrl as string).trim() ? (snap.profileImageUrl as string).trim() : null;
+  const hasSnapProfileImage = 'profileImageUrl' in snap;
+
+  // Avatar priority: snapshot custom photo > user custom photo > gender default > no avatar.
   let avatarUrl: string | null = null;
   let avatarKind: 'custom' | 'male' | 'female' | null = null;
-  if (user.profileImageObjectKey && user.profileImageConfirmedAt) {
+  if (hasSnapProfileImage && snapProfileImageUrl) {
+    avatarUrl = snapProfileImageUrl;
+    avatarKind = 'custom';
+  } else if (user.profileImageObjectKey && user.profileImageConfirmedAt) {
     try {
       avatarUrl = await storageService.createDownloadUrl(
         user.profileImageObjectKey,
@@ -1792,8 +1815,9 @@ async function resolveDestinationExpertPresentation(
     }
   }
   if (!avatarUrl) {
-    if (user.gender === 'MALE') avatarKind = 'male';
-    else if (user.gender === 'FEMALE') avatarKind = 'female';
+    const effectiveGender = snapGender ?? user.gender;
+    if (effectiveGender === 'MALE') avatarKind = 'male';
+    else if (effectiveGender === 'FEMALE') avatarKind = 'female';
   }
 
   // Per-quotation contact overrides (snapshot). Undefined means old quotation without the field
@@ -1822,13 +1846,13 @@ async function resolveDestinationExpertPresentation(
     email: effectiveEmail,
     phone: effectiveCall,
     whatsappNumber: effectiveWhatsapp,
-    jobTitle: user.jobTitle,
-    bio: user.bio,
-    specialization: user.specialization,
-    yearsOfExperience: user.yearsOfExperience,
-    tripsPlanned: user.tripsPlanned,
-    languages: user.languages,
-    gender: user.gender,
+    jobTitle: snapJobTitle ?? user.jobTitle,
+    bio: snapBio ?? user.bio,
+    specialization: snapSpecialization ?? user.specialization,
+    yearsOfExperience: snapYears ?? user.yearsOfExperience,
+    tripsPlanned: snapTrips ?? user.tripsPlanned,
+    languages: snapLanguages ?? user.languages,
+    gender: (snapGender as 'MALE' | 'FEMALE' | null) ?? user.gender,
     profileImageUrl: avatarUrl,
     avatarKind,
     // Internal-only: used by the PDF path to fetch the profile image bytes.
@@ -2740,6 +2764,23 @@ export const quotationsService = {
     if (quotation.status === 'ACCEPTED')
       throw new ConflictError('Accepted quotations are immutable.');
     if (version.status !== 'DRAFT') throw new ConflictError('This version is already finalized.');
+    // Backend pricing gate: an incomplete quotation can never be finalized
+    // into a silent ₹0 / wrong-total customer document. Errors block
+    // finalization; warnings are surfaced in the builder only.
+    const pricingIssues = validateQuotationPricing({
+      version: fromVersion(version) as unknown as Parameters<typeof validateQuotationPricing>[0]['version'],
+      quotation: {
+        adults: quotation.adults,
+        childrenWithBed: quotation.childrenWithBed,
+        childrenWithoutBed: quotation.childrenWithoutBed,
+        infants: quotation.infants,
+      },
+    }).filter((issue) => issue.severity === 'ERROR');
+    if (pricingIssues.length > 0) {
+      throw new ValidationError(
+        `Quotation pricing is incomplete: ${pricingIssues.map((issue) => issue.message).join(' ')}`,
+      );
+    }
     const result = await prisma.$transaction(async (tx) => {
       await tx.quotationVersion.updateMany({
         where: { quotationId: id, companyId: auth.companyId, status: 'FINALIZED' },
@@ -2772,8 +2813,6 @@ export const quotationsService = {
   ) {
     const quotation = await getQuotation(auth, id);
     const version = await getVersion(auth, id, versionId);
-    if (version.status === 'DRAFT')
-      throw new ConflictError('Finalize the version before generating a PDF.');
     const styleFileNameFilter =
       options.style === 'STYLISH'
         ? { endsWith: '-stylish-quotation.pdf' }
@@ -3608,8 +3647,7 @@ export const quotationsService = {
       ? await getVersion(auth, id, versionId)
       : (quotation.versions.find((version) => version.id === quotation.currentVersionId) ??
         quotation.versions[0]);
-    if (!selected || selected.status === 'DRAFT')
-      throw new ConflictError('A finalized version is required for a public link.');
+    if (!selected) throw new ConflictError('Quotation version not found.');
     // A normal Open Weblink (no explicit versionId) always targets the CURRENT
     // (latest) version. Keep publicVersionId in sync so the shared token serves
     // the latest customer-facing content, even when a token already exists.
@@ -3869,9 +3907,9 @@ export const quotationsService = {
     // is missing/stale the current version is authoritative.
     const version =
       quotation.versions.find((row) => row.id === quotation.currentVersionId) ??
-      quotation.versions.find((row) => row.id === quotation.publicVersionId);
-    if (!version || version.status === 'DRAFT')
-      throw new NotFoundError('Quotation version not available.');
+      quotation.versions.find((row) => row.id === quotation.publicVersionId) ??
+      quotation.versions[0];
+    if (!version) throw new NotFoundError('Quotation version not available.');
     const likelyBot = /bot|crawler|spider|preview|headless|health/i.test(options?.userAgent ?? '');
     if (!likelyBot) {
       const now = new Date();

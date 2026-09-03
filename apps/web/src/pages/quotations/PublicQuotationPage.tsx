@@ -43,6 +43,7 @@ import {
   stripItineraryDayPrefixes,
   resolveWeblinkSectionOrder,
   normalizeFaqs,
+  getFlightPerTravelerBreakdown,
 } from '@interscale/shared';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
@@ -1909,17 +1910,11 @@ export function PublicQuotationPage() {
   const cwobAgesText = formatAgeList(q.childrenWithoutBedAges);
   const infantAgesText = formatAgeList(q.infantAges);
 
-  const packageTotal =
-    Number(v.perAdultPrice ?? 0) * q.adults +
-    Number(v.perChildWithBedPrice ?? 0) * q.childrenWithBed +
-    Number(v.perChildWithoutBedPrice ?? 0) * q.childrenWithoutBed +
-    Number(v.perInfantPrice ?? 0) * q.infants;
-  const finalTotal = packageTotal > 0 ? packageTotal : Number(v.finalAmount);
   const pricing = resolveQuotationPricing({ version: v, quotation: q });
-  // Single authoritative total: section-wise mode is priced by the sum of the
-  // allocated sections (incl. Visa); TOTAL pricing uses the package total.
-  const displayTotal =
-    pricing.pricingMode === 'SECTION_WISE' ? pricing.sectionTotal : finalTotal;
+  // Single authoritative total from the shared pricing engine: the ACTIVE
+  // pricing method's subtotal with the discount → tax pipeline applied.
+  // Section-wise and traveler-wise amounts are never added together.
+  const displayTotal = pricing.grandTotal;
   // Public tax note: never the control values ("Do not show" / the sentinel).
   const taxNoteText = isPublicTaxNote(v.taxNote) ? v.taxNote.trim() : null;
   // "Secure Your Booking Now" shows only with a real amount AND a valid link.
@@ -2194,20 +2189,92 @@ export function PublicQuotationPage() {
                 {pricingSubheading ? (
                   <p className="mt-1 text-sm text-slate-500">{pricingSubheading}</p>
                 ) : null}
-                <div className="mt-5 space-y-3">
-                  {orderedSections
-                    .filter((s) => s.amount > 0)
-                    .map((s) => (
-                      <div key={s.id} className="flex items-center justify-between gap-4 text-sm">
-                        <span className="font-medium text-slate-700">{s.label}</span>
-                        <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
+                  <div className="mt-5 space-y-3">
+                    {orderedSections
+                      .filter((s) => s.amount > 0)
+                      .map((s) => {
+                        if (s.id === 'flight') {
+                          const breakdown = getFlightPerTravelerBreakdown(
+                            (v as unknown as { flightDetails?: unknown }).flightDetails,
+                            {
+                              adults: q.adults,
+                              childrenWithBed: q.childrenWithBed,
+                              childrenWithoutBed: q.childrenWithoutBed,
+                              infants: q.infants,
+                            },
+                          );
+                          if (breakdown) {
+                            return (
+                              <div key={s.id} className="space-y-2">
+                                <div className="flex items-center justify-between gap-4 text-sm font-semibold text-slate-900">
+                                  <span>Flights</span>
+                                  <span>{fmt(s.amount)}</span>
+                                </div>
+                                {breakdown.map((row) => (
+                                  <div key={row.label} className="flex items-center justify-between gap-4 text-sm">
+                                    <span className="text-slate-600">
+                                      {row.label}: {row.count} × {fmt(row.rate)}
+                                    </span>
+                                    <span className="font-medium text-slate-900">{fmt(row.total)}</span>
+                                  </div>
+                                ))}
+                                <div className="flex items-center justify-between gap-4 border-t pt-2 text-sm font-bold text-slate-900">
+                                  <span>Flight Total</span>
+                                  <span>{fmt(s.amount)}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+                        }
+                        if (s.id === 'customCharges') {
+                          const items = ((v as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
+                          return (
+                            <div key={s.id} className="space-y-2">
+                              <div className="flex items-center justify-between gap-4 text-sm font-semibold text-slate-900">
+                                <span>Custom Charges</span>
+                                <span>{fmt(s.amount)}</span>
+                              </div>
+                              {items.map((c, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-4 text-sm">
+                                  <span className="text-slate-600">{c.label}</span>
+                                  <span className="font-medium text-slate-900">{fmt(Number(c.amount))}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={s.id} className="flex items-center justify-between gap-4 text-sm">
+                            <span className="font-medium text-slate-700">{s.label}</span>
+                            <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
+                          </div>
+                        );
+                      })}
+                    {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (
+                      <div className="flex items-center justify-between border-t pt-3 text-sm font-semibold text-slate-900">
+                        <span>Subtotal</span>
+                        <span>{fmt(pricing.sectionTotal)}</span>
                       </div>
-                    ))}
-                  <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
-                    <span>Total Package Price</span>
-                    <span>{fmt(displayTotal)}</span>
+                    )}
+                    {pricing.discountAmount !== 0 && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">Discount</span>
+                        <span>-{fmt(pricing.discountAmount)}</span>
+                      </div>
+                    )}
+                    {pricing.taxAmount !== 0 && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">
+                          Tax{pricing.taxRate ? ` (${pricing.taxRate}%)` : ''}
+                        </span>
+                        <span>{fmt(pricing.taxAmount)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between border-t-2 border-slate-900 pt-3 text-base font-bold text-slate-900">
+                      <span>Grand Total</span>
+                      <span>{fmt(displayTotal)}</span>
+                    </div>
                   </div>
-                </div>
               </section>
             );
           })()}

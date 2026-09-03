@@ -12,6 +12,7 @@ import {
   resolveItineraryDayImage,
   resolveQuotationPdfSectionOrder,
   resolveQuotationPricing,
+  getFlightPerTravelerBreakdown,
   type QuotationPdfSectionId,
 } from '@interscale/shared';
 import {
@@ -1531,17 +1532,11 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           ['Infant', q.infants, v.perInfantPrice],
         ] as const
       ).filter(([, count, price]) => count > 0 && num(price) > 0);
-  const packageTotal =
-    num(v.perAdultPrice) * q.adults +
-    num(v.perChildWithBedPrice) * q.childrenWithBed +
-    num(v.perChildWithoutBedPrice) * q.childrenWithoutBed +
-    num(v.perInfantPrice) * q.infants;
-  const finalTotal =
-    pricing.pricingMode === 'SECTION_WISE'
-      ? pricing.sectionTotal
-      : packageTotal > 0
-        ? packageTotal
-        : num(v.finalAmount);
+  // The single authoritative PDF total, straight from the shared pricing
+  // engine: the ACTIVE method's subtotal with discount → tax applied. Section
+  // prices and traveler prices are never added together, and this number
+  // always matches the builder's Summary & Pricing.
+  const finalTotal = pricing.grandTotal;
 
   const priceRowHeights = priceRows.map(
     ([label, count, price]) =>
@@ -2914,9 +2909,46 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
       };
     };
     for (const section of orderedSections.filter((sectionRow) => sectionRow.amount > 0)) {
+      if (section.id === 'flight') {
+        const breakdown = getFlightPerTravelerBreakdown(
+          (v as unknown as { flightDetails?: unknown }).flightDetails,
+          {
+            adults: Number((q as unknown as { adults?: unknown }).adults ?? 0),
+            childrenWithBed: Number((q as unknown as { childrenWithBed?: unknown }).childrenWithBed ?? 0),
+            childrenWithoutBed: Number((q as unknown as { childrenWithoutBed?: unknown }).childrenWithoutBed ?? 0),
+            infants: Number((q as unknown as { infants?: unknown }).infants ?? 0),
+          },
+        );
+        if (breakdown) {
+          planner.add(pricingRow('Flights', money(section.amount), true));
+          for (const row of breakdown) {
+            planner.add(pricingRow(`${row.label}: ${row.count} × ${money(row.rate)}`, money(row.total)));
+          }
+          planner.add(pricingRow('Flight Total', money(section.amount), true));
+          continue;
+        }
+      }
+      if (section.id === 'customCharges') {
+        const items = ((v as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
+        planner.add(pricingRow('Custom Charges', money(section.amount), true));
+        for (const c of items) {
+          planner.add(pricingRow(c.label!.trim(), money(Number(c.amount))));
+        }
+        continue;
+      }
       planner.add(pricingRow(section.label, money(section.amount)));
     }
-    planner.add(pricingRow('Total Package Price', money(pricing.sectionTotal), true));
+    // Subtotal → Discount → Tax → Grand Total (same pipeline as the builder).
+    if (pricing.discountAmount > 0 || pricing.taxAmount > 0) {
+      planner.add(pricingRow('Subtotal', money(pricing.sectionTotal), true));
+    }
+    if (pricing.discountAmount > 0) {
+      planner.add(pricingRow('Discount', `- ${money(pricing.discountAmount)}`));
+    }
+    if (pricing.taxAmount > 0) {
+      planner.add(pricingRow(`Tax${pricing.taxRate ? ` (${pricing.taxRate}%)` : ''}`, money(pricing.taxAmount)));
+    }
+    planner.add(pricingRow('Grand Total', money(finalTotal), true));
   }
 
   // ==========================================================================

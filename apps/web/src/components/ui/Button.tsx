@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
@@ -26,19 +27,19 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean;
 }
 
-export function Button({
-  variant = 'primary',
-  size = 'md',
-  isLoading = false,
-  fullWidth = false,
-  className,
-  children,
-  disabled,
-  type = 'button',
-  ...props
-}: ButtonProps) {
+/**
+ * forwardRef so Radix primitives that clone a single child (`TooltipTrigger
+ * asChild`, `DropdownMenuTrigger asChild`, …) can attach their ref to the
+ * rendered <button> instead of logging "Function components cannot be given
+ * refs" and silently losing focus/tooltip anchoring.
+ */
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { variant = 'primary', size = 'md', isLoading = false, fullWidth = false, className, children, disabled, type = 'button', ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       type={type}
       // Disabled while loading so a double-click cannot submit twice.
       disabled={disabled === true || isLoading}
@@ -60,4 +61,4 @@ export function Button({
       {children}
     </button>
   );
-}
+});

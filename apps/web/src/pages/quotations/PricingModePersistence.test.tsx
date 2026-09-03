@@ -135,7 +135,6 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
     await userEvent.click(screen.getByLabelText('By Section'));
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
@@ -153,7 +152,6 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
     await userEvent.click(screen.getByLabelText('By Traveler'));
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
@@ -204,7 +202,6 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
     await userEvent.click(screen.getByLabelText('By Section'));
 
     release();
@@ -227,12 +224,12 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
-    // The two professional method labels render as radios.
+    // Step 0 pricing cards are visible at the top of the builder
     expect(screen.getByLabelText('By Section')).toBeInTheDocument();
     expect(screen.getByLabelText('By Traveler')).toBeInTheDocument();
     // A legacy TOTAL quotation loads as By Traveler (backward compatible).
-    expect(screen.getByLabelText('By Traveler')).toBeChecked();
+    expect(screen.getByLabelText('By Traveler')).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(await screen.findByRole('button', { name: 'Summary & Pricing' }));
     // Custom heading field with the default value.
     expect(screen.getByLabelText('Pricing heading')).toHaveValue('Price Breakdown');
     expect(screen.getByLabelText('Pricing subheading')).toBeInTheDocument();
@@ -243,7 +240,8 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     // The per-person breakdown shows travelers and the package total.
     await userEvent.click(await screen.findByRole('button', { name: 'Pricing Breakdown' }));
     expect(await screen.findByText('Number of Travelers')).toBeInTheDocument();
-    expect(screen.getAllByText('Total Package Price').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Package Subtotal').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Grand Total').length).toBeGreaterThan(0);
   });
 
   it('persists the custom heading, subheading and display order', async () => {

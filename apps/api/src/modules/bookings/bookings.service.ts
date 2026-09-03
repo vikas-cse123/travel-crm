@@ -8,6 +8,7 @@ import {
 import {
   PERMISSIONS,
   ROLE_NAME,
+  classifyServiceBucket,
   type BookingCostInput,
   type BookingDocumentUpload,
   type BookingEmailInput,
@@ -936,7 +937,21 @@ export const bookingsService = {
       });
       const services: Array<Prisma.BookingServiceCreateManyInput> = [];
       let sequence = 1;
-      for (const hotel of version.hotels.filter((row) => row.selected)) {
+      // Rows in DISABLED quotation sections contribute ₹0 to version.finalAmount
+      // and must never be imported as billable booking lines — the booking total
+      // must stay consistent with the authoritative quotation total. Section
+      // flags are optional; legacy snapshots (no flag) stay enabled.
+      const hotelSectionEnabled =
+        (version.hotelDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const sightseeingSectionEnabled =
+        (version.sightseeingDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const addOnSectionEnabled =
+        (version.addOnDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const flightSectionEnabled =
+        (version.flightDetails as { include?: boolean } | null | undefined)?.include !== false;
+      for (const hotel of version.hotels.filter(
+        (row) => row.selected && hotelSectionEnabled,
+      )) {
         services.push({
           companyId: auth.companyId,
           bookingId: booking.id,
@@ -967,6 +982,10 @@ export const bookingsService = {
         } as unknown as Prisma.BookingServiceCreateManyInput);
       }
       for (const service of version.services) {
+        const bucket = classifyServiceBucket(service.serviceType);
+        if (bucket === 'flight' && !flightSectionEnabled) continue;
+        if (bucket === 'sightseeing' && !sightseeingSectionEnabled) continue;
+        if (bucket === 'addon' && !addOnSectionEnabled) continue;
         services.push({
           companyId: auth.companyId,
           bookingId: booking.id,
@@ -1298,7 +1317,19 @@ export const bookingsService = {
       // Import finalized quotation services as stable booking snapshots.
       const services: Array<Prisma.BookingServiceCreateManyInput> = [];
       let sequence = 1;
-      for (const hotel of version.hotels.filter((row) => row.selected)) {
+      // Same disabled-section rule as the quotation→booking conversion above:
+      // rows in disabled sections never become billable booking lines.
+      const hotelSectionEnabled =
+        (version.hotelDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const sightseeingSectionEnabled =
+        (version.sightseeingDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const addOnSectionEnabled =
+        (version.addOnDetails as { include?: boolean } | null | undefined)?.include !== false;
+      const flightSectionEnabled =
+        (version.flightDetails as { include?: boolean } | null | undefined)?.include !== false;
+      for (const hotel of version.hotels.filter(
+        (row) => row.selected && hotelSectionEnabled,
+      )) {
         services.push({
           companyId: auth.companyId,
           bookingId: booking.id,
@@ -1319,6 +1350,10 @@ export const bookingsService = {
         });
       }
       for (const service of version.services) {
+        const bucket = classifyServiceBucket(service.serviceType);
+        if (bucket === 'flight' && !flightSectionEnabled) continue;
+        if (bucket === 'sightseeing' && !sightseeingSectionEnabled) continue;
+        if (bucket === 'addon' && !addOnSectionEnabled) continue;
         services.push({
           companyId: auth.companyId,
           bookingId: booking.id,

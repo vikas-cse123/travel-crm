@@ -13,6 +13,33 @@ type ResolvedPricing = {
 
 const toNum = (v: Prisma.Decimal | null | undefined): number | null => (v == null ? null : (v as Prisma.Decimal).toNumber());
 
+function parseCheckIn(input: Date | string | null | undefined): Date | null {
+  if (!input) return null;
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input;
+  }
+  const raw = String(input).trim();
+  if (!raw) return null;
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dmy = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (dmy) {
+    const dd = Number(dmy[1]);
+    const mm = Number(dmy[2]);
+    const yyyy = Number(dmy[3]);
+    const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // YYYY-MM-DD or ISO
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    // Parse YYYY-MM-DD as UTC to avoid timezone shift
+    const ymd = raw.slice(0, 10).split('-').map(Number);
+    const d = new Date(Date.UTC(ymd[0]!, ymd[1]! - 1, ymd[2]!));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /**
  * Resolve applicable master pricing for a room type on a given check-in date.
  * Precedence: Season (date within range) > Month (calendar month) > Base sellingPrice.
@@ -36,8 +63,7 @@ export async function resolveHotelRoomPricing(
   });
   if (!room) return null;
 
-  const checkIn = checkInDate ? new Date(checkInDate) : null;
-  const validCheckIn = checkIn && !Number.isNaN(checkIn.getTime()) ? checkIn : null;
+  const validCheckIn = parseCheckIn(checkInDate);
   const month = validCheckIn ? validCheckIn.getUTCMonth() + 1 : null;
 
   // Season covering checkIn
@@ -101,8 +127,7 @@ export function resolveHotelRoomPricingFromMaster(
   checkInDate: string | Date | null | undefined,
 ): ResolvedPricing | null {
   if (!roomType) return null;
-  const checkIn = checkInDate ? new Date(checkInDate) : null;
-  const valid = checkIn && !Number.isNaN(checkIn.getTime()) ? checkIn : null;
+  const valid = parseCheckIn(checkInDate);
   const month = valid ? valid.getUTCMonth() + 1 : null;
 
   if (valid) {
