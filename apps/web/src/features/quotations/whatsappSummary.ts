@@ -32,11 +32,6 @@ function sanitizeHeading(value: string): string {
     .trim();
 }
 
-function optionLabel(index: number): string {
-  const letter = String.fromCharCode(65 + index);
-  return `OPTION ${letter}`;
-}
-
 function hotelLine(hotel: QuotationVersion['hotels'][number]): string | null {
   const name = (hotel.hotelName ?? '').trim();
   if (!name) return null;
@@ -234,12 +229,9 @@ export function buildWhatsAppSummary(input: WhatsAppSummaryInput): string {
   if (travelDate || travellers || destinations) lines.push('');
 
   if (hotelOptions.length) {
-    lines.push('== *HOTEL OPTIONS* ==');
-    hotelOptions.forEach((entry, index) => {
-      lines.push(`*${optionLabel(index)}*`);
+    lines.push('== *HOTELS* ==');
+    hotelOptions.forEach((entry) => {
       lines.push(`• ${entry}`);
-      // Add a blank line between options for readability, but not after the last one.
-      if (index < hotelOptions.length - 1) lines.push('');
     });
     lines.push('');
   }

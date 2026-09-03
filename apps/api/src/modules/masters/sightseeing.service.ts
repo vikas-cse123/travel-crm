@@ -902,21 +902,45 @@ export const sightseeingService = {
       },
     });
 
+    const activities = await Promise.all(
+      rows.map(async (row) => {
+        const meta = presentMasterImages(row);
+        const effective = effectiveMasterImages(row);
+        const imagesWithUrl = await Promise.all(
+          meta.map(async (image) => {
+            const stored = effective.find((entry) => entry.id === image.id);
+            if (!stored) return image;
+            try {
+              const url = await storageService.createDownloadUrl(
+                stored.objectKey,
+                stored.fileName,
+                PRESIGN_TTL,
+              );
+              return { ...image, url };
+            } catch {
+              return image;
+            }
+          }),
+        );
+        return {
+          id: row.id,
+          title: row.title,
+          sequence: row.sequence,
+          estimatedHours: num(row.estimatedHours),
+          suggestedStartTime: row.suggestedStartTime,
+          description: row.description,
+          pricing: normalizePricing((row as Record<string, unknown>).pricing),
+          destination: row.destination,
+          city: row.city,
+          images: imagesWithUrl,
+        };
+      }),
+    );
+
     return {
       destination: destination ? { id: destination.id, name: destination.name } : null,
       city: cityId ? { id: cityId, name: cityNameResolved } : null,
-      activities: rows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        sequence: row.sequence,
-        estimatedHours: num(row.estimatedHours),
-        suggestedStartTime: row.suggestedStartTime,
-        description: row.description,
-        pricing: normalizePricing((row as Record<string, unknown>).pricing),
-        destination: row.destination,
-        city: row.city,
-        images: presentMasterImages(row),
-      })),
+      activities,
     };
   },
 };

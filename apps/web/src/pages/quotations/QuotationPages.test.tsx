@@ -16837,20 +16837,10 @@ describe('Public weblink — image viewer & Download PDF', () => {
     expect(container.ownerDocument.body.style.overflow).toBe('');
   });
 
-  it('shows a Download PDF action and triggers the quotation PDF download', async () => {
-    const anchorClick = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => undefined);
+  it('does not show a Download PDF action on the public weblink', async () => {
     renderGallery();
-    const button = await screen.findByRole('button', { name: 'Download PDF' });
-    expect(button).toBeInTheDocument();
-
-    await userEvent.click(button);
-    expect(anchorClick).toHaveBeenCalled();
-    expect(button).toHaveTextContent('Preparing…');
-    expect(button).toBeDisabled();
-
-    anchorClick.mockRestore();
+    await screen.findByRole('heading', { name: 'Your Hotels' });
+    expect(screen.queryByRole('button', { name: 'Download PDF' })).not.toBeInTheDocument();
   });
 });
 

@@ -698,6 +698,9 @@ function DayCard({
     form.setValue(fp(`${abase}.imageUrl`), null as never, { shouldDirty: true });
     const gallery = (picked?.images ?? []).map((image, index) => ({
       masterImageId: image.id,
+      // Include presigned URL when the activities feed already provides it, so
+      // the preview is immediate without waiting for the presentations fetch.
+      ...(image.url ? { url: image.url } : {}),
       alt: `${picked?.title ?? 'Sightseeing'} image ${index + 1}`,
     }));
     form.setValue(fp(`${abase}.images`), gallery as never, { shouldDirty: true });
@@ -862,6 +865,10 @@ function DayCard({
               const pdfImageUrl =
                 (form.watch(fp(`${abase}.pdfImageUrl`)) as string | null | undefined) ?? null;
               const imageUrlFor = (image: SightImage) => {
+                // Prefer an already-hydrated or eagerly-provided URL (saved
+                // snapshot or activities-feed presigned URL) for immediate
+                // preview, falling back to the batched presentations lookup.
+                if (image.url) return image.url;
                 const identity = image.masterImageId ?? image.id;
                 const viaMaster = identity
                   ? (presentations[sightseeingId ?? '']?.images.find(
@@ -869,7 +876,6 @@ function DayCard({
                     )?.url ?? null)
                   : null;
                 if (viaMaster) return viaMaster;
-                if (image.url) return image.url;
                 return null;
               };
               // A quotation gallery is authoritative once present. Legacy

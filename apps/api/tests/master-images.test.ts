@@ -96,6 +96,16 @@ describe('master image galleries', () => {
   });
 
   it('treats a persisted empty gallery as an intentional removal, not a legacy fallback', () => {
-    expect(effectiveMasterImages(legacyRow({ images: [] }))).toEqual([]);
+    expect(
+      effectiveMasterImages(
+        legacyRow({ images: [], imageObjectKey: null, imageFileName: null, imageConfirmedAt: null }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('recovers legacy image when gallery is inconsistently empty but legacy columns remain', () => {
+    // Regression for Universal Studios: older rows may have images=[] yet still
+    // carry a legacy objectKey. The gallery must not hide that image.
+    expect(effectiveMasterImages(legacyRow({ images: [] }))).toHaveLength(1);
   });
 });

@@ -38,7 +38,12 @@ const isStoredImage = (value: unknown): value is StoredMasterImage => {
 export function effectiveMasterImages(row: LegacyImageFields): StoredMasterImage[] {
   if (Array.isArray(row.images)) {
     const images = row.images.filter(isStoredImage);
-    if (images.length > 0 || row.images.length === 0) return images;
+    if (images.length > 0) return images;
+    // An explicitly empty array with no legacy columns is an intentional
+    // removal. If legacy columns still exist, the row is in an inconsistent
+    // state (e.g. older import that never wrote the gallery) — fall through
+    // to the legacy fallback so the existing image is not hidden.
+    if (row.images.length === 0 && !row.imageObjectKey) return images;
   }
   if (row.imageObjectKey && row.imageFileName && row.imageConfirmedAt) {
     return [

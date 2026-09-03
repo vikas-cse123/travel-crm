@@ -2330,12 +2330,22 @@ export function validateQuotationPricing(input: {
   const hotelDetails = v('hotelDetails') as { include?: boolean; amount?: unknown } | null | undefined;
   const sightseeingDetails = v('sightseeingDetails') as { include?: boolean } | null | undefined;
 
-  if (pricing.pricingMode === 'PER_PERSON' && pricing.travelerPricing.subtotal > 0) {
-    // Real per-traveler prices exist — the package total is authoritative.
+  // BY_TRAVELER means pricing is entered centrally in Summary & Pricing.
+  // No section-level pricing is required; the quotation is complete iff the
+  // traveler package total is configured. This must be the single source of
+  // truth for PER_PERSON mode — do NOT fall through to section checks.
+  if (pricing.pricingMode === 'PER_PERSON') {
+    if (pricing.travelerPricing.subtotal > 0) {
+      // Real per-traveler prices exist — the package total is authoritative.
+      return issues;
+    }
+    issues.push({
+      severity: 'ERROR',
+      section: 'pricing',
+      message: 'Traveler pricing is incomplete. Enter per-traveler prices or configure section pricing.',
+    });
     return issues;
   }
-  // PER_PERSON without per-traveler prices falls back to the section/itemized
-  // pipeline (legacy behavior), so the section checks below apply to it too.
 
   // SECTION_WISE — every ENABLED section must carry a real price. A section
   // that was never configured (null details) is not treated as enabled.
@@ -2476,12 +2486,9 @@ export function validateQuotationPricing(input: {
     issues.push({
       severity: hasAnyPricingConfig ? 'ERROR' : 'WARNING',
       section: 'pricing',
-      message:
-        pricing.pricingMode === 'PER_PERSON'
-          ? 'Traveler pricing is incomplete. Enter per-traveler prices or configure section pricing.'
-          : hasAnyPricingConfig
-            ? 'Quotation pricing is incomplete. No enabled section carries a selling price.'
-            : 'Quotation has no pricing configured yet.',
+      message: hasAnyPricingConfig
+        ? 'Quotation pricing is incomplete. No enabled section carries a selling price.'
+        : 'Quotation has no pricing configured yet.',
     });
   }
   return issues;

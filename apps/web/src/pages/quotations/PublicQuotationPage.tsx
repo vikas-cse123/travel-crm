@@ -12,7 +12,6 @@ import {
   Clock,
   Compass,
   CreditCard,
-  Download,
   ExternalLink,
   FileText,
   Image as ImageIcon,
@@ -1688,7 +1687,6 @@ export function PublicQuotationPage() {
   // Public Policies accordion: only one section is open at a time; Inclusions
   // (or the first non-empty section) starts open.
   const [openPolicy, setOpenPolicy] = useState<string | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const policyDefaultSetRef = useRef(false);
   useEffect(() => {
     if (policyDefaultSetRef.current || !data) return;
@@ -2073,34 +2071,6 @@ export function PublicQuotationPage() {
               >
                 {heroIntroduction}
               </p>
-            )}
-            {data.downloadUrl && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (downloadingPdf || !data.downloadUrl) return;
-                  setDownloadingPdf(true);
-                  try {
-                    const anchor = document.createElement('a');
-                    anchor.href = data.downloadUrl;
-                    anchor.target = '_blank';
-                    anchor.rel = 'noopener noreferrer';
-                    anchor.click();
-                  } catch {
-                    window.open(data.downloadUrl, '_blank', 'noopener,noreferrer');
-                  }
-                  window.setTimeout(() => setDownloadingPdf(false), 2000);
-                }}
-                disabled={downloadingPdf}
-                className="mt-6 inline-flex items-center gap-2 rounded-lg bg-white/95 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-white hover:shadow disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {downloadingPdf ? (
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent" />
-                ) : (
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                )}
-                {downloadingPdf ? 'Preparing…' : 'Download PDF'}
-              </button>
             )}
           </div>
         </header>

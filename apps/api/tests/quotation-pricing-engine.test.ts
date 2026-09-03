@@ -608,7 +608,7 @@ describe('validateQuotationPricing', () => {
   it('a fully empty draft only warns â€” legacy finalize flows keep working', () => {
     const issues = validateQuotationPricing({
       version: {
-        pricingMode: 'PER_PERSON',
+        pricingMode: 'SECTION_WISE',
         hotelDetails: null,
         hotels: [],
         services: [{ serviceType: 'HOTEL', quantity: 1, sellingPrice: 0 }],
@@ -616,6 +616,21 @@ describe('validateQuotationPricing', () => {
       quotation: PAX,
     });
     expect(issues.every((issue) => issue.severity === 'WARNING')).toBe(true);
+  });
+
+  it('empty PER_PERSON draft errors with traveler pricing incomplete', () => {
+    const issues = validateQuotationPricing({
+      version: {
+        pricingMode: 'PER_PERSON',
+        hotelDetails: null,
+        hotels: [],
+        services: [{ serviceType: 'HOTEL', quantity: 1, sellingPrice: 0 }],
+      },
+      quotation: PAX,
+    });
+    expect(issues.some((issue) => issue.severity === 'ERROR' && issue.section === 'pricing')).toBe(true);
+    expect(issues.every((issue) => issue.section === 'pricing')).toBe(true);
+    expect(issues[0]!.message).toMatch(/Traveler pricing is incomplete/);
   });
 
   it('a fully priced section quotation passes with no errors', () => {

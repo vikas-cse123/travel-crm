@@ -85,6 +85,7 @@ export function QuotationDetailsPage() {
   const [includeVehicles, setIncludeVehicles] = useState(false);
   const [whatsappHtml, setWhatsappHtml] = useState('');
   const whatsappEditorRef = useRef<HTMLDivElement | null>(null);
+  const [whatsappResetKey, setWhatsappResetKey] = useState(0);
   const [hasAttemptedFinalize, setHasAttemptedFinalize] = useState(false);
   // Public weblink URL once provisioned, tagged with the version it belongs to.
   // Reset whenever the current version changes so Copy/Open always target the
@@ -1075,12 +1076,18 @@ export function QuotationDetailsPage() {
               <button
                 type="button"
                 onClick={() => {
+                  // Regenerate from current quotation data, discarding manual edits in the editor
                   const base = buildBaseWhatsAppSummary();
                   const html = whatsappMarkdownToHtml(base);
+                  // Increment key to force remount and ensure immediate visual update, works repeatedly
+                  setWhatsappResetKey((k) => k + 1);
                   setWhatsappHtml(html);
-                  if (whatsappEditorRef.current) {
-                    whatsappEditorRef.current.innerHTML = html;
-                  }
+                  // Ensure DOM is updated even if html is same as before (repeated resets)
+                  requestAnimationFrame(() => {
+                    if (whatsappEditorRef.current) {
+                      whatsappEditorRef.current.innerHTML = html;
+                    }
+                  });
                 }}
                 className="ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:bg-white hover:text-slate-700"
                 title="Reset to generated default"
@@ -1135,6 +1142,7 @@ export function QuotationDetailsPage() {
             {/* Rich-text editor — shows formatted text, not markdown */}
             <div className="flex-1 overflow-auto bg-[#fcfcfc] p-4">
               <div
+                key={whatsappResetKey}
                 ref={whatsappEditorRef}
                 contentEditable
                 suppressContentEditableWarning

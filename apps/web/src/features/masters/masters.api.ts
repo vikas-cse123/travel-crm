@@ -1232,7 +1232,7 @@ export interface SightseeingActivity {
   suggestedStartTime: string | null;
   description: string | null;
   pricing?: Array<{ label: string; price: number | null }> | null;
-  images: MasterImageMeta[];
+  images: Array<MasterImageMeta & { url?: string | null }>;
   destination: { id: string; name: string };
   city: { id: string; name: string };
 }

@@ -72,6 +72,7 @@ import {
 } from '@/features/quotations/quotations.api';
 import { useSettings } from '@/features/settings/settings.api';
 import { useDestinationExpertPresets } from '@/features/destination-expert/destination-expert.api';
+import { apiClient } from '@/api/client';
 import {
   cruiseImageUrl,
   hotelImageUrl,
@@ -1317,6 +1318,7 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
   const cruiseMaster = (detail.data as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> }) ?? listMaster as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> } ?? null;
   const roomTypes = (cruiseMaster as unknown as { roomTypes?: Array<{ id: string; name: string; price?: number | null; status: string }> })?.roomTypes ?? [];
   const currency = (form.watch('currency') as string) ?? 'INR';
+  const isSectionWise = (form.watch('pricingMode' as never) as unknown as string) === 'SECTION_WISE';
   const manualOverridesRef = useRef<Set<string>>(new Set());
   const markOverridden = (lineIndex: number) => manualOverridesRef.current.add(`${serviceIndex}-${lineIndex}-roomRate`);
   const isOverridden = (lineIndex: number) => manualOverridesRef.current.has(`${serviceIndex}-${lineIndex}-roomRate`);
@@ -1369,7 +1371,7 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
                 <Trash2 className="h-4 w-4 text-red-600" /> Remove
               </Button>
             </div>
-            <div className="mt-2 grid gap-3 md:grid-cols-3">
+            <div className={`mt-2 grid gap-3 ${isSectionWise ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
               <label className="text-sm font-semibold text-slate-800 md:col-span-1">
                 Room Type <span className="text-red-500">*</span>
                 <span className="mt-1 block">
@@ -1403,7 +1405,7 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
                   />
                 </span>
                 {isUnavailable && <span className="mt-1 block text-[11px] text-red-600">The selected cruise room type is not available.</span>}
-                {showNoPriceHelper && !isUnavailable && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this room type.</span>}
+                {isSectionWise && showNoPriceHelper && !isUnavailable && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this room type.</span>}
               </label>
               <label className="text-sm font-semibold text-slate-800">
                 Number of Rooms
@@ -1420,29 +1422,35 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
                   className={`${field} mt-1`}
                 />
               </label>
-              <label className="text-sm font-semibold text-slate-800">
-                Room Rate / night ({currency})
-                <input
-                  aria-label={`Room ${lineIndex + 1} rate per night`}
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  {...form.register(`services.${serviceIndex}.cruiseRoomLines.${lineIndex}.roomRate` as never, {
-                    setValueAs: (v) => (v === '' || v == null ? null : Number(v)),
-                    onChange: () => markOverridden(lineIndex),
-                  })}
-                  className={`${field} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] font-normal text-slate-500">
-                  {rooms} × {nights || 1} nights × {roomRate.toFixed(2)} = {lineTotal.toFixed(2)}
-                </span>
-              </label>
+              {isSectionWise && (
+                <label className="text-sm font-semibold text-slate-800">
+                  Room Rate / night ({currency})
+                  <input
+                    aria-label={`Room ${lineIndex + 1} rate per night`}
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    {...form.register(`services.${serviceIndex}.cruiseRoomLines.${lineIndex}.roomRate` as never, {
+                      setValueAs: (v) => (v === '' || v == null ? null : Number(v)),
+                      onChange: () => markOverridden(lineIndex),
+                    })}
+                    className={`${field} mt-1`}
+                  />
+                  <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                    {rooms} × {nights || 1} nights × {roomRate.toFixed(2)} = {lineTotal.toFixed(2)}
+                  </span>
+                </label>
+              )}
             </div>
-            <div className={`mt-3 ${calculatedCard} flex items-center justify-between`}>
-              <span className={calculatedLabel}>Line Amount</span>
-              <span className={calculatedValue}>{currency} {lineTotal.toFixed(2)}</span>
-            </div>
-            <span className="block text-[11px] text-muted-foreground">{rooms} room{rooms!==1?'s':''} × {nights||1} night{(nights||1)!==1?'s':''} × {roomRate.toFixed(2)} — calculated</span>
+            {isSectionWise && (
+              <>
+                <div className={`mt-3 ${calculatedCard} flex items-center justify-between`}>
+                  <span className={calculatedLabel}>Line Amount</span>
+                  <span className={calculatedValue}>{currency} {lineTotal.toFixed(2)}</span>
+                </div>
+                <span className="block text-[11px] text-muted-foreground">{rooms} room{rooms!==1?'s':''} × {nights||1} night{(nights||1)!==1?'s':''} × {roomRate.toFixed(2)} — calculated</span>
+              </>
+            )}
           </div>
         );
       })}
@@ -2091,6 +2099,15 @@ export function QuotationBuilderPage() {
     defaultValues: defaults,
   });
   const itinerary = useFieldArray({ control: form.control, name: 'itinerary' });
+  const watchedPricingMode = useWatch({ control: form.control, name: 'pricingMode' });
+  const isSectionWiseMode = watchedPricingMode === 'SECTION_WISE';
+  const visibleTabs = useMemo(
+    () => TABS.filter((tab) => isSectionWiseMode || tab.key !== 'pricingBreakdown'),
+    [isSectionWiseMode],
+  );
+  useEffect(() => {
+    if (!isSectionWiseMode && activeTab === 'pricingBreakdown') setActiveTab('summary');
+  }, [activeTab, isSectionWiseMode]);
   const hotels = useFieldArray({ control: form.control, name: 'hotels' });
   /** Import saved hotel bookmarks into the quotation form (DB only). */
   const importHotelBookmark = (bookmarks: LiveSearchBookmark[]) => {
@@ -2146,6 +2163,9 @@ export function QuotationBuilderPage() {
   const settingsQuery = useSettings();
   const destinationExpertPresetsQuery = useDestinationExpertPresets();
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [expertImportLoading, setExpertImportLoading] = useState(false);
+  const [expertImportError, setExpertImportError] = useState<string | null>(null);
+  const [expertImportSuccess, setExpertImportSuccess] = useState<string | null>(null);
   const watchedExpertConfig = useWatch({ control: form.control, name: 'destinationExpertConfig' });
   const filteredDestinationExpertPresets = useMemo(() => {
     const all = destinationExpertPresetsQuery.data ?? [];
@@ -2507,11 +2527,18 @@ export function QuotationBuilderPage() {
         mergedStays.push({ ...stay });
       }
     }
+    // Initial hotel stays: only the first stay is created; additional date blocks must be added
+    // explicitly via "Add Section" / "Add Stay". This prevents automatic creation of multiple
+    // hotel sections when the itinerary has several cities/dates.
     // When the itinerary produces exactly one hotel city (even when it
     // appears multiple times interrupted by Cruise etc.), that single
     // Hotel Stay must cover the quotation's complete total nights, not
     // only the land-segment nights.
-    const itineraryHotelRows: HotelInputRow[] = mergedStays.map((stay, index) => {
+    const itineraryHotelRows: HotelInputRow[] = (() => {
+      const firstStay = mergedStays[0];
+      if (!firstStay) return [];
+      const stay = firstStay;
+      const index = 0;
       const isSingleHotelCity = mergedStays.length === 1 && leadTotalNights > (stay.nights ?? 0);
       const nightsForStay = isSingleHotelCity ? leadTotalNights : (stay.nights ?? 0);
       const checkIn = stay.arrivalDate ? new Date(stay.arrivalDate) : stayCursor;
@@ -2519,14 +2546,16 @@ export function QuotationBuilderPage() {
       if (derivedCheckOut) derivedCheckOut.setDate(derivedCheckOut.getDate() + nightsForStay);
       const checkOut = stay.departureDate ? new Date(stay.departureDate) : derivedCheckOut;
       if (checkOut) stayCursor = new Date(checkOut);
-      return emptyHotel(index + 1, true, {
-        city: stay.destination,
-        rooms: Math.max(1, quotation.data?.rooms ?? 1),
-        nights: nightsForStay,
-        checkInDate: checkIn ? new Date(checkIn) : null,
-        checkOutDate: checkOut,
-      });
-    });
+      return [
+        emptyHotel(index + 1, true, {
+          city: stay.destination,
+          rooms: Math.max(1, quotation.data?.rooms ?? 1),
+          nights: nightsForStay,
+          checkInDate: checkIn ? new Date(checkIn) : null,
+          checkOutDate: checkOut,
+        }),
+      ];
+    })();
     const fallbackNights =
       startStr && endStr
         ? Math.max(
@@ -5909,7 +5938,7 @@ export function QuotationBuilderPage() {
       </section>
 
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-1">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
@@ -6470,99 +6499,103 @@ export function QuotationBuilderPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-3 py-2">
                   <div className="text-sm">
                     <span className="font-semibold text-slate-800">Pricing Method: </span>
-                    <span className="font-medium text-brand-700">{isSectionWisePricing ? 'By Section' : 'By Traveler'}</span>
-                    <span className="ml-2 text-xs text-slate-500">{isSectionWisePricing ? 'Section totals are authoritative' : 'Traveler prices are authoritative'}</span>
+                    <span className="font-medium text-brand-700">{isSectionWiseMode ? 'By Section' : 'By Traveler'}</span>
+                    <span className="ml-2 text-xs text-slate-500">{isSectionWiseMode ? 'Section totals are authoritative' : 'Traveler prices are authoritative'}</span>
                   </div>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handlePricingMethodChange(isSectionWisePricing ? 'PER_PERSON' : 'SECTION_WISE')}>Change pricing method</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => handlePricingMethodChange(isSectionWiseMode ? 'PER_PERSON' : 'SECTION_WISE')}>Change pricing method</Button>
                 </div>
-                <label className="block max-w-sm text-sm font-semibold text-slate-800">
-                  Pricing Heading
-                  <input
-                    aria-label="Pricing heading"
-                    placeholder="Price Breakdown"
-                    {...form.register('pricingHeading')}
-                    className={`${field} mt-1`}
-                  />
-                </label>
-                <label className="block max-w-sm text-sm font-semibold text-slate-800">
-                  Pricing Subheading
-                  <input
-                    aria-label="Pricing subheading"
-                    placeholder="Optional"
-                    {...form.register('pricingSubheading')}
-                    className={`${field} mt-1`}
-                  />
-                </label>
-                <div className="max-w-md">
-                  <p className="text-sm font-semibold text-slate-800">Pricing Display Order</p>
-                  <p className="text-xs text-slate-500">
-                    The order used on the customer Weblink and PDF.
-                  </p>
-                  <ol className="mt-2 space-y-1">
-                    {(form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER).map(
-                      (id: string, index: number, arr: string[]) => {
-                      const label = PRICING_SECTION_LABELS[id] ?? id;
-                      return (
-                        <li
-                          key={id}
-                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
-                        >
-                          <span className="font-medium text-slate-700">{label}</span>
-                          <span className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              aria-label={`Move ${label} up`}
-                              disabled={index === 0}
-                              onClick={() => {
-                                const next = (
-                                  form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
-                                ).slice() as string[];
-                                const j = index - 1;
-                                if (j < 0 || j >= next.length) return;
-                                const removed = next.splice(index, 1)[0]!;
-                                next.splice(j, 0, removed);
-                                form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
-                              }}
-                              className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                {isSectionWiseMode && (
+                  <>
+                    <label className="block max-w-sm text-sm font-semibold text-slate-800">
+                      Pricing Heading
+                      <input
+                        aria-label="Pricing heading"
+                        placeholder="Price Breakdown"
+                        {...form.register('pricingHeading')}
+                        className={`${field} mt-1`}
+                      />
+                    </label>
+                    <label className="block max-w-sm text-sm font-semibold text-slate-800">
+                      Pricing Subheading
+                      <input
+                        aria-label="Pricing subheading"
+                        placeholder="Optional"
+                        {...form.register('pricingSubheading')}
+                        className={`${field} mt-1`}
+                      />
+                    </label>
+                    <div className="max-w-md">
+                      <p className="text-sm font-semibold text-slate-800">Pricing Display Order</p>
+                      <p className="text-xs text-slate-500">
+                        The order used on the customer Weblink and PDF.
+                      </p>
+                      <ol className="mt-2 space-y-1">
+                        {(form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER).map(
+                          (id: string, index: number, arr: string[]) => {
+                          const label = PRICING_SECTION_LABELS[id] ?? id;
+                          return (
+                            <li
+                              key={id}
+                              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
                             >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Move ${label} down`}
-                              disabled={index === arr.length - 1}
-                              onClick={() => {
-                                const next = (
-                                  form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
-                                ).slice() as string[];
-                                const j = index + 1;
-                                if (j < 0 || j >= next.length) return;
-                                const removed = next.splice(index, 1)[0]!;
-                                next.splice(j, 0, removed);
-                                form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
-                              }}
-                              className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
-                            >
-                              ↓
-                            </button>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      form.setValue('pricingDisplayOrder', DEFAULT_PRICING_ORDER, { shouldDirty: true })
-                    }
-                    className="mt-2 text-xs font-medium text-brand-700 hover:underline"
-                  >
-                    Reset order
-                  </button>
-                </div>
-                <p className="max-w-sm text-xs text-slate-500">
-                  The heading and pricing method will be used on the customer Weblink and PDF.
-                </p>
+                              <span className="font-medium text-slate-700">{label}</span>
+                              <span className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  aria-label={`Move ${label} up`}
+                                  disabled={index === 0}
+                                  onClick={() => {
+                                    const next = (
+                                      form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
+                                    ).slice() as string[];
+                                    const j = index - 1;
+                                    if (j < 0 || j >= next.length) return;
+                                    const removed = next.splice(index, 1)[0]!;
+                                    next.splice(j, 0, removed);
+                                    form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
+                                  }}
+                                  className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Move ${label} down`}
+                                  disabled={index === arr.length - 1}
+                                  onClick={() => {
+                                    const next = (
+                                      form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER
+                                    ).slice() as string[];
+                                    const j = index + 1;
+                                    if (j < 0 || j >= next.length) return;
+                                    const removed = next.splice(index, 1)[0]!;
+                                    next.splice(j, 0, removed);
+                                    form.setValue('pricingDisplayOrder', next, { shouldDirty: true });
+                                  }}
+                                  className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                                >
+                                  ↓
+                                </button>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          form.setValue('pricingDisplayOrder', DEFAULT_PRICING_ORDER, { shouldDirty: true })
+                        }
+                        className="mt-2 text-xs font-medium text-brand-700 hover:underline"
+                      >
+                        Reset order
+                      </button>
+                    </div>
+                    <p className="max-w-sm text-xs text-slate-500">
+                      The heading and pricing method will be used on the customer Weblink and PDF.
+                    </p>
+                  </>
+                )}
                 <label className="block max-w-sm text-sm font-semibold text-slate-800">
                   Currency <span className="text-red-500">*</span>
                   <select
@@ -7176,8 +7209,9 @@ export function QuotationBuilderPage() {
         {/* Pricing Breakdown — every priced quotation section from the shared
             resolver (single source of truth, incl. Visa). The section total is
             the grand total for SECTION_WISE; TOTAL pricing keeps the package
-            total as the single authoritative number. */}
+            total as the single authoritative number. Hidden for By Traveler. */}
         {activeTab === 'pricingBreakdown' &&
+          isSectionWiseMode &&
           (() => {
             const pricing = livePricing;
             const isSectionWise = pricing.pricingMode === 'SECTION_WISE';
@@ -7726,45 +7760,79 @@ export function QuotationBuilderPage() {
                       <Button
                         type="button"
                         variant="secondary"
-                        disabled={!selectedPresetId}
-                        onClick={() => {
-                          const preset = (destinationExpertPresetsQuery.data ?? []).find((p) => p.id === selectedPresetId);
-                          if (!preset) return;
-                          const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
-                          form.setValue(
-                            'destinationExpertConfig',
-                            {
+                        disabled={!selectedPresetId || expertImportLoading}
+                        onClick={async () => {
+                          if (!selectedPresetId) return;
+                          setExpertImportError(null);
+                          setExpertImportSuccess(null);
+                          setExpertImportLoading(true);
+                          try {
+                            // Fetch the actual saved preset from backend — ensures latest data and validates existence
+                            const preset = await apiClient.get<import('@/features/destination-expert/destination-expert.api').DestinationExpertPreset>(`/destination-expert-presets/${selectedPresetId}`);
+                            if (!preset) throw new Error('Preset not found.');
+                            const cur = form.getValues('destinationExpertConfig') as unknown as Record<string, unknown> | null;
+                            // Snapshot: copy master data into quotation-owned config; future master changes won't mutate this quotation
+                            const snapshot: Record<string, unknown> = {
                               ...(cur ?? {}),
                               enabled: true,
-                              expertUserId: user?.id ?? null,
-                              heading: preset.heading ?? null,
-                              customIntroduction: preset.customIntroduction ?? null,
-                              whatsappNumber: preset.whatsappNumber ?? null,
-                              callNumber: preset.callNumber ?? null,
-                              email: preset.email ?? null,
-                              showWhatsapp: preset.showWhatsapp,
-                              showCall: preset.showCall,
-                              showEmail: preset.showEmail,
-                              showExperience: preset.showExperience,
-                              showTripsPlanned: preset.showTripsPlanned,
-                              showLanguages: preset.showLanguages,
-                              jobTitle: (preset as unknown as { jobTitle?: string | null }).jobTitle ?? null,
-                              bio: (preset as unknown as { bio?: string | null }).bio ?? null,
-                              specialization: (preset as unknown as { specialization?: string | null }).specialization ?? null,
-                              yearsOfExperience: (preset as unknown as { yearsOfExperience?: number | null }).yearsOfExperience ?? null,
-                              tripsPlanned: (preset as unknown as { tripsPlanned?: number | null }).tripsPlanned ?? null,
-                              languages: (preset as unknown as { languages?: string | null }).languages ?? null,
-                              gender: (preset as unknown as { gender?: string | null }).gender ?? null,
-                              profileImageUrl: (preset as unknown as { profileImageUrl?: string | null }).profileImageUrl ?? null,
-                              destination: preset.destination ?? null,
-                            } as never,
-                            { shouldDirty: true },
-                          );
+                              expertUserId: user?.id ?? (preset as unknown as Record<string, unknown>).userId ?? null,
+                              heading: (preset.heading ?? '').trim() || null,
+                              customIntroduction: (preset.customIntroduction ?? '').trim() || null,
+                              whatsappNumber: (preset.whatsappNumber ?? '').trim() || null,
+                              callNumber: (preset.callNumber ?? '').trim() || null,
+                              email: (preset.email ?? '').trim().toLowerCase() || null,
+                              showWhatsapp: (preset.showWhatsapp ?? true) as boolean,
+                              showCall: (preset.showCall ?? true) as boolean,
+                              showEmail: (preset.showEmail ?? true) as boolean,
+                              showExperience: (preset.showExperience ?? true) as boolean,
+                              showTripsPlanned: (preset.showTripsPlanned ?? true) as boolean,
+                              showLanguages: (preset.showLanguages ?? true) as boolean,
+                              jobTitle: ((preset as unknown as Record<string, unknown>).jobTitle as string | null | undefined)?.trim() || null,
+                              bio: ((preset as unknown as Record<string, unknown>).bio as string | null | undefined)?.trim() || null,
+                              specialization: ((preset as unknown as Record<string, unknown>).specialization as string | null | undefined)?.trim() || null,
+                              yearsOfExperience: (preset as unknown as Record<string, unknown>).yearsOfExperience as number | null | undefined ?? null,
+                              tripsPlanned: (preset as unknown as Record<string, unknown>).tripsPlanned as number | null | undefined ?? null,
+                              languages: ((preset as unknown as Record<string, unknown>).languages as string | null | undefined)?.trim() || null,
+                              gender: ((preset as unknown as Record<string, unknown>).gender as string | null | undefined) as 'MALE' | 'FEMALE' | null ?? null,
+                              destination: (preset.destination ?? '').trim() || null,
+                            };
+                            // Avatar: preset may carry profileImageUrl or legacy objectKey — prefer URL if present
+                            const profileImageUrl = (preset as unknown as Record<string, unknown>).profileImageUrl as string | null | undefined;
+                            const profileImageObjectKey = (preset as unknown as Record<string, unknown>).profileImageObjectKey as string | null | undefined;
+                            if (profileImageUrl && typeof profileImageUrl === 'string' && profileImageUrl.trim()) {
+                              snapshot.profileImageUrl = profileImageUrl.trim();
+                            } else if (profileImageObjectKey && typeof profileImageObjectKey === 'string' && profileImageObjectKey.trim()) {
+                              // No URL available from preset — leave as null and let gender default handle avatar; quotation owns its own snapshot
+                              snapshot.profileImageUrl = null;
+                            } else {
+                              snapshot.profileImageUrl = null;
+                            }
+                            form.setValue('destinationExpertConfig', snapshot as never, { shouldDirty: true });
+                            setExpertImportSuccess(`Imported ${preset.destination} preset successfully.`);
+                            // Clear success after 3s
+                            window.setTimeout(() => setExpertImportSuccess(null), 3000);
+                          } catch (err) {
+                            const message = err instanceof Error ? err.message : 'Failed to import preset.';
+                            // Do not clear existing quotation expert data on failed import
+                            setExpertImportError(message);
+                          } finally {
+                            setExpertImportLoading(false);
+                          }
                         }}
                       >
-                        Import
+                        {expertImportLoading ? 'Importing…' : 'Import'}
                       </Button>
                     </div>
+                    {expertImportError && (
+                      <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                        {expertImportError}
+                      </p>
+                    )}
+                    {expertImportSuccess && (
+                      <p role="status" className="mt-2 text-xs font-medium text-emerald-600">
+                        {expertImportSuccess}
+                      </p>
+                    )}
                     <p className="text-xs text-slate-400">Presets are managed in Settings → Destination Expert (per user, per destination).</p>
                     <label className="block text-sm font-semibold text-slate-800">
                       Heading
