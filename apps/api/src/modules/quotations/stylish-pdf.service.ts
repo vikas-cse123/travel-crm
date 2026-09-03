@@ -2486,20 +2486,6 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
           continue;
         }
       }
-      if (section.id === 'customCharges') {
-        const items = ((input.version as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
-        if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
-        doc.font('Bold').fontSize(10).fillColor(NAVY).text('Custom Charges', labelX, y, { width: CONTENT_W - 42 - amountW });
-        doc.font('Bold').fontSize(10).fillColor(NAVY).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });
-        y += 16;
-        for (const c of items) {
-          if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
-          doc.font('Body').fontSize(10).fillColor(INK).text(c.label!.trim(), labelX, y, { width: CONTENT_W - 42 - amountW });
-          doc.font('Body').fontSize(10).fillColor(INK).text(money(Number(c.amount), pricing.currency), amountX, y, { width: amountW, align: 'right' });
-          y += 16;
-        }
-        continue;
-      }
       if (y + 18 > bodyBottom()) addContentPage(pricingHeading);
       doc.font('Body').fontSize(10).fillColor(INK).text(section.label, labelX, y, { width: CONTENT_W - 42 - amountW });
       doc.font('Bold').fontSize(10).fillColor(INK).text(money(section.amount, pricing.currency), amountX, y, { width: amountW, align: 'right' });

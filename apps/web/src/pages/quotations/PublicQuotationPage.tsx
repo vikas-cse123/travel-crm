@@ -2226,27 +2226,15 @@ export function PublicQuotationPage() {
                             );
                           }
                         }
-                        if (s.id === 'customCharges') {
-                          const items = ((v as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
-                          return (
-                            <div key={s.id} className="space-y-2">
-                              <div className="flex items-center justify-between gap-4 text-sm font-semibold text-slate-900">
-                                <span>Custom Charges</span>
-                                <span>{fmt(s.amount)}</span>
-                              </div>
-                              {items.map((c, idx) => (
-                                <div key={idx} className="flex items-center justify-between gap-4 text-sm">
-                                  <span className="text-slate-600">{c.label}</span>
-                                  <span className="font-medium text-slate-900">{fmt(Number(c.amount))}</span>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        }
                         return (
-                          <div key={s.id} className="flex items-center justify-between gap-4 text-sm">
-                            <span className="font-medium text-slate-700">{s.label}</span>
-                            <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
+                          <div key={s.id} className="space-y-1">
+                            <div className="flex items-center justify-between gap-4 text-sm">
+                              <span className="font-medium text-slate-700">{s.label}</span>
+                              <span className="font-semibold text-slate-900">{fmt(s.amount)}</span>
+                            </div>
+                            {(s as { description?: string | null }).description ? (
+                              <p className="text-xs text-slate-500">{(s as { description?: string | null }).description}</p>
+                            ) : null}
                           </div>
                         );
                       })}

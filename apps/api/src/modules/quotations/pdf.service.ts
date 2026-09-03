@@ -2928,14 +2928,6 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
           continue;
         }
       }
-      if (section.id === 'customCharges') {
-        const items = ((v as unknown as { customCharges?: Array<{ label?: string; amount?: number }> }).customCharges ?? []).filter((c) => c.label?.trim() && Number(c.amount) > 0);
-        planner.add(pricingRow('Custom Charges', money(section.amount), true));
-        for (const c of items) {
-          planner.add(pricingRow(c.label!.trim(), money(Number(c.amount))));
-        }
-        continue;
-      }
       planner.add(pricingRow(section.label, money(section.amount)));
     }
     // Subtotal → Discount → Tax → Grand Total (same pipeline as the builder).

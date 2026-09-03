@@ -11,6 +11,7 @@ import {
   Building2,
   ChevronDown,
   ImageIcon,
+  Pencil,
   Plus,
   Save,
   Star,
@@ -1988,6 +1989,11 @@ export function QuotationBuilderPage() {
   // Local-only expand/collapse for the Weblink Section Order accordion. UI
   // state only — never persisted. Always starts collapsed on every load.
   const [sectionOrderOpen, setSectionOrderOpen] = useState(false);
+  // Extra Charges drawer state — By Section only
+  const [extraChargeDrawerOpen, setExtraChargeDrawerOpen] = useState(false);
+  const [editingExtraIndex, setEditingExtraIndex] = useState<number | null>(null);
+  const [extraDraft, setExtraDraft] = useState<{ label: string; amount: string; description: string; category: string }>({ label: '', amount: '', description: '', category: '' });
+  const [extraDraftError, setExtraDraftError] = useState('');
   useEffect(() => {
     setWeblinkNameValue(quotation.data?.publicSlug ?? '');
   }, [quotation.data?.publicSlug]);
@@ -2667,7 +2673,12 @@ export function QuotationBuilderPage() {
       visaGstPercent: Number(version.visaGstPercent ?? 0),
       visaVfsCharge: Number(version.visaVfsCharge ?? 0),
       customCharges: Array.isArray((version as unknown as { customCharges?: unknown }).customCharges)
-        ? ((version as unknown as { customCharges: Array<{ label: string; amount: number }> }).customCharges ?? [])
+        ? ((version as unknown as { customCharges: Array<{ label: string; amount: number; description?: string | null; category?: string | null }> }).customCharges ?? []).map((c) => ({
+            label: c.label,
+            amount: c.amount,
+            description: (c as { description?: string | null }).description ?? null,
+            category: (c as { category?: string | null }).category ?? null,
+          }))
         : [],
       flightDetails: version.flightDetails
         ? {
@@ -3606,7 +3617,12 @@ export function QuotationBuilderPage() {
             .filter((hotel) => (hotel.hotelName ?? '').trim().length > 0),
           customCharges: (value.customCharges ?? [])
             .filter((c) => c.label?.trim() && Number(c.amount) > 0)
-            .map((c) => ({ label: c.label!.trim(), amount: Number(c.amount) })),
+            .map((c) => ({
+              label: c.label!.trim(),
+              amount: Number(c.amount),
+              description: (c as { description?: string | null }).description?.trim() || null,
+              category: (c as { category?: string | null }).category?.trim() || null,
+            })),
           services: seq(
             (persistedServices as unknown as QuotationVersionInput['services']).map((service: QuotationVersionInput['services'][number]) => {
                 if ((service as unknown as { serviceType: string })?.serviceType !== 'CRUISE') return service;
@@ -6809,60 +6825,216 @@ export function QuotationBuilderPage() {
 
             {isSectionWisePricing && (
               <section className="rounded-xl border p-5">
-                <h3 className="text-base font-semibold text-slate-800">Custom Charges</h3>
-                <p className="mt-0.5 text-xs text-slate-500">Only for By Section pricing. Fixed total per item, unlimited.</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-800">Extra Charges</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">Fixed package amounts — each appears as its own line in the Price Breakdown, like Flights or Hotels. Only for By Section.</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setEditingExtraIndex(null);
+                      setExtraDraft({ label: '', amount: '', description: '', category: '' });
+                      setExtraDraftError('');
+                      setExtraChargeDrawerOpen(true);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" /> Add Extra Charge
+                  </Button>
+                </div>
                 {(() => {
-                  const customCharges = (form.watch('customCharges') ?? []) as Array<{ label?: string; amount?: number }>;
-                  const add = () => {
-                    const next = [...customCharges, { label: '', amount: 0 }];
-                    form.setValue('customCharges', next as never, { shouldDirty: true });
-                  };
-                  const remove = (idx: number) => {
-                    const next = customCharges.filter((_, i) => i !== idx);
-                    form.setValue('customCharges', next as never, { shouldDirty: true });
-                  };
-                  const updateLabel = (idx: number, label: string) => {
-                    const next = customCharges.map((c, i) => (i === idx ? { ...c, label } : c));
-                    form.setValue('customCharges', next as never, { shouldDirty: true });
-                  };
-                  const updateAmount = (idx: number, amount: number) => {
-                    const next = customCharges.map((c, i) => (i === idx ? { ...c, amount } : c));
-                    form.setValue('customCharges', next as never, { shouldDirty: true });
-                  };
+                  const charges = (form.watch('customCharges') ?? []) as Array<{ label?: string; amount?: number; description?: string | null; category?: string | null }>;
+                  if (charges.length === 0) {
+                    return (
+                      <div className="mt-4 rounded-lg border border-dashed p-6 text-center">
+                        <p className="text-sm font-medium text-slate-700">No extra charges yet</p>
+                        <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">Charges are fixed package amounts — not multiplied by traveler count. Add a guide fee, travel insurance, tips, etc.</p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => {
+                            setEditingExtraIndex(null);
+                            setExtraDraft({ label: '', amount: '', description: '', category: '' });
+                            setExtraDraftError('');
+                            setExtraChargeDrawerOpen(true);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" /> Add Extra Charge
+                        </Button>
+                      </div>
+                    );
+                  }
                   return (
-                    <div className="mt-3 space-y-3">
-                      {customCharges.length === 0 && <p className="text-sm text-slate-500">No custom charges added.</p>}
-                      {customCharges.map((c, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <input
-                            aria-label={`Custom charge ${idx + 1} label`}
-                            placeholder="Label e.g. Gym"
-                            value={c.label ?? ''}
-                            onChange={(e) => updateLabel(idx, e.target.value)}
-                            className={`${field} flex-1`}
-                          />
-                          <div className="flex w-40 items-stretch overflow-hidden rounded-lg border border-slate-300">
-                            <span className="flex items-center bg-slate-100 px-2 text-slate-500">{currency}</span>
-                            <input
-                              aria-label={`Custom charge ${idx + 1} amount`}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={c.amount ?? 0}
-                              onChange={(e) => updateAmount(idx, Math.max(0, Number(e.target.value) || 0))}
-                              className="min-w-0 flex-1 bg-card px-2 py-2 text-sm outline-none"
-                            />
+                    <div className="mt-4 space-y-2">
+                      {charges.map((c, idx) => (
+                        <div key={idx} className="group flex items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 hover:bg-slate-50">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-slate-800">{c.label}</p>
+                            {c.description ? <p className="truncate text-xs text-slate-500">{c.description}</p> : null}
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              {c.category ? <span className="rounded bg-slate-100 px-1.5 py-0.5">{c.category}</span> : null}
+                              <span>Entire Package · Fixed</span>
+                            </div>
                           </div>
-                          <Button type="button" variant="ghost" onClick={() => remove(idx)}><Trash2 className="h-4 w-4" /></Button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <span className="mr-2 text-sm font-semibold text-slate-900">{formatMoney(Number(c.amount) || 0)}</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Edit extra charge ${c.label}`}
+                              onClick={() => {
+                                setEditingExtraIndex(idx);
+                                setExtraDraft({ label: c.label ?? '', amount: String(c.amount ?? ''), description: c.description ?? '', category: c.category ?? '' });
+                                setExtraDraftError('');
+                                setExtraChargeDrawerOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Delete extra charge ${c.label}`}
+                              onClick={() => {
+                                if (!window.confirm(`Delete "${c.label}"?`)) return;
+                                const next = charges.filter((_, i) => i !== idx);
+                                form.setValue('customCharges', next as never, { shouldDirty: true });
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
-                      <Button type="button" size="sm" variant="secondary" onClick={add}><Plus className="h-4 w-4" /> Add Custom Charge</Button>
-                      {customCharges.length > 0 && (
-                        <p className="text-sm font-medium">Custom Charges Total: {formatMoney(customCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0))}</p>
-                      )}
+                      <p className="text-sm font-medium text-slate-700">Extra Charges Total: {formatMoney(charges.reduce((s, c) => s + (Number(c.amount) || 0), 0))}</p>
                     </div>
                   );
                 })()}
+                {extraChargeDrawerOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setExtraChargeDrawerOpen(false)}>
+                    <div
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={editingExtraIndex === null ? 'Add Extra Charge' : 'Edit Extra Charge'}
+                      className="w-full max-w-lg rounded-xl bg-card p-5 shadow-xl"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-base font-semibold text-slate-900">{editingExtraIndex === null ? 'Add Extra Charge' : 'Edit Extra Charge'}</h4>
+                          <p className="mt-0.5 text-xs text-slate-500">Fixed package amount — applied once to the section-wise total, not per traveler.</p>
+                        </div>
+                        <button type="button" aria-label="Close" onClick={() => setExtraChargeDrawerOpen(false)} className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                          <X className="h-5 w-5" aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="mt-4 space-y-4">
+                        {extraDraftError && <p role="alert" className="rounded bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{extraDraftError}</p>}
+                        <label className="block text-sm font-medium text-slate-700">
+                          Charge Name <span className="text-red-500">*</span>
+                          <input
+                            autoFocus
+                            className={`${field} mt-1`}
+                            placeholder="e.g. Guide, Travel Insurance, Tips"
+                            value={extraDraft.label}
+                            onChange={(event) => setExtraDraft((s) => ({ ...s, label: event.target.value }))}
+                            aria-label="Charge Name"
+                          />
+                          <span className="mt-1 block text-xs font-normal text-slate-500">Shown as its own line in the breakdown, like Flights or Hotels.</span>
+                        </label>
+                        <label className="block text-sm font-medium text-slate-700">
+                          Description <span className="font-normal text-slate-400">(optional)</span>
+                          <textarea
+                            className={`${field} mt-1`}
+                            rows={2}
+                            placeholder="Optional details shown on expand"
+                            value={extraDraft.description}
+                            onChange={(event) => setExtraDraft((s) => ({ ...s, description: event.target.value }))}
+                            aria-label="Charge description"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium text-slate-700">
+                          Amount <span className="text-red-500">*</span>
+                          <div className="mt-1 flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
+                            <span className="flex items-center bg-slate-100 px-3 text-sm text-slate-500">{currency}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="e.g. 9999"
+                              className="min-w-0 flex-1 bg-card px-3 py-2 text-sm outline-none"
+                              value={extraDraft.amount}
+                              onChange={(event) => setExtraDraft((s) => ({ ...s, amount: event.target.value }))}
+                              aria-label="Charge amount"
+                            />
+                          </div>
+                        </label>
+                        <label className="block text-sm font-medium text-slate-700">
+                          Category <span className="font-normal text-slate-400">(optional)</span>
+                          <input
+                            className={`${field} mt-1`}
+                            placeholder="e.g. Service, Fee"
+                            value={extraDraft.category}
+                            onChange={(event) => setExtraDraft((s) => ({ ...s, category: event.target.value }))}
+                            aria-label="Charge category"
+                          />
+                        </label>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          Apply To: <span className="font-medium text-slate-800">Entire Package</span> · Fixed amount, not multiplied by traveler count
+                        </div>
+                      </div>
+                      <div className="mt-6 flex justify-end gap-2">
+                        <Button variant="secondary" type="button" onClick={() => setExtraChargeDrawerOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const label = extraDraft.label.trim();
+                            if (!label) {
+                              setExtraDraftError('Charge Name is required.');
+                              return;
+                            }
+                            if (label.length > 100) {
+                              setExtraDraftError('Charge Name must be 100 characters or fewer.');
+                              return;
+                            }
+                            const amountNum = Number(extraDraft.amount);
+                            if (!extraDraft.amount.trim() || Number.isNaN(amountNum) || amountNum <= 0) {
+                              setExtraDraftError('Enter a valid Amount greater than 0.');
+                              return;
+                            }
+                            if (amountNum > 999999999999) {
+                              setExtraDraftError('Amount is too large.');
+                              return;
+                            }
+                            const nextCharge = {
+                              label,
+                              amount: Math.round(amountNum * 100) / 100,
+                              description: extraDraft.description.trim() || null,
+                              category: extraDraft.category.trim() || null,
+                            };
+                            const current = (form.getValues('customCharges') as unknown as Array<{ label: string; amount: number; description?: string | null; category?: string | null }>) ?? [];
+                            let next: typeof current;
+                            if (editingExtraIndex === null) {
+                              next = [...current, nextCharge];
+                            } else {
+                              next = current.map((c, i) => (i === editingExtraIndex ? nextCharge : c));
+                            }
+                            form.setValue('customCharges', next as never, { shouldDirty: true });
+                            setExtraChargeDrawerOpen(false);
+                            setEditingExtraIndex(null);
+                            setExtraDraft({ label: '', amount: '', description: '', category: '' });
+                            setExtraDraftError('');
+                          }}
+                        >
+                          {editingExtraIndex === null ? 'Add Charge' : 'Save Changes'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -7030,19 +7202,12 @@ export function QuotationBuilderPage() {
           (() => {
             const pricing = livePricing;
             const isSectionWise = pricing.pricingMode === 'SECTION_WISE';
-            const destExpertEnabled =
-              (watchedExpertConfig as { enabled?: boolean } | null)?.enabled === true;
             const order = form.watch('pricingDisplayOrder') ?? DEFAULT_PRICING_ORDER;
-            const sections: Array<{ id: string; label: string; amount: number }> = [
-              ...[...pricing.sections].sort((a, b) => {
+            const sections = [...pricing.sections].sort((a, b) => {
                 const ia = order.indexOf(a.id);
                 const ib = order.indexOf(b.id);
                 return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib);
-              }),
-              ...(destExpertEnabled
-                ? [{ id: 'destinationExpert', label: 'Destination Expert', amount: 0 }]
-                : []),
-            ];
+              });
             // The grand total follows the same rule as the summary card: the
             // authoritative pipeline total (subtotal − discount + tax) of the
             // ACTIVE pricing method only.
@@ -7081,12 +7246,17 @@ export function QuotationBuilderPage() {
                             <div key={section.id} className="px-4 py-2.5 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="font-medium text-slate-700">{section.label}</span>
-                                <span className="text-slate-900">
-                                  {section.id === 'destinationExpert' && section.amount === 0
-                                    ? '—'
-                                    : formatMoney(section.amount)}
-                                </span>
+                                <span className="font-semibold text-slate-900">{formatMoney(section.amount)}</span>
                               </div>
+                              {section.id.startsWith('extra-') && (section as { description?: string | null }).description ? (
+                                <details className="mt-1">
+                                  <summary className="cursor-pointer text-xs text-brand-700 hover:underline">Details</summary>
+                                  <p className="mt-1 rounded bg-slate-50 p-2 text-xs text-slate-600">{(section as { description?: string | null }).description}</p>
+                                </details>
+                              ) : null}
+                              {section.id.startsWith('extra-') && (section as { category?: string | null }).category ? (
+                                <span className="mt-1 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{(section as { category?: string | null }).category}</span>
+                              ) : null}
                               {section.id === 'hotel' && hotelBreakdownRows.length > 0 && (
                                 <details className="mt-1">
                                   <summary className="cursor-pointer text-xs text-brand-700 hover:underline">
@@ -7133,19 +7303,6 @@ export function QuotationBuilderPage() {
                                   </div>
                                 </details>
                               )}
-                              {section.id === 'customCharges' && (() => {
-                                const items = ((form.watch('customCharges') ?? []) as Array<{ label?: string; amount?: number }>).filter((c) => c.label?.trim() && Number(c.amount) > 0);
-                                return items.length > 0 ? (
-                                  <div className="mt-1 space-y-1 rounded-lg bg-slate-50 p-2 text-xs">
-                                    {items.map((c, idx) => (
-                                      <div key={idx} className="flex justify-between">
-                                        <span>{c.label}</span>
-                                        <span>{formatMoney(Number(c.amount))}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null;
-                              })()}
                             </div>
                           ))}
                           {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (

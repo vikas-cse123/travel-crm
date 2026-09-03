@@ -1218,11 +1218,14 @@ export const quotationVersionInputSchema = z
     visaGstPercent: money.max(100).nullable().optional(),
     visaVfsCharge: optionalMoney,
     // Custom Charges — only for By Section pricing, FIXED TOTAL each.
+    // Each charge is a fixed package amount (never multiplied by traveler count).
     customCharges: z
       .array(
         z.object({
           label: z.string().trim().min(1).max(100),
           amount: money,
+          description: optionalText(500),
+          category: optionalText(50),
         }),
       )
       .max(50)
@@ -1728,9 +1731,11 @@ export function normalizePricingMode(value: unknown): PricingMode {
 }
 
 export interface SectionPrice {
-  id: 'flight' | 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon' | 'visa' | 'customCharges';
+  id: 'flight' | 'hotel' | 'cruise' | 'vehicle' | 'sightseeing' | 'addon' | 'visa' | 'customCharges' | string;
   label: string;
   amount: number;
+  description?: string | null;
+  category?: string | null;
 }
 
 export interface PaxCounts {
@@ -2231,10 +2236,18 @@ export function resolveQuotationPricing(input: {
       ) / 100;
 
   const isSectionWise = pricingMode === 'SECTION_WISE';
-  const customChargesRaw = (input.version.customCharges ?? []) as Array<{ label?: unknown; amount?: unknown }>;
-  const customChargesAmount = isSectionWise
-    ? Math.round(customChargesRaw.reduce((sum, c) => sum + toNumber(c.amount), 0) * 100) / 100
-    : 0;
+  const customChargesRaw = (input.version.customCharges ?? []) as Array<{ label?: unknown; amount?: unknown; description?: unknown; category?: unknown }>;
+  const extraChargeSections: SectionPrice[] = isSectionWise
+    ? customChargesRaw
+        .filter((c) => typeof c.label === 'string' && c.label.trim() && toNumber(c.amount) > 0)
+        .map((c, idx) => ({
+          id: `extra-${idx}-${String(c.label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)}`,
+          label: String(c.label).trim(),
+          amount: Math.round(toNumber(c.amount) * 100) / 100,
+          description: typeof c.description === 'string' ? c.description.trim().slice(0, 500) || null : null,
+          category: typeof c.category === 'string' ? c.category.trim().slice(0, 50) || null : null,
+        }))
+    : [];
 
   const sections: SectionPrice[] = [
     { id: 'flight', label: 'Flights', amount: flightAmount },
@@ -2244,7 +2257,7 @@ export function resolveQuotationPricing(input: {
     { id: 'sightseeing', label: 'Sightseeing', amount: sightseeingAmount },
     { id: 'addon', label: 'Add-on Services', amount: addonAmount },
     { id: 'visa', label: 'Visa', amount: visaAmount },
-    { id: 'customCharges', label: 'Custom Charges', amount: customChargesAmount },
+    ...extraChargeSections,
   ];
 
   // allocated is the sum of all section amounts (incl. visa). For SECTION_WISE
