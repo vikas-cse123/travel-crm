@@ -185,14 +185,19 @@ describe('draft preview weblink', () => {
       { route: '/quotations/quotation-1' },
     );
     await screen.findByRole('heading', { name: /Aarav Mehta/ });
-    expect(await screen.findByText(/Draft pricing is incomplete/)).toBeInTheDocument();
-    expect(screen.getByText(/You can preview the quotation, but it cannot be finalized/)).toBeInTheDocument();
+    // New UX: newly created draft does not show the large warning immediately
+    expect(screen.queryByText(/Draft pricing is incomplete/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Draft — pricing not yet configured/)).toBeInTheDocument();
     // Preview buttons must still be visible and enabled for draft
     expect(screen.getByRole('button', { name: /Generate PDF/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Preview Weblink/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy public link/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Copy Weblink URL/ })).toBeInTheDocument();
     // Finalize button should still be visible (will fail with pricing error if clicked)
     expect(screen.getByRole('button', { name: /Finalize v1/ })).toBeInTheDocument();
+    // After attempting to finalize, the large validation banner appears
+    await userEvent.click(screen.getByRole('button', { name: /Finalize v1/ }));
+    expect(await screen.findByText(/Draft pricing is incomplete/)).toBeInTheDocument();
+    expect(screen.getByText(/You can preview the quotation, but it cannot be finalized/)).toBeInTheDocument();
   });
 
   it('finalized weblink still works unchanged', async () => {
@@ -212,7 +217,7 @@ describe('draft preview weblink', () => {
     await screen.findByRole('heading', { name: /Aarav Mehta/ });
     // For finalized, the button should say Open Weblink, not Preview
     expect(await screen.findByRole('link', { name: /Open Weblink/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy public link/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Copy Weblink URL/ })).toBeInTheDocument();
     // Draft banner should not show for finalized
     expect(screen.queryByText(/Draft pricing is incomplete/)).not.toBeInTheDocument();
   });

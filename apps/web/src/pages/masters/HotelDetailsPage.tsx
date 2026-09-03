@@ -48,6 +48,15 @@ const MONTH_NAMES = [
   'December',
 ] as const;
 
+function formatDdMmYyyy(value: string): string {
+  const raw = value.slice(0, 10);
+  const parts = raw.split('-');
+  if (parts.length !== 3) return raw;
+  const [yyyy, mm, dd] = parts;
+  if (!yyyy || !mm || !dd) return raw;
+  return `${dd}-${mm}-${yyyy}`;
+}
+
 function RateList({
   months,
   seasons,
@@ -116,7 +125,7 @@ function RateList({
                 {(seasons ?? []).map((season) => (
                   <tr key={`s-${season.name}-${season.startDate}`}>
                     <td className="py-2 pl-3 pr-2 font-medium">{season.name}</td>
-                    <td className="py-2 pr-2 text-xs text-slate-500">{season.startDate.slice(0, 10)} → {season.endDate.slice(0, 10)}</td>
+                    <td className="py-2 pr-2 text-xs text-slate-500">{formatDdMmYyyy(season.startDate)} → {formatDdMmYyyy(season.endDate)}</td>
                     <td className="py-2 pr-2">{plainMoney(season.price, season.currency)}</td>
                     <td className="py-2 pr-2">{plainMoney(season.extraBedPrice ?? null, season.currency)}</td>
                     <td className="py-2 pr-2">{plainMoney(season.childWithoutBedPrice ?? null, season.currency)}</td>
@@ -142,7 +151,7 @@ function RateList({
           <span className="font-medium text-slate-700">
             {season.name}
             <span className="ml-2 text-xs text-slate-500">
-              {season.startDate.slice(0, 10)} → {season.endDate.slice(0, 10)}
+              {formatDdMmYyyy(season.startDate)} → {formatDdMmYyyy(season.endDate)}
             </span>
           </span>
           <span className="text-slate-600">{plainMoney(season.price, season.currency)}</span>

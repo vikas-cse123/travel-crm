@@ -14,7 +14,7 @@ import {
 /**
  * Per-activity pricing in the Quotation Builder.
  *
- * Adult/Child/Senior are default UI rows over the same `pricingOptions` array
+ * Adult/Child are default UI rows over the same `pricingOptions` array
  * every custom row lives in — nothing here is a separate persisted field.
  */
 
@@ -72,12 +72,13 @@ describe('builder — activity pricing defaults', () => {
     ).toBe(true);
   });
 
-  it('shows Adult/Child/Senior price inputs on a new activity, all empty', async () => {
+  it('shows Adult/Child price inputs on a new activity, all empty', async () => {
     render(<Harness />);
     expect(screen.getByText('Activity Pricing')).toBeInTheDocument();
-    for (const label of ['adult', 'child', 'senior']) {
+    for (const label of ['adult', 'child']) {
       expect(priceInput(1, label)).toHaveValue(null);
     }
+    expect(screen.queryByLabelText('Day 1 activity 1 senior price')).not.toBeInTheDocument();
   });
 
   it('saves nothing when every default price is left empty', async () => {
@@ -258,9 +259,10 @@ describe('builder — multiple activities and reopening', () => {
     };
     const prepared = withSightseeingPricingRows({ include: true, days: [legacyDay] });
     render(<Harness days={prepared.days} />);
-    for (const label of ['adult', 'child', 'senior']) {
+    for (const label of ['adult', 'child']) {
       expect(priceInput(1, label)).toHaveValue(null);
     }
+    expect(screen.queryByLabelText('Day 1 activity 1 senior price')).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText('Day 1 activity 1 price option 1 label'),
     ).not.toBeInTheDocument();
@@ -283,7 +285,7 @@ describe('builder — multiple activities and reopening', () => {
 });
 
 describe('withDefaultPricingRows', () => {
-  it('adds the three defaults in order and keeps saved custom rows after them', () => {
+  it('adds the two defaults in order and keeps saved custom rows after them', () => {
     expect(
       withDefaultPricingRows([
         { label: 'Infant', price: 500 },
@@ -292,28 +294,35 @@ describe('withDefaultPricingRows', () => {
     ).toEqual([
       { label: 'Adult', price: null },
       { label: 'Child', price: null },
-      { label: 'Senior', price: 1200 },
       { label: 'Infant', price: 500 },
     ]);
   });
 
-  it('gives a pre-feature activity three blank defaults', () => {
+  it('gives a pre-feature activity two blank defaults', () => {
     expect(withDefaultPricingRows(undefined)).toEqual([
       { label: 'Adult', price: null },
       { label: 'Child', price: null },
-      { label: 'Senior', price: null },
+    ]);
+  });
+
+  it('drops legacy Senior rows', () => {
+    expect(
+      withDefaultPricingRows([{ label: 'Senior', price: 1200 } as never]),
+    ).toEqual([
+      { label: 'Adult', price: null },
+      { label: 'Child', price: null },
     ]);
   });
 });
 
 describe('activity pricing markup', () => {
-  it('stacks the three default prices in one column on phones', () => {
+  it('stacks the two default prices in one column on phones', () => {
     render(<Harness />);
-    const grids = [...document.querySelectorAll('.sm\\:grid-cols-3')] as HTMLElement[];
-    const grid = grids.find((el) => within(el).queryAllByRole('spinbutton').length === 3);
+    const grids = [...document.querySelectorAll('.sm\\:grid-cols-2')] as HTMLElement[];
+    const grid = grids.find((el) => within(el).queryAllByRole('spinbutton').length === 2);
     expect(grid).toBeTruthy();
     expect(grid!.className).toContain('grid');
-    expect(grid!.className).toContain('sm:grid-cols-3');
-    expect(within(grid!).getAllByRole('spinbutton')).toHaveLength(3);
+    expect(grid!.className).toContain('sm:grid-cols-2');
+    expect(within(grid!).getAllByRole('spinbutton')).toHaveLength(2);
   });
 });

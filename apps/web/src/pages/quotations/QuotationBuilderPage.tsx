@@ -28,8 +28,8 @@ import {
   calculateCruiseRoomLinesTotal,
   calculateFlightTotal,
   calculateHotelRowTotal,
+  getFlightPerTravelerBreakdown,
   cabinLuggageLabel,
-  cruiseNightsToDays,
   formatItineraryDayTitle,
   hotelStayNights,
   labelForLookup,
@@ -111,7 +111,14 @@ import {
   resolveFlightSegmentAirlines,
 } from '@/features/quotations/BookmarkImport';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
+const field =
+  'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm h-[38px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:border-ring transition-colors';
+const fieldMuted = 'w-full rounded-lg bg-muted/60 border border-border/50 px-3 py-2 text-sm font-medium text-foreground h-[38px]';
+const calculatedCard = 'rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5';
+const calculatedLabel = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const calculatedValue = 'text-sm font-semibold text-foreground';
+const subsectionHeading = 'text-xs font-semibold uppercase tracking-widest text-brand-700';
+const subsectionHeadingMuted = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 type QuotationImage = NonNullable<QuotationVersionInput['services'][number]['images']>[number];
 
@@ -357,6 +364,7 @@ const hotelSectionTitle = (value: string | null | undefined) => {
 };
 
 const TABS: TabDef[] = [
+  { key: 'pricingMethod', label: 'Pricing Method' },
   { key: 'flight', label: 'Flight' },
   { key: 'hotel', label: 'Hotel' },
   { key: 'sightseeing', label: 'Sightseeing' },
@@ -1009,11 +1017,9 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
         const cwTotal = cwQty * cwPrice * (nights || 1);
         const lineTotal = lineBaseTotal + ebTotal + cwTotal;
         return (
-          <div key={lineField.id} className="rounded-lg border border-slate-200 bg-card p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Room {lineIndex + 1}
-              </span>
+          <div key={lineField.id} className="rounded-lg bg-muted/30 border border-border/40 p-3.5">
+            <div className="flex items-center justify-between border-b border-border/40 pb-2 mb-3">
+              <span className={subsectionHeading}>Room {lineIndex + 1}</span>
               <Button
                 type="button"
                 size="sm"
@@ -1112,31 +1118,31 @@ function HotelRoomLinesEditor({ form, hotelIndex, hotelId, canCost, recalculateT
               </label>
             </div>
             {isSectionWise && (() => {
-              const roomTypeForLine = roomTypes.find((rt) => rt.id === line?.hotelRoomTypeId);
-              const hasMasterPrice = roomTypeForLine ? resolveRoomPricingForDate(roomTypeForLine as unknown as Parameters<typeof resolveRoomPricingForDate>[0], checkInDate) !== null : false;
-              const showNoPriceHelper = Boolean(line?.hotelRoomTypeId) && !hasMasterPrice && line?.baseRoomPrice == null;
               return (
-              <div className="mt-3 rounded-md border bg-slate-50 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hotel Pricing — per night rates</p>
+              <div className={`mt-3 ${calculatedCard}`}>
+                <p className={calculatedLabel}>Hotel Pricing — per night rates</p>
                 <div className="mt-2 grid gap-3 md:grid-cols-3">
-                  <label className="text-xs font-semibold text-slate-700">
-                    Room Rate / night ({currency})
+                  <label className="text-xs font-medium text-slate-700">
+                    Room Rate / night ({currency}) <span className="text-[11px] font-normal text-brand-600">· master-derived, editable</span>
                     <input aria-label={`Room ${lineIndex + 1} rate per night`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.baseRoomPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'baseRoomPrice') })} className={`${field} mt-1`} />
-                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{rooms} × {nights || 1} nights = {(basePrice*rooms*(nights||1)).toFixed(2)}</span>
-                    {showNoPriceHelper && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this room type and date.</span>}
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">{rooms} × {nights || 1} nights = {(basePrice*rooms*(nights||1)).toFixed(2)}</span>
                   </label>
-                  <label className="text-xs font-semibold text-slate-700">
-                    Extra Bed Rate / night
+                  <label className="text-xs font-medium text-slate-700">
+                    Extra Bed Rate / night <span className="text-[11px] font-normal text-brand-600">· master</span>
                     <input aria-label={`Room ${lineIndex + 1} extra bed rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.extraBedPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'extraBedPrice') })} className={`${field} mt-1`} />
-                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{ebQty} × {ebPrice} × {nights||1} = {ebTotal.toFixed(2)}</span>
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">{ebQty} × {ebPrice} × {nights||1} = {ebTotal.toFixed(2)}</span>
                   </label>
-                  <label className="text-xs font-semibold text-slate-700">
-                    Child w/o Bed Rate / night
+                  <label className="text-xs font-medium text-slate-700">
+                    Child w/o Bed Rate / night <span className="text-[11px] font-normal text-brand-600">· master</span>
                     <input aria-label={`Room ${lineIndex + 1} child without bed rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.roomLines.${lineIndex}.childWithoutBedPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex, 'childWithoutBedPrice') })} className={`${field} mt-1`} />
-                    <span className="mt-1 block text-[11px] font-normal text-slate-500">{cwQty} × {cwPrice} × {nights||1} = {cwTotal.toFixed(2)}</span>
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">{cwQty} × {cwPrice} × {nights||1} = {cwTotal.toFixed(2)}</span>
                   </label>
                 </div>
-                <p className="mt-2 text-sm font-semibold text-slate-800">Line Amount: {currency} {lineTotal.toFixed(2)}</p>
+                <div className="mt-2 flex items-baseline justify-between border-t border-border/40 pt-2">
+                  <span className={calculatedLabel}>Line Amount</span>
+                  <span className={calculatedValue}>{currency} {lineTotal.toFixed(2)}</span>
+                </div>
+                <span className="block text-[11px] text-muted-foreground">{rooms} room{rooms!==1?'s':''} × {nights||1} night{(nights||1)!==1?'s':''} — calculated</span>
               </div>
               );
             })()}
@@ -1214,9 +1220,6 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
     <div className="space-y-3">
       {mealPlanLines.fields.map((lineField, lineIndex) => {
         const line = watchedLines[lineIndex];
-        const mealPlanForLine = mealPlans.find((m) => m.id === line?.hotelMealPlanId);
-        const hasMasterPrice = mealPlanForLine ? resolveMealPlanPricingForDate(mealPlanForLine as unknown as Parameters<typeof resolveMealPlanPricingForDate>[0], checkInDate) !== null : false;
-        const showNoPriceHelper = Boolean(line?.hotelMealPlanId) && !hasMasterPrice && line?.sellingPrice == null;
         return (
           <div key={lineField.id} className="flex flex-wrap items-end gap-2">
             <label className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
@@ -1260,7 +1263,6 @@ function HotelMealPlanLinesEditor({ form, hotelIndex, hotelId, canCost, recalcul
               <label className="w-36 text-xs font-semibold text-slate-700">
                 Rate ({currency})
                 <input aria-label={`Meal plan ${lineIndex + 1} rate`} type="number" step="0.01" min="0" {...form.register(`hotels.${hotelIndex}.mealPlanLines.${lineIndex}.sellingPrice`, { setValueAs: (v)=> v===''||v==null?null:Number(v), onChange: () => markOverridden(lineIndex) })} className={`${field} mt-1`} />
-                {showNoPriceHelper && <span className="mt-1 block text-[11px] text-amber-600">No master price found for this meal plan and date.</span>}
               </label>
             )}
             <Button
@@ -1360,9 +1362,9 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
         const showNoPriceHelper = Boolean(line?.cruiseRoomTypeId || line?.roomType?.trim()) && !hasMasterPrice && (line?.roomRate == null && line?.sellingPrice == null);
         const isUnavailable = Boolean(cruiseId && (line?.cruiseRoomTypeId || line?.roomType?.trim()) && !roomTypeForLine);
         return (
-          <div key={lineField.id} className="rounded-lg border border-slate-200 bg-card p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Room {lineIndex + 1}</span>
+          <div key={lineField.id} className="rounded-lg bg-muted/30 border border-border/40 p-3.5">
+            <div className="flex items-center justify-between border-b border-border/40 pb-2 mb-3">
+              <span className={subsectionHeading}>Room {lineIndex + 1}</span>
               <Button type="button" size="sm" variant="ghost" aria-label={`Remove room ${lineIndex + 1}`} onClick={() => { roomLines.remove(lineIndex); recalculateTotals(); }}>
                 <Trash2 className="h-4 w-4 text-red-600" /> Remove
               </Button>
@@ -1413,9 +1415,9 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
                   step={1}
                   {...form.register(`services.${serviceIndex}.cruiseRoomLines.${lineIndex}.rooms` as never, {
                     setValueAs: (value) => (value === '' ? 1 : Number(value)),
+                    onChange: () => recalculateTotals(),
                   })}
                   className={`${field} mt-1`}
-                  onChange={() => recalculateTotals()}
                 />
               </label>
               <label className="text-sm font-semibold text-slate-800">
@@ -1436,7 +1438,11 @@ function CruiseRoomLinesEditor({ form, serviceIndex, cruiseId, canCost, nights, 
                 </span>
               </label>
             </div>
-            <p className="mt-2 text-sm font-semibold text-slate-800">Line Amount: {currency} {lineTotal.toFixed(2)}</p>
+            <div className={`mt-3 ${calculatedCard} flex items-center justify-between`}>
+              <span className={calculatedLabel}>Line Amount</span>
+              <span className={calculatedValue}>{currency} {lineTotal.toFixed(2)}</span>
+            </div>
+            <span className="block text-[11px] text-muted-foreground">{rooms} room{rooms!==1?'s':''} × {nights||1} night{(nights||1)!==1?'s':''} × {roomRate.toFixed(2)} — calculated</span>
           </div>
         );
       })}
@@ -1615,7 +1621,7 @@ const newCruiseServiceRow = (sequence: number) => ({
   sellingPrice: 0,
   taxCategory: 'Cruise Details',
   notes: null,
-  cruiseNights: 2 as unknown as number,
+  cruiseNights: 1 as unknown as number,
   cruiseRoomLines: [emptyCruiseRoomLine()],
   images: [],
   imageSnapshotPresent: false,
@@ -1974,7 +1980,7 @@ export function QuotationBuilderPage() {
   const vehicleMasters = useVehicles(
     useMemo(() => new URLSearchParams({ status: 'ACTIVE', pageSize: '100' }), []),
   );
-  const [activeTab, setActiveTab] = useState('flight');
+  const [activeTab, setActiveTab] = useState('pricingMethod');
   // If the temporarily hidden Visa tab is somehow the active tab, fall back to
   // the nearest visible tab instead of showing a blank panel.
   useEffect(() => {
@@ -2755,8 +2761,8 @@ export function QuotationBuilderPage() {
                 ? new Date(row.checkOutDate)
                 : (matchingStay?.checkOutDate ??
                   (returnStr ? new Date(returnStr) : endStr ? new Date(endStr) : null)),
-              showCheckInTime: Boolean(row.checkInTime) && row.showCheckInTime !== false,
-              showCheckOutTime: Boolean(row.checkOutTime) && row.showCheckOutTime !== false,
+              showCheckInTime: Boolean(row.checkInTime?.trim()),
+              showCheckOutTime: Boolean(row.checkOutTime?.trim()),
               internalCost: row.internalCost ? Number(row.internalCost) : 0,
               sellingPrice: row.sellingPrice ? Number(row.sellingPrice) : 0,
               // Backward compatibility: older quotations stored the bookmark
@@ -4052,14 +4058,14 @@ export function QuotationBuilderPage() {
                   className={`${field} mt-1 disabled:bg-slate-100`}
                 />
               </label>
-              <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className={`${calculatedCard} text-sm`}>
+                <p className={calculatedLabel}>
                   Calculation
                 </p>
                 <p className="mt-1 text-slate-700">
                   {formatMoney(vehicleDraft.amount)} ×{' '}
                   {vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity} ={' '}
-                  <span className="font-semibold">
+                  <span className={calculatedValue}>
                     {formatMoney(
                       vehicleDraft.amount *
                         (vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity),
@@ -4069,11 +4075,13 @@ export function QuotationBuilderPage() {
               </div>
             </div>
             )}
-            {(form.watch('pricingMode') as string) === 'SECTION_WISE' && <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Transportation Total: {formatMoney(vehicleDraft.amount * (vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity))}</div>}
+            {(form.watch('pricingMode') as string) === 'SECTION_WISE' && <div className={`${calculatedCard} flex items-center justify-between`}><span className={calculatedLabel}>Transportation Total</span><span className={calculatedValue}>{formatMoney(vehicleDraft.amount * (vehicleDraft.pricingBasis === 'FIXED' ? 1 : vehicleDraft.quantity))}</span></div>}
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <label className="text-sm font-semibold text-slate-800">
-                Vehicle Type <span className="text-red-500">*</span>
+            <div>
+              <p className={`${subsectionHeading} mb-3 border-b border-border/50 pb-1`}>Vehicle Details</p>
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="text-sm font-semibold text-slate-800">
+                  Vehicle Type <span className="text-red-500">*</span>
                 <select
                   aria-label="Vehicle type"
                   value={vehicleDraft.vehicleType}
@@ -4167,10 +4175,11 @@ export function QuotationBuilderPage() {
                   className={`${field} mt-1`}
                 />
               </label>
+              </div>
             </div>
 
             <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-800">Description</h3>
+              <h3 className={`${subsectionHeadingMuted} mb-1`}>Description</h3>
               <RichTextEditor
                 ariaLabel="Vehicle description"
                 value={vehicleDraft.description}
@@ -4222,9 +4231,9 @@ export function QuotationBuilderPage() {
     return (
       <article
         key={rowId}
-        className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm"
+        className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
       >
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -4308,9 +4317,11 @@ export function QuotationBuilderPage() {
         {(expandedHotels[rowId] ?? false) && (
           <>
             <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-              <div className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <HotelMasterFields
+              <div className="space-y-5">
+                <div>
+                  <p className={`${subsectionHeading} mb-3 border-b border-border/50 pb-1`}>Hotel Details</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <HotelMasterFields
                     canCost={canCost}
                     preferredCity={hotel?.city ?? undefined}
                     showLabels
@@ -4372,16 +4383,18 @@ export function QuotationBuilderPage() {
                       applyHotel(index, patch);
                     }}
                   />
+                  </div>
                 </div>
 
+                <p className={`${subsectionHeadingMuted} border-b border-border/50 pb-1`}>Stay Dates</p>
                 <div className="grid gap-3 md:grid-cols-5">
                   <label className="text-sm font-semibold text-slate-800">
-                    City
+                    City <span className="text-xs font-normal text-muted-foreground">· from master</span>
                     <input
                       aria-label="Hotel city"
                       value={hotel?.city ?? ''}
                       readOnly
-                      className={`${field} mt-1 bg-slate-100`}
+                      className={`${fieldMuted} mt-1`}
                     />
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
@@ -4414,20 +4427,6 @@ export function QuotationBuilderPage() {
                       }}
                       className={`${field} mt-1`}
                     />
-                    <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
-                      <input
-                        type="checkbox"
-                        aria-label="Hotel check-in include time in PDF and weblink"
-                        checked={hotel?.showCheckInTime === true}
-                        onChange={(event) =>
-                          form.setValue(`hotels.${index}.showCheckInTime`, event.target.checked, {
-                            shouldDirty: true,
-                          })
-                        }
-                        className="mt-0.5"
-                      />
-                      Include time in PDF and weblink
-                    </span>
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
                     Check-Out <span className="text-red-500">*</span>
@@ -4459,32 +4458,19 @@ export function QuotationBuilderPage() {
                       }}
                       className={`${field} mt-1`}
                     />
-                    <span className="mt-2 flex items-start gap-2 text-xs font-medium text-slate-600">
-                      <input
-                        type="checkbox"
-                        aria-label="Hotel check-out include time in PDF and weblink"
-                        checked={hotel?.showCheckOutTime === true}
-                        onChange={(event) =>
-                          form.setValue(`hotels.${index}.showCheckOutTime`, event.target.checked, {
-                            shouldDirty: true,
-                          })
-                        }
-                        className="mt-0.5"
-                      />
-                      Include time in PDF and weblink
-                    </span>
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
-                    Nights
+                    <span className={calculatedLabel}>Nights</span>
                     <input
                       aria-label="Hotel nights"
                       readOnly
                       value={String(displayNights)}
-                      className={`${field} mt-1 bg-slate-100`}
+                      className={`${fieldMuted} mt-1`}
                     />
+                    <span className="text-[11px] text-muted-foreground">calculated from dates</span>
                   </label>
                   <label className="text-sm font-semibold text-slate-800">
-                    Total Rooms
+                    <span className={calculatedLabel}>Total Rooms</span>
                     <input
                       aria-label="Hotel total rooms"
                       readOnly
@@ -4494,36 +4480,41 @@ export function QuotationBuilderPage() {
                           0,
                         ) || '',
                       )}
-                      className={`${field} mt-1 bg-slate-100`}
+                      className={`${fieldMuted} mt-1`}
                     />
+                    <span className="text-[11px] text-muted-foreground">sum of room allocations</span>
                   </label>
                 </div>
 
-                {/* Repeatable room allocations — unlimited per hotel option. */}
-                <HotelRoomLinesEditor
-                  form={form}
-                  hotelIndex={index}
-                  hotelId={hotel?.hotelId}
-                  canCost={canCost}
-                  recalculateTotals={() => recalculateHotelTotals(index)}
-                />
+                <div>
+                  <p className={`${subsectionHeading} mb-3 border-b border-border/50 pb-1`}>Room Configuration</p>
+                  <HotelRoomLinesEditor
+                    form={form}
+                    hotelIndex={index}
+                    hotelId={hotel?.hotelId}
+                    canCost={canCost}
+                    recalculateTotals={() => recalculateHotelTotals(index)}
+                  />
+                </div>
 
-                {/* Repeatable meal-plan selections — unlimited per hotel option. */}
-                <HotelMealPlanLinesEditor
-                  form={form}
+                <div>
+                  <p className={`${subsectionHeadingMuted} mb-3 border-b border-border/50 pb-1`}>Meal Plan</p>
+                  <HotelMealPlanLinesEditor
+                    form={form}
                   hotelIndex={index}
                   hotelId={hotel?.hotelId}
                   canCost={canCost}
                   recalculateTotals={() => recalculateHotelTotals(index)}
-                />
+                  />
+                </div>
 
                 {hotel &&
                   (hotel.roomLines ?? []).some(
                     (line) => line?.baseRoomPrice != null || line?.extraBedPrice != null || line?.childWithoutBedPrice != null,
                   ) && (
-                  <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-                    <h5 className="font-semibold text-slate-800">Accommodation Breakdown</h5>
-                    <ul className="mt-2 space-y-1 text-slate-600">
+                  <div className={`${calculatedCard} text-sm`}>
+                    <h5 className={`${calculatedLabel} text-slate-800`}>Accommodation Breakdown</h5>
+                    <ul className="mt-2 space-y-1 text-muted-foreground">
                       {(hotel.roomLines ?? []).map((line, lineIndex) => {
                         if (line?.baseRoomPrice == null && line?.extraBedPrice == null && line?.childWithoutBedPrice == null)
                           return null;
@@ -4550,82 +4541,6 @@ export function QuotationBuilderPage() {
                     </ul>
                   </div>
                 )}
-
-                {/* Alternative hotel options: stays sharing a group id are
-                    ALTERNATIVES — only the selected one is priced. Stays
-                    without a group are consecutive stays and add up. */}
-                <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-                  <h5 className="font-semibold text-slate-800">Alternative Option</h5>
-                  <div className="mt-2 grid gap-3 md:grid-cols-2">
-                    <label className="text-sm font-medium text-slate-700">
-                      Alternative group
-                      <select
-                        aria-label={`Hotel stay ${index + 1} alternative group`}
-                        value={hotel?.optionGroupId ?? ''}
-                        onChange={(event) => {
-                          const groupId = event.target.value;
-                          form.setValue(
-                            `hotels.${index}.optionGroupId`,
-                            (groupId || null) as never,
-                            { shouldDirty: true },
-                          );
-                          if (!groupId) return;
-                          // Assigning a group makes THIS stay the selected
-                          // option and deselects the other members so exactly
-                          // one alternative is ever priced.
-                          const rows = form.getValues('hotels');
-                          rows.forEach((_, rowIndex) => {
-                            if (rowIndex === index) return;
-                            if (
-                              String(rows[rowIndex]?.optionGroupId ?? '') === groupId
-                            ) {
-                              form.setValue(`hotels.${rowIndex}.selected`, false, {
-                                shouldDirty: true,
-                              });
-                            }
-                          });
-                          form.setValue(`hotels.${index}.selected`, true, { shouldDirty: true });
-                        }}
-                        className={`${field} mt-1`}
-                      >
-                        <option value="">None (consecutive stay)</option>
-                        {['A', 'B', 'C', 'D', 'E'].map((group) => (
-                          <option key={group} value={group}>
-                            Option Group {group}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {hotel?.optionGroupId && (
-                      <label className="flex items-end gap-2 pb-2 text-sm font-medium text-slate-700">
-                        <input
-                          type="radio"
-                          name={`hotel-option-selected-${hotel.optionGroupId}`}
-                          checked={hotel.selected !== false}
-                          onChange={() => {
-                            const rows = form.getValues('hotels');
-                            rows.forEach((_, rowIndex) => {
-                              if (
-                                String(rows[rowIndex]?.optionGroupId ?? '') ===
-                                hotel.optionGroupId
-                              ) {
-                                form.setValue(`hotels.${rowIndex}.selected`, rowIndex === index, {
-                                  shouldDirty: true,
-                                });
-                              }
-                            });
-                          }}
-                          className="h-4 w-4 text-brand-700"
-                        />
-                        Selected option for pricing
-                      </label>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Stays in the same group are alternatives — only the selected one contributes to
-                    the total. Ungrouped stays are consecutive and always add up.
-                  </p>
-                </div>
 
                 <div>
                   <label className="text-sm font-semibold text-slate-800">
@@ -4705,7 +4620,7 @@ export function QuotationBuilderPage() {
                 const nights = (svc as unknown as { cruiseNights?: number | null })?.cruiseNights != null ? Number((svc as unknown as { cruiseNights?: number | null })?.cruiseNights) : 2;
                 return sum + calculateCruiseRoomLinesTotal(watchedServices?.[idx] ?? {}, nights);
               }, 0);
-              return <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Cruise Total: {formatMoney(total)} {cruiseRows.length>1 ? `· ${cruiseRows.length} cruises` : ''}</div>;
+              return <div className={`${calculatedCard} flex items-center justify-between`}><span className={calculatedLabel}>Cruise Total</span><span className={calculatedValue}>{formatMoney(total)} {cruiseRows.length>1 ? `· ${cruiseRows.length} cruises` : ''}</span></div>;
             })()}
 
             <div className="flex justify-end">
@@ -4730,10 +4645,10 @@ export function QuotationBuilderPage() {
                 return (
                   <article
                     key={row.id}
-                    className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm"
+                    className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
                   >
-                    <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
-                      <h4 className="font-semibold text-slate-800">Cruise Stay</h4>
+                    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
+                      <h4 className={`${subsectionHeading} text-slate-800 normal-case tracking-normal`}>Cruise Stay</h4>
                       <Button size="sm" variant="ghost" onClick={() => services.remove(index)}>
                         <Trash2 className="h-4 w-4 text-red-600" /> Remove
                       </Button>
@@ -4826,9 +4741,6 @@ export function QuotationBuilderPage() {
                             }}
                             className={`${field} mt-1`}
                           />
-                          <span className="mt-1 block text-xs font-normal text-slate-500">
-                            {Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)} Nights = {cruiseNightsToDays(Number((cruise as unknown as { cruiseNights?: number | null })?.cruiseNights ?? 2)) ?? '-'} Days
-                          </span>
                         </label>
                       </div>
                       <CruiseRoomLinesEditor
@@ -4983,19 +4895,19 @@ export function QuotationBuilderPage() {
       const segmentKey = `${leg}-${index}`;
       const isSegmentExpanded = expandedSegments[segmentKey] ?? true;
       return (
-        <article key={id} className="overflow-hidden rounded-lg border">
+        <article key={id} className="overflow-hidden rounded-lg border border-border/60 bg-card">
           <button
             type="button"
             onClick={() =>
               setExpandedSegments((prev) => ({ ...prev, [segmentKey]: !isSegmentExpanded }))
             }
-            className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
+            className="flex w-full items-center justify-between bg-muted/30 px-4 py-3 text-left hover:bg-muted/50"
           >
             <span className="flex items-center gap-2">
               <ChevronDown
-                className={`h-4 w-4 text-slate-500 transition-transform ${isSegmentExpanded ? 'rotate-180' : ''}`}
+                className={`h-4 w-4 text-muted-foreground transition-transform ${isSegmentExpanded ? 'rotate-180' : ''}`}
               />
-              <strong className="text-brand-700">Segment {index + 1}</strong>
+              <strong className={`${subsectionHeading} normal-case tracking-normal`}>Segment {index + 1}</strong>
             </span>
             {index > 0 && (
               <span
@@ -5122,13 +5034,14 @@ export function QuotationBuilderPage() {
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             <label className={labelCls}>
-              Duration
+              <span className={calculatedLabel}>Duration</span>
               <input
                 readOnly
                 placeholder="Auto-calculated"
                 value={computedDuration}
-                className={`${field} mt-1 bg-slate-50`}
+                className={`${fieldMuted} mt-1`}
               />
+              <span className="text-[11px] text-muted-foreground">calculated from dates</span>
             </label>
             <label className={labelCls}>
               Cabin Luggage
@@ -5178,7 +5091,7 @@ export function QuotationBuilderPage() {
       const to = (form.watch(fp(`${base}.toCity`)) as string) || '';
       const isJourneyExpanded = expandedJourneys[leg] ?? true;
       return (
-        <section className="overflow-hidden rounded-xl border">
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div
             role="button"
             tabIndex={0}
@@ -5351,14 +5264,14 @@ export function QuotationBuilderPage() {
                 </span>
               </label>
             ))}
-            {isFlightSectionWise && <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">Flight Section Total: {formatMoney(flightSectionTotal)}</div>}
+            {isFlightSectionWise && <div className={`${calculatedCard} flex items-center justify-between`}><span className={calculatedLabel}>Flight Section Total</span><span className={calculatedValue}>{formatMoney(flightSectionTotal)}</span></div>}
 
             <div>
-              <span className="text-sm font-semibold text-slate-800">Flight information</span>
+              <span className={subsectionHeadingMuted}>Flight Information</span>
               <div
                 role="radiogroup"
                 aria-label="Flight information mode"
-                className="mt-2 grid max-w-xl grid-cols-2 rounded-lg border border-slate-300 bg-slate-50 p-1"
+                className="mt-2 grid max-w-xl grid-cols-2 rounded-lg border border-border bg-muted/30 p-1"
               >
                 {(
                   [
@@ -5995,73 +5908,7 @@ export function QuotationBuilderPage() {
         </div>
       </section>
 
-      {/* STEP 0 — QUOTATION PRICING SETUP */}
-      {(() => {
-        const mode = (form.watch('pricingMode') ?? 'PER_PERSON') as 'SECTION_WISE' | 'PER_PERSON';
-        const isSection = mode === 'SECTION_WISE';
-        const switchMode = (next: 'SECTION_WISE' | 'PER_PERSON') => {
-          if (next === form.getValues('pricingMode')) return;
-          const cur = form.watch('currency') || 'INR';
-          const fmt = (v:number)=>{ try{return new Intl.NumberFormat(cur==='INR'?'en-IN':undefined,{style:'currency',currency:cur}).format(v)}catch{return `${cur} ${v.toFixed(2)}`}};
-          // reuse shared pricing resolver for confirmation text when available; fallback to simple confirm
-          try {
-            const fromPricing = resolveQuotationPricing({ version:{pricingMode: mode, finalAmount: 0, currency: cur, flightDetails: form.getValues('flightDetails'), hotelDetails: form.getValues('hotelDetails'), hotels: form.getValues('hotels'), sightseeingDetails: form.getValues('sightseeingDetails'), services: form.getValues('services'), includeVisa: form.getValues('includeVisa'), visaAmount: form.getValues('visaAmount'), visaServiceCharge: form.getValues('visaServiceCharge'), visaGstPercent: form.getValues('visaGstPercent'), visaVfsCharge: form.getValues('visaVfsCharge'), discountAmount: form.getValues('discountAmount'), taxRate: form.getValues('taxRate'), perAdultPrice: form.getValues('perAdultPrice'), perChildWithBedPrice: form.getValues('perChildWithBedPrice'), perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'), perInfantPrice: form.getValues('perInfantPrice') }, quotation:{ adults: quotation.data?.adults ?? 0, childrenWithBed: quotation.data?.childrenWithBed ??0, childrenWithoutBed: quotation.data?.childrenWithoutBed ??0, infants: quotation.data?.infants ??0, currency: cur }});
-            const toPricing = resolveQuotationPricing({ version:{pricingMode: next, finalAmount: 0, currency: cur, flightDetails: form.getValues('flightDetails'), hotelDetails: form.getValues('hotelDetails'), hotels: form.getValues('hotels'), sightseeingDetails: form.getValues('sightseeingDetails'), services: form.getValues('services'), includeVisa: form.getValues('includeVisa'), visaAmount: form.getValues('visaAmount'), visaServiceCharge: form.getValues('visaServiceCharge'), visaGstPercent: form.getValues('visaGstPercent'), visaVfsCharge: form.getValues('visaVfsCharge'), discountAmount: form.getValues('discountAmount'), taxRate: form.getValues('taxRate'), perAdultPrice: form.getValues('perAdultPrice'), perChildWithBedPrice: form.getValues('perChildWithBedPrice'), perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'), perInfantPrice: form.getValues('perInfantPrice') }, quotation:{ adults: quotation.data?.adults ?? 0, childrenWithBed: quotation.data?.childrenWithBed ??0, childrenWithoutBed: quotation.data?.childrenWithoutBed ??0, infants: quotation.data?.infants ??0, currency: cur }});
-            if (fromPricing.grandTotal>0 && toPricing.grandTotal>0 && fromPricing.grandTotal!==toPricing.grandTotal) {
-              const ok = window.confirm(`Change pricing method? Your quotation currently uses ${isSection ? 'By Section' : 'By Traveler'} (${fmt(fromPricing.grandTotal)}). Switching to ${next==='SECTION_WISE' ? 'By Section' : 'By Traveler'} will change the authoritative total to ${fmt(toPricing.grandTotal)}. Existing values will be preserved where possible.`);
-              if(!ok) return;
-            }
-          } catch (_e) { void _e; }
-          form.setValue('pricingMode', next, { shouldDirty: true });
-        };
-        return (
-        <section className="rounded-xl border bg-card p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">How would you like to price this quotation?</h2>
-            <p className="mt-1 max-w-2xl text-xs text-slate-500">Choose once at the beginning. The entire builder will adapt — sections show the right pricing controls, Summary shows the authoritative total.</p>
-          </div>
-          <div className="flex items-center gap-2 rounded-full border bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-            Current: {isSection ? 'By Section' : 'By Traveler'}
-            <button type="button" onClick={() => switchMode(isSection ? 'PER_PERSON' : 'SECTION_WISE')} className="ml-2 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-brand-700 shadow-sm ring-1 ring-slate-200 hover:bg-brand-50">Change pricing method</button>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {(
-            [
-              ['SECTION_WISE', 'By Section', 'Set and calculate a selling price for each service section individually.', 'Each section shows its own pricing editor and section total.'],
-              ['PER_PERSON', 'By Traveler', 'Build the itinerary and calculate the final package price per traveler.', 'Sections focus on itinerary — pricing is entered centrally in Summary & Pricing.'],
-            ] as const
-          ).map(([value, title, desc, hint]) => {
-            const selected = mode === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={selected}
-                aria-label={title}
-                onClick={() => switchMode(value as 'SECTION_WISE' | 'PER_PERSON')}
-                className={`text-left rounded-xl border-2 p-4 transition ${selected ? 'border-brand-600 bg-brand-50/60 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className={`text-sm font-semibold ${selected ? 'text-brand-700' : 'text-slate-800'}`}>{title}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{desc}</p>
-                    <p className="mt-2 text-[11px] text-slate-400">{hint}</p>
-                  </div>
-                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 bg-white'}`} aria-hidden="true">{selected ? '✓' : ''}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        </section>
-        );
-      })()}
-
-      {/* Tab navigation */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-brand-500 px-1">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-1">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -6069,10 +5916,10 @@ export function QuotationBuilderPage() {
             aria-label={tab.label}
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              'relative -mb-px border-b-2 px-1 py-3 text-sm font-semibold',
+              'relative -mb-px whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
               activeTab === tab.key
-                ? 'border-brand-600 text-slate-900'
-                : 'border-transparent text-brand-700 hover:text-brand-900',
+                ? 'border-brand-600 bg-brand-50/50 text-brand-700'
+                : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900',
             )}
           >
             {tab.label}
@@ -6082,7 +5929,133 @@ export function QuotationBuilderPage() {
       </div>
 
       {/* Tab panels — only the active tab is mounted (RHF keeps field values). */}
-      <section className="rounded-xl border bg-card p-5">
+      <section className="rounded-xl border border-border bg-card p-4">
+        {activeTab === 'pricingMethod' &&
+          (() => {
+            const mode = (form.watch('pricingMode') ?? 'PER_PERSON') as 'SECTION_WISE' | 'PER_PERSON';
+            const switchMode = (next: 'SECTION_WISE' | 'PER_PERSON') => {
+              if (next === form.getValues('pricingMode')) return;
+              const cur = form.watch('currency') || 'INR';
+              const fmt = (v: number) => {
+                try {
+                  return new Intl.NumberFormat(cur === 'INR' ? 'en-IN' : undefined, { style: 'currency', currency: cur }).format(v);
+                } catch {
+                  return `${cur} ${v.toFixed(2)}`;
+                }
+              };
+              try {
+                const fromPricing = resolveQuotationPricing({
+                  version: {
+                    pricingMode: mode,
+                    finalAmount: 0,
+                    currency: cur,
+                    flightDetails: form.getValues('flightDetails'),
+                    hotelDetails: form.getValues('hotelDetails'),
+                    hotels: form.getValues('hotels'),
+                    sightseeingDetails: form.getValues('sightseeingDetails'),
+                    services: form.getValues('services'),
+                    includeVisa: form.getValues('includeVisa'),
+                    visaAmount: form.getValues('visaAmount'),
+                    visaServiceCharge: form.getValues('visaServiceCharge'),
+                    visaGstPercent: form.getValues('visaGstPercent'),
+                    visaVfsCharge: form.getValues('visaVfsCharge'),
+                    discountAmount: form.getValues('discountAmount'),
+                    taxRate: form.getValues('taxRate'),
+                    perAdultPrice: form.getValues('perAdultPrice'),
+                    perChildWithBedPrice: form.getValues('perChildWithBedPrice'),
+                    perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'),
+                    perInfantPrice: form.getValues('perInfantPrice'),
+                  },
+                  quotation: {
+                    adults: quotation.data?.adults ?? 0,
+                    childrenWithBed: quotation.data?.childrenWithBed ?? 0,
+                    childrenWithoutBed: quotation.data?.childrenWithoutBed ?? 0,
+                    infants: quotation.data?.infants ?? 0,
+                    currency: cur,
+                  },
+                });
+                const toPricing = resolveQuotationPricing({
+                  version: {
+                    pricingMode: next,
+                    finalAmount: 0,
+                    currency: cur,
+                    flightDetails: form.getValues('flightDetails'),
+                    hotelDetails: form.getValues('hotelDetails'),
+                    hotels: form.getValues('hotels'),
+                    sightseeingDetails: form.getValues('sightseeingDetails'),
+                    services: form.getValues('services'),
+                    includeVisa: form.getValues('includeVisa'),
+                    visaAmount: form.getValues('visaAmount'),
+                    visaServiceCharge: form.getValues('visaServiceCharge'),
+                    visaGstPercent: form.getValues('visaGstPercent'),
+                    visaVfsCharge: form.getValues('visaVfsCharge'),
+                    discountAmount: form.getValues('discountAmount'),
+                    taxRate: form.getValues('taxRate'),
+                    perAdultPrice: form.getValues('perAdultPrice'),
+                    perChildWithBedPrice: form.getValues('perChildWithBedPrice'),
+                    perChildWithoutBedPrice: form.getValues('perChildWithoutBedPrice'),
+                    perInfantPrice: form.getValues('perInfantPrice'),
+                  },
+                  quotation: {
+                    adults: quotation.data?.adults ?? 0,
+                    childrenWithBed: quotation.data?.childrenWithBed ?? 0,
+                    childrenWithoutBed: quotation.data?.childrenWithoutBed ?? 0,
+                    infants: quotation.data?.infants ?? 0,
+                    currency: cur,
+                  },
+                });
+                if (fromPricing.grandTotal > 0 && toPricing.grandTotal > 0 && fromPricing.grandTotal !== toPricing.grandTotal) {
+                  const ok = window.confirm(
+                    `Change pricing method? Your quotation currently uses ${mode === 'SECTION_WISE' ? 'By Section' : 'By Traveler'} (${fmt(fromPricing.grandTotal)}). Switching to ${next === 'SECTION_WISE' ? 'By Section' : 'By Traveler'} will change the authoritative total to ${fmt(toPricing.grandTotal)}. Existing values will be preserved where possible.`,
+                  );
+                  if (!ok) return;
+                }
+              } catch (_e) {
+                void _e;
+              }
+              form.setValue('pricingMode', next, { shouldDirty: true });
+            };
+            return (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <h2 className="text-base font-semibold text-slate-900">How would you like to price this quotation?</h2>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {(
+                    [
+                      ['SECTION_WISE', 'By Section', 'Set and calculate a selling price for each service section individually.'],
+                      ['PER_PERSON', 'By Traveler', 'Build the itinerary and calculate the final package price per traveler.'],
+                    ] as const
+                  ).map(([value, title, desc]) => {
+                    const selected = mode === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={selected}
+                        aria-label={title}
+                        onClick={() => switchMode(value as 'SECTION_WISE' | 'PER_PERSON')}
+                        className={`text-left rounded-xl border-2 p-5 transition ${selected ? 'border-brand-600 bg-brand-50/60 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className={`text-sm font-semibold ${selected ? 'text-brand-700' : 'text-slate-800'}`}>{title}</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-600">{desc}</p>
+                          </div>
+                          <span
+                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 bg-white'}`}
+                            aria-hidden="true"
+                          >
+                            {selected ? '✓' : ''}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         {TABS.filter(
           (t) => t.types && t.key === activeTab && !['addon', 'vehicle', 'cruise'].includes(t.key),
         ).map((tab) => (
@@ -6100,6 +6073,12 @@ export function QuotationBuilderPage() {
             quotationId={quotationId}
             quotationVersionId={versionId}
             destination={sightseeingDestinationName}
+            pax={{
+              adults: pax.adults,
+              childrenWithBed: pax.cwb,
+              childrenWithoutBed: pax.cwob,
+              infants: pax.infants,
+            }}
           />
         </div>
 
@@ -6154,7 +6133,7 @@ export function QuotationBuilderPage() {
                 {(form.watch('pricingMode') as string) === 'SECTION_WISE' && (() => {
                   const rows = form.watch('hotels') ?? [];
                   const hotelTotal = rows.filter(r=> r.selected!==false).reduce((sum,row)=> sum + calculateHotelRowTotal(row).total, 0);
-                  return hotelTotal>0 ? <div className="rounded-lg border bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Hotel Section Total: {currency} {hotelTotal.toFixed(2)}</div> : null;
+                  return hotelTotal>0 ? <div className={`${calculatedCard} flex items-center justify-between`}><span className={calculatedLabel}>Hotel Section Total</span><span className={calculatedValue}>{currency} {hotelTotal.toFixed(2)}</span></div> : null;
                 })()}
 
                 <div>
@@ -7222,6 +7201,18 @@ export function QuotationBuilderPage() {
                 .map((row) => ({ row, totals: calculateHotelRowTotal(row) }))
                 .filter((entry) => entry.totals.total !== 0);
             })();
+            // Flight per-traveler breakdown — reuse authoritative getFlightPerTravelerBreakdown
+            // (same data used by Weblink/PDF). Only when flight is PER_TRAVELER with rates.
+            const flightBreakdownRows = (() => {
+              const details = form.watch('flightDetails') as unknown;
+              if (!details || typeof details !== 'object') return null;
+              return getFlightPerTravelerBreakdown(details, {
+                adults: (q as unknown as { adults?: number }).adults ?? 0,
+                childrenWithBed: (q as unknown as { childrenWithBed?: number }).childrenWithBed ?? 0,
+                childrenWithoutBed: (q as unknown as { childrenWithoutBed?: number }).childrenWithoutBed ?? 0,
+                infants: (q as unknown as { infants?: number }).infants ?? 0,
+              });
+            })();
             const money = (value: number) => formatMoney(Math.round(value * 100) / 100);
             return (
               <div className="space-y-5">
@@ -7303,9 +7294,44 @@ export function QuotationBuilderPage() {
                                   </div>
                                 </details>
                               )}
+                              {section.id === 'flight' &&
+                                flightBreakdownRows &&
+                                flightBreakdownRows.filter(
+                                  (r: { count: number; rate: number }) => r.count > 0 && r.rate > 0,
+                                ).length > 0 && (
+                                  <details className="mt-1">
+                                    <summary className="cursor-pointer text-xs text-brand-700 hover:underline">
+                                      Show flight calculation
+                                    </summary>
+                                    <div className="mt-2 space-y-1 rounded-lg bg-slate-50 p-3 text-xs">
+                                      {flightBreakdownRows
+                                        .filter(
+                                          (r: { count: number; rate: number }) => r.count > 0 && r.rate > 0,
+                                        )
+                                        .map(
+                                          (row: { label: string; count: number; rate: number; total: number }) => (
+                                          <div
+                                            key={row.label}
+                                            className="flex items-center justify-between"
+                                          >
+                                            <span className="text-slate-600">
+                                              {row.label}: {row.count} × {formatMoney(row.rate)}
+                                            </span>
+                                            <span className="font-medium text-slate-900">
+                                              {formatMoney(row.total)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      <div className="flex items-center justify-between border-t border-slate-200 pt-2 font-semibold text-slate-900">
+                                        <span>Flight Total</span>
+                                        <span>{formatMoney(section.amount)}</span>
+                                      </div>
+                                    </div>
+                                  </details>
+                                )}
                             </div>
                           ))}
-                          {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (
+                           {(pricing.discountAmount !== 0 || pricing.taxAmount !== 0) && (
                             <div className="flex items-center justify-between px-4 py-2.5 text-sm">
                               <span className="font-medium text-slate-700">Subtotal</span>
                               <span className="text-slate-900">{formatMoney(pricing.sectionTotal)}</span>
@@ -7500,10 +7526,10 @@ export function QuotationBuilderPage() {
                         Save name
                       </Button>
                     </div>
-                    <div className="mt-2 rounded-md bg-brand-50 px-3 py-2 text-xs text-slate-600">
+                    <div className="mt-2 rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
                       <span className="font-medium text-slate-700">Friendly link:</span>{' '}
                       {weblinkNamePreview ? (
-                        <span className="break-all font-medium text-brand-700">
+                        <span className="break-all font-medium text-brand-600 underline decoration-brand-300 underline-offset-2">
                           {weblinkNamePreview}
                         </span>
                       ) : (

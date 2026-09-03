@@ -951,7 +951,7 @@ describe('Phase 8 quotation pages', () => {
         true,
       ),
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Weblink URL' }));
     await waitFor(() =>
       expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/customer-token'),
     );
@@ -1195,13 +1195,13 @@ describe('Phase 8 quotation pages', () => {
       { route: '/quotations/quotation-1' },
     );
     await screen.findByText('Version 1');
-    // Copy public link uses the Copy icon (not the ExternalLink icon).
-    const copyButton = screen.getByRole('button', { name: 'Copy public link' });
+    // Copy Weblink URL uses the Copy icon (not the ExternalLink icon).
+    const copyButton = screen.getByRole('button', { name: 'Copy Weblink URL' });
     expect(copyButton.querySelector('svg')).not.toBeNull();
-    // Open Weblink sits immediately after Copy public link and shares the URL.
+    // Open Weblink sits immediately after Copy Weblink URL and shares the URL.
     const buttonsRow = copyButton.closest('div')!;
     const rowText = buttonsRow.textContent ?? '';
-    expect(rowText.indexOf('Copy public link')).toBeLessThan(rowText.indexOf('Open Weblink'));
+    expect(rowText.indexOf('Copy Weblink URL')).toBeLessThan(rowText.indexOf('Open Weblink'));
     await userEvent.click(copyButton);
     await waitFor(() =>
       expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/customer-token'),
@@ -1246,7 +1246,7 @@ describe('Phase 8 quotation pages', () => {
       { route: '/quotations/quotation-1' },
     );
     await screen.findByText('Version 1');
-    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Weblink URL' }));
     await waitFor(() => expect(clipboardWrite).toHaveBeenCalled());
     // Failed copy must NOT show "Copied!".
     expect(screen.queryByText('Copied!')).not.toBeInTheDocument();
@@ -1305,7 +1305,7 @@ describe('Phase 8 quotation pages', () => {
       configurable: true,
       value: { writeText: clipboardWrite },
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Weblink URL' }));
     await waitFor(() =>
       expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/token-for-version-1'),
     );
@@ -1317,7 +1317,7 @@ describe('Phase 8 quotation pages', () => {
     );
     // Copy now uses the v2 URL (the stale v1 URL is discarded).
     clipboardWrite.mockClear();
-    await userEvent.click(screen.getByRole('button', { name: 'Copy public link' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Weblink URL' }));
     await waitFor(() =>
       expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:5173/q/token-for-version-2'),
     );
@@ -8320,7 +8320,7 @@ describe('Phase 8 quotation pages', () => {
     expect(within(cardA).getByText('Rooms:')).toBeInTheDocument();
     expect(cardA).toHaveTextContent('Rooms: 3');
     expect(cardA).toHaveTextContent('3:30 PM');
-    expect(cardA).not.toHaveTextContent('11:15 AM');
+    expect(cardA).toHaveTextContent('11:15 AM');
     expect(within(cardA).getByText('Nights:')).toBeInTheDocument();
     expect(within(cardA).getByText('Hotel Review')).toBeInTheDocument();
     expect(within(cardA).getByLabelText('4 star hotel')).toBeInTheDocument();
@@ -13207,36 +13207,13 @@ describe.skip('Phase 14 master selectors', () => {
     });
   });
 
-  it('collapses and expands each sightseeing day without changing its data', async () => {
+  it('keeps sightseeing day always expanded without collapse toggle', async () => {
     vi.stubGlobal('fetch', masterFetch(builderQuotation()));
     renderBuilderPage();
     await openTab('Sightseeing');
-
-    const dayToggle = await screen.findByRole('button', { name: 'Collapse day 1' });
-    expect(dayToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByLabelText('Day 1 activity 1 name')).toBeInTheDocument();
-
-    await userEvent.click(dayToggle);
-    expect(screen.getByRole('button', { name: 'Expand day 1' })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
-    expect(screen.queryByLabelText('Day 1 activity 1 name')).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Expand day 1' }));
-    expect(screen.getByRole('button', { name: 'Collapse day 1' })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
+    expect(screen.queryByRole('button', { name: /^(Expand|Collapse) day 1$/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Day 1 activity 1 name')).toBeInTheDocument();
     expect(screen.getByLabelText('Sightseeing day 1 title')).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse day 1' }));
-    expect(screen.getByRole('button', { name: 'Expand day 1' })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
-    expect(screen.queryByLabelText('Day 1 activity 1 name')).not.toBeInTheDocument();
   });
 
   it('persists each meal mode and transfer details on save', async () => {
@@ -16326,8 +16303,6 @@ describe('Quotation Builder — Sightseeing Master gallery snapshot', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderBuilderPage();
     await openTab('Sightseeing');
-    await userEvent.click(await screen.findByRole('button', { name: 'Expand day 1' }));
-
     const picker = await screen.findByLabelText('Day 1 activity 1');
     await openActivityPicker(picker, 'Gallery Tour');
     fireEvent.change(picker, { target: { value: 'Gallery Tour' } });
@@ -16395,7 +16370,6 @@ describe('Quotation Builder — Sightseeing Master gallery snapshot', () => {
     );
     renderBuilderPage();
     await openTab('Sightseeing');
-    await userEvent.click(await screen.findByRole('button', { name: 'Expand day 1' }));
     expect(await screen.findByText(/Activity Images \(2\)/)).toBeInTheDocument();
     expect(
       screen.getByLabelText('Use sightseeing image 2 in PDF on day 1 activity 1'),

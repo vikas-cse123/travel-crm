@@ -15,12 +15,69 @@ interface RichTextEditorProps {
  * the outside (e.g. loading a saved draft), never while the user is typing, so
  * the caret never jumps.
  */
+function decodeHtmlEntities(value: string): string {
+  if (typeof document !== 'undefined') {
+    let prev = '';
+    let cur = value;
+    let iterations = 0;
+    while (cur !== prev && iterations < 10) {
+      prev = cur;
+      const txt = document.createElement('textarea');
+      txt.innerHTML = cur;
+      cur = txt.value;
+      iterations++;
+      if (!cur.includes('&')) break;
+    }
+    return cur;
+  }
+  let cur = value;
+  let prev = '';
+  let iterations = 0;
+  while (cur !== prev && iterations < 10) {
+    prev = cur;
+    cur = cur
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&#(\d+);/g, (_, code) => {
+        const c = Number(code);
+        return Number.isFinite(c) ? String.fromCharCode(c) : _;
+      })
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => {
+        const c = parseInt(code, 16);
+        return Number.isFinite(c) ? String.fromCharCode(c) : _;
+      });
+    iterations++;
+  }
+  return cur;
+}
+
+function plainTextToHtml(value: string): string {
+  const decoded = decodeHtmlEntities(value);
+  return decoded
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r\n|\r|\n/g, '<br>');
+}
+
+function richTextToDisplayHtml(value: string): string {
+  const decoded = decodeHtmlEntities(value ?? '');
+  return decoded.includes('<') ? decoded : plainTextToHtml(decoded);
+}
+
 export function RichTextEditor({ value, onChange, ariaLabel, placeholder }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
-    if (el && (value ?? '') !== el.innerHTML) el.innerHTML = value ?? '';
+    if (!el) return;
+    const html = richTextToDisplayHtml(value ?? '');
+    if (el.innerHTML !== html) el.innerHTML = html;
   }, [value]);
 
   const emit = () => {

@@ -135,6 +135,11 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
+    // Pricing Method is first tab
+    expect(screen.getByRole('button', { name: 'Pricing Method' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pricing Method' }));
+    expect(screen.getByLabelText('By Section')).toBeInTheDocument();
+
     await userEvent.click(screen.getByLabelText('By Section'));
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Save quotation' })[1]!);
@@ -151,6 +156,10 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     vi.stubGlobal('fetch', fetchMock);
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
+
+    expect(screen.getByRole('button', { name: 'Pricing Method' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pricing Method' }));
+    expect(screen.getByLabelText('By Traveler')).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText('By Traveler'));
 
@@ -202,6 +211,10 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
+    expect(screen.getByRole('button', { name: 'Pricing Method' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pricing Method' }));
+    expect(screen.getByLabelText('By Section')).toBeInTheDocument();
+
     await userEvent.click(screen.getByLabelText('By Section'));
 
     release();
@@ -224,7 +237,9 @@ describe('Pricing mode persistence — builder save must keep the selected mode'
     renderBuilder();
     await screen.findByRole('heading', { name: 'Quotation builder' });
 
-    // Step 0 pricing cards are visible at the top of the builder
+    // Pricing Method tab should be first
+    expect(screen.getByRole('button', { name: 'Pricing Method' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pricing Method' }));
     expect(screen.getByLabelText('By Section')).toBeInTheDocument();
     expect(screen.getByLabelText('By Traveler')).toBeInTheDocument();
     // A legacy TOTAL quotation loads as By Traveler (backward compatible).

@@ -85,26 +85,13 @@ const MONTH_NAMES = [
   'December',
 ] as const;
 
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
 const formatDisplayDate = (value: string): string => {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
   const day = String(date.getDate()).padStart(2, '0');
-  return `${day} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+  return `${day}-${month}-${year}`;
 };
 
 /** Raw number formatting matching the rest of the master UI (no symbol swaps). */
@@ -474,7 +461,7 @@ export function HotelRatesEditor({
         {monthOpen && (
           <div className="mt-3 space-y-3 rounded-lg border border-dashed p-3">
             {monthError && <p className="text-xs font-medium text-red-600">{monthError}</p>}
-            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-5' : 'sm:grid-cols-3'}`}>
+            <div className={`grid gap-3 ${isRoom ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
               <label className="block text-sm font-medium text-slate-700">
                 Month
                 <select
@@ -673,7 +660,7 @@ export function HotelRatesEditor({
                 />
               </label>
             </div>
-            <div className={`grid gap-3 ${isRoom ? 'sm:grid-cols-4' : 'sm:grid-cols-2'}`}>
+            <div className={`grid gap-3 grid-cols-1 sm:grid-cols-2`}>
               <label className="block text-sm font-medium text-slate-700">
                 {isRoom ? 'Room Rate' : 'Price'}
                 <input

@@ -3,7 +3,6 @@ import { useFieldArray, useWatch, type FieldPath, type UseFormReturn } from 'rea
 import {
   ArrowLeft,
   ArrowRight,
-  ChevronDown,
   Image as ImageIcon,
   Plus,
   Trash2,
@@ -46,8 +45,14 @@ const SPECIAL_SIGHTSEEING_OPTIONS: SightseeingSelectOption[] = [
 const SPECIAL_DAY_AT_LEISURE_DESCRIPTION = '<p>Relax and enjoy the day at your own pace.</p>';
 const SPECIAL_ARRIVAL_CHECKIN_DESCRIPTION = '<p>Arrival and hotel check-in.</p>';
 
-const field = 'w-full rounded-lg border border-slate-300 bg-card px-3 py-2 text-sm';
-const labelCls = 'text-xs font-semibold uppercase tracking-wide text-slate-500';
+const field =
+  'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm h-[38px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:border-ring transition-colors';
+const labelCls = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const calculatedCard = 'rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5';
+const calculatedLabel = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const calculatedValue = 'text-sm font-semibold text-foreground';
+const subsectionHeading = 'text-xs font-semibold uppercase tracking-widest text-brand-700';
+const subsectionHeadingMuted = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 type Form = UseFormReturn<QuotationVersionInput>;
 type SightDay = NonNullable<QuotationVersionInput['sightseeingDetails']>['days'][number];
@@ -56,7 +61,7 @@ type SightImage = SightActivity['images'][number];
 
 type SightPriceRow = SightActivity['pricingOptions'][number];
 
-/** The three default rows, blank. Blank rows are dropped on save by the schema. */
+/** The default rows (Adult/Child), blank. Blank rows are dropped on save by the schema. */
 const emptyPricingRows = (): SightPriceRow[] =>
   SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label) => ({ label, price: null as never }));
 
@@ -68,13 +73,15 @@ const isDefaultPriceLabel = (value: unknown) =>
   SIGHTSEEING_DEFAULT_PRICE_LABELS.some((label) => label.toLowerCase() === priceLabelKey(value));
 
 /**
- * Shape a saved activity's pricing for editing: Adult/Child/Senior always
+ * Shape a saved activity's pricing for editing: Adult/Child always
  * present (and in that order) at the head, every other saved row kept after
  * them in its saved order. Activities saved before this feature have no
- * `pricingOptions` at all and simply get the three blank defaults.
+ * `pricingOptions` at all and simply get the two blank defaults.
  */
 export const withDefaultPricingRows = (rows?: SightPriceRow[] | null): SightPriceRow[] => {
-  const saved = Array.isArray(rows) ? rows : [];
+  const savedRaw = Array.isArray(rows) ? rows : [];
+  // Drop legacy Senior rows — sightseeing now uses only Adult/Child defaults.
+  const saved = savedRaw.filter((row) => priceLabelKey(row?.label) !== 'senior');
   const defaults = SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label) => {
     const match = saved.find((row) => priceLabelKey(row?.label) === label.toLowerCase());
     return { label, price: (match?.price ?? null) as never };
@@ -254,7 +261,7 @@ function ActivityImageGallery({
 /**
  * Per-activity informational pricing.
  *
- * Adult/Child/Senior occupy the first three slots of the same `pricingOptions`
+ * Adult/Child occupy the first two slots of the same `pricingOptions`
  * array every custom row lives in — they are not separate fields, they just
  * always render. Leaving one blank persists nothing; the shared schema drops
  * unfilled rows and reports duplicates/negatives at their array index, which is
@@ -265,11 +272,13 @@ function ActivityPricing({
   dayIndex,
   activityIndex,
   ariaPrefix,
+  pax,
 }: {
   form: Form;
   dayIndex: number;
   activityIndex: number;
   ariaPrefix: string;
+  pax?: { adults: number; childrenWithBed: number; childrenWithoutBed: number; infants: number };
 }) {
   const name =
     `sightseeingDetails.days.${dayIndex}.activities.${activityIndex}.pricingOptions` as const;
@@ -305,8 +314,8 @@ function ActivityPricing({
   if (!isSectionWise) return null;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-      <p className={labelCls}>Activity Pricing</p>
+    <div className="rounded-lg bg-muted/40 border border-border/40 p-3.5">
+      <p className={subsectionHeading}>Activity Pricing</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <label className="block text-xs font-medium text-slate-600">
           Pricing Basis
@@ -353,8 +362,8 @@ function ActivityPricing({
           </label>
         )}
       </div>
-      {/* One column on phones — three narrow price boxes are unreadable there. */}
-      <div className="mt-2 grid gap-3 sm:grid-cols-3">
+      {/* One column on phones — two price boxes. */}
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
         {SIGHTSEEING_DEFAULT_PRICE_LABELS.map((label, index) => (
           <label key={label} className="block text-xs font-medium text-slate-600">
             {label} Price
@@ -380,6 +389,46 @@ function ActivityPricing({
           </label>
         ))}
       </div>
+
+      {basis === 'PER_TRAVELER' && (() => {
+        const pricingOptions = form.watch(name as never) as unknown as Array<{ label: string; price: number | string | null | undefined }>;
+        const effectivePax = pax ?? { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 };
+        const fmt = (n: number) => `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const paxForLabel = (label: string, p: typeof effectivePax): number | null => {
+          const norm = label.trim().toLowerCase();
+          if (norm === 'adult' || norm === 'adults') return p.adults;
+          if (norm === 'cwb' || norm === 'child with bed' || norm === 'child_with_bed') return p.childrenWithBed;
+          if (norm === 'cwob' || norm === 'child without bed' || norm === 'child_without_bed') return p.childrenWithoutBed;
+          if (norm === 'infant' || norm === 'infants') return p.infants;
+          if (norm === 'child' || norm === 'children') return p.childrenWithBed + p.childrenWithoutBed;
+          return null;
+        };
+        const rows = (pricingOptions ?? [])
+          .map((row) => {
+            const label = typeof row.label === 'string' ? row.label.trim() : '';
+            const price = Number(row.price ?? 0);
+            if (!label || !Number.isFinite(price) || price === 0) return null;
+            const count = paxForLabel(label, effectivePax);
+            const qty = count === null ? 1 : count;
+            return { label, price, qty, amount: price * qty };
+          })
+          .filter(Boolean) as Array<{ label: string; price: number; qty: number; amount: number }>;
+        if (rows.length === 0) return null;
+        return (
+          <div className="mt-3 rounded-md border bg-white px-3 py-2 text-sm">
+            <div className="space-y-1 text-slate-600">
+              {rows.map((r) => (
+                <div key={r.label} className="flex justify-between">
+                  <span>
+                    {r.label}: {r.qty} × {fmt(r.price)}
+                  </span>
+                  <span className="font-medium text-slate-800">= {fmt(r.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {customRows.length > 0 && (
         <div className="mt-3 space-y-3">
@@ -452,17 +501,12 @@ function ActivityPricing({
         const pricingOptions = form.watch(name as never) as unknown as Array<{ label: string; price: number | string | null | undefined }>;
         const pricingBasis = form.watch(basisBase as never) as unknown as string | null;
         const pricingQuantity = form.watch(quantityBase as never) as unknown as number | null;
-        const pax = { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 };
-        const total = calculateSightseeingActivityTotal(pricingOptions as never, pax as never, { pricingBasis, pricingQuantity } as never);
+        const effectivePax = pax ?? { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 };
+        const total = calculateSightseeingActivityTotal(pricingOptions as never, effectivePax as never, { pricingBasis, pricingQuantity } as never);
         return (
-          <div className="mt-3 rounded-md bg-white px-3 py-2 text-sm">
-            <div className="flex justify-between">
-              <span className="font-medium text-slate-700">Activity Amount</span>
-              <span className="font-semibold text-slate-900">₹{total.toFixed(2)}</span>
-            </div>
-            {pricingOptions?.some((r) => (r as unknown as { price?: unknown })?.price == null) && (
-              <span className="mt-1 block text-[11px] text-amber-600">No master price — enter a manual selling price.</span>
-            )}
+          <div className={`mt-3 ${calculatedCard} flex justify-between bg-card`}>
+            <span className={calculatedLabel}>Activity Amount</span>
+            <span className={calculatedValue}>₹{total.toFixed(2)}</span>
           </div>
         );
       })()}
@@ -480,6 +524,7 @@ function DayCard({
   presentations,
   destinationLabel,
   attractionsStatus,
+  pax,
   onInsertBefore,
   onInsertAfter,
   onRemove,
@@ -493,6 +538,7 @@ function DayCard({
   /** Display name of the resolved quotation destination, e.g. "Singapore". */
   destinationLabel: string;
   attractionsStatus: { loading: boolean; error: boolean };
+  pax: { adults: number; childrenWithBed: number; childrenWithoutBed: number; infants: number };
   onInsertBefore?: (() => void) | undefined;
   onInsertAfter: () => void;
   onRemove: () => void;
@@ -506,8 +552,6 @@ function DayCard({
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [uploadingActivity, setUploadingActivity] = useState<number | null>(null);
   const [imageError, setImageError] = useState('');
-  const pricingModeForExpand = (form.watch('pricingMode' as unknown as FieldPath<QuotationVersionInput>) as unknown as string | undefined) ?? 'SECTION_WISE';
-  const [expanded, setExpanded] = useState(pricingModeForExpand === 'SECTION_WISE');
   const savedDocumentIds = useMemo(
     () =>
       activities.fields
@@ -684,7 +728,8 @@ function DayCard({
         shouldDirty: true,
       });
       form.setValue(fp(`${abase}.sequence`), 1 as never, { shouldDirty: true });
-      // Prefill pricingOptions from master pricing if activity has no pricing yet
+      // Prefill pricingOptions from master pricing if activity has no pricing yet.
+      // Keep existing manual edits: only fill when all current prices are blank/zero.
       const masterPricing = (picked as unknown as { pricing?: Array<{ label: string; price: number | null }> | null })?.pricing;
       if (Array.isArray(masterPricing) && masterPricing.length > 0) {
         const currentPricing = form.getValues(fp(`${abase}.pricingOptions`) as never) as unknown as Array<{ label?: unknown; price?: unknown }> | undefined;
@@ -696,7 +741,11 @@ function DayCard({
           );
         if (isEmpty) {
           const mapped = masterPricing.map((row) => ({ label: row.label, price: row.price }));
-          form.setValue(fp(`${abase}.pricingOptions`), mapped as never, { shouldDirty: true });
+          const normalized = withDefaultPricingRows(mapped as never);
+          normalized.forEach((row, idx) => {
+            form.setValue(fp(`${abase}.pricingOptions.${idx}.label`), row.label as never, { shouldDirty: true });
+            form.setValue(fp(`${abase}.pricingOptions.${idx}.price`), row.price as never, { shouldDirty: true, shouldValidate: false });
+          });
         }
       }
       if (!titleTouched)
@@ -775,19 +824,6 @@ function DayCard({
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} day ${dayIndex + 1}`}
-            title={`${expanded ? 'Collapse' : 'Expand'} day ${dayIndex + 1}`}
-            onClick={() => setExpanded((current) => !current)}
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-          >
-            <ChevronDown
-              aria-hidden="true"
-              className={`h-5 w-5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-            />
-          </button>
           {onInsertBefore && (
             <Button
               variant="secondary"
@@ -810,8 +846,6 @@ function DayCard({
         </div>
       </div>
 
-      {expanded && (
-        <>
           <div className="space-y-4">
             {activities.fields.map((activity, aIndex) => {
               const abase = `${base}.activities.${aIndex}`;
@@ -828,13 +862,15 @@ function DayCard({
               const pdfImageUrl =
                 (form.watch(fp(`${abase}.pdfImageUrl`)) as string | null | undefined) ?? null;
               const imageUrlFor = (image: SightImage) => {
-                if (image.url) return image.url;
                 const identity = image.masterImageId ?? image.id;
-                return (
-                  presentations[sightseeingId ?? '']?.images.find(
-                    (presented) => presented.id === identity,
-                  )?.url ?? null
-                );
+                const viaMaster = identity
+                  ? (presentations[sightseeingId ?? '']?.images.find(
+                      (presented) => presented.id === identity,
+                    )?.url ?? null)
+                  : null;
+                if (viaMaster) return viaMaster;
+                if (image.url) return image.url;
+                return null;
               };
               // A quotation gallery is authoritative once present. Legacy
               // activities with no gallery retain document/single-Master
@@ -875,7 +911,7 @@ function DayCard({
               return (
                 <div
                   key={activity.id}
-                  className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-[200px_1fr]"
+                  className="grid gap-3 rounded-lg bg-muted/20 border border-border/40 p-4 md:grid-cols-[200px_1fr]"
                 >
                   <div>
                     <label className="group relative block aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-md border border-dashed border-slate-300 bg-slate-50 transition hover:border-brand-400 hover:ring-2 hover:ring-brand-100 md:aspect-auto md:h-28">
@@ -898,10 +934,11 @@ function DayCard({
                       />
                     </label>
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
+                    <p className={`${subsectionHeading} border-b border-border/40 pb-1`}>Activity Details</p>
                     <div className="grid gap-3 md:grid-cols-[1fr_190px]">
                       <label className={labelCls}>
-                        Attraction / Activity
+                        Attraction / Activity <span className="text-[11px] font-normal text-brand-600">· master</span>
                         <div className="mt-1">
                           <SightseeingActivitySelect
                             ariaLabel={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
@@ -986,7 +1023,7 @@ function DayCard({
                       </div>
                     </div>
                     <div>
-                      <p className={labelCls}>Daily Transfer</p>
+                      <p className={`${subsectionHeadingMuted} border-b border-border/40 pb-1`}>Transfer</p>
                       <div className="mt-2 flex flex-wrap gap-4 text-sm">
                         {(
                           [
@@ -1022,6 +1059,7 @@ function DayCard({
                       dayIndex={dayIndex}
                       activityIndex={aIndex}
                       ariaPrefix={`Day ${dayIndex + 1} activity ${aIndex + 1}`}
+                      pax={pax}
                     />
                     <ActivityImageGallery
                       dayIndex={dayIndex}
@@ -1176,8 +1214,6 @@ function DayCard({
                 })}
             </div>
           </div>
-        </>
-      )}
     </article>
   );
 }
@@ -1188,13 +1224,16 @@ export function SightseeingSection({
   quotationId = '',
   quotationVersionId = '',
   destination,
+  pax,
 }: {
   form: Form;
   quotationId?: string;
   quotationVersionId?: string;
   /** Resolved destination/country name (e.g. "Malaysia") for the activities lookup. */
   destination?: string | null;
+  pax?: { adults: number; childrenWithBed: number; childrenWithoutBed: number; infants: number };
 }) {
+  const effectivePax = pax ?? { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 };
   const destinationSummary = (form.watch('destinationSummary') as string) ?? '';
   const destinationToken = destinationSummary.split(/[•(→>,]/)[0]?.trim() ?? '';
   // Resolve active sightseeing records by exact destination name, never by text
@@ -1273,19 +1312,12 @@ export function SightseeingSection({
             </label>
             {((form.watch('pricingMode' as never) as unknown as string) ?? 'SECTION_WISE') !== 'PER_PERSON' && (() => {
               const sightseeingDetails = form.watch('sightseeingDetails' as never) as unknown as never;
-              const pax = { adults: 2, childrenWithBed: 0, childrenWithoutBed: 0, infants: 0 } as const;
-              const sightseeingTotal = calculateSightseeingSectionTotal(sightseeingDetails, pax as never);
+              const sightseeingTotal = calculateSightseeingSectionTotal(sightseeingDetails, effectivePax as never);
               return (
-                <label className="text-sm font-semibold text-slate-800">
-                  Sightseeing Total
-                  <input
-                    readOnly
-                    aria-label="Sightseeing total"
-                    value={sightseeingTotal > 0 ? String(sightseeingTotal) : String((sightseeingDetails as unknown as { amount?: unknown })?.amount ?? 0)}
-                    className={`${field} mt-1 bg-slate-100`}
-                  />
-                  <span className="mt-1 block text-xs font-normal text-slate-500">Auto-calculated from activity selling amounts (sum of all enabled activities).</span>
-                </label>
+                <div className="rounded-lg border bg-slate-50 px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-800">Sightseeing Total:</span>
+                  <span className="text-sm font-bold text-slate-900">₹{sightseeingTotal.toFixed(2)}</span>
+                </div>
               );
             })()}
           </div>
@@ -1447,6 +1479,7 @@ export function SightseeingSection({
                   presentations={presentations}
                   destinationLabel={destinationLabel}
                   attractionsStatus={attractionsStatus}
+                  pax={effectivePax}
                   onInsertBefore={
                     selectedDayIndex === 0
                       ? () => {

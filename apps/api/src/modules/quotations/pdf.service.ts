@@ -173,18 +173,26 @@ const validPaymentUrl = (value: string | null | undefined): string | null => {
 export type PdfRichTextRun = { text: string; bold: boolean };
 export type PdfRichTextLine = PdfRichTextRun[];
 
-const decodeHtmlText = (value: string): string =>
-  value
-    .replace(/&nbsp;|&#160;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([\da-f]+);/gi, (_, code: string) =>
-      String.fromCodePoint(Number.parseInt(code, 16)),
-    );
+const decodeHtmlText = (value: string): string => {
+  let prev = '';
+  let cur = value;
+  let iterations = 0;
+  while (cur !== prev && iterations < 10) {
+    prev = cur;
+    cur = cur
+      .replace(/&nbsp;|&#160;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#(\d+);/g, (_: string, code: string) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([\da-f]+);/gi, (_: string, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+    iterations++;
+    if (!cur.includes('&')) break;
+  }
+  return cur;
+};
 
 /** Convert sanitised editor HTML to PDF lines while retaining inline bold runs. */
 export const htmlToRichTextLines = (html: string | null | undefined): PdfRichTextLine[] => {
@@ -2127,9 +2135,9 @@ export async function renderQuotationPdf(input: QuotationPdfInput): Promise<Buff
               ? [hotel.mealPlan && `Meal Plan: ${hotel.mealPlan}`]
               : []),
           hotel.checkInDate &&
-            `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime && hotel.showCheckInTime !== false ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
+            `Check-in: ${dateFmt(hotel.checkInDate)}${hotel.checkInTime?.trim() ? ` | ${formatClock12Hour(hotel.checkInTime)}` : ''}`,
           hotel.checkOutDate &&
-            `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime && hotel.showCheckOutTime !== false ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
+            `Check-out: ${dateFmt(hotel.checkOutDate)}${hotel.checkOutTime?.trim() ? ` | ${formatClock12Hour(hotel.checkOutTime)}` : ''}`,
           ...(multiRoom
             ? []
             : [

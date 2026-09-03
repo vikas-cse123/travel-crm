@@ -2536,7 +2536,7 @@ export function PublicQuotationPage() {
                                   Check-in:
                                 </strong>{' '}
                                 {dateShort(hotel.checkInDate)}
-                                {hotel.checkInTime && hotel.showCheckInTime !== false
+                                {hotel.checkInTime?.trim()
                                   ? ` · ${formatTime12Hour(hotel.checkInTime)}`
                                   : ''}
                               </p>
@@ -2547,7 +2547,7 @@ export function PublicQuotationPage() {
                                   Check-out:
                                 </strong>{' '}
                                 {dateShort(hotel.checkOutDate)}
-                                {hotel.checkOutTime && hotel.showCheckOutTime !== false
+                                {hotel.checkOutTime?.trim()
                                   ? ` · ${formatTime12Hour(hotel.checkOutTime)}`
                                   : ''}
                               </p>

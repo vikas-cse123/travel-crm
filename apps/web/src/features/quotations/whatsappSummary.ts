@@ -87,16 +87,18 @@ function flightLines(version: QuotationVersion): string[] {
 
 function cruiseLines(version: QuotationVersion): string[] {
   const rows = (version.services ?? []).filter((s) => s.serviceType === 'CRUISE');
-  return rows
-    .map((row) => {
-      const name = (row.name ?? '').trim();
-      if (!name) return null;
-      const city = (row.city ?? '').trim();
-      const desc = (row.description ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      const parts = [name, city, desc].filter(Boolean);
-      return `• ${parts.join(' — ')}`;
-    })
-    .filter((v): v is string => Boolean(v));
+  const lines: string[] = [];
+  for (const row of rows) {
+    const name = (row.name ?? '').trim();
+    if (!name) continue;
+    lines.push(`• ${name}`);
+    const nightsRaw = (row as unknown as { cruiseNights?: unknown; quantity?: unknown }).cruiseNights ?? (row as unknown as { quantity?: unknown }).quantity ?? null;
+    const nights = nightsRaw != null ? Number(nightsRaw) : null;
+    if (nights != null && Number.isFinite(nights) && nights > 0) {
+      lines.push(`• ${nights} Night${nights === 1 ? '' : 's'}`);
+    }
+  }
+  return lines;
 }
 
 function vehicleLines(version: QuotationVersion): string[] {
@@ -194,7 +196,6 @@ export function buildWhatsAppSummary(input: WhatsAppSummaryInput): string {
   const includeFlights = Boolean(options?.includeFlights);
   const includeCruises = Boolean(options?.includeCruises);
   const includeVehicles = Boolean(options?.includeVehicles);
-  const customerName = (quotation.customerName ?? '').trim() || 'there';
   const companyDisplay = (companyName ?? '').trim() || 'Our Team';
   const preparedBy = (preparedByName ?? quotation.createdBy?.fullName ?? '').trim();
 
@@ -218,7 +219,7 @@ export function buildWhatsAppSummary(input: WhatsAppSummaryInput): string {
 
   const lines: string[] = [];
 
-  lines.push(`Hello ${customerName},`);
+  lines.push(`Hello,`);
   lines.push('');
   lines.push(`Greetings from *${companyDisplay}*!`);
   lines.push('');
@@ -350,7 +351,7 @@ export function whatsappMarkdownToHtml(markdown: string): string {
     if (headingMatch) {
       closeList();
       const title = (headingMatch[1] ?? '').trim();
-      html += `<h3 class="mt-6 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500"><span class="h-4 w-0.5 rounded bg-emerald-500"></span>${escapeHtml(title)}</h3>`;
+      html += `<h3 class="mt-6 mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">${escapeHtml(title)}</h3>`;
       continue;
     }
 

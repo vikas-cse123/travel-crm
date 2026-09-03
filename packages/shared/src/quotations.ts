@@ -941,7 +941,7 @@ export const sightseeingMealPreferencesSchema = z
  * seeds — nothing distinguishes them from a user-added row once saved, and an
  * untouched one is never persisted.
  */
-export const SIGHTSEEING_DEFAULT_PRICE_LABELS = ['Adult', 'Child', 'Senior'] as const;
+export const SIGHTSEEING_DEFAULT_PRICE_LABELS = ['Adult', 'Child'] as const;
 
 /** Max pricing rows on a single activity. */
 const SIGHTSEEING_PRICE_OPTIONS_MAX = 20;
@@ -966,7 +966,7 @@ const parsePriceValue = (value: unknown): number | null => {
 };
 
 /**
- * Informational per-activity pricing — Adult/Child/Senior and any custom row
+ * Informational per-activity pricing — Adult/Child and any custom row
  * all live in this one array.
  *
  * Rows are validated at their original index so the builder can attach inline

@@ -85,6 +85,7 @@ export function QuotationDetailsPage() {
   const [includeVehicles, setIncludeVehicles] = useState(false);
   const [whatsappHtml, setWhatsappHtml] = useState('');
   const whatsappEditorRef = useRef<HTMLDivElement | null>(null);
+  const [hasAttemptedFinalize, setHasAttemptedFinalize] = useState(false);
   // Public weblink URL once provisioned, tagged with the version it belongs to.
   // Reset whenever the current version changes so Copy/Open always target the
   // currently displayed version (never a stale link from an earlier version).
@@ -159,6 +160,10 @@ export function QuotationDetailsPage() {
     }
   }, [whatsappHtml, whatsappOpen]);
 
+  useEffect(() => {
+    setHasAttemptedFinalize(false);
+  }, [query.data?.id, query.data?.currentVersionId]);
+
   if (query.isLoading) return <div className="h-96 animate-pulse rounded-xl bg-card" />;
   if (!query.data)
     return <div className="rounded-xl bg-card p-12 text-center">Quotation unavailable.</div>;
@@ -175,7 +180,11 @@ export function QuotationDetailsPage() {
       return [] as ReturnType<typeof validateQuotationPricing>;
     }
   })();
-  const isDraftIncomplete = current?.status === 'DRAFT' && pricingIssues.length > 0;
+  // Only show the large incomplete-pricing warning after the user has tried to finalize.
+  // Before that, a newly created draft with no pricing is a normal Draft.
+  const isDraftIncomplete = current?.status === 'DRAFT' && hasAttemptedFinalize && pricingIssues.length > 0;
+  const showSubtleDraftHint =
+    current?.status === 'DRAFT' && !hasAttemptedFinalize && pricingIssues.length > 0;
   const money = (value: string, currency: string) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value));
   const createRevision = () => {
@@ -208,6 +217,7 @@ export function QuotationDetailsPage() {
    */
   const handleFinalize = () => {
     if (!current || action.isPending) return;
+    setHasAttemptedFinalize(true);
     setActionError('');
     setActionSuccess('');
     action.mutate(
@@ -231,7 +241,7 @@ export function QuotationDetailsPage() {
     );
   };
   /** Provision the public weblink for the current version; stores the URL for
-   *  both Copy public link and Open Weblink. Returns the cached URL only when
+   *  both Copy Weblink URL and Open Weblink. Returns the cached URL only when
    *  it still belongs to the current version. */
   const ensurePublicLink = (): Promise<string | null> =>
     new Promise((resolve) => {
@@ -476,6 +486,16 @@ export function QuotationDetailsPage() {
           )}
         </div>
       )}
+      {showSubtleDraftHint && (
+        <div
+          role="note"
+          aria-label="Draft pricing not yet configured"
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600"
+        >
+          <span className="h-2 w-2 rounded-full bg-amber-400" aria-hidden="true" />
+          Draft — pricing not yet configured. Preview is available.
+        </div>
+      )}
       <section className="grid gap-3 sm:grid-cols-2">
         {[
           ['Current version', current ? `v${current.versionNumber}` : '—'],
@@ -538,10 +558,10 @@ export function QuotationDetailsPage() {
                       onClick={() => void copyPublicLink()}
                     >
                       <Copy className="h-4 w-4" />
-                      Copy public link
+                      Copy Weblink URL
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{linkCopied ? 'Copied!' : 'Copy public link'}</TooltipContent>
+                  <TooltipContent>{linkCopied ? 'Copied!' : 'Copy Weblink URL'}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
@@ -587,10 +607,10 @@ export function QuotationDetailsPage() {
                       onClick={() => void openWhatsappSummary()}
                     >
                       <MessageCircle className="h-4 w-4" />
-                      WhatsApp Summary
+                      WhatsApp Message
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{summaryCopied ? 'Copied!' : 'WhatsApp summary'}</TooltipContent>
+                  <TooltipContent>{summaryCopied ? 'Copied!' : 'WhatsApp Message'}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
@@ -1010,7 +1030,7 @@ export function QuotationDetailsPage() {
                 </div>
                 <div>
                   <h2 id="whatsapp-summary-title" className="text-[15px] font-semibold leading-none text-slate-900">
-                    WhatsApp Summary
+                    WhatsApp Message
                   </h2>
                   <p className="mt-1 text-xs leading-4 text-slate-500">
                     Clean share text — pricing stays in the weblink. Edit freely.
@@ -1056,11 +1076,11 @@ export function QuotationDetailsPage() {
                 type="button"
                 onClick={() => {
                   const base = buildBaseWhatsAppSummary();
-                  setWhatsappHtml(whatsappMarkdownToHtml(base));
-                  // also sync the hidden html state for copy fallback
-                  requestAnimationFrame(() => {
-                    if (whatsappEditorRef.current) whatsappEditorRef.current.innerHTML = whatsappMarkdownToHtml(base);
-                  });
+                  const html = whatsappMarkdownToHtml(base);
+                  setWhatsappHtml(html);
+                  if (whatsappEditorRef.current) {
+                    whatsappEditorRef.current.innerHTML = html;
+                  }
                 }}
                 className="ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:bg-white hover:text-slate-700"
                 title="Reset to generated default"
@@ -1152,7 +1172,7 @@ export function QuotationDetailsPage() {
                         className="bg-slate-900 px-5 text-white shadow-sm hover:bg-slate-800"
                       >
                         <Copy className="h-4 w-4" />
-                        {summaryCopied ? 'Copied!' : 'Copy Summary'}
+                        {summaryCopied ? 'Copied!' : 'Copy'}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{summaryCopied ? 'Copied!' : 'Copy to clipboard'}</TooltipContent>

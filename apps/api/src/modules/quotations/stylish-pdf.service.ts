@@ -1578,16 +1578,12 @@ export async function renderStylishQuotationPdf(input: QuotationPdfInput): Promi
             [
               'CHECK-IN',
               date(hotel.checkInDate),
-              hotel.checkInTime && hotel.showCheckInTime !== false
-                ? formatClock12Hour(hotel.checkInTime)
-                : '',
+              hotel.checkInTime?.trim() ? formatClock12Hour(hotel.checkInTime) : '',
             ],
             [
               'CHECK-OUT',
               date(hotel.checkOutDate),
-              hotel.checkOutTime && hotel.showCheckOutTime !== false
-                ? formatClock12Hour(hotel.checkOutTime)
-                : '',
+              hotel.checkOutTime?.trim() ? formatClock12Hour(hotel.checkOutTime) : '',
             ],
           ];
           // Room type / meal plan are optional: an empty value renders no fact

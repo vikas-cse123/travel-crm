@@ -144,10 +144,56 @@ export function GlobalBadge({ withTooltip = true }: { withTooltip?: boolean }) {
 /** Shared pagination footer (also used by the Leads table). */
 export { Pagination } from '@/components/ui/Pagination';
 
+/** Fully decode HTML entities (handles legacy double/triple encoding like &amp;amp;). */
+function decodeHtmlEntities(value: string): string {
+  if (typeof document !== 'undefined') {
+    let prev = '';
+    let cur = value;
+    let iterations = 0;
+    while (cur !== prev && iterations < 10) {
+      prev = cur;
+      const txt = document.createElement('textarea');
+      txt.innerHTML = cur;
+      cur = txt.value;
+      iterations++;
+      if (!cur.includes('&')) break;
+    }
+    return cur;
+  }
+  // Fallback for SSR/tests: sequential entity decoding
+  let cur = value;
+  let prev = '';
+  let iterations = 0;
+  while (cur !== prev && iterations < 10) {
+    prev = cur;
+    cur = cur
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&#(\d+);/g, (_, code) => {
+        const c = Number(code);
+        return Number.isFinite(c) ? String.fromCharCode(c) : _;
+      })
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => {
+        const c = parseInt(code, 16);
+        return Number.isFinite(c) ? String.fromCharCode(c) : _;
+      });
+    iterations++;
+  }
+  return cur;
+}
+
 /** Escape plain text and preserve line breaks as <br> so values stored as
- *  plain text (e.g. Excel imports) display their original line structure. */
+ *  plain text (e.g. Excel imports) display their original line structure.
+ *  Idempotent — decodes any existing entities first to avoid double-encoding
+ *  like &amp; → &amp;amp;. */
 export function plainTextToHtml(value: string): string {
-  return value
+  const decoded = decodeHtmlEntities(value);
+  return decoded
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -156,9 +202,11 @@ export function plainTextToHtml(value: string): string {
 
 /** Values stored without any markup (Excel imports, legacy records) must be
  *  rendered as plain text with their line structure preserved — exactly how
- *  the editor displays them. Markup values are rendered as-is. */
+ *  the editor displays them. Markup values are rendered as-is, but legacy
+ *  double-encoded entities are normalized first. */
 export function richTextToDisplayHtml(value: string): string {
-  return value.includes('<') ? value : plainTextToHtml(value);
+  const decoded = decodeHtmlEntities(value);
+  return decoded.includes('<') ? decoded : plainTextToHtml(decoded);
 }
 
 export function RichTextEditor({
@@ -174,7 +222,7 @@ export function RichTextEditor({
   const labelId = useId();
   useEffect(() => {
     if (!editor.current) return;
-    const html = value.includes('<') ? value : plainTextToHtml(value);
+    const html = richTextToDisplayHtml(value ?? '');
     if (editor.current.innerHTML !== html) editor.current.innerHTML = html;
   }, [value]);
   const command = (name: string, argument?: string) => {
