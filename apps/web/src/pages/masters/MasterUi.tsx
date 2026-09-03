@@ -220,15 +220,31 @@ export function RichTextEditor({
 }) {
   const editor = useRef<HTMLDivElement>(null);
   const labelId = useId();
+  // HTML last emitted from this editor instance. The parent echoes it back
+  // via `value`; that echo must never rewrite the DOM. Rewriting would run
+  // entity/whitespace normalization (e.g. `&nbsp;` vs a raw space) whose
+  // output differs textually from `innerHTML`, resetting the caret on every
+  // keystroke — notably after SPACE — and corrupting typed text.
+  const lastEmitted = useRef<string | null>(null);
   useEffect(() => {
+    const next = value ?? '';
+    // Own echo of what the user just typed: leave the DOM (and caret) alone.
+    if (next === lastEmitted.current) return;
     if (!editor.current) return;
-    const html = richTextToDisplayHtml(value ?? '');
+    // External change (initial load, saved content, section switch): display it.
+    const html = richTextToDisplayHtml(next);
     if (editor.current.innerHTML !== html) editor.current.innerHTML = html;
+    lastEmitted.current = next;
   }, [value]);
+  const emit = () => {
+    const html = editor.current?.innerHTML ?? '';
+    lastEmitted.current = html;
+    onChange(html);
+  };
   const command = (name: string, argument?: string) => {
     editor.current?.focus();
     document.execCommand(name, false, argument);
-    onChange(editor.current?.innerHTML ?? '');
+    emit();
   };
   const resetFormatting = () => {
     editor.current?.focus();
@@ -236,7 +252,7 @@ export function RichTextEditor({
     document.execCommand('foreColor', false, '#334155');
     document.execCommand('hiliteColor', false, 'transparent');
     document.execCommand('backColor', false, 'transparent');
-    onChange(editor.current?.innerHTML ?? '');
+    emit();
   };
   const buttonClass = 'rounded p-1.5 hover:bg-card';
   const keepEditorSelection = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -387,8 +403,8 @@ export function RichTextEditor({
           aria-labelledby={labelId}
           contentEditable
           suppressContentEditableWarning
-          onInput={(event) => onChange(event.currentTarget.innerHTML)}
-          onBlur={(event) => onChange(event.currentTarget.innerHTML)}
+          onInput={emit}
+          onBlur={emit}
           className="prose prose-sm min-h-32 max-w-none p-3 outline-none"
         />
       </div>

@@ -72,16 +72,30 @@ function richTextToDisplayHtml(value: string): string {
 
 export function RichTextEditor({ value, onChange, ariaLabel, placeholder }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // HTML last emitted from this editor instance. The parent echoes it back
+  // via `value`; that echo must never rewrite the DOM. Rewriting would run
+  // entity/whitespace normalization (e.g. `&nbsp;` vs a raw space) whose
+  // output differs textually from `innerHTML`, resetting the caret on every
+  // keystroke — notably after SPACE — and corrupting typed text.
+  const lastEmitted = useRef<string | null>(null);
 
   useEffect(() => {
+    const next = value ?? '';
+    // Own echo of what the user just typed: leave the DOM (and caret) alone.
+    if (next === lastEmitted.current) return;
     const el = ref.current;
     if (!el) return;
-    const html = richTextToDisplayHtml(value ?? '');
+    // External change (initial load, saved content, section switch): display it.
+    const html = richTextToDisplayHtml(next);
     if (el.innerHTML !== html) el.innerHTML = html;
+    lastEmitted.current = next;
   }, [value]);
 
   const emit = () => {
-    if (ref.current) onChange(ref.current.innerHTML);
+    if (!ref.current) return;
+    const html = ref.current.innerHTML;
+    lastEmitted.current = html;
+    onChange(html);
   };
   const exec = (command: string, arg?: string) => {
     ref.current?.focus();

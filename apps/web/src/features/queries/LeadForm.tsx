@@ -528,7 +528,11 @@ export function LeadForm({
                 <input className={inputClass} type="email" {...register('email')} />
               </Field>
             </div>
-            {(['leadSource', 'leadType', 'leadStage', 'priority'] as const).map((name) => (
+            {(
+              lead
+                ? (['leadSource', 'leadType', 'leadStage', 'priority'] as const)
+                : (['leadSource', 'leadType', 'leadStage'] as const)
+            ).map((name) => (
               <Field
                 key={name}
                 label={

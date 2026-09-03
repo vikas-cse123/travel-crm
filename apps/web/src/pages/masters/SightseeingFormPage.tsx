@@ -92,7 +92,31 @@ export function SightseeingFormPage() {
   // re-checks the pair, so this is convenience rather than the real control.
   const destinationId = form.watch('destinationId');
   const destination = useDestination(destinationId || undefined);
-  const cityOptions = (destination.data?.cities ?? []).map((link) => link.city);
+  // Root cause fix: both selects are uncontrolled (register) with async options.
+  // `form.reset` runs when the sightseeing detail loads, but at that moment
+  // (a) the destinations list may not have loaded yet and (b) the dependent
+  // destination-detail (cities) ALWAYS loads after, since it needs the id.
+  // Setting a select value with no matching <option> makes the browser drop
+  // it to "", so a later submit sends "" and trips "Select a ..." validation,
+  // forcing a re-select. Include the saved record's destination/city as
+  // fallback options (available synchronously with record.data) so reset never
+  // loses them. The saved-city fallback only applies while the saved
+  // destination is still selected, so intentionally changing destination still
+  // clears/reloads cities correctly.
+  const savedDestination = record.data?.destination;
+  const destinationList = destinations.data?.data ?? [];
+  const destinationOptions =
+    savedDestination && !destinationList.some((option) => option.id === savedDestination.id)
+      ? [...destinationList, { id: savedDestination.id, name: savedDestination.name }]
+      : destinationList;
+  const detailCities = (destination.data?.cities ?? []).map((link) => link.city);
+  const savedCity = record.data?.city;
+  const isSavedDestinationSelected =
+    !destinationId || !savedDestination || destinationId === savedDestination.id;
+  const cityOptions =
+    savedCity && isSavedDestinationSelected && !detailCities.some((city) => city.id === savedCity.id)
+      ? [...detailCities, { id: savedCity.id, name: savedCity.name }]
+      : detailCities;
   const refreshImageQueries = useRefreshMasterImageQueries('sightseeing');
   const imageGallery = useMasterImageGallery({
     masterId: sightseeingId,
@@ -142,6 +166,21 @@ export function SightseeingFormPage() {
   const submit = form.handleSubmit(async (values) => {
     setFormError('');
     setArchivedDuplicate(null);
+    // RULE: a saved destination/city must never be replaced with null/"".
+    // If the selects momentarily hold "" (e.g. options still loading), fall
+    // back to the loaded record in edit mode so the update preserves them.
+    // An explicit change to a different valid id still flows through.
+    const effectiveDestinationId =
+      values.destinationId || (sightseeingId ? (record.data?.destination.id ?? '') : '');
+    const effectiveCityId = values.cityId || (sightseeingId ? (record.data?.city.id ?? '') : '');
+    if (!effectiveDestinationId) {
+      form.setError('destinationId', { message: 'Select a destination.' });
+      return;
+    }
+    if (!effectiveCityId) {
+      form.setError('cityId', { message: 'Select a city.' });
+      return;
+    }
     const pricing = (values.pricing ?? [])
       .map((row) => ({
         label: row.label.trim(),
@@ -150,8 +189,8 @@ export function SightseeingFormPage() {
       }))
       .filter((row) => row.label || row.price != null);
     const payload = {
-      destinationId: values.destinationId,
-      cityId: values.cityId,
+      destinationId: effectiveDestinationId,
+      cityId: effectiveCityId,
       title: values.title.trim(),
       sequence: Number(values.sequence || 1),
       estimatedHours: values.estimatedHours === '' ? null : Number(values.estimatedHours),
@@ -257,7 +296,7 @@ export function SightseeingFormPage() {
                     }}
                   >
                     <option value="">Select Destination</option>
-                    {(destinations.data?.data ?? []).map((option) => (
+                    {destinationOptions.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.name}
                       </option>
