@@ -18,24 +18,49 @@ export interface CustomDomainContext {
  * Only status ACTIVE (on both the domain and its Company) resolves. PENDING and
  * DISABLED domains, unknown hostnames, and reserved platform hostnames never
  * resolve to a Company — there is no fallback to any default/first tenant.
+ *
+ * A leading `www.` is treated as an alias for the apex custom domain when the
+ * Apex is the configured hostname, so `www.quotation.travelenfield.in` resolves
+ * to `quotation.travelenfield.in` without requiring a separate record. The
+ * returned context always carries the canonical (stored) hostname, but the
+ * validation layer compares against the normalized request hostname and also
+ * accepts the www alias.
  */
 export async function resolveCustomDomain(hostname: string): Promise<CustomDomainContext | null> {
   const normalized = normalizeHostname(hostname);
   if (!normalized || isReservedHostname(normalized)) return null;
 
-  const domain = await prisma.customDomain.findUnique({
-    where: { hostname: normalized },
-    select: {
-      companyId: true,
-      status: true,
-      company: { select: { status: true } },
-    },
-  });
-  if (!domain) return null;
-  if (domain.status !== 'ACTIVE') return null;
-  if (domain.company.status !== 'ACTIVE') return null;
+  const tryLookup = async (candidate: string) => {
+    const domain = await prisma.customDomain.findUnique({
+      where: { hostname: candidate },
+      select: {
+        companyId: true,
+        status: true,
+        company: { select: { status: true } },
+      },
+    });
+    if (!domain) return null;
+    if (domain.status !== 'ACTIVE') return null;
+    if (domain.company.status !== 'ACTIVE') return null;
+    return { hostname: candidate, companyId: domain.companyId } as CustomDomainContext;
+  };
 
-  return { hostname: normalized, companyId: domain.companyId };
+  const direct = await tryLookup(normalized);
+  if (direct) return direct;
+
+  // Support www alias for an already-configured apex custom domain.
+  // Only one label stripped, so `www.example.com` -> `example.com`, but not
+  // arbitrary subdomains. This keeps the security property that unknown hosts
+  // never resolve, while allowing the common www variation.
+  if (normalized.startsWith('www.')) {
+    const withoutWww = normalized.slice(4);
+    if (withoutWww && normalizeHostname(withoutWww) === withoutWww) {
+      const alias = await tryLookup(withoutWww);
+      if (alias) return alias;
+    }
+  }
+
+  return null;
 }
 
 /** First-party platform hostnames (WEB_URL/API_URL/PUBLIC_SLUG_BASE_URL), lower-cased. */

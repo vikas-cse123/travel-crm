@@ -32,14 +32,38 @@ export function assertCustomDomainTenant(req: Request, authenticatedCompanyId: s
 }
 
 /**
+ * Extract the canonical hostname for this request, robust to proxy forwarding.
+ * ALB sets X-Forwarded-Host to the original Host; Express's trust-proxy-aware
+ * `req.hostname` is preferred, but we fall back to the raw Host / X-Forwarded-Host
+ * headers (first value, port and trailing dot stripped) so a mis-configured
+ * proxy never causes a false negative for a valid ACTIVE custom domain.
+ */
+function extractRequestHostname(req: Request): string {
+  const candidates: Array<string | undefined> = [
+    (req.hostname as string | undefined),
+    req.get('x-forwarded-host')?.split(',')[0]?.trim(),
+    req.get('host')?.split(',')[0]?.trim(),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    // Strip port if present (Host: example.com:443) and trailing dot.
+    const withoutPort = candidate.split(':')[0]?.trim().toLowerCase().replace(/\.$/, '') ?? '';
+    if (withoutPort) return withoutPort;
+  }
+  return '';
+}
+
+/**
  * Attach the ACTIVE custom-domain context for the request hostname, derived
- * from Express's trust-proxy-aware `req.hostname`. The default platform
- * hostname and unknown hostnames attach no context. This is additional domain
- * context only — it never changes tenant scoping.
+ * from Express's trust-proxy-aware `req.hostname` with fallbacks to
+ * X-Forwarded-Host / Host. The default platform hostname and unknown hostnames
+ * attach no context. This is additional domain context only — it never changes
+ * tenant scoping.
  */
 export const resolveCustomDomainMiddleware = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
-    const context = await resolveCustomDomain(req.hostname);
+    const hostname = extractRequestHostname(req);
+    const context = await resolveCustomDomain(hostname);
     if (context) req.customDomain = context;
     else delete req.customDomain;
     next();
@@ -63,7 +87,7 @@ export const validateRequestHost = asyncHandler(
       return;
     }
 
-    const hostname = (req.hostname ?? '').trim().toLowerCase().replace(/\.$/, '');
+    const hostname = extractRequestHostname(req);
     // Loopback traffic (localhost, 127.0.0.1) is only accepted outside
     // production — local dev/test clients talk to the API directly. The
     // production ALB never forwards a loopback Host for public traffic.
@@ -77,7 +101,11 @@ export const validateRequestHost = asyncHandler(
     }
 
     const context = req.customDomain;
-    if (context && context.hostname === hostname) {
+    if (
+      context &&
+      (context.hostname === hostname ||
+        (hostname.startsWith('www.') && context.hostname === hostname.slice(4)))
+    ) {
       next();
       return;
     }
